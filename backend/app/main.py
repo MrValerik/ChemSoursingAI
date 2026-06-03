@@ -1,0 +1,42 @@
+"""Точка входа FastAPI-приложения ChemSource AI.
+
+Запуск (dev):
+    cd backend
+    uvicorn app.main:app --reload
+"""
+
+import logging
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app import __version__
+from app.api import health
+from app.core.config import get_settings
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    logging.basicConfig(level=settings.log_level)
+
+    app = FastAPI(
+        title="ChemSource AI",
+        description="ИИ-ассистент закупок химического сырья (on-premise).",
+        version=__version__,
+    )
+
+    # CORS для SPA-фронтенда (в проде сузить до домена интерфейса).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(health.router)
+
+    return app
+
+
+app = create_app()
