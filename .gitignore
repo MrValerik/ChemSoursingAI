@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+*.local
+
+# ML models / large artifacts
+*.gguf
+*.bin
+*.safetensors
+models/
+ml/weights/
+
+# Data (кроме синтетических примеров под git)
+data/uploads/
+data/attachments/
+*.sqlite
+*.db
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Docker
+*.pid
