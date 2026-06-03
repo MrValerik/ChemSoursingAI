@@ -5,12 +5,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum as SAEnum
 from sqlalchemy import ForeignKey, JSON, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
-from app.models.enums import Incoterm
 
 if TYPE_CHECKING:
     from app.models.manager import Manager
@@ -27,7 +25,9 @@ class Quotation(Base, TimestampMixin):
 
     price: Mapped[float | None] = mapped_column(Numeric(14, 4))
     currency: Mapped[str | None] = mapped_column(String(3))
-    incoterm: Mapped[Incoterm | None] = mapped_column(SAEnum(Incoterm))
+    # Базис поставки из ответа поставщика — свободная строка: поставщик может
+    # ответить на любом Incoterm (CIF/FOB…), не только на запрошенных CIP/FCA/EXW.
+    incoterm: Mapped[str | None] = mapped_column(String(8))
     moq: Mapped[str | None] = mapped_column(String(64))
     grade: Mapped[str | None] = mapped_column(String(120))
     payment_terms: Mapped[str | None] = mapped_column(String(255))

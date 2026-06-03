@@ -6,8 +6,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import Incoterm
-
 
 class QuotationCreate(BaseModel):
     """Создание котировки (обычно — результат извлечения из ответа поставщика)."""
@@ -16,7 +14,7 @@ class QuotationCreate(BaseModel):
     manager_id: int | None = None
     price: float | None = None
     currency: str | None = None
-    incoterm: Incoterm | None = None
+    incoterm: str | None = None
     moq: str | None = None
     grade: str | None = None
     payment_terms: str | None = None
@@ -36,7 +34,7 @@ class QuotationRead(BaseModel):
     manager_id: int | None
     price: float | None
     currency: str | None
-    incoterm: Incoterm | None
+    incoterm: str | None
     moq: str | None
     grade: str | None
     payment_terms: str | None
@@ -59,7 +57,7 @@ class SummaryRow(BaseModel):
     manager: str | None = None
     price: float | None = None
     currency: str | None = None
-    incoterm: Incoterm | None = None
+    incoterm: str | None = None
     moq: str | None = None
     grade: str | None = None
     lead_time: str | None = None

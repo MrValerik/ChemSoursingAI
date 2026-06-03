@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.extraction.pipeline import extract_quote
-from app.models.enums import Incoterm
 from app.models.rfq import RFQ
 from app.schemas.quotation import QuotationCreate, QuotationRead
 from app.services.quotation_service import create_quotation
@@ -21,16 +20,6 @@ class ExtractRequest(BaseModel):
 
 class ExtractToQuotationRequest(ExtractRequest):
     manager_id: int | None = None
-
-
-def _to_incoterm(value: str | None) -> Incoterm | None:
-    """Конвертирует строку базиса в Incoterm enum, если он в наборе CIP/FCA/EXW."""
-    if not value:
-        return None
-    try:
-        return Incoterm(value.strip().upper())
-    except ValueError:
-        return None  # вне целевого набора (напр. CIF/FOB) — хранится в исходном тексте
 
 
 @router.post("/extraction/quote")
@@ -56,7 +45,7 @@ def extract_and_store(
         manager_id=req.manager_id,
         price=q.price,
         currency=q.currency,
-        incoterm=_to_incoterm(q.incoterm),
+        incoterm=q.incoterm,
         moq=q.moq,
         grade=q.grade,
         payment_terms=q.payment_terms,
