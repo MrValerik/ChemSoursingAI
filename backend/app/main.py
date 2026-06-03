@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.api import health, rfq, substances
 from app.core.config import get_settings
+from app.core.db import init_db
 
 
 def create_app() -> FastAPI:
@@ -37,6 +38,11 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(substances.router)
     app.include_router(rfq.router)
+
+    @app.on_event("startup")
+    def _startup() -> None:
+        # Создание таблиц при старте (dev/демо). В проде — миграции Alembic.
+        init_db()
 
     return app
 
