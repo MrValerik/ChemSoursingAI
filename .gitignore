@@ -23,12 +23,12 @@ build/
 .vite/
 *.local
 
-# ML models / large artifacts
+# ML models / large artifacts (веса, не код!)
 *.gguf
 *.bin
 *.safetensors
-models/
 ml/weights/
+ml/models/
 
 # Data (кроме синтетических примеров под git)
 data/uploads/
