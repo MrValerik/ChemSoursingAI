@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { api } from "./api/client";
 import type { RFQListItem, RFQRead } from "./api/types";
 import NewRfq from "./components/NewRfq";
+import ExtractReplies from "./components/ExtractReplies";
+import Summary from "./components/Summary";
 
 export default function App() {
   const [list, setList] = useState<RFQListItem[]>([]);
   const [selected, setSelected] = useState<RFQRead | null>(null);
   const [listError, setListError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const refreshList = async () => {
     try {
@@ -86,6 +89,18 @@ export default function App() {
               )}
             </div>
           )}
+
+          {selected && (
+            <ExtractReplies
+              rfqId={selected.id}
+              onStored={() => {
+                setRefreshKey((k) => k + 1);
+                void refreshList();
+              }}
+            />
+          )}
+
+          {selected && <Summary rfqId={selected.id} refreshKey={refreshKey} />}
         </main>
       </div>
     </>

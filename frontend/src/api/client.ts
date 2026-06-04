@@ -1,10 +1,14 @@
 // Тонкий HTTP-клиент к бэкенду. В dev запросы идут через Vite-прокси (/api -> :8000).
 
 import type {
+  EscalationRead,
+  ExtractedQuote,
+  QuotationRead,
   RFQListItem,
   RFQPreview,
   RFQRead,
   SubstanceInfo,
+  SummaryRow,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -64,4 +68,25 @@ export const api = {
   getRfq: (id: number) => request<RFQRead>(`/rfq/${id}`),
 
   listRfqs: () => request<RFQListItem[]>(`/rfq`),
+
+  extractQuote: (text: string, useLlm = false) =>
+    request<ExtractedQuote>(`/extraction/quote`, {
+      method: "POST",
+      body: JSON.stringify({ text, use_llm: useLlm }),
+    }),
+
+  extractAndStore: (rfqId: number, text: string, useLlm = false) =>
+    request<QuotationRead>(`/rfq/${rfqId}/extract`, {
+      method: "POST",
+      body: JSON.stringify({ text, use_llm: useLlm }),
+    }),
+
+  listQuotations: (rfqId: number) =>
+    request<QuotationRead[]>(`/rfq/${rfqId}/quotations`),
+
+  getSummary: (rfqId: number) =>
+    request<SummaryRow[]>(`/rfq/${rfqId}/summary`),
+
+  listEscalations: (rfqId: number) =>
+    request<EscalationRead[]>(`/rfq/${rfqId}/escalations`),
 };

@@ -115,3 +115,30 @@ button.secondary:hover { background: #f1f5f9; }
 }
 .rfq-list-item:hover { border-color: var(--primary); }
 .rfq-list-item .cas { font-size: 12px; color: var(--muted); }
+
+.quote-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.quote-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.quote-label { font-size: 12px; color: var(--muted); width: 64px; flex-shrink: 0; }
+.quote-value { flex: 1; font-weight: 500; }
+
+table.summary { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.summary th, table.summary td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+table.summary th { color: var(--muted); font-weight: 600; font-size: 12px; }
+table.summary tr.incomplete { background: #fff7ed; }
+table.summary tbody tr:hover { background: #f8fafc; }

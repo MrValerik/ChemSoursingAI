@@ -56,3 +56,61 @@ export interface RFQListItem {
   verified: boolean;
   created_at: string;
 }
+
+export interface ExtractedQuote {
+  price: number | null;
+  currency: string | null;
+  incoterm: string | null;
+  moq: string | null;
+  grade: string | null;
+  payment_terms: string | null;
+  lead_time: string | null;
+  has_coa: boolean;
+  has_tds: boolean;
+  field_confidence: Record<string, number>;
+  method: string;
+}
+
+export interface QuotationRead {
+  id: number;
+  rfq_id: number;
+  manager_id: number | null;
+  price: number | null;
+  currency: string | null;
+  incoterm: string | null;
+  moq: string | null;
+  grade: string | null;
+  payment_terms: string | null;
+  lead_time: string | null;
+  has_coa: boolean;
+  has_tds: boolean;
+  is_complete: boolean;
+  field_confidence: Record<string, number> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SummaryRow {
+  quotation_id: number;
+  supplier: string | null;
+  manager: string | null;
+  price: number | null;
+  currency: string | null;
+  incoterm: string | null;
+  moq: string | null;
+  grade: string | null;
+  lead_time: string | null;
+  has_coa: boolean;
+  has_tds: boolean;
+  is_complete: boolean;
+}
+
+export interface EscalationRead {
+  id: number;
+  rfq_id: number;
+  reason: string;
+  status: string;
+  assignee: string | null;
+  note: string | null;
+  created_at: string;
+}
