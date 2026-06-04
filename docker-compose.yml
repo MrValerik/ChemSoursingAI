@@ -1,17 +1,14 @@
-# ChemSource AI — локальное/on-premise развёртывание одной командой.
+# ChemSource AI — запуск всей системы одной командой:
 #   docker compose up --build
-# Бэкенд: http://localhost:8000  (Swagger: http://localhost:8000/docs)
+# Открыть в браузере: http://localhost:5173
 
 services:
   db:
-    # Postgres с расширением pgvector (RAG по истории закупок — раздел 5 ТЗ).
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: chemsource
       POSTGRES_USER: chemsource
       POSTGRES_PASSWORD: chemsource
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,29 +17,29 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+
   backend:
     build: ./backend
     environment:
       APP_ENV: production
       DATABASE_URL: postgresql+psycopg://chemsource:chemsource@db:5432/chemsource
       REDIS_URL: redis://redis:6379/0
-      # LLM-эндпоинт указывается при подключении локальной модели (llama-server/vLLM).
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8080/v1}
       LLM_MODEL: ${LLM_MODEL:-qwen3-8b}
-    ports:
-      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
-    # Для доступа к llama-server, запущенному на хосте (Linux).
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  redis:
-    # Брокер для асинхронных воркеров (рассылка, парсинг, дозапрос) — раздел 4 ТЗ.
-    image: redis:7-alpine
+  frontend:
+    build: ./frontend
     ports:
-      - "6379:6379"
+      - "5173:80"
+    depends_on:
+      - backend
 
 volumes:
   pgdata:
