@@ -15,7 +15,13 @@ from app.schemas.rfq import RFQCreate
 from app.services.rfq_builder import RFQInput, build_rfq
 
 
-def create_rfq(db: Session, data: RFQCreate, *, verify: bool = True) -> RFQ:
+def create_rfq(
+    db: Session,
+    data: RFQCreate,
+    *,
+    verify: bool = True,
+    owner_id: int | None = None,
+) -> RFQ:
     """Создаёт и сохраняет RFQ.
 
     Валидирует базисы (через build_rfq), при verify=True проверяет вещество
@@ -57,6 +63,7 @@ def create_rfq(db: Session, data: RFQCreate, *, verify: bool = True) -> RFQ:
         status=status,
         verified=verified,
         verification=verification,
+        owner_id=owner_id,
     )
     db.add(rfq)
     db.commit()

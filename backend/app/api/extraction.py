@@ -1,4 +1,5 @@
 """Эндпоинты извлечения котировки из текста ответа поставщика."""
+from app.api.deps import get_current_user
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -10,7 +11,7 @@ from app.models.rfq import RFQ
 from app.schemas.quotation import QuotationCreate, QuotationRead
 from app.services.quotation_service import create_quotation
 
-router = APIRouter(tags=["extraction"])
+router = APIRouter(tags=["extraction"], dependencies=[Depends(get_current_user)])
 
 
 class ExtractRequest(BaseModel):

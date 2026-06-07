@@ -19,3 +19,16 @@ class EscalationRead(BaseModel):
     assignee: str | None
     note: str | None
     created_at: datetime
+
+    # Сведения о запросе для очереди «Ручной разбор» (раздел 13).
+    rfq_name: str | None = None
+    rfq_cas: str | None = None
+    rfq_owner_name: str | None = None
+
+
+class EscalationUpdate(BaseModel):
+    """Назначение/закрытие кейса (раздел 13: руководитель назначает)."""
+
+    assignee: str | None = None
+    status: EscalationStatus | None = None
+    note: str | None = None

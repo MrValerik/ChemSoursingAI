@@ -48,6 +48,25 @@ class EscalationReason(str, enum.Enum):
     OTHER = "other"
 
 
+class DispatchStatus(str, enum.Enum):
+    """Статус доставки RFQ получателю (раздел 10 UI/UX-плана)."""
+
+    QUEUED = "queued"          # в очереди
+    SENT = "sent"              # отправлено
+    DELIVERED = "delivered"    # доставлено
+    READ = "read"              # прочитано
+    ERROR = "error"            # ошибка канала
+
+
+class UserRole(str, enum.Enum):
+    """Роли пользователей (раздел 4 UI/UX-плана: RBAC)."""
+
+    BUYER = "buyer"        # закупщик: ведёт свои запросы
+    HEAD = "head"          # руководитель отдела: видит все, переназначает
+    ADMIN = "admin"        # администратор: пользователи, роли, каналы
+    AUDITOR = "auditor"    # аудитор: только чтение всех данных
+
+
 class EscalationStatus(str, enum.Enum):
     OPEN = "open"
     IN_PROGRESS = "in_progress"

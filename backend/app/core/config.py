@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     postgres_password: str = Field(default="change_me")
     database_url: str | None = Field(default=None)
 
+    # --- Аутентификация ---
+    auth_secret_key: str = Field(default="dev-secret-change-in-prod")
+    access_token_expire_minutes: int = Field(default=480)
+
     # --- Очередь ---
     redis_url: str = Field(default="redis://localhost:6379/0")
 
@@ -39,6 +43,20 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="qwen3-8b")
     llm_api_key: str = Field(default="not-needed-for-local")
     llm_timeout_s: int = Field(default=120)
+
+    # --- Email-коннектор (IMAP/SMTP) — этап интеграций ---
+    imap_host: str = Field(default="")
+    imap_port: int = Field(default=993)
+    imap_user: str = Field(default="")
+    imap_password: str = Field(default="")
+    smtp_host: str = Field(default="")
+    smtp_port: int = Field(default=465)
+    smtp_user: str = Field(default="")
+    smtp_password: str = Field(default="")
+
+    # --- WhatsApp Cloud API — этап интеграций ---
+    whatsapp_token: str = Field(default="")
+    whatsapp_phone_id: str = Field(default="")
 
     # --- PubChem ---
     pubchem_base_url: str = Field(

@@ -26,6 +26,7 @@ services:
       APP_ENV: production
       DATABASE_URL: postgresql+psycopg://chemsource:chemsource@db:5432/chemsource
       REDIS_URL: redis://redis:6379/0
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-dev-secret-change-in-prod}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8080/v1}
       LLM_MODEL: ${LLM_MODEL:-qwen3-8b}
     depends_on:

@@ -24,6 +24,8 @@ class Supplier(Base, TimestampMixin):
     country: Mapped[str | None] = mapped_column(String(120))
     type: Mapped[SupplierType | None] = mapped_column(SAEnum(SupplierType))
     reputation: Mapped[str | None] = mapped_column(String(255))
+    # Источник сорсинга: сайт компании, каталог, реестр, ручное добавление.
+    source: Mapped[str | None] = mapped_column(String(255))
     # Сертификаты (GMP/ISO и пр.) — список строк.
     certificates: Mapped[list[str] | None] = mapped_column(JSON, default=None)
 
