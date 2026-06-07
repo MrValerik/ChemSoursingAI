@@ -48,6 +48,16 @@ class EscalationReason(str, enum.Enum):
     OTHER = "other"
 
 
+class DispatchStatus(str, enum.Enum):
+    """Статус доставки RFQ получателю (раздел 10 UI/UX-плана)."""
+
+    QUEUED = "queued"          # в очереди
+    SENT = "sent"              # отправлено
+    DELIVERED = "delivered"    # доставлено
+    READ = "read"              # прочитано
+    ERROR = "error"            # ошибка канала
+
+
 class UserRole(str, enum.Enum):
     """Роли пользователей (раздел 4 UI/UX-плана: RBAC)."""
 

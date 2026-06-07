@@ -437,3 +437,38 @@ table.summary tbody tr:hover { background: #f8fafc; }
   background: var(--panel);
 }
 .esc-note { color: var(--attention); margin-top: 8px; }
+
+/* ===== Шаг 4: поставщики и рассылка ===== */
+
+.tab-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tab-toolbar h2 { margin: 0; }
+.tab-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+.add-supplier {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 10px 0;
+  background: #f8fafc;
+}
+.add-supplier select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  background: var(--panel);
+}
+.stars { color: #f59e0b; letter-spacing: 1px; }
+.stars-empty { color: var(--border); }
+.row-muted { opacity: 0.55; }
+.btn-small { padding: 4px 10px; font-size: 12px; }

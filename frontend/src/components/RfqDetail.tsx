@@ -6,7 +6,9 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { PriceHistoryItem, RFQRead } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import DispatchTab from "./DispatchTab";
 import ExtractReplies from "./ExtractReplies";
+import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
 import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
 
@@ -247,21 +249,16 @@ export default function RfqDetail({
           )}
 
           {tab === "suppliers" && (
-            <div className="panel">
-              <h2>Поставщики</h2>
-              <p className="note">
-                Поиск поставщиков и выбор получателей — шаг 4 плана внедрения UI.
-              </p>
-            </div>
+            <SuppliersTab rfqId={rfq.id} onGoToDispatch={() => setTab("dispatch")} />
           )}
 
           {tab === "dispatch" && (
-            <div className="panel">
-              <h2>Рассылка</h2>
-              <p className="note">
-                Отправка по каналам и статусы доставки — шаг 4 плана внедрения UI.
-              </p>
-            </div>
+            <DispatchTab
+              rfqId={rfq.id}
+              onStatusChanged={() => {
+                void api.getRfq(rfq.id).then(onChanged);
+              }}
+            />
           )}
 
           {tab === "replies" && (

@@ -148,3 +148,29 @@ export interface PriceHistoryItem {
   incoterm: string | null;
   moq: string | null;
 }
+
+export type SupplierTypeKind = "manufacturer" | "distributor";
+export type ChannelKind = "email" | "whatsapp";
+export type DispatchStatusKind = "queued" | "sent" | "delivered" | "read" | "error";
+
+export interface SupplierRead {
+  id: number;
+  company: string;
+  country: string | null;
+  type: SupplierTypeKind | null;
+  reputation: string | null;
+  source: string | null;
+  certificates: string[] | null;
+  channels: ChannelKind[];
+}
+
+export interface RecipientRead {
+  id: number;
+  rfq_id: number;
+  supplier_id: number;
+  channel: ChannelKind;
+  status: DispatchStatusKind;
+  note: string | null;
+  updated_at: string;
+  supplier_company: string | null;
+}

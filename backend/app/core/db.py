@@ -52,11 +52,17 @@ def _apply_light_migrations() -> None:
     from sqlalchemy import inspect, text
 
     inspector = inspect(engine)
-    if "rfqs" in inspector.get_table_names():
+    tables = inspector.get_table_names()
+    if "rfqs" in tables:
         cols = {c["name"] for c in inspector.get_columns("rfqs")}
         if "owner_id" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE rfqs ADD COLUMN owner_id INTEGER"))
+    if "suppliers" in tables:
+        cols = {c["name"] for c in inspector.get_columns("suppliers")}
+        if "source" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE suppliers ADD COLUMN source VARCHAR(255)"))
 
 
 def get_db() -> Iterator[Session]:

@@ -4,6 +4,8 @@
 import type {
   EscalationRead,
   PriceHistoryItem,
+  RecipientRead,
+  SupplierRead,
   ExtractedQuote,
   QuotationRead,
   RFQListItem,
@@ -51,6 +53,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       /* тело не JSON — оставляем statusText */
     }
     throw new ApiError(resp.status, detail);
+  }
+  if (resp.status === 204) {
+    return undefined as T;
   }
   return (await resp.json()) as T;
 }
@@ -128,4 +133,33 @@ export const api = {
     request<PriceHistoryItem[]>(
       `/substances/price-history?cas=${encodeURIComponent(cas)}`,
     ),
+
+  listSuppliers: () => request<SupplierRead[]>(`/suppliers`),
+
+  addSupplier: (payload: {
+    company: string;
+    type?: string | null;
+    country?: string | null;
+    email?: string | null;
+    whatsapp?: string | null;
+  }) =>
+    request<SupplierRead>(`/suppliers`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  listRecipients: (rfqId: number) =>
+    request<RecipientRead[]>(`/rfq/${rfqId}/recipients`),
+
+  selectRecipients: (rfqId: number, items: { supplier_id: number; channel: string }[]) =>
+    request<RecipientRead[]>(`/rfq/${rfqId}/recipients`, {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    }),
+
+  dispatchRfq: (rfqId: number) =>
+    request<RecipientRead[]>(`/rfq/${rfqId}/dispatch`, { method: "POST" }),
+
+  removeRecipient: (rfqId: number, recipientId: number) =>
+    request<void>(`/rfq/${rfqId}/recipients/${recipientId}`, { method: "DELETE" }),
 };
