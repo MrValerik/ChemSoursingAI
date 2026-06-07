@@ -121,6 +121,9 @@ export interface EscalationRead {
   assignee: string | null;
   note: string | null;
   created_at: string;
+  rfq_name: string | null;
+  rfq_cas: string | null;
+  rfq_owner_name: string | null;
 }
 
 // --- Аутентификация (шаг 1 UI/UX-плана) ---
@@ -173,4 +176,18 @@ export interface RecipientRead {
   note: string | null;
   updated_at: string;
   supplier_company: string | null;
+}
+
+export type TemplateKind = "reply" | "followup" | "whatsapp";
+export type WhatsappModeration = "draft" | "pending" | "approved" | "rejected";
+
+export interface TemplateRead {
+  id: number;
+  kind: TemplateKind;
+  name: string;
+  body: string;
+  version: number;
+  moderation: WhatsappModeration | null;
+  updated_by: string | null;
+  updated_at: string;
 }

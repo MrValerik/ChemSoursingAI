@@ -6,6 +6,8 @@ import type {
   PriceHistoryItem,
   RecipientRead,
   SupplierRead,
+  TemplateRead,
+  UserRead,
   ExtractedQuote,
   QuotationRead,
   RFQListItem,
@@ -14,7 +16,6 @@ import type {
   SubstanceInfo,
   SummaryRow,
   TokenResponse,
-  UserRead,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "/api";
@@ -162,4 +163,34 @@ export const api = {
 
   removeRecipient: (rfqId: number, recipientId: number) =>
     request<void>(`/rfq/${rfqId}/recipients/${recipientId}`, { method: "DELETE" }),
+
+  listEscalationQueue: () => request<EscalationRead[]>(`/escalations`),
+
+  updateEscalation: (
+    id: number,
+    payload: { assignee?: string; status?: string; note?: string },
+  ) =>
+    request<EscalationRead>(`/escalations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  listUsers: () => request<UserRead[]>(`/users`),
+
+  listTemplates: () => request<TemplateRead[]>(`/templates`),
+
+  createTemplate: (payload: { kind: string; name: string; body: string }) =>
+    request<TemplateRead>(`/templates`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateTemplate: (
+    id: number,
+    payload: { name?: string; body?: string; moderation?: string },
+  ) =>
+    request<TemplateRead>(`/templates/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
 };

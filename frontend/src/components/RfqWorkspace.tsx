@@ -1,7 +1,7 @@
 // Раздел «Запросы»: сводная таблица → карточка запроса / форма нового запроса.
 // Полная карточка с вкладками (Верификация → … → История) появится на шаге 3.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { RFQRead } from "../api/types";
 import NewRfq from "./NewRfq";
@@ -10,11 +10,25 @@ import RfqDetail from "./RfqDetail";
 
 type View = "table" | "new" | "detail";
 
-export default function RfqWorkspace() {
+export default function RfqWorkspace({
+  jumpRfqId,
+  onJumpConsumed,
+}: {
+  jumpRfqId?: number | null;
+  onJumpConsumed?: () => void;
+}) {
   const [view, setView] = useState<View>("table");
   const [selected, setSelected] = useState<RFQRead | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (jumpRfqId != null) {
+      void openRfq(jumpRfqId);
+      onJumpConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpRfqId]);
 
   const openRfq = async (id: number) => {
     try {

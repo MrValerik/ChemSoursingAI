@@ -472,3 +472,22 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .stars-empty { color: var(--border); }
 .row-muted { opacity: 0.55; }
 .btn-small { padding: 4px 10px; font-size: 12px; }
+
+/* ===== Шаг 5: ручной разбор, поставщики, шаблоны ===== */
+
+.suppliers-layout { display: flex; gap: 16px; align-items: flex-start; }
+.suppliers-list, .templates-list { flex: 1; min-width: 0; }
+.supplier-card { width: 360px; flex-shrink: 0; }
+.row-active { background: #eff6ff !important; }
+.row-actions { display: flex; gap: 6px; }
+.link { color: var(--brand); cursor: pointer; text-decoration: underline; }
+.link:hover { color: var(--brand-dark); }
+.template-editor {
+  width: 100%;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: vertical;
+}

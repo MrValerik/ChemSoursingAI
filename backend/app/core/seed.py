@@ -8,9 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
-from app.models import Supplier, User
+from app.models import Supplier, Template, User
 from app.models.enums import SupplierType, UserRole
 from app.models.manager import Manager
+from app.models.template import TemplateKind, WhatsappModeration
 
 logger = logging.getLogger(__name__)
 
@@ -92,3 +93,50 @@ def seed_suppliers(db: Session) -> None:
         db.add(supplier)
     db.commit()
     logger.info("Seeded %d demo suppliers", len(_DEMO_SUPPLIERS))
+
+
+_DEMO_TEMPLATES = [
+    (
+        TemplateKind.FOLLOWUP,
+        "Дозапрос недостающих данных",
+        "Dear {manager},\n\nThank you for your quotation for {substance} "
+        "(CAS {cas}). Could you please also provide: {missing_fields}?\n\n"
+        "Best regards,\n{buyer}",
+        None,
+    ),
+    (
+        TemplateKind.REPLY,
+        "Ответ: запрос CoA/TDS",
+        "Dear {manager},\n\nPlease find our request details attached. "
+        "Kindly share the CoA and TDS for the offered material.\n\n"
+        "Best regards,\n{buyer}",
+        None,
+    ),
+    (
+        TemplateKind.WHATSAPP,
+        "Первый контакт (вне окна 24ч)",
+        "Hello {manager}, this is {buyer} from {company}. We are sourcing "
+        "{substance} (CAS {cas}) and would appreciate your best quotation. "
+        "Details were sent to your email.",
+        WhatsappModeration.PENDING,
+    ),
+]
+
+
+def seed_templates(db: Session) -> None:
+    """Создаёт базовые шаблоны, если их нет (dev/демо)."""
+    if db.scalar(select(Template.id).limit(1)) is not None:
+        return
+    for kind, name, body, moderation in _DEMO_TEMPLATES:
+        db.add(
+            Template(
+                kind=kind,
+                name=name,
+                body=body,
+                version=1,
+                moderation=moderation,
+                updated_by="система",
+            )
+        )
+    db.commit()
+    logger.info("Seeded %d demo templates", len(_DEMO_TEMPLATES))

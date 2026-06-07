@@ -8,6 +8,7 @@ from app.models.quotation import Quotation
 from app.models.recipient import RfqRecipient
 from app.models.rfq import RFQ
 from app.models.supplier import Supplier
+from app.models.template import Template
 from app.models.user import User
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "User",
     "RFQ",
     "Supplier",
+    "Template",
     "Manager",
     "Quotation",
     "RfqRecipient",
