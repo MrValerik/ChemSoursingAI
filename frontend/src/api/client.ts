@@ -3,6 +3,7 @@
 
 import type {
   EscalationRead,
+  PriceHistoryItem,
   ExtractedQuote,
   QuotationRead,
   RFQListItem,
@@ -116,4 +117,15 @@ export const api = {
 
   listEscalations: (rfqId: number) =>
     request<EscalationRead[]>(`/rfq/${rfqId}/escalations`),
+
+  escalateRfq: (rfqId: number, reason: string, note: string | null) =>
+    request<EscalationRead>(`/rfq/${rfqId}/escalate`, {
+      method: "POST",
+      body: JSON.stringify({ reason, note }),
+    }),
+
+  priceHistory: (cas: string) =>
+    request<PriceHistoryItem[]>(
+      `/substances/price-history?cas=${encodeURIComponent(cas)}`,
+    ),
 };

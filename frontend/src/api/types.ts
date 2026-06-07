@@ -139,3 +139,12 @@ export interface TokenResponse {
   token_type: string;
   user: UserRead;
 }
+
+export interface PriceHistoryItem {
+  rfq_id: number;
+  date: string;
+  price: number;
+  currency: string | null;
+  incoterm: string | null;
+  moq: string | null;
+}

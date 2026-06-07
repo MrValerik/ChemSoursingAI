@@ -370,3 +370,70 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .detail-header h1 { font-size: 17px; margin: 0; }
 .detail-header .back-btn { margin-bottom: 0; }
+
+/* ===== Шаг 3: карточка запроса с вкладками ===== */
+
+.detail-layout { display: flex; gap: 16px; align-items: flex-start; }
+.detail-params { width: 260px; flex-shrink: 0; }
+.detail-main { flex: 1; min-width: 0; }
+
+.params-list { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+.params-list dt { font-size: 12px; color: var(--muted); }
+.params-list dd { margin: 0; font-size: 13px; }
+
+.stages { list-style: none; margin: 0; padding: 0; }
+.stages li {
+  position: relative;
+  padding: 5px 0 5px 24px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.stages li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--panel);
+}
+.stages li.done { color: var(--text); }
+.stages li.done::before { background: var(--ok); border-color: var(--ok); }
+.stages li.current { color: var(--text); font-weight: 600; }
+.stages li.current::before { border-color: var(--brand); background: #dbeafe; }
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.tab {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+.tab:hover { background: transparent; color: var(--text); }
+.tab.active { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+
+.escalate-btn { margin-left: auto; border-color: var(--attention); color: var(--attention); }
+.escalate-btn:hover { background: #fef3c7; }
+.escalate-form h2 { color: var(--attention); }
+.escalate-form select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  background: var(--panel);
+}
+.esc-note { color: var(--attention); margin-top: 8px; }

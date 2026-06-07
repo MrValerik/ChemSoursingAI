@@ -5,10 +5,8 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { RFQRead } from "../api/types";
 import NewRfq from "./NewRfq";
-import ExtractReplies from "./ExtractReplies";
 import RequestsTable from "./RequestsTable";
-import Summary from "./Summary";
-import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
+import RfqDetail from "./RfqDetail";
 
 type View = "table" | "new" | "detail";
 
@@ -52,41 +50,11 @@ export default function RfqWorkspace() {
 
   if (view === "detail" && selected) {
     return (
-      <div className="requests-page">
-        <div className="detail-header">
-          <button className="secondary back-btn" onClick={backToTable}>
-            ← К запросам
-          </button>
-          <h1>
-            RFQ #{selected.id} · {selected.name}
-          </h1>
-          <span className={`badge tone-${STATUS_TONE[selected.status]}`}>
-            {STATUS_LABELS[selected.status]}
-          </span>
-        </div>
-
-        <div className="panel">
-          <div className="note">
-            CAS {selected.cas}
-            {selected.verification?.molecular_formula
-              ? ` · ${selected.verification.molecular_formula}`
-              : ""}{" "}
-            · базисы: {(selected.incoterms ?? []).join(", ")}
-            {selected.owner_name ? ` · ответственный: ${selected.owner_name}` : ""}
-          </div>
-          {selected.rfq_body && (
-            <pre className="letter" style={{ marginTop: 12 }}>
-              {selected.rfq_body}
-            </pre>
-          )}
-        </div>
-
-        <ExtractReplies
-          rfqId={selected.id}
-          onStored={() => setRefreshKey((k) => k + 1)}
-        />
-        <Summary rfqId={selected.id} refreshKey={refreshKey} />
-      </div>
+      <RfqDetail
+        rfq={selected}
+        onBack={backToTable}
+        onChanged={setSelected}
+      />
     );
   }
 
