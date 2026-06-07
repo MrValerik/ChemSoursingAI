@@ -1,4 +1,5 @@
 // Тонкий HTTP-клиент к бэкенду. В dev запросы идут через Vite-прокси (/api -> :8000).
+// JWT-токен хранится в localStorage и добавляется в Authorization.
 
 import type {
   EscalationRead,
@@ -9,9 +10,12 @@ import type {
   RFQRead,
   SubstanceInfo,
   SummaryRow,
+  TokenResponse,
+  UserRead,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "/api";
+const TOKEN_KEY = "chemsource_token";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -19,12 +23,25 @@ export class ApiError extends Error {
   }
 }
 
+export const getToken = () => localStorage.getItem(TOKEN_KEY);
+export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+
+let onUnauthorized: (() => void) | null = null;
+export const setUnauthorizedHandler = (fn: () => void) => {
+  onUnauthorized = fn;
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const resp = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const resp = await fetch(`${BASE}${path}`, { headers, ...options });
   if (!resp.ok) {
+    if (resp.status === 401 && !path.startsWith("/auth/login")) {
+      onUnauthorized?.();
+    }
     let detail = resp.statusText;
     try {
       const data = await resp.json();
@@ -50,6 +67,16 @@ export interface RFQCreatePayload {
 }
 
 export const api = {
+  // --- Аутентификация ---
+  login: (username: string, password: string) =>
+    request<TokenResponse>(`/auth/login`, {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+
+  me: () => request<UserRead>(`/auth/me`),
+
+  // --- Вещества и RFQ ---
   verifyCas: (cas: string) =>
     request<SubstanceInfo>(`/substances/verify?cas=${encodeURIComponent(cas)}`),
 

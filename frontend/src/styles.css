@@ -142,3 +142,156 @@ table.summary th, table.summary td {
 table.summary th { color: var(--muted); font-weight: 600; font-size: 12px; }
 table.summary tr.incomplete { background: #fff7ed; }
 table.summary tbody tr:hover { background: #f8fafc; }
+
+/* ===== Шаг 1 UI/UX-плана: вход, каркас навигации, шапка ===== */
+
+:root {
+  --brand: #1f4e79;        /* тёмно-синий из плана (раздел 17) */
+  --brand-dark: #173c5e;
+  --accent: #0e9594;       /* бирюзовый акцент */
+  --attention: #d97706;    /* янтарный: внимание/ручной разбор */
+}
+
+/* --- Экран входа --- */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, var(--brand) 0%, var(--brand-dark) 100%);
+}
+.login-card {
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 32px;
+  width: 360px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+.login-card h1 { margin: 0 0 4px; font-size: 20px; color: var(--brand); }
+.login-card .field { margin-top: 14px; }
+.login-card button[type="submit"] { width: 100%; margin-top: 16px; background: var(--brand); }
+.login-card button[type="submit"]:hover { background: var(--brand-dark); }
+.login-hint { margin-top: 12px; text-align: center; }
+
+/* --- Каркас: левое меню + контент --- */
+.shell { display: flex; min-height: 100vh; }
+.shell-nav {
+  width: 200px;
+  flex-shrink: 0;
+  background: var(--brand);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 10px;
+  gap: 2px;
+}
+.shell-logo {
+  font-weight: 700;
+  font-size: 15px;
+  padding: 6px 12px 18px;
+  letter-spacing: 0.2px;
+}
+.nav-item {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.nav-item:hover { background: rgba(255, 255, 255, 0.1); }
+.nav-item.active { background: rgba(255, 255, 255, 0.18); color: #fff; font-weight: 600; }
+
+.shell-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* --- Верхняя панель --- */
+.shell-topbar {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.topbar-search {
+  flex: 0 1 420px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: inherit;
+  background: var(--bg);
+}
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.topbar-menu { position: relative; }
+
+.icon-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+.icon-btn:hover { background: var(--bg); }
+
+.profile-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  color: var(--text);
+}
+.profile-btn:hover { background: var(--bg); }
+.profile-name { font-weight: 600; font-size: 13px; }
+.profile-role {
+  font-size: 11px;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.caret { font-size: 10px; color: var(--muted); }
+
+.dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  min-width: 200px;
+  z-index: 50;
+  padding: 6px;
+}
+.dropdown-title {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.dropdown-item:hover:not(:disabled) { background: var(--bg); }
+.dropdown-empty { padding: 10px; }
+
+.shell-content { flex: 1; min-width: 0; }
+
+/* --- Заглушки разделов и загрузка --- */
+.placeholder { padding: 24px; }
+.placeholder-card { max-width: 480px; }
+.app-loading { padding: 40px; text-align: center; }

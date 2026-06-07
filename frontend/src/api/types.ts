@@ -114,3 +114,20 @@ export interface EscalationRead {
   note: string | null;
   created_at: string;
 }
+
+// --- Аутентификация (шаг 1 UI/UX-плана) ---
+
+export type UserRole = "buyer" | "head" | "admin" | "auditor";
+
+export interface UserRead {
+  id: number;
+  username: string;
+  full_name: string;
+  role: UserRole;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  user: UserRead;
+}
