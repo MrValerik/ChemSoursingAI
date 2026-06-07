@@ -191,3 +191,34 @@ export interface TemplateRead {
   updated_by: string | null;
   updated_at: string;
 }
+
+export interface UserAdminRead extends UserRead {
+  is_active: boolean;
+}
+
+export interface ChannelStatus {
+  channel: string;
+  title: string;
+  configured: boolean;
+  status: string;
+  details: Record<string, string | null> | null;
+}
+
+export interface DashboardOverdue {
+  id: number;
+  name: string;
+  cas: string;
+  status: RFQStatus;
+  owner_name: string | null;
+  age_days: number;
+}
+
+export interface DashboardData {
+  role: UserRole;
+  in_work: number;
+  attention: number;
+  manual_review: number;
+  by_status: Record<string, number>;
+  overdue: DashboardOverdue[];
+  workload?: { owner: string; count: number }[];
+}

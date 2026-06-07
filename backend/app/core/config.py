@@ -44,6 +44,20 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="not-needed-for-local")
     llm_timeout_s: int = Field(default=120)
 
+    # --- Email-коннектор (IMAP/SMTP) — этап интеграций ---
+    imap_host: str = Field(default="")
+    imap_port: int = Field(default=993)
+    imap_user: str = Field(default="")
+    imap_password: str = Field(default="")
+    smtp_host: str = Field(default="")
+    smtp_port: int = Field(default=465)
+    smtp_user: str = Field(default="")
+    smtp_password: str = Field(default="")
+
+    # --- WhatsApp Cloud API — этап интеграций ---
+    whatsapp_token: str = Field(default="")
+    whatsapp_phone_id: str = Field(default="")
+
     # --- PubChem ---
     pubchem_base_url: str = Field(
         default="https://pubchem.ncbi.nlm.nih.gov/rest/pug"

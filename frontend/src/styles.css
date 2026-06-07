@@ -491,3 +491,40 @@ table.summary tbody tr:hover { background: #f8fafc; }
   border-radius: 6px;
   resize: vertical;
 }
+
+/* ===== Шаг 6: дашборд и настройки ===== */
+
+.dash-cards { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.dash-card {
+  flex: 1;
+  min-width: 160px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+.dash-card:hover { border-color: var(--brand); background: var(--panel); }
+.dash-card .dash-value { font-size: 28px; font-weight: 700; color: var(--brand); }
+.dash-card.attention .dash-value { color: var(--attention); }
+.dash-card.warn .dash-value { color: var(--err); }
+.dash-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+.dash-columns { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.dash-columns .panel { flex: 1; min-width: 260px; }
+
+.dash-statuses { display: flex; flex-direction: column; gap: 8px; }
+.dash-status-row { display: flex; align-items: center; justify-content: space-between; }
+
+.workload-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.workload-name { width: 130px; font-size: 13px; flex-shrink: 0; }
+.workload-bar {
+  flex: 1;
+  height: 14px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.workload-fill { height: 100%; background: var(--brand); border-radius: 999px; }

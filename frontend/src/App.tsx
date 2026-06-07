@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import AppShell, { type SectionKey } from "./components/AppShell";
+import Dashboard from "./components/Dashboard";
 import Login from "./components/Login";
-import Placeholder from "./components/Placeholder";
 import ReviewQueue from "./components/ReviewQueue";
 import RfqWorkspace from "./components/RfqWorkspace";
+import SettingsSection from "./components/SettingsSection";
 import SuppliersSection from "./components/SuppliersSection";
 import TemplatesSection from "./components/TemplatesSection";
 
@@ -29,7 +30,7 @@ function Sections() {
   return (
     <AppShell section={section} onSectionChange={setSection}>
       {section === "dashboard" && (
-        <Placeholder title="Дашборд" step="шаг 2" />
+        <Dashboard onOpenRfq={openRfq} onGoToRequests={() => setSection("requests")} />
       )}
       {section === "requests" && (
         <RfqWorkspace
@@ -40,9 +41,7 @@ function Sections() {
       {section === "suppliers" && <SuppliersSection />}
       {section === "review" && <ReviewQueue onOpenRfq={openRfq} />}
       {section === "templates" && <TemplatesSection />}
-      {section === "settings" && (
-        <Placeholder title="Настройки" step="шаг 6" />
-      )}
+      {section === "settings" && <SettingsSection />}
     </AppShell>
   );
 }

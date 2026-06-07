@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { EscalationRead, UserRead } from "../api/types";
+import type { EscalationRead, UserAdminRead } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
 const REASON_LABELS: Record<string, string> = {
@@ -31,7 +31,7 @@ export default function ReviewQueue({
   const readOnly = user?.role === "auditor";
 
   const [items, setItems] = useState<EscalationRead[]>([]);
-  const [users, setUsers] = useState<UserRead[]>([]);
+  const [users, setUsers] = useState<UserAdminRead[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reasonFilter, setReasonFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("open_or_progress");
@@ -51,7 +51,10 @@ export default function ReviewQueue({
   useEffect(() => {
     void load();
     if (canAssign) {
-      api.listUsers().then(setUsers).catch(() => setUsers([]));
+      api
+        .listUsers()
+        .then((all) => setUsers(all.filter((u) => u.is_active)))
+        .catch(() => setUsers([]));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canAssign]);

@@ -13,11 +13,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.api import (
     auth,
+    dashboard,
     escalations,
     extraction,
     health,
     quotations,
     rfq,
+    settings as settings_api,
     substances,
     suppliers,
     templates,
@@ -57,6 +59,8 @@ def create_app() -> FastAPI:
     app.include_router(suppliers.router)
     app.include_router(users.router)
     app.include_router(templates.router)
+    app.include_router(settings_api.router)
+    app.include_router(dashboard.router)
 
     @app.on_event("startup")
     def _startup() -> None:

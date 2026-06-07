@@ -2,11 +2,14 @@
 // JWT-токен хранится в localStorage и добавляется в Authorization.
 
 import type {
+  ChannelStatus,
+  DashboardData,
   EscalationRead,
   PriceHistoryItem,
   RecipientRead,
   SupplierRead,
   TemplateRead,
+  UserAdminRead,
   UserRead,
   ExtractedQuote,
   QuotationRead,
@@ -175,7 +178,36 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  listUsers: () => request<UserRead[]>(`/users`),
+  listUsers: () => request<UserAdminRead[]>(`/users`),
+
+  createUser: (payload: {
+    username: string;
+    full_name: string;
+    password: string;
+    role: string;
+  }) =>
+    request<UserAdminRead>(`/users`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateUser: (
+    id: number,
+    payload: {
+      full_name?: string;
+      role?: string;
+      is_active?: boolean;
+      password?: string;
+    },
+  ) =>
+    request<UserAdminRead>(`/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  channelsStatus: () => request<ChannelStatus[]>(`/settings/channels`),
+
+  dashboard: () => request<DashboardData>(`/dashboard`),
 
   listTemplates: () => request<TemplateRead[]>(`/templates`),
 
