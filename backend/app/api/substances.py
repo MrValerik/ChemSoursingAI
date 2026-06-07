@@ -1,10 +1,11 @@
 """Эндпоинт верификации вещества по CAS."""
+from app.api.deps import get_current_user
 
-from fastapi import APIRouter, Query
+from fastapi import Depends, APIRouter, Query
 
 from app.connectors.pubchem import PubChemConnector
 
-router = APIRouter(prefix="/substances", tags=["substances"])
+router = APIRouter(prefix="/substances", tags=["substances"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/verify")

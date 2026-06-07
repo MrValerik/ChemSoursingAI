@@ -1,104 +1,103 @@
-// Рабочая область раздела «Запросы» (текущий функционал MVP).
-// На шаге 2 будет заменена сводной таблицей всех RFQ с фильтрами.
+// Раздел «Запросы»: сводная таблица → карточка запроса / форма нового запроса.
+// Полная карточка с вкладками (Верификация → … → История) появится на шаге 3.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
-import type { RFQListItem, RFQRead } from "../api/types";
+import type { RFQRead } from "../api/types";
 import NewRfq from "./NewRfq";
 import ExtractReplies from "./ExtractReplies";
+import RequestsTable from "./RequestsTable";
 import Summary from "./Summary";
+import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
+
+type View = "table" | "new" | "detail";
 
 export default function RfqWorkspace() {
-  const [list, setList] = useState<RFQListItem[]>([]);
+  const [view, setView] = useState<View>("table");
   const [selected, setSelected] = useState<RFQRead | null>(null);
-  const [listError, setListError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
-  const refreshList = async () => {
+  const openRfq = async (id: number) => {
     try {
-      setList(await api.listRfqs());
-      setListError(null);
+      setSelected(await api.getRfq(id));
+      setView("detail");
+      setError(null);
     } catch (e) {
-      setListError(String(e));
+      setError(String(e));
     }
   };
 
-  useEffect(() => {
-    void refreshList();
-  }, []);
-
-  const onCreated = async (rfq: RFQRead) => {
-    setSelected(rfq);
-    await refreshList();
+  const backToTable = () => {
+    setView("table");
+    setSelected(null);
+    setRefreshKey((k) => k + 1);
   };
 
-  const openRfq = async (id: number) => {
-    setSelected(await api.getRfq(id));
-  };
+  if (view === "new") {
+    return (
+      <div className="requests-page">
+        <button className="secondary back-btn" onClick={backToTable}>
+          ← К запросам
+        </button>
+        <NewRfq
+          onCreated={(rfq) => {
+            setSelected(rfq);
+            setView("detail");
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (view === "detail" && selected) {
+    return (
+      <div className="requests-page">
+        <div className="detail-header">
+          <button className="secondary back-btn" onClick={backToTable}>
+            ← К запросам
+          </button>
+          <h1>
+            RFQ #{selected.id} · {selected.name}
+          </h1>
+          <span className={`badge tone-${STATUS_TONE[selected.status]}`}>
+            {STATUS_LABELS[selected.status]}
+          </span>
+        </div>
+
+        <div className="panel">
+          <div className="note">
+            CAS {selected.cas}
+            {selected.verification?.molecular_formula
+              ? ` · ${selected.verification.molecular_formula}`
+              : ""}{" "}
+            · базисы: {(selected.incoterms ?? []).join(", ")}
+            {selected.owner_name ? ` · ответственный: ${selected.owner_name}` : ""}
+          </div>
+          {selected.rfq_body && (
+            <pre className="letter" style={{ marginTop: 12 }}>
+              {selected.rfq_body}
+            </pre>
+          )}
+        </div>
+
+        <ExtractReplies
+          rfqId={selected.id}
+          onStored={() => setRefreshKey((k) => k + 1)}
+        />
+        <Summary rfqId={selected.id} refreshKey={refreshKey} />
+      </div>
+    );
+  }
 
   return (
-    <div className="layout">
-      <aside className="sidebar">
-        <div className="panel">
-          <h2>Запросы</h2>
-          {listError && <p className="error">{listError}</p>}
-          {list.length === 0 && <p className="note">Пока нет запросов</p>}
-          {list.map((r) => (
-            <div
-              key={r.id}
-              className="rfq-list-item"
-              onClick={() => void openRfq(r.id)}
-            >
-              <div>
-                #{r.id} · {r.name}{" "}
-                <span className={`badge ${r.verified ? "ok" : "muted"}`}>
-                  {r.status}
-                </span>
-              </div>
-              <div className="cas">CAS {r.cas}</div>
-            </div>
-          ))}
-        </div>
-      </aside>
-
-      <main className="main">
-        <NewRfq onCreated={onCreated} />
-
-        {selected && (
-          <div className="panel">
-            <h2>
-              RFQ #{selected.id} · {selected.name}{" "}
-              <span className={`badge ${selected.verified ? "ok" : "muted"}`}>
-                {selected.status}
-              </span>
-            </h2>
-            <div className="note">
-              CAS {selected.cas}
-              {selected.verification?.molecular_formula
-                ? ` · ${selected.verification.molecular_formula}`
-                : ""}{" "}
-              · базисы: {(selected.incoterms ?? []).join(", ")}
-            </div>
-            {selected.rfq_body && (
-              <pre className="letter" style={{ marginTop: 12 }}>
-                {selected.rfq_body}
-              </pre>
-            )}
-          </div>
-        )}
-
-        {selected && (
-          <ExtractReplies
-            rfqId={selected.id}
-            onStored={() => {
-              setRefreshKey((k) => k + 1);
-              void refreshList();
-            }}
-          />
-        )}
-
-        {selected && <Summary rfqId={selected.id} refreshKey={refreshKey} />}
-      </main>
-    </div>
+    <>
+      {error && <p className="error" style={{ padding: "0 24px" }}>{error}</p>}
+      <RequestsTable
+        refreshKey={refreshKey}
+        onOpen={(id) => void openRfq(id)}
+        onNew={() => setView("new")}
+      />
+    </>
   );
 }

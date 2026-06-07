@@ -40,6 +40,23 @@ def init_db() -> None:
     и первичного развёртывания.
     """
     Base.metadata.create_all(bind=engine)
+    _apply_light_migrations()
+
+
+def _apply_light_migrations() -> None:
+    """Дописывает недостающие колонки в существующие таблицы (dev/демо).
+
+    create_all не изменяет уже созданные таблицы, поэтому новые поля
+    добавляем точечно. В проде это заменят миграции Alembic.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if "rfqs" in inspector.get_table_names():
+        cols = {c["name"] for c in inspector.get_columns("rfqs")}
+        if "owner_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE rfqs ADD COLUMN owner_id INTEGER"))
 
 
 def get_db() -> Iterator[Session]:

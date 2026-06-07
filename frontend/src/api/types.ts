@@ -44,11 +44,19 @@ export interface RFQRead {
   verification: SubstanceInfo | null;
   created_at: string;
   updated_at: string;
+  owner_id: number | null;
+  owner_name: string | null;
   rfq_subject: string | null;
   rfq_body: string | null;
 }
 
 export interface RFQListItem {
+  owner_id: number | null;
+  owner_name: string | null;
+  n_quotations: number;
+  n_complete: number;
+  completeness_pct: number;
+  has_open_escalation: boolean;
   id: number;
   cas: string;
   name: string;

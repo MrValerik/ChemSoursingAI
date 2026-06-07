@@ -295,3 +295,78 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .placeholder { padding: 24px; }
 .placeholder-card { max-width: 480px; }
 .app-loading { padding: 40px; text-align: center; }
+
+/* ===== Шаг 2: раздел «Запросы» — сводная таблица ===== */
+
+.requests-page { padding: 20px 24px; }
+.requests-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.requests-header h1 { font-size: 18px; margin: 0; }
+.requests-actions { display: flex; gap: 8px; }
+
+.requests-filters { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.requests-filters select, .filter-search {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  background: var(--panel);
+}
+.filter-search { flex: 0 1 280px; }
+
+.quick-chips { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.chip {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12px;
+}
+.chip:hover { background: var(--bg); }
+.chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+.table-panel { padding: 0; overflow-x: auto; }
+.requests-table th { cursor: pointer; user-select: none; white-space: nowrap; }
+.requests-table th:hover { color: var(--text); }
+.requests-table tr.clickable { cursor: pointer; }
+.requests-table td .cas { font-size: 12px; color: var(--muted); }
+
+/* Бейджи статусов (раздел 16: нейтральный/синий/зелёный/янтарный). */
+.badge.tone-neutral { background: #f1f5f9; color: var(--muted); }
+.badge.tone-info { background: #dbeafe; color: #1d4ed8; }
+.badge.tone-ok { background: #dcfce7; color: var(--ok); }
+.badge.tone-warn { background: #fef3c7; color: var(--attention); }
+.esc-badge { margin-left: 6px; font-weight: 700; }
+
+/* Индикатор полноты. */
+.meter {
+  position: relative;
+  width: 110px;
+  height: 18px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.meter-fill { height: 100%; border-radius: 999px; }
+.meter-fill.ok { background: #86efac; }
+.meter-fill.warn { background: #fcd34d; }
+.meter-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Карточка запроса (упрощённая, до шага 3). */
+.back-btn { margin-bottom: 12px; }
+.detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.detail-header h1 { font-size: 17px; margin: 0; }
+.detail-header .back-btn { margin-bottom: 0; }

@@ -1,4 +1,5 @@
 """Эндпоинты котировок и сводной таблицы по RFQ."""
+from app.api.deps import get_current_user
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -10,7 +11,7 @@ from app.models.rfq import RFQ
 from app.schemas.quotation import QuotationCreate, QuotationRead, SummaryRow
 from app.services.quotation_service import build_summary, create_quotation
 
-router = APIRouter(tags=["quotations"])
+router = APIRouter(tags=["quotations"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/quotations", response_model=QuotationRead, status_code=201)

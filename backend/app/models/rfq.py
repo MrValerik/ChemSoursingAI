@@ -1,12 +1,12 @@
 """Запрос (RFQ): CAS, наименование, чистота, применение, объём,
-ценовой ориентир, базисы, каналы, статус."""
+ценовой ориентир, базисы, каналы, статус, ответственный."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import JSON, Numeric, String, Text
+from sqlalchemy import ForeignKey, JSON, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -15,6 +15,7 @@ from app.models.enums import RFQStatus
 if TYPE_CHECKING:
     from app.models.escalation import Escalation
     from app.models.quotation import Quotation
+    from app.models.user import User
 
 
 class RFQ(Base, TimestampMixin):
@@ -42,6 +43,13 @@ class RFQ(Base, TimestampMixin):
     # Данные верификации вещества (снимок ответа PubChem).
     verified: Mapped[bool] = mapped_column(default=False)
     verification: Mapped[dict | None] = mapped_column(JSON, default=None)
+
+    # Ответственный закупщик (раздел 4 UI/UX-плана: данные принадлежат
+    # запросу и его ответственному; роли расширяют видимость).
+    owner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), index=True, default=None
+    )
+    owner: Mapped["User | None"] = relationship()
 
     quotations: Mapped[list["Quotation"]] = relationship(
         back_populates="rfq", cascade="all, delete-orphan"

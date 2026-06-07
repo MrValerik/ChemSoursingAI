@@ -1,4 +1,5 @@
 """Эндпоинты очереди эскалаций (функция 9 ТЗ)."""
+from app.api.deps import get_current_user
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -9,7 +10,7 @@ from app.models.escalation import Escalation
 from app.models.rfq import RFQ
 from app.schemas.escalation import EscalationRead
 
-router = APIRouter(tags=["escalations"])
+router = APIRouter(tags=["escalations"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/rfq/{rfq_id}/escalations", response_model=list[EscalationRead])

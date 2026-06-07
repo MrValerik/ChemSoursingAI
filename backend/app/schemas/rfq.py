@@ -41,16 +41,18 @@ class RFQRead(BaseModel):
     status: RFQStatus
     verified: bool
     verification: dict | None
+    owner_id: int | None = None
     created_at: datetime
     updated_at: datetime
 
     # Вычисляемые поля (текст RFQ под выбранные базисы) — не хранятся в БД.
     rfq_subject: str | None = None
     rfq_body: str | None = None
+    owner_name: str | None = None
 
 
 class RFQListItem(BaseModel):
-    """Краткая строка для списка запросов."""
+    """Строка сводной таблицы запросов (раздел 6 UI/UX-плана)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -60,3 +62,11 @@ class RFQListItem(BaseModel):
     status: RFQStatus
     verified: bool
     created_at: datetime
+
+    # Обогащение для сводной таблицы.
+    owner_id: int | None = None
+    owner_name: str | None = None
+    n_quotations: int = 0
+    n_complete: int = 0
+    completeness_pct: int = 0
+    has_open_escalation: bool = False
