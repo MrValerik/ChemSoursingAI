@@ -7,9 +7,11 @@ from app.models.manager import Manager
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
 from app.models.supplier import Supplier
+from app.models.user import User
 
 __all__ = [
     "Base",
+    "User",
     "RFQ",
     "Supplier",
     "Manager",

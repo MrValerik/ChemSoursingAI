@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     postgres_password: str = Field(default="change_me")
     database_url: str | None = Field(default=None)
 
+    # --- Аутентификация ---
+    auth_secret_key: str = Field(default="dev-secret-change-in-prod")
+    access_token_expire_minutes: int = Field(default=480)
+
     # --- Очередь ---
     redis_url: str = Field(default="redis://localhost:6379/0")
 
