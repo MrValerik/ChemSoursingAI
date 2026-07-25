@@ -40,6 +40,21 @@ class LLMClient:
         self.api_key = api_key or s.llm_api_key
         self.timeout_s = timeout_s if timeout_s is not None else s.llm_timeout_s
 
+    def check_health(self, timeout_s: float = 3.0) -> tuple[bool, str | None]:
+        """Быстро проверяет OpenAI-совместимый API без запуска генерации.
+
+        ``/models`` поддерживается llama-server и почти не нагружает GPU. Ошибку
+        возвращаем строкой, чтобы административный экран мог объяснить проблему.
+        """
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        try:
+            with httpx.Client(timeout=timeout_s) as client:
+                response = client.get(f"{self.base_url}/models", headers=headers)
+                response.raise_for_status()
+            return True, None
+        except httpx.HTTPError as exc:
+            return False, str(exc)
+
     def extract_quote(self, email_text: str) -> dict:
         """Запрашивает у модели структурированную котировку. Возвращает dict
         по QUOTE_JSON_SCHEMA. Бросает LLMUnavailableError при проблемах связи."""

@@ -1,0 +1,20 @@
+[Unit]
+Description=Qwen 27B llama.cpp server
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=valerik
+WorkingDirectory=/home/valerik/llama.cpp
+Environment=PATH=/usr/local/cuda-11.6/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=LD_LIBRARY_PATH=/usr/local/cuda-11.6/lib64
+# 0.0.0.0 нужен для доступа из backend-контейнера. Не публикуйте порт 8000
+# во входящих правилах Yandex Cloud.
+ExecStart=/home/valerik/llama.cpp/build/bin/llama-server --model /home/valerik/models/Qwen_Qwen3.5-27B-Q4_K_M.gguf --host 0.0.0.0 --port 8000 --n-gpu-layers 40 --ctx-size 4096 --parallel 1 --threads 6 --threads-batch 8 --flash-attn on --jinja
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

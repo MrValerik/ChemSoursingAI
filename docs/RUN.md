@@ -29,23 +29,48 @@ API: <http://localhost:8000> · Swagger UI: <http://localhost:8000/docs>
 
 ```bash
 # из корня репозитория
+cp .env.example .env
+# Обязательно замените POSTGRES_PASSWORD и AUTH_SECRET_KEY в .env.
 docker compose up --build
 ```
 
-Поднимутся три сервиса: `db` (Postgres + pgvector), `redis`, `backend`.
-Бэкенд дождётся готовности БД (healthcheck) и создаст таблицы на старте.
+Поднимутся четыре сервиса: `db` (Postgres + pgvector), `redis`, `backend` и
+`frontend` (nginx + собранное React-приложение). Бэкенд дождётся готовности БД,
+а frontend — готовности backend; таблицы создадутся при старте API.
 
 Остановить: `docker compose down` (данные БД сохраняются в томе `pgdata`;
 для полной очистки — `docker compose down -v`).
 
 ### Подключение локальной LLM
 
-LLM не входит в образ (большой GGUF-файл + GPU). Запустите `llama-server`
-(или vLLM) на хосте и укажите адрес:
+LLM не входит в Docker-образ: большой GGUF-файл хранится на ВМ, а `llama-server`
+работает как отдельная systemd-служба. Для текущей конфигурации используется
+Qwen3.5-27B Q4_K_M с частичным переносом слоёв на Tesla T4. Готовый пример
+службы находится в `deploy/qwen.service.example`:
 
 ```bash
-LLM_BASE_URL=http://host.docker.internal:8080/v1 LLM_MODEL=qwen3-8b docker compose up
+# Выполняется один раз после клонирования проекта на ВМ:
+sudo cp deploy/qwen.service.example /etc/systemd/system/qwen.service
+
+sudo systemctl daemon-reload
+sudo systemctl enable qwen.service
+sudo systemctl restart qwen.service
+curl http://127.0.0.1:8000/v1/models
+
+# Из корня проекта:
+cp .env.example .env
+docker compose up --build -d
+curl http://127.0.0.1/api/health/llm
 ```
+
+`docker-compose.yml` направляет запросы backend-контейнера к хосту через
+`host.docker.internal:8000`. Порт 8000 нужен только внутри ВМ: **не открывайте его
+во входящих правилах Yandex Cloud**. Для сайта откройте TCP 80 (после подключения
+HTTPS также 443). SSH-порт 22 ограничьте вашим IP.
+
+У всех контейнеров задано `restart: unless-stopped`: после перезапуска ВМ Docker
+поднимет сайт и базу автоматически, а systemd отдельно запустит Qwen. При штатной
+остановке ВМ данные PostgreSQL сохраняются в томе `pgdata`.
 
 Без LLM конвейер извлечения работает на правилах (fallback) — система остаётся
 работоспособной.
@@ -62,6 +87,7 @@ pytest
 | Метод | Путь | Назначение |
 | --- | --- | --- |
 | GET | `/health` | Проверка живости |
+| GET | `/health/llm` | Проверка доступности локальной Qwen |
 | GET | `/substances/verify?cas=50-78-2` | Верификация вещества по CAS (PubChem) |
 | POST | `/rfq` | Создать RFQ (верификация + сохранение) |
 | POST | `/rfq/preview` | Сгенерировать текст RFQ без сохранения |

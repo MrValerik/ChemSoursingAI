@@ -1,9 +1,10 @@
 """Health/readiness эндпоинты."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response, status
 
 from app import __version__
 from app.core.config import get_settings
+from app.extraction.llm_client import LLMClient
 
 router = APIRouter(tags=["system"])
 
@@ -12,6 +13,20 @@ router = APIRouter(tags=["system"])
 def health() -> dict:
     """Liveness-проба: приложение запущено."""
     return {"status": "ok", "version": __version__}
+
+
+@router.get("/health/llm")
+def llm_health(response: Response) -> dict:
+    """Readiness-проба Qwen; проверяет API модели, но не запускает генерацию."""
+    settings = get_settings()
+    available, _ = LLMClient().check_health()
+    if not available:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    # В публичный health-check не выводим внутренний URL и текст сетевой ошибки.
+    return {
+        "status": "ok" if available else "unavailable",
+        "model": settings.llm_model,
+    }
 
 
 @router.get("/info")

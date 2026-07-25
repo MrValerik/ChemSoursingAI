@@ -48,7 +48,8 @@ function Field({
 
 export default function ExtractReplies({ rfqId, onStored }: Props) {
   const [text, setText] = useState(SAMPLE);
-  const [useLlm, setUseLlm] = useState(false);
+  // Qwen — основной путь; backend сам переключится на правила, если модель недоступна.
+  const [useLlm, setUseLlm] = useState(true);
   const [preview, setPreview] = useState<ExtractedQuote | null>(null);
   const [quotes, setQuotes] = useState<QuotationRead[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +114,7 @@ export default function ExtractReplies({ rfqId, onStored }: Props) {
             checked={useLlm}
             onChange={(e) => setUseLlm(e.target.checked)}
           />
-          Использовать LLM (иначе только правила)
+          Использовать Qwen 27B (при недоступности автоматически применятся правила)
         </label>
       </div>
 

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import require_roles
 from app.core.config import get_settings
+from app.extraction.llm_client import LLMClient
 from app.models.enums import UserRole
 
 router = APIRouter(
@@ -23,6 +24,7 @@ def channels_status() -> list[dict]:
     s = get_settings()
     email_configured = bool(s.imap_host and s.smtp_host)
     whatsapp_configured = bool(s.whatsapp_token and s.whatsapp_phone_id)
+    llm_available, llm_error = LLMClient().check_health()
     return [
         {
             "channel": "email",
@@ -50,8 +52,15 @@ def channels_status() -> list[dict]:
         {
             "channel": "llm",
             "title": "LLM-инференс (извлечение)",
-            "configured": True,
-            "status": f"эндпоинт: {s.llm_base_url} · модель: {s.llm_model}",
-            "details": None,
+            "configured": llm_available,
+            "status": (
+                f"доступен · модель: {s.llm_model}"
+                if llm_available
+                else "недоступен — проверьте qwen.service и LLM_BASE_URL"
+            ),
+            "details": {
+                "base_url": s.llm_base_url,
+                "error": llm_error,
+            },
         },
     ]

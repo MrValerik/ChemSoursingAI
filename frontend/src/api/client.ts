@@ -106,13 +106,13 @@ export const api = {
 
   listRfqs: () => request<RFQListItem[]>(`/rfq`),
 
-  extractQuote: (text: string, useLlm = false) =>
+  extractQuote: (text: string, useLlm = true) =>
     request<ExtractedQuote>(`/extraction/quote`, {
       method: "POST",
       body: JSON.stringify({ text, use_llm: useLlm }),
     }),
 
-  extractAndStore: (rfqId: number, text: string, useLlm = false) =>
+  extractAndStore: (rfqId: number, text: string, useLlm = true) =>
     request<QuotationRead>(`/rfq/${rfqId}/extract`, {
       method: "POST",
       body: JSON.stringify({ text, use_llm: useLlm }),

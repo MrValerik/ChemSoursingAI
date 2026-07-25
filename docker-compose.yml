@@ -1,30 +1,34 @@
 # ChemSource AI — запуск всей системы одной командой:
 #   docker compose up --build
-# Открыть в браузере: http://localhost:5173
+# Открыть в браузере: http://localhost (или публичный IP ВМ)
 
 services:
   db:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: chemsource
-      POSTGRES_USER: chemsource
-      POSTGRES_PASSWORD: chemsource
+      POSTGRES_DB: ${POSTGRES_DB:-chemsource}
+      POSTGRES_USER: ${POSTGRES_USER:-chemsource}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chemsource -d chemsource"]
+      # Двойной $ оставляет переменные для проверки внутри контейнера Postgres.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
 
   backend:
     build: ./backend
+    restart: unless-stopped
     environment:
       APP_ENV: production
-      DATABASE_URL: postgresql+psycopg://chemsource:chemsource@db:5432/chemsource
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-chemsource}:${POSTGRES_PASSWORD:-change_me}@db:5432/${POSTGRES_DB:-chemsource}
       REDIS_URL: redis://redis:6379/0
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-dev-secret-change-in-prod}
       # llama-server работает на хосте ВМ как отдельная systemd-служба.
@@ -37,13 +41,21 @@ services:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      # urllib входит в Python-образ, поэтому для healthcheck не нужен curl.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     ports:
-      - "5173:80"
+      - "${WEB_PORT:-80}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:

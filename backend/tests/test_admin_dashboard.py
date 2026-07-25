@@ -96,18 +96,41 @@ def test_user_administration(client):
     )
 
 
-def test_channels_status_admin_only(client):
+def test_channels_status_admin_only(client, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.settings.LLMClient.check_health", lambda self: (True, None)
+    )
     admin = _login(client)
     channels = client.get("/settings/channels", headers=admin).json()
     names = {c["channel"] for c in channels}
     assert {"email", "whatsapp", "llm"} <= names
     email = next(c for c in channels if c["channel"] == "email")
     assert email["configured"] is False  # .env пуст в тестах
+    llm = next(c for c in channels if c["channel"] == "llm")
+    assert llm["configured"] is True
 
     assert (
         client.get("/settings/channels", headers=_login(client, "ivanov")).status_code
         == 403
     )
+
+
+def test_llm_health_reports_availability(client, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.health.LLMClient.check_health", lambda self: (True, None)
+    )
+    response = client.get("/health/llm")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+    monkeypatch.setattr(
+        "app.api.health.LLMClient.check_health",
+        lambda self: (False, "connection refused"),
+    )
+    response = client.get("/health/llm")
+    assert response.status_code == 503
+    assert response.json()["status"] == "unavailable"
+    assert "connection refused" not in response.text
 
 
 def test_dashboard_role_adapted(client):

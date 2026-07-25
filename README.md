@@ -57,7 +57,7 @@ On-premise развёртывание (Docker Compose / Kubernetes). Блочн�
 | --- | --- |
 | Frontend | React + TypeScript, Vite |
 | Backend | Python (FastAPI) либо Node.js (NestJS) |
-| ИИ / парсинг (MVP) | Qwen3-8B (Q4_K_M, GGUF) через встроенный llama-server (llama.cpp) на RTX 4060 8 ГБ; OCR — PaddleOCR/Tesseract на CPU; эмбеддинги bge-m3 на CPU |
+| ИИ / парсинг (MVP) | Qwen3.5-27B (Q4_K_M, GGUF) через llama.cpp на Tesla T4 16 ГБ с распределением слоёв между GPU и RAM; OCR — PaddleOCR/Tesseract на CPU; эмбеддинги bge-m3 на CPU |
 | ИИ / парсинг (прод) | Qwen3-32B / 30B-A3B + Qwen2.5-VL через vLLM |
 | База данных | PostgreSQL + pgvector |
 | Очередь / воркеры | Redis / RabbitMQ + Celery |
@@ -65,7 +65,7 @@ On-premise развёртывание (Docker Compose / Kubernetes). Блочн�
 | WhatsApp | Cloud API (см. примечание по приватности) |
 | Инфраструктура | Docker Compose / Kubernetes, GPU-узел для LLM |
 
-Локальная LLM встроена в приложение: бэкенд запускает `llama-server` как дочерний процесс и обращается к нему по HTTP через OpenAI-совместимый эндпоинт. Стороннего сервиса (Ollama и т.п.) ставить не нужно. Смена модели при масштабировании — изменение конфигурации, а не кода.
+Локальная LLM работает на той же ВМ как отдельная systemd-служба `qwen.service`, а Docker-контейнер backend обращается к ней по OpenAI-совместимому HTTP API. Стороннего сервиса (Ollama и т.п.) ставить не нужно. Смена модели при масштабировании — изменение конфигурации, а не кода.
 
 ## Подход к качеству извлечения
 
