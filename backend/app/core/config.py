@@ -39,10 +39,12 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0")
 
     # --- LLM (OpenAI-совместимый эндпоинт) ---
+    # В локальной разработке backend занимает :8000, поэтому LLM использует :8080.
+    # Docker Compose переопределяет адрес на host.docker.internal:8000.
     llm_base_url: str = Field(default="http://127.0.0.1:8080/v1")
-    llm_model: str = Field(default="qwen3-8b")
+    llm_model: str = Field(default="Qwen_Qwen3.5-27B-Q4_K_M")
     llm_api_key: str = Field(default="not-needed-for-local")
-    llm_timeout_s: int = Field(default=120)
+    llm_timeout_s: int = Field(default=300)
 
     # --- Email-коннектор (IMAP/SMTP) — этап интеграций ---
     imap_host: str = Field(default="")

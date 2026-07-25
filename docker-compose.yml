@@ -27,8 +27,11 @@ services:
       DATABASE_URL: postgresql+psycopg://chemsource:chemsource@db:5432/chemsource
       REDIS_URL: redis://redis:6379/0
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-dev-secret-change-in-prod}
-      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8080/v1}
-      LLM_MODEL: ${LLM_MODEL:-qwen3-8b}
+      # llama-server работает на хосте ВМ как отдельная systemd-служба.
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
+      LLM_MODEL: ${LLM_MODEL:-Qwen_Qwen3.5-27B-Q4_K_M}
+      LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
     depends_on:
       db:
         condition: service_healthy
