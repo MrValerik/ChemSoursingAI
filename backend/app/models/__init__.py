@@ -4,6 +4,7 @@ from app.models.base import Base
 from app.models.communication import Communication
 from app.models.escalation import Escalation
 from app.models.manager import Manager
+from app.models.prompt import PromptTemplate, PromptVersion, RfqAiSetting
 from app.models.quotation import Quotation
 from app.models.recipient import RfqRecipient
 from app.models.rfq import RFQ
@@ -18,6 +19,9 @@ __all__ = [
     "Supplier",
     "Template",
     "Manager",
+    "PromptTemplate",
+    "PromptVersion",
+    "RfqAiSetting",
     "Quotation",
     "RfqRecipient",
     "Communication",

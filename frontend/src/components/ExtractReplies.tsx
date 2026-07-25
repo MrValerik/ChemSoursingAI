@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { ExtractedQuote, QuotationRead } from "../api/types";
+import type { PromptRead } from "../api/types";
+import { useAuth } from "../auth/AuthContext";
 
 interface Props {
   rfqId: number;
@@ -47,6 +49,7 @@ function Field({
 }
 
 export default function ExtractReplies({ rfqId, onStored }: Props) {
+  const { user } = useAuth();
   const [text, setText] = useState(SAMPLE);
   // Qwen — основной путь; backend сам переключится на правила, если модель недоступна.
   const [useLlm, setUseLlm] = useState(true);
@@ -54,6 +57,9 @@ export default function ExtractReplies({ rfqId, onStored }: Props) {
   const [quotes, setQuotes] = useState<QuotationRead[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [prompts, setPrompts] = useState<PromptRead[]>([]);
+  const [promptId, setPromptId] = useState<number | null>(null);
+  const [instructions, setInstructions] = useState("");
 
   const loadQuotes = async () => {
     try {
@@ -66,6 +72,13 @@ export default function ExtractReplies({ rfqId, onStored }: Props) {
   useEffect(() => {
     setPreview(null);
     void loadQuotes();
+    void Promise.all([api.listPrompts(), api.getRfqAiSettings(rfqId)])
+      .then(([allPrompts, setting]) => {
+        setPrompts(allPrompts.filter((p) => p.kind === "extraction" && p.is_active));
+        setPromptId(setting.prompt_template_id);
+        setInstructions(setting.additional_instructions);
+      })
+      .catch((e) => setError(String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rfqId]);
 
@@ -82,11 +95,25 @@ export default function ExtractReplies({ rfqId, onStored }: Props) {
   };
 
   const onExtract = () =>
-    run(async () => setPreview(await api.extractQuote(text, useLlm)));
+    run(async () => {
+      if (user?.role !== "auditor") {
+        await api.saveRfqAiSettings(rfqId, {
+          prompt_template_id: promptId,
+          additional_instructions: instructions,
+        });
+      }
+      setPreview(await api.extractQuote(text, useLlm, rfqId, instructions));
+    });
 
   const onStore = () =>
     run(async () => {
-      await api.extractAndStore(rfqId, text, useLlm);
+      if (user?.role !== "auditor") {
+        await api.saveRfqAiSettings(rfqId, {
+          prompt_template_id: promptId,
+          additional_instructions: instructions,
+        });
+      }
+      await api.extractAndStore(rfqId, text, useLlm, instructions);
       setPreview(null);
       await loadQuotes();
       onStored();
@@ -116,6 +143,33 @@ export default function ExtractReplies({ rfqId, onStored }: Props) {
           />
           Использовать Qwen 27B (при недоступности автоматически применятся правила)
         </label>
+      </div>
+
+      <div className="row">
+        <div className="field">
+          <label>Промпт извлечения</label>
+          <select
+            value={promptId ?? ""}
+            disabled={user?.role === "auditor"}
+            onChange={(e) => setPromptId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">Системный по умолчанию</option>
+            {prompts.map((p) => (
+              <option key={p.id} value={p.id}>{p.name} · v{p.version}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field" style={{ flex: 2 }}>
+          <label>Дополнительные инструкции для ИИ</label>
+          <textarea
+            rows={3}
+            maxLength={4000}
+            disabled={user?.role === "auditor"}
+            placeholder="Например: учитывать только фармацевтический грейд и наличие GMP"
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="actions">

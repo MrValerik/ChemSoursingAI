@@ -15,6 +15,7 @@ export default function NewRfq({ onCreated }: Props) {
   const [application, setApplication] = useState("");
   const [volume, setVolume] = useState("500 kg");
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
+  const [aiInstructions, setAiInstructions] = useState("");
 
   const [substance, setSubstance] = useState<SubstanceInfo | null>(null);
   const [preview, setPreview] = useState<RFQPreview | null>(null);
@@ -57,6 +58,12 @@ export default function NewRfq({ onCreated }: Props) {
   const onCreate = () =>
     run(async () => {
       const rfq = await api.createRfq(payload(), true);
+      if (aiInstructions.trim()) {
+        await api.saveRfqAiSettings(rfq.id, {
+          prompt_template_id: null,
+          additional_instructions: aiInstructions,
+        });
+      }
       onCreated(rfq);
     });
 
@@ -92,6 +99,19 @@ export default function NewRfq({ onCreated }: Props) {
           value={application}
           onChange={(e) => setApplication(e.target.value)}
         />
+      </div>
+
+      <div className="field">
+        <label>Дополнительные инструкции для ИИ</label>
+        <textarea
+          maxLength={4000}
+          placeholder="Например: искать только производителей фармацевтического грейда с GMP"
+          value={aiInstructions}
+          onChange={(e) => setAiInstructions(e.target.value)}
+        />
+        <span className="note">
+          Инструкция будет использоваться при поиске и обработке ответов этого RFQ.
+        </span>
       </div>
 
       <div className="field">

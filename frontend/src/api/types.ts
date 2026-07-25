@@ -204,6 +204,55 @@ export interface ChannelStatus {
   details: Record<string, string | null> | null;
 }
 
+export type PromptKind =
+  | "extraction"
+  | "rfq_generation"
+  | "supplier_search"
+  | "qualification"
+  | "followup";
+
+export interface PromptRead {
+  id: number;
+  kind: PromptKind;
+  name: string;
+  description: string | null;
+  system_prompt: string;
+  version: number;
+  is_active: boolean;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface PromptVersionRead {
+  id: number;
+  prompt_id: number;
+  version: number;
+  name: string;
+  description: string | null;
+  system_prompt: string;
+  changed_by: string | null;
+  created_at: string;
+}
+
+export interface RfqAiSetting {
+  rfq_id: number;
+  prompt_template_id: number | null;
+  additional_instructions: string;
+}
+
+export interface SupplierSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+export interface SupplierSearchResponse {
+  query: string;
+  ai_used: boolean;
+  results: SupplierSearchResult[];
+  warning: string;
+}
+
 export interface DashboardOverdue {
   id: number;
   name: string;

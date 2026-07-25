@@ -6,8 +6,11 @@ import type {
   DashboardData,
   EscalationRead,
   PriceHistoryItem,
+  PromptRead,
+  PromptVersionRead,
   RecipientRead,
   SupplierRead,
+  SupplierSearchResponse,
   TemplateRead,
   UserAdminRead,
   UserRead,
@@ -16,6 +19,7 @@ import type {
   RFQListItem,
   RFQPreview,
   RFQRead,
+  RfqAiSetting,
   SubstanceInfo,
   SummaryRow,
   TokenResponse,
@@ -106,16 +110,35 @@ export const api = {
 
   listRfqs: () => request<RFQListItem[]>(`/rfq`),
 
-  extractQuote: (text: string, useLlm = true) =>
+  extractQuote: (
+    text: string,
+    useLlm = true,
+    rfqId?: number,
+    additionalInstructions?: string,
+  ) =>
     request<ExtractedQuote>(`/extraction/quote`, {
       method: "POST",
-      body: JSON.stringify({ text, use_llm: useLlm }),
+      body: JSON.stringify({
+        text,
+        use_llm: useLlm,
+        rfq_id: rfqId,
+        additional_instructions: additionalInstructions,
+      }),
     }),
 
-  extractAndStore: (rfqId: number, text: string, useLlm = true) =>
+  extractAndStore: (
+    rfqId: number,
+    text: string,
+    useLlm = true,
+    additionalInstructions?: string,
+  ) =>
     request<QuotationRead>(`/rfq/${rfqId}/extract`, {
       method: "POST",
-      body: JSON.stringify({ text, use_llm: useLlm }),
+      body: JSON.stringify({
+        text,
+        use_llm: useLlm,
+        additional_instructions: additionalInstructions,
+      }),
     }),
 
   listQuotations: (rfqId: number) =>
@@ -146,6 +169,7 @@ export const api = {
     country?: string | null;
     email?: string | null;
     whatsapp?: string | null;
+    source?: string | null;
   }) =>
     request<SupplierRead>(`/suppliers`, {
       method: "POST",
@@ -223,6 +247,74 @@ export const api = {
   ) =>
     request<TemplateRead>(`/templates/${id}`, {
       method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  listPrompts: () => request<PromptRead[]>(`/prompts`),
+
+  searchSuppliers: (payload: {
+    cas: string;
+    name: string;
+    country?: string | null;
+    additional_instructions?: string | null;
+    limit?: number;
+  }) =>
+    request<SupplierSearchResponse>(`/supplier-search`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  createPrompt: (payload: {
+    kind: string;
+    name: string;
+    description?: string | null;
+    system_prompt: string;
+  }) =>
+    request<PromptRead>(`/prompts`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updatePrompt: (
+    id: number,
+    payload: {
+      name?: string;
+      description?: string | null;
+      system_prompt?: string;
+      is_active?: boolean;
+    },
+  ) =>
+    request<PromptRead>(`/prompts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  promptVersions: (id: number) =>
+    request<PromptVersionRead[]>(`/prompts/${id}/versions`),
+
+  previewPrompt: (
+    promptId: number,
+    inputText: string,
+    additionalInstructions?: string,
+  ) =>
+    request<{ output: string; prompt_id: number; version: number }>(`/prompts/preview`, {
+      method: "POST",
+      body: JSON.stringify({
+        prompt_id: promptId,
+        input_text: inputText,
+        additional_instructions: additionalInstructions,
+      }),
+    }),
+
+  getRfqAiSettings: (rfqId: number) =>
+    request<RfqAiSetting>(`/rfq/${rfqId}/ai-settings`),
+
+  saveRfqAiSettings: (
+    rfqId: number,
+    payload: { prompt_template_id: number | null; additional_instructions: string },
+  ) =>
+    request<RfqAiSetting>(`/rfq/${rfqId}/ai-settings`, {
+      method: "PUT",
       body: JSON.stringify(payload),
     }),
 };

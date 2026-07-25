@@ -17,17 +17,19 @@ from app.api import (
     escalations,
     extraction,
     health,
+    prompts,
     quotations,
     rfq,
     settings as settings_api,
     substances,
+    supplier_search,
     suppliers,
     templates,
     users,
 )
 from app.core.config import get_settings
 from app.core.db import SessionLocal, init_db
-from app.core.seed import seed_suppliers, seed_templates, seed_users
+from app.core.seed import seed_prompts, seed_suppliers, seed_templates, seed_users
 
 
 def create_app() -> FastAPI:
@@ -50,8 +52,11 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(prompts.router)
+    app.include_router(prompts.rfq_router)
     app.include_router(auth.router)
     app.include_router(substances.router)
+    app.include_router(supplier_search.router)
     app.include_router(rfq.router)
     app.include_router(quotations.router)
     app.include_router(extraction.router)
@@ -68,6 +73,7 @@ def create_app() -> FastAPI:
         init_db()
         with SessionLocal() as db:
             seed_users(db)
+            seed_prompts(db)
             seed_suppliers(db)
             seed_templates(db)
 

@@ -94,6 +94,10 @@ pytest
 | GET | `/rfq/{id}` · `/rfq` | Карточка RFQ · список |
 | POST | `/extraction/quote` | Извлечь котировку из текста (предпросмотр) |
 | POST | `/rfq/{id}/extract` | Извлечь и сохранить котировку |
+| GET/POST/PATCH | `/prompts` | Библиотека и версии ИИ-промптов |
+| POST | `/prompts/preview` | Предпросмотр промпта на локальной Qwen |
+| GET/PUT | `/rfq/{id}/ai-settings` | Промпт и инструкции конкретного RFQ |
+| POST | `/supplier-search` | ИИ-запрос и поиск кандидатов со ссылками |
 | POST | `/quotations` | Создать котировку вручную |
 | GET | `/rfq/{id}/summary` | Сводная сравнительная таблица |
 | GET | `/rfq/{id}/quotations` | Котировки по RFQ |

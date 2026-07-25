@@ -37,6 +37,8 @@ def extract_quote(
     *,
     use_llm: bool = True,
     llm: LLMClient | None = None,
+    system_prompt: str | None = None,
+    additional_instructions: str | None = None,
 ) -> ExtractedQuote:
     """Извлекает котировку из текста. llm можно подменить (тесты/моки)."""
     rules = extract_with_rules(email_text)
@@ -46,7 +48,15 @@ def extract_quote(
 
     try:
         client = llm or LLMClient()
-        llm_dict = client.extract_quote(email_text)
+        if system_prompt or additional_instructions:
+            llm_dict = client.extract_quote(
+                email_text,
+                system_prompt=system_prompt,
+                additional_instructions=additional_instructions,
+            )
+        else:
+            # Сохраняем простой контракт для тестовых/альтернативных LLM-клиентов.
+            llm_dict = client.extract_quote(email_text)
     except LLMUnavailableError:
         # Модель недоступна — конвейер деградирует на правила.
         return rules
