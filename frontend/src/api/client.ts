@@ -3,7 +3,9 @@
 
 import type {
   ChannelStatus,
+  CommunicationRead,
   DashboardData,
+  EmailSyncRead,
   EscalationRead,
   PriceHistoryItem,
   PromptRead,
@@ -189,6 +191,17 @@ export const api = {
 
   dispatchRfq: (rfqId: number) =>
     request<RecipientRead[]>(`/rfq/${rfqId}/dispatch`, { method: "POST" }),
+
+  listCommunications: (rfqId: number) =>
+    request<CommunicationRead[]>(`/rfq/${rfqId}/communications`),
+
+  syncEmail: (limit = 5) =>
+    request<EmailSyncRead>(`/email/sync?limit=${limit}`, { method: "POST" }),
+
+  sendCommunicationDraft: (communicationId: number) =>
+    request<CommunicationRead>(`/communications/${communicationId}/send`, {
+      method: "POST",
+    }),
 
   removeRecipient: (rfqId: number, recipientId: number) =>
     request<void>(`/rfq/${rfqId}/recipients/${recipientId}`, { method: "DELETE" }),

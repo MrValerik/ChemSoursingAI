@@ -5,6 +5,7 @@
 """
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,15 +47,25 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="not-needed-for-local")
     llm_timeout_s: int = Field(default=300)
 
-    # --- Email-коннектор (IMAP/SMTP) — этап интеграций ---
+    # --- Email-коннектор (IMAP/SMTP) ---
+    # demo сохраняет безопасное поведение без внешней отправки; live включает SMTP.
+    email_delivery_mode: Literal["demo", "live"] = Field(default="demo")
+    email_from: str = Field(default="")
+    email_from_name: str = Field(default="ChemSource AI")
+    email_timeout_s: int = Field(default=30)
+    auto_followup_mode: Literal["off", "draft", "send"] = Field(default="draft")
     imap_host: str = Field(default="")
     imap_port: int = Field(default=993)
     imap_user: str = Field(default="")
     imap_password: str = Field(default="")
+    imap_use_ssl: bool = Field(default=True)
+    imap_folder: str = Field(default="INBOX")
     smtp_host: str = Field(default="")
     smtp_port: int = Field(default=465)
     smtp_user: str = Field(default="")
     smtp_password: str = Field(default="")
+    smtp_use_ssl: bool = Field(default=True)
+    smtp_starttls: bool = Field(default=False)
 
     # --- WhatsApp Cloud API — этап интеграций ---
     whatsapp_token: str = Field(default="")

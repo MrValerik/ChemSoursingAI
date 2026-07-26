@@ -356,6 +356,47 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .meter-fill { height: 100%; border-radius: 999px; }
 .meter-fill.ok { background: #86efac; }
 .meter-fill.warn { background: #fcd34d; }
+
+.communication-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.communication-card {
+  border: 1px solid var(--border);
+  border-left: 4px solid #94a3b8;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fff;
+}
+
+.communication-card.inbound { border-left-color: var(--brand); }
+.communication-card.outbound { border-left-color: var(--ok); }
+
+.communication-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.communication-body {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 6px;
+  background: #f8fafc;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.sync-result {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f8fafc;
+}
 .meter-label {
   position: absolute;
   inset: 0;

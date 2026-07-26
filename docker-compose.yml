@@ -36,6 +36,24 @@ services:
       LLM_MODEL: ${LLM_MODEL:-Qwen_Qwen3.5-27B-Q4_K_M}
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
+      # Email по умолчанию работает в demo и не выполняет внешнюю отправку.
+      EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-demo}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-ChemSource AI}
+      EMAIL_TIMEOUT_S: ${EMAIL_TIMEOUT_S:-30}
+      AUTO_FOLLOWUP_MODE: ${AUTO_FOLLOWUP_MODE:-draft}
+      IMAP_HOST: ${IMAP_HOST:-}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_USER: ${IMAP_USER:-}
+      IMAP_PASSWORD: ${IMAP_PASSWORD:-}
+      IMAP_USE_SSL: ${IMAP_USE_SSL:-true}
+      IMAP_FOLDER: ${IMAP_FOLDER:-INBOX}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
     depends_on:
       db:
         condition: service_healthy

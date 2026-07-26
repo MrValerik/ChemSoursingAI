@@ -7,6 +7,7 @@ import { api } from "../api/client";
 import type { PriceHistoryItem, RFQRead } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
+import CommunicationHistory from "./CommunicationHistory";
 import ExtractReplies from "./ExtractReplies";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
@@ -271,12 +272,13 @@ export default function RfqDetail({
           {tab === "summary" && <Summary rfqId={rfq.id} refreshKey={refreshKey} />}
 
           {tab === "history" && (
-            <div className="panel">
-              <h2>История</h2>
-              <p className="note">
-                Переписка по треду и журнал действий — шаг 5 плана внедрения UI.
-              </p>
-            </div>
+            <CommunicationHistory
+              rfqId={rfq.id}
+              onSynced={() => {
+                setRefreshKey((key) => key + 1);
+                void api.getRfq(rfq.id).then(onChanged);
+              }}
+            />
           )}
         </div>
       </div>

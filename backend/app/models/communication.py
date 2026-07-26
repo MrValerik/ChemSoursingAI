@@ -28,7 +28,12 @@ class Communication(Base, TimestampMixin):
 
     direction: Mapped[CommDirection] = mapped_column(SAEnum(CommDirection))
     channel: Mapped[Channel] = mapped_column(SAEnum(Channel))
+    subject: Mapped[str | None] = mapped_column(String(998))
     body: Mapped[str | None] = mapped_column(Text)
+    from_address: Mapped[str | None] = mapped_column(String(320))
+    to_address: Mapped[str | None] = mapped_column(String(320))
+    # draft / sent / received / error. Строка оставляет место статусам провайдера.
+    status: Mapped[str | None] = mapped_column(String(32), index=True)
 
     # Сшивка по треду + идемпотентность входящих (дедупликация писем).
     thread_id: Mapped[str | None] = mapped_column(String(255), index=True)

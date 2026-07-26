@@ -63,6 +63,22 @@ def _apply_light_migrations() -> None:
         if "source" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE suppliers ADD COLUMN source VARCHAR(255)"))
+    if "communications" in tables:
+        cols = {c["name"] for c in inspector.get_columns("communications")}
+        additions = {
+            "subject": "VARCHAR(998)",
+            "from_address": "VARCHAR(320)",
+            "to_address": "VARCHAR(320)",
+            "status": "VARCHAR(32)",
+        }
+        with engine.begin() as conn:
+            for name, sql_type in additions.items():
+                if name not in cols:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE communications ADD COLUMN {name} {sql_type}"
+                        )
+                    )
 
 
 def get_db() -> Iterator[Session]:

@@ -99,6 +99,9 @@ pytest
 | GET/PUT | `/rfq/{id}/ai-settings` | Промпт и инструкции конкретного RFQ |
 | POST | `/supplier-search` | ИИ-запрос и поиск кандидатов со ссылками |
 | POST | `/supplier-search/qualify` | Русский перевод и предварительная квалификация найденных кандидатов |
+| POST | `/email/sync` | Загрузить новые ответы из общего IMAP-ящика |
+| GET | `/rfq/{id}/communications` | История Email-переписки по RFQ |
+| POST | `/communications/{id}/send` | Отправить проверенный дозапрос-черновик |
 | POST | `/quotations` | Создать котировку вручную |
 | GET | `/rfq/{id}/summary` | Сводная сравнительная таблица |
 | GET | `/rfq/{id}/quotations` | Котировки по RFQ |
@@ -107,3 +110,41 @@ pytest
 
 См. `.env.example`. Ключевые: `DATABASE_URL`, `REDIS_URL`, `LLM_BASE_URL`,
 `LLM_MODEL`, `PUBCHEM_BASE_URL`.
+
+## Email: безопасное включение
+
+По умолчанию Compose использует `EMAIL_DELIVERY_MODE=demo` и не отправляет
+письма наружу. Для подключения корпоративного ящика заполните в `.env`:
+
+```env
+EMAIL_DELIVERY_MODE=live
+EMAIL_FROM=procurement@example.com
+EMAIL_FROM_NAME=Procurement Department
+
+SMTP_HOST=smtp.example.com
+SMTP_PORT=465
+SMTP_USER=procurement@example.com
+SMTP_PASSWORD=change_me
+SMTP_USE_SSL=true
+SMTP_STARTTLS=false
+
+IMAP_HOST=imap.example.com
+IMAP_PORT=993
+IMAP_USER=procurement@example.com
+IMAP_PASSWORD=change_me
+IMAP_USE_SSL=true
+IMAP_FOLDER=INBOX
+
+# Рекомендуется сначала draft, а после приёмки процесса — send.
+AUTO_FOLLOWUP_MODE=draft
+```
+
+После изменения окружения пересоздайте backend:
+
+```bash
+docker compose up -d --build backend frontend
+```
+
+Проверьте статус канала в разделе «Настройки». Реальные письма отправляются
+только после явного включения `live`. Синхронизация входящих запускается на
+вкладке «История» пользователем с ролью руководителя или администратора.

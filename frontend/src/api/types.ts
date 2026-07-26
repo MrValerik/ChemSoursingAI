@@ -178,6 +178,34 @@ export interface RecipientRead {
   supplier_company: string | null;
 }
 
+export interface CommunicationRead {
+  id: number;
+  rfq_id: number | null;
+  manager_id: number | null;
+  direction: "inbound" | "outbound";
+  channel: ChannelKind;
+  subject: string | null;
+  body: string | null;
+  from_address: string | null;
+  to_address: string | null;
+  status: "draft" | "sent" | "received" | "error" | null;
+  thread_id: string | null;
+  external_id: string | null;
+  attachments: { filename: string; content_type: string; size: number }[] | null;
+  created_at: string;
+}
+
+export interface EmailSyncRead {
+  fetched: number;
+  processed: number;
+  duplicates: number;
+  unmatched: number;
+  quotations_created: number;
+  followups_drafted: number;
+  followups_sent: number;
+  errors: string[];
+}
+
 export type TemplateKind = "reply" | "followup" | "whatsapp";
 export type WhatsappModeration = "draft" | "pending" | "approved" | "rejected";
 

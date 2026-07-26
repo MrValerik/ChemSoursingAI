@@ -1,8 +1,7 @@
 """Эндпоинты поставщиков и рассылки RFQ (разделы 9–10 UI/UX-плана).
 
-Подбор кандидатов сейчас идёт из реестра поставщиков; веб-сорсинг открытых
-источников появится на этапе интеграций (функция 3 ТЗ). Отправка по каналам —
-демо-режим до подключения Email/WhatsApp-коннекторов (функция 4 ТЗ).
+Email работает в безопасном demo-режиме либо реально через SMTP после явного
+включения EMAIL_DELIVERY_MODE=live. WhatsApp пока остаётся демонстрационным.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,10 +9,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
+from app.connectors.email import (
+    EmailConfigurationError,
+    EmailConnector,
+    EmailDeliveryError,
+)
+from app.core.config import get_settings
 from app.core.db import get_db
-from app.models import RfqRecipient, Supplier, User
+from app.models import Communication, RfqRecipient, Supplier, User
 from app.models.enums import (
     Channel,
+    CommDirection,
     DispatchStatus,
     RFQStatus,
     UserRole,
@@ -26,6 +32,7 @@ from app.schemas.supplier import (
     SupplierCreate,
     SupplierRead,
 )
+from app.services.rfq_service import render_rfq_text
 
 router = APIRouter(tags=["suppliers"], dependencies=[Depends(get_current_user)])
 
@@ -147,11 +154,7 @@ def dispatch(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[RecipientRead]:
-    """«Разослать выбранным»: все получатели в очереди переходят в «отправлено».
-
-    Демо-режим: реальная отправка появится с Email/WhatsApp-коннекторами;
-    тогда же статусы продолжат путь отправлено → доставлено → прочитано.
-    """
+    """Рассылает Email через SMTP либо сохраняет безопасное demo-поведение."""
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
     rfq = _get_rfq(db, rfq_id)
@@ -163,14 +166,65 @@ def dispatch(
     ).all()
     if not queued:
         raise HTTPException(status_code=422, detail="Нет получателей в очереди")
-    for r in queued:
-        r.status = DispatchStatus.SENT
-        r.note = (
-            "отправлен шаблон (демо)"
-            if r.channel == Channel.WHATSAPP
-            else "отправлено (демо: канал не подключён)"
+    settings = get_settings()
+    live_email = settings.email_delivery_mode.strip().lower() == "live"
+    connector = EmailConnector(settings) if live_email else None
+    subject, body = render_rfq_text(rfq)
+    subject = f"[RFQ-{rfq.id}] {subject}"
+    sent_any = False
+
+    for recipient in queued:
+        if recipient.channel != Channel.EMAIL:
+            recipient.status = DispatchStatus.SENT
+            recipient.note = "отправлен шаблон (демо: WhatsApp не подключён)"
+            sent_any = True
+            continue
+        if not live_email:
+            recipient.status = DispatchStatus.SENT
+            recipient.note = "отправлено (демо; SMTP выключен)"
+            sent_any = True
+            continue
+
+        manager = next(
+            (item for item in recipient.supplier.managers if item.email), None
         )
-    if rfq.status in (RFQStatus.DRAFT, RFQStatus.VERIFIED):
+        if manager is None:
+            recipient.status = DispatchStatus.ERROR
+            recipient.note = "у поставщика отсутствует Email"
+            continue
+        assert connector is not None
+        try:
+            message_id = connector.send(
+                to_address=manager.email,
+                subject=subject,
+                body=body,
+            )
+        except (EmailConfigurationError, EmailDeliveryError) as exc:
+            recipient.status = DispatchStatus.ERROR
+            recipient.note = str(exc)[:255]
+            continue
+
+        recipient.status = DispatchStatus.SENT
+        recipient.note = f"SMTP: отправлено на {manager.email}"[:255]
+        db.add(
+            Communication(
+                rfq_id=rfq.id,
+                manager_id=manager.id,
+                direction=CommDirection.OUTBOUND,
+                channel=Channel.EMAIL,
+                subject=subject,
+                body=body,
+                from_address=settings.email_from,
+                to_address=manager.email,
+                status="sent",
+                thread_id=message_id,
+                external_id=message_id,
+                attachments=None,
+            )
+        )
+        sent_any = True
+
+    if sent_any and rfq.status in (RFQStatus.DRAFT, RFQStatus.VERIFIED):
         rfq.status = RFQStatus.SENT
     db.commit()
     return list_recipients(rfq_id, db)

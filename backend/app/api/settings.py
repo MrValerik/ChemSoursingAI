@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends
 
 from app.api.deps import require_roles
+from app.connectors.email import EmailConnector
 from app.core.config import get_settings
 from app.extraction.llm_client import LLMClient
 from app.models.enums import UserRole
@@ -16,13 +17,10 @@ router = APIRouter(
 
 @router.get("/channels")
 def channels_status() -> list[dict]:
-    """Статус подключения каналов: параметры берутся из окружения (.env).
-
-    Проверка соединения (IMAP login / WhatsApp API) появится вместе
-    с коннекторами на этапе интеграций.
-    """
+    """Показывает конфигурацию без возврата паролей и токенов."""
     s = get_settings()
-    email_configured = bool(s.imap_host and s.smtp_host)
+    email = EmailConnector(s)
+    email_configured = email.imap_configured and email.smtp_configured
     whatsapp_configured = bool(s.whatsapp_token and s.whatsapp_phone_id)
     llm_available, llm_error = LLMClient().check_health()
     return [
@@ -30,12 +28,19 @@ def channels_status() -> list[dict]:
             "channel": "email",
             "title": "Email (IMAP/SMTP)",
             "configured": email_configured,
-            "status": "настроен (соединение не проверялось)"
-            if email_configured
-            else "не настроен — заполните IMAP_*/SMTP_* в .env",
+            "status": (
+                "подключён для реальной отправки"
+                if email_configured
+                and s.email_delivery_mode.strip().lower() == "live"
+                else "настроен, но внешняя отправка работает в demo"
+                if email_configured
+                else "не настроен — заполните EMAIL_FROM, IMAP_* и SMTP_*"
+            ),
             "details": {
                 "imap_host": s.imap_host or None,
                 "smtp_host": s.smtp_host or None,
+                "delivery_mode": s.email_delivery_mode,
+                "auto_followup_mode": s.auto_followup_mode,
             },
         },
         {

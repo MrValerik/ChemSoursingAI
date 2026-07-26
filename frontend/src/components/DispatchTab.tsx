@@ -1,5 +1,5 @@
 // Вкладка «Рассылка» (раздел 10 UI/UX-плана): получатели и статусы доставки.
-// Отправка — демо-режим до подключения Email/WhatsApp-коннекторов.
+// Email отправляется через SMTP только после явного включения live-режима.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -86,8 +86,8 @@ export default function DispatchTab({
         )}
       </div>
       <p className="note">
-        Демо-режим: реальная отправка появится с подключением Email/WhatsApp;
-        тогда статусы продолжат путь отправлено → доставлено → прочитано.
+        Email использует SMTP в live-режиме. Без него сохраняется безопасная
+        демонстрация; WhatsApp пока работает только как демонстрационный канал.
       </p>
 
       {error && <p className="error">{error}</p>}
