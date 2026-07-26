@@ -10,6 +10,7 @@ import type {
   PromptVersionRead,
   RecipientRead,
   SupplierRead,
+  SupplierQualificationResponse,
   SupplierSearchResponse,
   TemplateRead,
   UserAdminRead,
@@ -170,6 +171,7 @@ export const api = {
     email?: string | null;
     whatsapp?: string | null;
     source?: string | null;
+    reputation?: string | null;
   }) =>
     request<SupplierRead>(`/suppliers`, {
       method: "POST",
@@ -260,6 +262,18 @@ export const api = {
     limit?: number;
   }) =>
     request<SupplierSearchResponse>(`/supplier-search`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  qualifySuppliers: (payload: {
+    cas: string;
+    name: string;
+    country?: string | null;
+    additional_instructions?: string | null;
+    results: SupplierSearchResponse["results"];
+  }) =>
+    request<SupplierQualificationResponse>(`/supplier-search/qualify`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),

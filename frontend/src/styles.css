@@ -341,6 +341,7 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .badge.tone-info { background: #dbeafe; color: #1d4ed8; }
 .badge.tone-ok { background: #dcfce7; color: var(--ok); }
 .badge.tone-warn { background: #fef3c7; color: var(--attention); }
+.badge.tone-danger { background: #fee2e2; color: var(--err); }
 .esc-badge { margin-left: 6px; font-weight: 700; }
 
 /* Индикатор полноты. */
@@ -528,3 +529,59 @@ table.summary tbody tr:hover { background: #f8fafc; }
   overflow: hidden;
 }
 .workload-fill { height: 100%; background: var(--brand); border-radius: 999px; }
+
+/* Предварительная ИИ-квалификация результатов открытого поиска. */
+.qualification-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  flex-wrap: wrap;
+}
+.qualification-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+.qualification-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.qualification-card h3,
+.qualification-card h4,
+.qualification-card p { margin: 0; }
+.qualification-card h3 { font-size: 16px; margin-bottom: 6px; }
+.qualification-card h4 { font-size: 14px; }
+.qualification-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.confidence {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  color: var(--muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.confidence strong { color: var(--brand); font-size: 20px; }
+.qualification-evidence { display: flex; gap: 6px; flex-wrap: wrap; }
+.qualification-warning {
+  padding: 9px 10px;
+  background: #fff7ed;
+  color: #9a3412;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.qualification-card details { font-size: 12px; }
+.qualification-card summary { cursor: pointer; color: var(--brand); }
+.source-link { font-size: 12px; overflow-wrap: anywhere; }
+.qualification-card button { align-self: flex-start; margin-top: auto; }

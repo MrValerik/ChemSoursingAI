@@ -156,3 +156,93 @@ def test_supplier_search_retries_with_broad_query(client, monkeypatch):
     assert response.json()["fallback_used"] is True
     assert response.json()["ai_query"].startswith("site:gov.cn")
     assert response.json()["results"][0]["title"] == "Fallback manufacturer"
+
+
+def test_supplier_search_deduplicates_results_by_domain(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_text",
+        lambda self, **kwargs: '"Aspirin" "50-78-2" manufacturer supplier China CoA',
+    )
+    monkeypatch.setattr(
+        "app.api.supplier_search.search_web",
+        lambda query, limit: [
+            {
+                "title": "First page",
+                "url": "https://www.example.com/aspirin",
+                "snippet": "Manufacturer page",
+            },
+            {
+                "title": "Second page",
+                "url": "https://example.com/products/aspirin",
+                "snippet": "Duplicate company domain",
+            },
+            {
+                "title": "Another company",
+                "url": "https://another.example/aspirin",
+                "snippet": "Another manufacturer",
+            },
+        ],
+    )
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "country": "China"},
+    )
+
+    assert response.status_code == 200
+    assert [item["url"] for item in response.json()["results"]] == [
+        "https://www.example.com/aspirin",
+        "https://another.example/aspirin",
+    ]
+
+
+def test_supplier_qualification_preserves_sources(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json",
+        lambda self, **kwargs: {
+            "results": [
+                {
+                    "result_index": 0,
+                    "company_name": "Example Chemical",
+                    "title_ru": "Производитель аспирина",
+                    "summary_ru": "Компания заявляет о собственном производстве.",
+                    "supplier_type": "manufacturer",
+                    "cas_status": "confirmed",
+                    "gmp_status": "claimed",
+                    "iso_status": "not_found",
+                    "coa_status": "claimed",
+                    "tds_status": "not_found",
+                    "confidence": 74,
+                    "red_flags": ["GMP не подтверждён документом"],
+                    "missing_evidence": ["GMP-сертификат", "TDS"],
+                }
+            ]
+        },
+    )
+    source_url = "https://manufacturer.example/products/aspirin"
+    response = client.post(
+        "/supplier-search/qualify",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "country": "China",
+            "results": [
+                {
+                    "title": "Aspirin manufacturer",
+                    "url": source_url,
+                    "snippet": "We manufacture Aspirin CAS 50-78-2 and offer CoA.",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["url"] == source_url
+    assert result["title"] == "Aspirin manufacturer"
+    assert result["title_ru"] == "Производитель аспирина"
+    assert result["supplier_type"] == "manufacturer"
+    assert result["gmp_status"] == "claimed"

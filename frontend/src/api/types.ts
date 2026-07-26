@@ -255,6 +255,33 @@ export interface SupplierSearchResponse {
   warning: string;
 }
 
+export type EvidenceStatus = "claimed" | "not_found" | "contradicted";
+export type QualifiedSupplierType = "manufacturer" | "distributor" | "unknown";
+export type CasEvidenceStatus = "confirmed" | "mentioned" | "not_found" | "mismatch";
+
+export interface QualifiedSupplierResult extends SupplierSearchResult {
+  result_index: number;
+  company_name: string;
+  title_ru: string;
+  summary_ru: string;
+  supplier_type: QualifiedSupplierType;
+  cas_status: CasEvidenceStatus;
+  gmp_status: EvidenceStatus;
+  iso_status: EvidenceStatus;
+  coa_status: EvidenceStatus;
+  tds_status: EvidenceStatus;
+  confidence: number;
+  red_flags: string[];
+  missing_evidence: string[];
+}
+
+export interface SupplierQualificationResponse {
+  results: QualifiedSupplierResult[];
+  prompt_id: number | null;
+  prompt_version: number | null;
+  warning: string;
+}
+
 export interface DashboardOverdue {
   id: number;
   name: string;

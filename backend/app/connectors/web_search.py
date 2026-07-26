@@ -43,6 +43,8 @@ def parse_search_results(page: str, limit: int = 8) -> list[dict]:
         snippet_match = _SNIPPET_RE.search(page, match.end(), region_end)
         snippet = snippet_match.group(1) if snippet_match else ""
         direct = _direct_url(url)
+        if urlparse(direct).scheme.lower() not in {"http", "https"}:
+            continue
         if direct in seen:
             continue
         seen.add(direct)

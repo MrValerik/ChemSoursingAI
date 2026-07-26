@@ -38,3 +38,12 @@ def test_parse_search_results_accepts_reordered_attributes_without_snippet():
             "snippet": "",
         }
     ]
+
+
+def test_parse_search_results_rejects_non_http_links():
+    page = """
+    <div class="result">
+      <a class="result__a" href="javascript:alert(1)">Unsafe result</a>
+    </div>
+    """
+    assert parse_search_results(page) == []

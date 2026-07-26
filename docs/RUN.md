@@ -98,6 +98,7 @@ pytest
 | POST | `/prompts/preview` | Предпросмотр промпта на локальной Qwen |
 | GET/PUT | `/rfq/{id}/ai-settings` | Промпт и инструкции конкретного RFQ |
 | POST | `/supplier-search` | ИИ-запрос и поиск кандидатов со ссылками |
+| POST | `/supplier-search/qualify` | Русский перевод и предварительная квалификация найденных кандидатов |
 | POST | `/quotations` | Создать котировку вручную |
 | GET | `/rfq/{id}/summary` | Сводная сравнительная таблица |
 | GET | `/rfq/{id}/quotations` | Котировки по RFQ |

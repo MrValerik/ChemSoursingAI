@@ -45,9 +45,22 @@ def test_qwen_service_calls_disable_thinking_and_limit_output(monkeypatch):
         == "{}"
     )
     assert client.extract_quote("USD 10/kg") == {}
+    assert (
+        client.generate_json(
+            system_prompt="Return structured data.",
+            user_text="Source text",
+            schema_name="test_schema",
+            json_schema={"type": "object", "properties": {}},
+            max_tokens=128,
+        )
+        == {}
+    )
 
-    text_payload, extraction_payload = _Client.payloads
+    text_payload, extraction_payload, json_payload = _Client.payloads
     assert text_payload["max_tokens"] == 64
     assert text_payload["chat_template_kwargs"] == {"enable_thinking": False}
     assert extraction_payload["max_tokens"] == 512
     assert extraction_payload["chat_template_kwargs"] == {"enable_thinking": False}
+    assert json_payload["max_tokens"] == 128
+    assert json_payload["chat_template_kwargs"] == {"enable_thinking": False}
+    assert json_payload["response_format"]["json_schema"]["name"] == "test_schema"
