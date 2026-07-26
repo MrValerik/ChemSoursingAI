@@ -54,6 +54,8 @@ def supplier_search(
                     f"Country: {data.country or 'any'}"
                 ),
                 additional_instructions=data.additional_instructions,
+                # A search query is one short line; a larger budget only adds latency.
+                max_tokens=64,
             )
             candidate = generated.strip().strip("`").splitlines()[0].strip()
             if 5 <= len(candidate) <= 500:

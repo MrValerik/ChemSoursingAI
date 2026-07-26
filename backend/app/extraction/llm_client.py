@@ -84,6 +84,10 @@ class LLMClient:
                 {"role": "user", "content": email_text},
             ],
             "temperature": 0,
+            # Service tasks need the final JSON, not a long hidden reasoning trace.
+            # Without this limit Qwen can fill the whole context before answering.
+            "max_tokens": 512,
+            "chat_template_kwargs": {"enable_thinking": False},
             # Structured output: формат строго по JSON-схеме котировки.
             "response_format": {
                 "type": "json_schema",
@@ -116,6 +120,7 @@ class LLMClient:
         system_prompt: str,
         user_text: str,
         additional_instructions: str | None = None,
+        max_tokens: int = 512,
     ) -> str:
         """Предпросмотр произвольного промпта без изменения данных приложения."""
         combined_system_prompt = (
@@ -134,6 +139,10 @@ class LLMClient:
             "model": self.model,
             "messages": messages,
             "temperature": 0.1,
+            # Qwen otherwise may spend the whole context on reasoning_content and
+            # return an empty content field. Service calls need a bounded answer.
+            "max_tokens": max_tokens,
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         headers = {"Authorization": f"Bearer {self.api_key}"}
         try:
