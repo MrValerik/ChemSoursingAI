@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import AppShell, { type SectionKey } from "./components/AppShell";
+import ActivityReporter from "./components/ActivityReporter";
 import Dashboard from "./components/Dashboard";
 import Login from "./components/Login";
 import ReviewQueue from "./components/ReviewQueue";
@@ -53,6 +54,7 @@ function Sections() {
 export default function App() {
   return (
     <AuthProvider>
+      <ActivityReporter />
       <Sections />
     </AuthProvider>
   );

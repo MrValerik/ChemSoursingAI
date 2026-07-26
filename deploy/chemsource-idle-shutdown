@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# This script is executed as root by a systemd timer. It deliberately uses the
+# nginx access-log timestamp instead of CPU/GPU load: an idle loaded model still
+# occupies VRAM, while an actual user request always passes through nginx.
+
+IDLE_TIMEOUT_SECONDS="${IDLE_TIMEOUT_SECONDS:-1800}"
+MIN_UPTIME_SECONDS="${MIN_UPTIME_SECONDS:-$IDLE_TIMEOUT_SECONDS}"
+ACTIVITY_LOG="${ACTIVITY_LOG:-/var/log/nginx/chemsource_access.log}"
+HTTP_PORTS="${HTTP_PORTS:-80 443}"
+DRY_RUN="${DRY_RUN:-0}"
+LOCK_FILE="${LOCK_FILE:-/run/lock/chemsource-idle-shutdown.lock}"
+
+log() {
+  logger -t chemsource-idle-shutdown -- "$*"
+  printf '%s\n' "$*"
+}
+
+require_non_negative_integer() {
+  local name="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    log "Invalid ${name}=${value}; skipping shutdown."
+    exit 1
+  fi
+}
+
+require_non_negative_integer "IDLE_TIMEOUT_SECONDS" "$IDLE_TIMEOUT_SECONDS"
+require_non_negative_integer "MIN_UPTIME_SECONDS" "$MIN_UPTIME_SECONDS"
+
+# Prevent overlapping checks if systemd manually starts the service twice.
+mkdir -p "$(dirname "$LOCK_FILE")"
+exec 9>"$LOCK_FILE"
+flock -n 9 || exit 0
+
+now="$(date +%s)"
+uptime_seconds="$(cut -d. -f1 /proc/uptime)"
+
+if (( uptime_seconds < MIN_UPTIME_SECONDS )); then
+  log "Startup grace period: uptime ${uptime_seconds}s of ${MIN_UPTIME_SECONDS}s."
+  exit 0
+fi
+
+# A long-running API request keeps its TCP connection open. Do not power off
+# while Qwen is still generating a response, even if the request exceeds the
+# normal idle interval.
+for port in $HTTP_PORTS; do
+  if ss -Htn state established | awk -v suffix=":${port}" \
+    '{ for (i = 1; i <= NF; i++) if ($i ~ (suffix "$")) found = 1 }
+     END { exit !found }'; then
+    log "Active HTTP connection on port ${port}; shutdown postponed."
+    exit 0
+  fi
+done
+
+# The boot time is the fallback activity timestamp when nginx has not served
+# any request yet. This guarantees a full idle interval after every VM start.
+last_activity="$((now - uptime_seconds))"
+if [[ -f "$ACTIVITY_LOG" ]]; then
+  log_mtime="$(stat -c %Y "$ACTIVITY_LOG")"
+  if (( log_mtime > last_activity )); then
+    last_activity="$log_mtime"
+  fi
+fi
+
+idle_seconds="$((now - last_activity))"
+if (( idle_seconds < IDLE_TIMEOUT_SECONDS )); then
+  log "Site idle for ${idle_seconds}s of ${IDLE_TIMEOUT_SECONDS}s."
+  exit 0
+fi
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  log "DRY_RUN: VM would power off after ${idle_seconds}s of site inactivity."
+  exit 0
+fi
+
+log "Powering off VM after ${idle_seconds}s of site inactivity."
+systemctl poweroff

@@ -1,0 +1,8 @@
+[Unit]
+Description=Check ChemSource AI site inactivity
+After=chemsource.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/chemsource-idle-shutdown.conf
+ExecStart=/usr/local/sbin/chemsource-idle-shutdown

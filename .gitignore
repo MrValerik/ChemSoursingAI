@@ -33,6 +33,7 @@ ml/models/
 # Data (кроме синтетических примеров под git)
 data/uploads/
 data/attachments/
+data/nginx/
 *.sqlite
 *.db
 

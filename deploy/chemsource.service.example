@@ -1,0 +1,19 @@
+[Unit]
+Description=ChemSource AI Docker Compose stack
+Requires=docker.service
+Wants=network-online.target qwen.service
+After=docker.service network-online.target qwen.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=__PROJECT_DIR__
+# Images are built during deployment, not on every VM boot.
+ExecStart=__DOCKER_BIN__ compose up -d
+# Gracefully stop containers and PostgreSQL during a normal shutdown.
+ExecStop=__DOCKER_BIN__ compose stop
+TimeoutStartSec=0
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target
