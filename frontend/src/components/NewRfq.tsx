@@ -10,7 +10,7 @@ interface Props {
 
 export default function NewRfq({ onCreated }: Props) {
   const [cas, setCas] = useState("50-78-2");
-  const [name, setName] = useState("Acetylsalicylic acid");
+  const [name, setName] = useState("Ацетилсалициловая кислота");
   const [purity, setPurity] = useState("USP");
   const [application, setApplication] = useState("");
   const [volume, setVolume] = useState("500 kg");

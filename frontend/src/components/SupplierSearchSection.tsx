@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, ApiError } from "../api/client";
 import type {
   CasEvidenceStatus,
+  CountryEvidenceStatus,
   EvidenceStatus,
   QualifiedSupplierResult,
   QualifiedSupplierType,
@@ -22,6 +23,13 @@ const CAS_LABELS: Record<CasEvidenceStatus, string> = {
   mentioned: "упомянут",
   not_found: "не найден",
   mismatch: "не совпадает",
+};
+
+const COUNTRY_LABELS: Record<CountryEvidenceStatus, string> = {
+  claimed: "страна заявлена",
+  likely: "страна вероятна",
+  not_found: "страна не указана",
+  mismatch: "другая страна",
 };
 
 const EVIDENCE_LABELS: Record<EvidenceStatus, string> = {
@@ -150,12 +158,18 @@ export default function SupplierSearchSection() {
       {error && <p className="error">{error}</p>}
       {data && (
         <div className="panel">
-          <div className="note">Использованный запрос: {data.query} · Qwen: {data.ai_used ? "да" : "fallback"}</div>
+          <div className="note">Основной запрос: {data.query} · Qwen: {data.ai_used ? "да" : "fallback"}</div>
           {data.fallback_used && (
             <p className="note">
-              ИИ-запрос «{data.ai_query}» не дал результатов. Выполнен повторный поиск с более широким запросом.
+              Для полноты выполнено несколько запросов, включая локализованные по стране.
             </p>
           )}
+          <details className="search-queries">
+            <summary>Показать использованные запросы ({data.queries_used.length})</summary>
+            <ul>
+              {data.queries_used.map((query) => <li key={query}>{query}</li>)}
+            </ul>
+          </details>
           <p className="note">{data.warning}</p>
           {data.results.length === 0 && (
             <p className="note">Поисковый источник не вернул результатов. Попробуйте убрать часть дополнительных требований.</p>
@@ -173,6 +187,11 @@ export default function SupplierSearchSection() {
               <div className="rfq-list-item" key={result.url}>
                 <div style={{ flex: 1 }}>
                   <a href={result.url} target="_blank" rel="noreferrer">{result.title}</a>
+                  <div>
+                    <span className={`badge ${result.country_hint === "likely" ? "tone-ok" : "tone-neutral"}`}>
+                      {result.country_hint === "likely" ? "Есть признаки нужной страны" : "Страна требует проверки"}
+                    </span>
+                  </div>
                   <div className="note">{result.snippet}</div>
                   <div className="cas">{result.url}</div>
                 </div>
@@ -203,6 +222,9 @@ export default function SupplierSearchSection() {
                     <div className="qualification-evidence">
                       <span className={`badge ${result.cas_status === "confirmed" ? "tone-ok" : result.cas_status === "mismatch" ? "tone-danger" : "tone-neutral"}`}>
                         CAS: {CAS_LABELS[result.cas_status]}
+                      </span>
+                      <span className={`badge ${result.country_status === "claimed" ? "tone-ok" : result.country_status === "mismatch" ? "tone-danger" : result.country_status === "likely" ? "tone-warn" : "tone-neutral"}`}>
+                        {country}: {COUNTRY_LABELS[result.country_status]}
                       </span>
                       {DOCUMENT_FIELDS.map((document) => {
                         const status = result[document.key];

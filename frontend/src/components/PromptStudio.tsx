@@ -12,8 +12,8 @@ const KIND_LABELS: Record<PromptKind, string> = {
 };
 
 const SAMPLE =
-  "CAS 50-78-2, acetylsalicylic acid, purity 99.5%, pharmaceutical grade. " +
-  "Find verified manufacturers in China and require GMP evidence.";
+  "CAS 50-78-2, ацетилсалициловая кислота, чистота 99,5%, " +
+  "фармацевтический грейд. Найди производителей в Китае и запроси GMP.";
 
 export default function PromptStudio() {
   const { user } = useAuth();
@@ -97,7 +97,8 @@ export default function PromptStudio() {
         name: `Новый промпт: ${KIND_LABELS[newKind]}`,
         description: "Настройте назначение промпта",
         system_prompt:
-          "Analyze the supplied sourcing task using only verifiable facts and return source URLs for every conclusion.",
+          "Проанализируй задачу по закупке, используя только проверяемые факты. " +
+          "Отвечай по-русски и указывай ссылку на источник для каждого вывода.",
       });
       await load();
       open(created);
@@ -114,8 +115,8 @@ export default function PromptStudio() {
         <div>
           <h1>ИИ-промпты</h1>
           <p className="note">
-            Системные правила редактируют руководитель и администратор. Версии
-            сохраняются автоматически.
+            Все промпты можно писать по-русски. Системные правила редактируют
+            руководитель и администратор, версии сохраняются автоматически.
           </p>
         </div>
         {canEdit && (

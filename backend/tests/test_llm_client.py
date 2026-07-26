@@ -59,8 +59,10 @@ def test_qwen_service_calls_disable_thinking_and_limit_output(monkeypatch):
     text_payload, extraction_payload, json_payload = _Client.payloads
     assert text_payload["max_tokens"] == 64
     assert text_payload["chat_template_kwargs"] == {"enable_thinking": False}
+    assert "отвечай по-русски" in text_payload["messages"][0]["content"]
     assert extraction_payload["max_tokens"] == 512
     assert extraction_payload["chat_template_kwargs"] == {"enable_thinking": False}
     assert json_payload["max_tokens"] == 128
     assert json_payload["chat_template_kwargs"] == {"enable_thinking": False}
+    assert "по-русски" in json_payload["messages"][0]["content"]
     assert json_payload["response_format"]["json_schema"]["name"] == "test_schema"

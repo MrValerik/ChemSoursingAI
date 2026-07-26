@@ -8,6 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.core.db import SessionLocal
+from app.core.seed import seed_prompts
 
 
 @pytest.fixture(scope="module")
@@ -32,6 +34,13 @@ def test_prompt_versions_and_roles(client):
     buyer = _auth(client, "ivanov")
     prompts = client.get("/prompts", headers=buyer).json()
     assert {p["kind"] for p in prompts} >= {"extraction", "supplier_search"}
+    supplier_search_prompt = next(
+        p for p in prompts if p["kind"] == "supplier_search"
+    )
+    assert "Пользователь может писать" in supplier_search_prompt["system_prompt"]
+    assert "по-русски" in next(
+        p for p in prompts if p["kind"] == "qualification"
+    )["system_prompt"]
 
     assert (
         client.post(
@@ -57,6 +66,30 @@ def test_prompt_versions_and_roles(client):
     versions = client.get(f"/prompts/{prompt['id']}/versions", headers=admin).json()
     assert versions[0]["version"] == response.json()["version"]
     assert len(versions) >= 2
+
+
+def test_russian_seed_does_not_overwrite_user_prompt(client):
+    admin = _auth(client, "admin")
+    prompts = client.get("/prompts", headers=admin).json()
+    prompt = next(p for p in prompts if p["kind"] == "followup")
+    custom_text = (
+        "Пользовательский промпт руководителя. Подготовь краткий дозапрос "
+        "по-русски и не изменяй исходные требования закупки."
+    )
+    response = client.patch(
+        f"/prompts/{prompt['id']}",
+        headers=admin,
+        json={"system_prompt": custom_text},
+    )
+    assert response.status_code == 200
+
+    with SessionLocal() as db:
+        seed_prompts(db)
+
+    refreshed = client.get("/prompts", headers=admin).json()
+    saved = next(p for p in refreshed if p["id"] == prompt["id"])
+    assert saved["system_prompt"] == custom_text
+    assert saved["updated_by"] == "Администратор"
 
 
 def test_rfq_instructions_and_preview(client, monkeypatch):
@@ -116,7 +149,12 @@ def test_supplier_search_keeps_source_urls(client, monkeypatch):
     response = client.post(
         "/supplier-search",
         headers=buyer,
-        json={"cas": "50-78-2", "name": "Aspirin", "country": "China"},
+        json={
+            "cas": "50-78-2",
+            "name": "Аспирин",
+            "country": "Китай",
+            "additional_instructions": "Только производители с подтверждением GMP",
+        },
     )
     assert response.status_code == 200
     assert response.json()["ai_used"] is True
@@ -151,7 +189,8 @@ def test_supplier_search_retries_with_broad_query(client, monkeypatch):
     )
 
     assert response.status_code == 200
-    assert len(queries) == 2
+    assert len(queries) >= 2
+    assert any("生产厂家" in query for query in queries)
     assert response.json()["ai_used"] is True
     assert response.json()["fallback_used"] is True
     assert response.json()["ai_query"].startswith("site:gov.cn")
@@ -210,6 +249,7 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
                     "summary_ru": "Компания заявляет о собственном производстве.",
                     "supplier_type": "manufacturer",
                     "cas_status": "confirmed",
+                    "country_status": "claimed",
                     "gmp_status": "claimed",
                     "iso_status": "not_found",
                     "coa_status": "claimed",
@@ -245,4 +285,43 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
     assert result["title"] == "Aspirin manufacturer"
     assert result["title_ru"] == "Производитель аспирина"
     assert result["supplier_type"] == "manufacturer"
+    assert result["country_status"] == "claimed"
     assert result["gmp_status"] == "claimed"
+
+
+def test_supplier_search_prioritizes_chinese_sources(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_text",
+        lambda self, **kwargs: '"Aspirin" "50-78-2" supplier',
+    )
+
+    def fake_search(query, limit):
+        if "生产厂家" in query:
+            return [
+                {
+                    "title": "中国阿司匹林生产厂家",
+                    "url": "https://aspirin-factory.cn/product",
+                    "snippet": "中国制造工厂 CAS 50-78-2",
+                }
+            ]
+        return [
+            {
+                "title": "Global aspirin trader",
+                "url": "https://trader.example/aspirin",
+                "snippet": "International supplier",
+            }
+        ]
+
+    monkeypatch.setattr("app.api.supplier_search.search_web", fake_search)
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "country": "China"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert any("生产厂家" in query for query in payload["queries_used"])
+    assert payload["results"][0]["url"].endswith(".cn/product")
+    assert payload["results"][0]["country_hint"] == "likely"

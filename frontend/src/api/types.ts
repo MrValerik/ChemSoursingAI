@@ -244,10 +244,12 @@ export interface SupplierSearchResult {
   title: string;
   url: string;
   snippet: string;
+  country_hint: "likely" | "possible" | "unknown";
 }
 
 export interface SupplierSearchResponse {
   query: string;
+  queries_used: string[];
   ai_query: string | null;
   ai_used: boolean;
   fallback_used: boolean;
@@ -258,6 +260,7 @@ export interface SupplierSearchResponse {
 export type EvidenceStatus = "claimed" | "not_found" | "contradicted";
 export type QualifiedSupplierType = "manufacturer" | "distributor" | "unknown";
 export type CasEvidenceStatus = "confirmed" | "mentioned" | "not_found" | "mismatch";
+export type CountryEvidenceStatus = "claimed" | "likely" | "not_found" | "mismatch";
 
 export interface QualifiedSupplierResult extends SupplierSearchResult {
   result_index: number;
@@ -266,6 +269,7 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
   summary_ru: string;
   supplier_type: QualifiedSupplierType;
   cas_status: CasEvidenceStatus;
+  country_status: CountryEvidenceStatus;
   gmp_status: EvidenceStatus;
   iso_status: EvidenceStatus;
   coa_status: EvidenceStatus;
