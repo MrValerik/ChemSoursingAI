@@ -8,9 +8,14 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
 
-_RESULT_RE = re.compile(
-    r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>.*?'
-    r'class="result__snippet"[^>]*>(.*?)</(?:a|div)>',
+_LINK_RE = re.compile(
+    r'<a\b(?=[^>]*class="[^"]*\bresult__a\b)[^>]*'
+    r'href="([^"]+)"[^>]*>(.*?)</a>',
+    re.DOTALL,
+)
+_SNIPPET_RE = re.compile(
+    r'<(?:a|div)\b(?=[^>]*class="[^"]*\bresult__snippet\b)[^>]*>'
+    r'(.*?)</(?:a|div)>',
     re.DOTALL,
 )
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -31,7 +36,12 @@ def parse_search_results(page: str, limit: int = 8) -> list[dict]:
     """Разбирает только ссылки и текст; HTML никогда не исполняется."""
     results: list[dict] = []
     seen: set[str] = set()
-    for url, title, snippet in _RESULT_RE.findall(page):
+    links = list(_LINK_RE.finditer(page))
+    for index, match in enumerate(links):
+        url, title = match.groups()
+        region_end = links[index + 1].start() if index + 1 < len(links) else len(page)
+        snippet_match = _SNIPPET_RE.search(page, match.end(), region_end)
+        snippet = snippet_match.group(1) if snippet_match else ""
         direct = _direct_url(url)
         if direct in seen:
             continue

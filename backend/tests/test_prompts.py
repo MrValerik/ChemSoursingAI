@@ -121,3 +121,38 @@ def test_supplier_search_keeps_source_urls(client, monkeypatch):
     assert response.status_code == 200
     assert response.json()["ai_used"] is True
     assert response.json()["results"][0]["url"].startswith("https://")
+
+
+def test_supplier_search_retries_with_broad_query(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_text",
+        lambda self, **kwargs: 'site:gov.cn "Aspirin" "50-78-2" GMP',
+    )
+    queries: list[str] = []
+
+    def fake_search(query, limit):
+        queries.append(query)
+        if query.startswith("site:gov.cn"):
+            return []
+        return [
+            {
+                "title": "Fallback manufacturer",
+                "url": "https://manufacturer.example/aspirin",
+                "snippet": "Product page",
+            }
+        ]
+
+    monkeypatch.setattr("app.api.supplier_search.search_web", fake_search)
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "country": "China"},
+    )
+
+    assert response.status_code == 200
+    assert len(queries) == 2
+    assert response.json()["ai_used"] is True
+    assert response.json()["fallback_used"] is True
+    assert response.json()["ai_query"].startswith("site:gov.cn")
+    assert response.json()["results"][0]["title"] == "Fallback manufacturer"

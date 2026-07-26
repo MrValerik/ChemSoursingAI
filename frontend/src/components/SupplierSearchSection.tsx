@@ -75,8 +75,16 @@ export default function SupplierSearchSection() {
       {error && <p className="error">{error}</p>}
       {data && (
         <div className="panel">
-          <div className="note">Запрос: {data.query} · Qwen: {data.ai_used ? "да" : "fallback"}</div>
+          <div className="note">Использованный запрос: {data.query} · Qwen: {data.ai_used ? "да" : "fallback"}</div>
+          {data.fallback_used && (
+            <p className="note">
+              ИИ-запрос «{data.ai_query}» не дал результатов. Выполнен повторный поиск с более широким запросом.
+            </p>
+          )}
           <p className="note">{data.warning}</p>
+          {data.results.length === 0 && (
+            <p className="note">Поисковый источник не вернул результатов. Попробуйте убрать часть дополнительных требований.</p>
+          )}
           {data.results.map((result) => (
             <div className="rfq-list-item" key={result.url}>
               <div style={{ flex: 1 }}>

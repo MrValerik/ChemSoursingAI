@@ -21,3 +21,20 @@ def test_parse_search_results_extracts_direct_source():
             "snippet": "Official manufacturer product page",
         }
     ]
+
+
+def test_parse_search_results_accepts_reordered_attributes_without_snippet():
+    page = """
+    <div class="result">
+      <a href="https://example.com/chemical"
+         rel="nofollow"
+         class="result__a">Chemical producer</a>
+    </div>
+    """
+    assert parse_search_results(page) == [
+        {
+            "title": "Chemical producer",
+            "url": "https://example.com/chemical",
+            "snippet": "",
+        }
+    ]

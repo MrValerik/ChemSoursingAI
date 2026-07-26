@@ -43,6 +43,8 @@ def supplier_search(
         .limit(1)
     )
     query = _fallback_query(data)
+    fallback_query = query
+    ai_query: str | None = None
     ai_used = False
     if prompt:
         try:
@@ -60,16 +62,26 @@ def supplier_search(
             candidate = generated.strip().strip("`").splitlines()[0].strip()
             if 5 <= len(candidate) <= 500:
                 query = candidate
+                ai_query = candidate
                 ai_used = True
         except LLMUnavailableError:
             pass
+    fallback_used = False
     try:
         results = search_web(query, data.limit)
+        # An AI-generated query can be too restrictive. Retry once with a
+        # deterministic query so an empty first attempt is not the final result.
+        if not results and query != fallback_query:
+            results = search_web(fallback_query, data.limit)
+            query = fallback_query
+            fallback_used = True
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Поисковый источник недоступен: {exc}") from exc
     return {
         "query": query,
+        "ai_query": ai_query,
         "ai_used": ai_used,
+        "fallback_used": fallback_used,
         "results": results,
         "warning": (
             "Результаты являются кандидатами. Статус производителя и документы "

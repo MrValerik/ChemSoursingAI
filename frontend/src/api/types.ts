@@ -248,7 +248,9 @@ export interface SupplierSearchResult {
 
 export interface SupplierSearchResponse {
   query: string;
+  ai_query: string | null;
   ai_used: boolean;
+  fallback_used: boolean;
   results: SupplierSearchResult[];
   warning: string;
 }
