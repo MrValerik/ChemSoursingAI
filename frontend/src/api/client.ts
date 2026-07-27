@@ -93,6 +93,7 @@ export interface RFQCreatePayload {
   incoterms: string[];
   channels?: string[];
   search_countries: string[];
+  supplier_target: number;
   additional_instructions?: string | null;
   purity?: string | null;
   application?: string | null;

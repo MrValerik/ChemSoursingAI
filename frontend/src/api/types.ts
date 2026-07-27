@@ -40,6 +40,7 @@ export interface RFQRead {
   incoterms: string[] | null;
   channels: string[] | null;
   search_countries: string[] | null;
+  supplier_target: number;
   status: RFQStatus;
   verified: boolean;
   verification: SubstanceInfo | null;
@@ -64,6 +65,7 @@ export interface RFQListItem {
   status: RFQStatus;
   verified: boolean;
   search_countries: string[] | null;
+  supplier_target: number;
   created_at: string;
 }
 

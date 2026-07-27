@@ -61,6 +61,7 @@ def create_rfq(
         incoterms=[i.strip().upper() for i in data.incoterms],
         channels=data.channels or [],
         search_countries=data.search_countries,
+        supplier_target=data.supplier_target,
         status=status,
         verified=verified,
         verification=verification,

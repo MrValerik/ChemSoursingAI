@@ -85,6 +85,72 @@ const SEARCH_STATUS_LABELS: Record<string, string> = {
   cancelled: "Отменено",
 };
 
+const COUNTRY_OPTIONS = [
+  "Китай",
+  "Индия",
+  "Турция",
+  "Германия",
+  "США",
+];
+
+const PIPELINE_STEPS = [
+  {
+    slug: "substance_lookup",
+    title: "Проверка вещества",
+    description: "Сверяет CAS и основные сведения о веществе с внешним справочником.",
+  },
+  {
+    slug: "substance_identity",
+    title: "Уточнение названий",
+    description: "Определяет синонимы и варианты названия для более полного поиска.",
+  },
+  {
+    slug: "search_planner",
+    title: "Подготовка стратегии",
+    description: "ИИ-агент решает, какие типы источников и формулировки использовать.",
+  },
+  {
+    slug: "web_search",
+    title: "Поиск компаний",
+    description: "Ищет производителей и поставщиков в открытых источниках.",
+  },
+  {
+    slug: "source_fetch",
+    title: "Проверка страниц",
+    description: "Открывает первичные страницы компаний и сохраняет подтверждения.",
+  },
+  {
+    slug: "supplier_qualification",
+    title: "Оценка поставщиков",
+    description: "Проверяет роль компании, страну, CAS, документы и возможные риски.",
+  },
+] as const;
+
+const PURPOSE_LABELS: Record<string, string> = {
+  manufacturer: "Поиск производителей",
+  product: "Поиск страниц вещества",
+  documents: "Поиск документов",
+  registry: "Проверка реестров",
+};
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  en: "английский",
+  zh: "китайский",
+  ru: "русский",
+  other: "другой язык",
+};
+
+function HelpTip({ text }: { text: string }) {
+  return (
+    <span className="help-tip">
+      <button type="button" aria-label={text}>
+        ?
+      </button>
+      <span role="tooltip">{text}</span>
+    </span>
+  );
+}
+
 const runText = (run: SearchRunListItem, key: string) => {
   const value = run.input_payload[key];
   return typeof value === "string" ? value : "";
@@ -116,290 +182,272 @@ function SearchTracePanel({
   busy: boolean;
   onRefresh: () => void;
 }) {
-  const [activeView, setActiveView] = useState("overview");
-  const selectedStage = trace.agent_runs.find(
-    (stage) => activeView === `agent-${stage.id}`,
-  );
-
-  useEffect(() => {
-    setActiveView("overview");
-  }, [trace.id]);
-
   return (
     <section className="search-trace">
       <div className="search-trace-header">
         <div>
-          <h2>Ход поиска и работа агентов</h2>
-          <p className="note">
-            Запуск #{trace.id} · {trace.owner_name || `пользователь ${trace.owner_id}`}
-          </p>
+          <div className="heading-with-help">
+            <h2>Ход поиска</h2>
+            <HelpTip text="Этапы выполняются последовательно. Завершённые отмечены зелёным, текущий — синим, ещё не запущенные — серым." />
+          </div>
         </div>
         <div className="search-trace-actions">
-          <span className={`badge ${traceTone(trace.status)}`}>{trace.status}</span>
+          <span className={`badge ${traceTone(trace.status)}`}>
+            {SEARCH_STATUS_LABELS[trace.status] || trace.status}
+          </span>
           <button className="secondary" disabled={busy} onClick={onRefresh}>
-            {busy ? "Обновление…" : "Обновить журнал"}
+            {busy ? "Обновление…" : "Обновить"}
           </button>
         </div>
       </div>
 
       {trace.error && <div className="qualification-warning">{trace.error}</div>}
 
-      <div className="tabs agent-stage-tabs">
-        <button
-          className={`tab ${activeView === "overview" ? "active" : ""}`}
-          onClick={() => setActiveView("overview")}
-        >
-          Сводка
-        </button>
-        {trace.agent_runs.map((stage) => (
-          <button
-            className={`tab ${
-              activeView === `agent-${stage.id}` ? "active" : ""
-            }`}
-            key={stage.id}
-            onClick={() => setActiveView(`agent-${stage.id}`)}
-          >
-            {stage.agent_name}
-          </button>
-        ))}
-        <button
-          className={`tab ${activeView === "sources" ? "active" : ""}`}
-          onClick={() => setActiveView("sources")}
-        >
-          Источники
-        </button>
-        <button
-          className={`tab ${activeView === "evidence" ? "active" : ""}`}
-          onClick={() => setActiveView("evidence")}
-        >
-          Доказательства
-        </button>
+      <div className="search-run-metrics compact">
+        <div>
+          <strong>{trace.summary.candidate_count}</strong>
+          <span>найдено кандидатов</span>
+        </div>
+        <div>
+          <strong>{trace.summary.qualified_count}</strong>
+          <span>проверено ИИ-агентом</span>
+        </div>
+        <div>
+          <strong>{trace.summary.manufacturer_candidate_count}</strong>
+          <span>похожи на производителей</span>
+        </div>
       </div>
 
-      {activeView === "overview" && (
-        <>
-          <div className="search-run-metrics">
-            <div>
-              <strong>{trace.summary.planned_query_count}</strong>
-              <span>запросов составила Qwen</span>
-            </div>
-            <div>
-              <strong>{trace.summary.executed_query_count}</strong>
-              <span>запросов выполнено поисковиком</span>
-            </div>
-            <div>
-              <strong>{trace.summary.raw_page_count}</strong>
-              <span>страниц вернула выдача</span>
-            </div>
-            <div>
-              <strong>{trace.summary.candidate_count}</strong>
-              <span>кандидатов после удаления дублей</span>
-            </div>
-            <div>
-              <strong>{trace.summary.qualified_count}</strong>
-              <span>кандидатов квалифицировано</span>
-            </div>
-            <div>
-              <strong>{trace.summary.manufacturer_candidate_count}</strong>
-              <span>предварительно похожи на производителей</span>
-            </div>
-          </div>
-          <div className="agent-pipeline-summary">
-            {trace.agent_runs.map((stage) => (
-              <button
-                className="agent-pipeline-step"
-                key={stage.id}
-                onClick={() => setActiveView(`agent-${stage.id}`)}
-              >
-                <span className="agent-trace-order">{stage.sequence}</span>
-                <span>
-                  <strong>{stage.agent_name}</strong>
-                  <small>
-                    {stage.execution_type === "llm"
-                      ? "Qwen: промпт и структурированный результат"
-                      : stage.execution_type === "tool"
-                        ? "Инструмент: фактический внешний вызов"
-                        : "Безопасный детерминированный fallback"}
-                  </small>
-                </span>
-                <span className={`badge ${traceTone(stage.status)}`}>
-                  {stage.status}
-                </span>
-              </button>
-            ))}
-          </div>
-          {trace.summary.qualification_status === "not_started" && (
-            <div className="qualification-warning">
-              Найденные страницы ещё не квалифицированы. Они являются кандидатами,
-              а не подтверждёнными производителями.
-            </div>
-          )}
-        </>
-      )}
-
-      {selectedStage && (
-        <div className="agent-trace-list">
-          {[selectedStage].map((stage) => (
-          <details className="agent-trace-card" key={stage.id} open>
-            <summary>
-              <span className="agent-trace-order">{stage.sequence}</span>
-              <span>
-                <strong>{stage.agent_name}</strong>
-                <small>
-                  {stage.execution_type === "llm"
-                    ? "Локальная Qwen"
-                    : stage.execution_type === "tool"
-                      ? "Системный инструмент, без промпта"
-                      : "Детерминированный fallback"}
-                </small>
-              </span>
-              <span className={`badge ${traceTone(stage.status)}`}>{stage.status}</span>
-              <span className="note">
-                {stage.latency_ms === null ? "—" : `${stage.latency_ms} мс`}
-              </span>
-            </summary>
-
-            <div className="agent-trace-meta">
-              <span>Код: {stage.agent_slug}</span>
-              {stage.prompt_version !== null && (
-                <span>Промпт: #{stage.prompt_id}, версия {stage.prompt_version}</span>
-              )}
-              {stage.model && <span>Модель: {stage.model}</span>}
-              {stage.temperature !== null && <span>temperature: {stage.temperature}</span>}
-              {stage.max_tokens !== null && <span>max tokens: {stage.max_tokens}</span>}
-            </div>
-
-            {stage.error && <div className="qualification-warning">{stage.error}</div>}
-
-            {stage.effective_system_prompt && (
-              <div className="trace-block">
-                <h3>Фактический системный промпт</h3>
-                <pre>{stage.effective_system_prompt}</pre>
-              </div>
-            )}
-            {stage.input_payload && (
-              <div className="trace-block">
-                <h3>Вход агента</h3>
-                <pre>{formatJson(stage.input_payload)}</pre>
-              </div>
-            )}
-            {stage.output_payload && (
-              <div className="trace-block">
-                <h3>Результат агента</h3>
-                <pre>{formatJson(stage.output_payload)}</pre>
-              </div>
-            )}
-          </details>
-        ))}
-        </div>
-      )}
-
-      {selectedStage?.agent_slug === "web_search" && (
-        <div className="search-attempts">
-        <h3>Где и какими запросами искали</h3>
-        {trace.search_attempts.length === 0 && (
-          <p className="note">Поисковые инструменты в этом запуске не вызывались.</p>
-        )}
-        {trace.search_attempts.map((attempt) => (
-          <details className="search-attempt-card" key={attempt.id}>
-            <summary>
-              <span className={`badge ${traceTone(attempt.status)}`}>{attempt.status}</span>
-              <strong>{attempt.connector}</strong>
-              <span className="note">
-                {attempt.language || "язык не указан"} · результатов: {attempt.result_count ?? "—"}
-              </span>
-            </summary>
-            <div className="search-query-text">{attempt.query}</div>
-            {attempt.purpose && <p className="note">Цель: {attempt.purpose}</p>}
-            {attempt.error && <div className="qualification-warning">{attempt.error}</div>}
-            {attempt.results_payload?.map((result) => (
-              <div className="search-attempt-result" key={`${attempt.id}-${result.url}`}>
-                <a href={result.url} target="_blank" rel="noreferrer">{result.title}</a>
-                <p>{result.snippet}</p>
-                <span>{result.url}</span>
-              </div>
-            ))}
-          </details>
-        ))}
-        </div>
-      )}
-
-      {activeView === "sources" && (
-        <div className="source-documents">
-        <h3>Снимки первичных страниц</h3>
-        {trace.source_documents.length === 0 && (
-          <p className="note">Первичные страницы в этом запуске ещё не загружались.</p>
-        )}
-        {trace.source_documents.map((source) => (
-          <details className="source-document-card" key={source.id}>
-            <summary>
-              <span className={`badge ${traceTone(source.status)}`}>{source.status}</span>
-              <strong>{source.title || source.domain || source.url}</strong>
-              <span className="note">
-                HTTP {source.http_status ?? "—"} · {source.content_type || "тип не определён"}
-              </span>
-            </summary>
-            <a href={source.final_url || source.url} target="_blank" rel="noreferrer">
-              {source.final_url || source.url}
-            </a>
-            {source.content_hash && (
-              <p className="source-hash">SHA-256: {source.content_hash}</p>
-            )}
-            {source.error && <div className="qualification-warning">{source.error}</div>}
-            {source.text_content && (
-              <div className="trace-block">
-                <h3>Текст, переданный агенту</h3>
-                <pre>{source.text_content}</pre>
-              </div>
-            )}
-          </details>
-        ))}
-        </div>
-      )}
-
-      {activeView === "evidence" && (
-        <div className="evidence-claims">
-        <h3>Проверенные атомарные доказательства</h3>
-        {trace.evidence_claims.length === 0 && (
-          <p className="note">
-            Агент пока не вернул ни одной цитаты, прошедшей серверную проверку.
-          </p>
-        )}
-        {trace.evidence_claims.map((claim) => {
-          const source = trace.source_documents.find(
-            (item) => item.id === claim.source_document_id,
+      <div className="agent-pipeline">
+        {PIPELINE_STEPS.map((step, index) => {
+          const stage = trace.agent_runs.find(
+            (item) => item.agent_slug === step.slug,
           );
-          return (
-            <article className="evidence-claim-card" key={claim.id}>
-              <div>
-                <span
-                  className={`badge ${
-                    claim.support_status === "supports" ? "tone-ok" : "tone-danger"
-                  }`}
-                >
-                  {claim.support_status === "supports" ? "подтверждает" : "противоречит"}
-                </span>
-                <strong>{CLAIM_LABELS[claim.claim_type] || claim.claim_type}</strong>
+          const state = !stage
+            ? "waiting"
+            : stage.status === "completed"
+              ? "completed"
+              : stage.status === "failed"
+                ? "failed"
+                : "running";
+          const statusLabel =
+            state === "completed"
+              ? "Готово"
+              : state === "running"
+                ? "Выполняется"
+                : state === "failed"
+                  ? "Ошибка"
+                  : "Ожидает запуска";
+          const content = (
+            <>
+              <span className={`pipeline-marker ${state}`}>
+                {state === "completed" ? "✓" : index + 1}
+              </span>
+              <span className="pipeline-copy">
+                <strong>{step.title}</strong>
+                <small>{step.description}</small>
+              </span>
+              <span className={`pipeline-status ${state}`}>{statusLabel}</span>
+            </>
+          );
+          if (!stage) {
+            return (
+              <div className="agent-pipeline-step waiting" key={step.slug}>
+                {content}
               </div>
-              <p>{claim.claim_value}</p>
-              <blockquote>«{claim.quote}»</blockquote>
-              {source && (
-                <a href={source.final_url || source.url} target="_blank" rel="noreferrer">
-                  Источник #{source.id}: {source.title || source.domain || source.url}
-                </a>
-              )}
-            </article>
+            );
+          }
+          return (
+            <details
+              className={`agent-pipeline-step ${state}`}
+              key={`${step.slug}-${stage.id}`}
+            >
+              <summary>{content}</summary>
+              <div className="agent-step-details">
+                <div className="agent-trace-meta">
+                  <span>
+                    Исполнитель:{" "}
+                    {stage.execution_type === "llm"
+                      ? "ИИ-агент"
+                      : stage.execution_type === "tool"
+                        ? "поисковый инструмент"
+                        : "резервный алгоритм"}
+                  </span>
+                  {stage.prompt_version !== null && (
+                    <span>Промпт: версия {stage.prompt_version}</span>
+                  )}
+                  {stage.latency_ms !== null && (
+                    <span>Время: {stage.latency_ms} мс</span>
+                  )}
+                </div>
+                {stage.error && (
+                  <div className="qualification-warning">{stage.error}</div>
+                )}
+                {stage.effective_system_prompt && (
+                  <details className="trace-subdetails">
+                    <summary>Промпт ИИ-агента</summary>
+                    <div className="trace-block">
+                      <pre>{stage.effective_system_prompt}</pre>
+                    </div>
+                  </details>
+                )}
+                {stage.input_payload && (
+                  <details className="trace-subdetails">
+                    <summary>Входные данные</summary>
+                    <div className="trace-block">
+                      <pre>{formatJson(stage.input_payload)}</pre>
+                    </div>
+                  </details>
+                )}
+                {stage.output_payload && (
+                  <details className="trace-subdetails">
+                    <summary>Результат этапа</summary>
+                    <div className="trace-block">
+                      <pre>{formatJson(stage.output_payload)}</pre>
+                    </div>
+                  </details>
+                )}
+              </div>
+            </details>
           );
         })}
+      </div>
+
+      <details className="technical-accordion">
+        <summary>
+          Технические детали
+          <span>
+            {trace.summary.executed_query_count} запросов ·{" "}
+            {trace.summary.raw_page_count} страниц
+          </span>
+        </summary>
+        <div className="technical-accordion-body">
+          <section>
+            <h3>Где и какими запросами искали</h3>
+            {trace.search_attempts.length === 0 && (
+              <p className="note">Поисковые инструменты ещё не запускались.</p>
+            )}
+            <div className="search-attempts">
+              {trace.search_attempts.map((attempt) => (
+                <details className="search-attempt-card" key={attempt.id}>
+                  <summary>
+                    <span className={`badge ${traceTone(attempt.status)}`}>
+                      {attempt.status === "completed" ? "готово" : attempt.status}
+                    </span>
+                    <strong>{attempt.query}</strong>
+                    <span className="note">
+                      результатов: {attempt.result_count ?? "—"}
+                    </span>
+                  </summary>
+                  {attempt.purpose && (
+                    <p className="note">
+                      Цель: {PURPOSE_LABELS[attempt.purpose] || attempt.purpose}
+                    </p>
+                  )}
+                  {attempt.error && (
+                    <div className="qualification-warning">{attempt.error}</div>
+                  )}
+                  {attempt.results_payload?.map((result) => (
+                    <div
+                      className="search-attempt-result"
+                      key={`${attempt.id}-${result.url}`}
+                    >
+                      <a href={result.url} target="_blank" rel="noreferrer">
+                        {result.title}
+                      </a>
+                      <p>{result.snippet}</p>
+                    </div>
+                  ))}
+                </details>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3>Сохранённые источники</h3>
+            {trace.source_documents.length === 0 && (
+              <p className="note">Первичные страницы ещё не загружались.</p>
+            )}
+            <div className="source-documents">
+              {trace.source_documents.map((source) => (
+                <details className="source-document-card" key={source.id}>
+                  <summary>
+                    <span className={`badge ${traceTone(source.status)}`}>
+                      {source.status}
+                    </span>
+                    <strong>{source.title || source.domain || source.url}</strong>
+                  </summary>
+                  <a
+                    href={source.final_url || source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {source.final_url || source.url}
+                  </a>
+                  {source.error && (
+                    <div className="qualification-warning">{source.error}</div>
+                  )}
+                </details>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3>Подтверждения</h3>
+            {trace.evidence_claims.length === 0 && (
+              <p className="note">Проверенных цитат пока нет.</p>
+            )}
+            <div className="evidence-claims">
+              {trace.evidence_claims.map((claim) => {
+                const source = trace.source_documents.find(
+                  (item) => item.id === claim.source_document_id,
+                );
+                return (
+                  <article className="evidence-claim-card" key={claim.id}>
+                    <div>
+                      <span
+                        className={`badge ${
+                          claim.support_status === "supports"
+                            ? "tone-ok"
+                            : "tone-danger"
+                        }`}
+                      >
+                        {claim.support_status === "supports"
+                          ? "подтверждает"
+                          : "противоречит"}
+                      </span>
+                      <strong>
+                        {CLAIM_LABELS[claim.claim_type] || claim.claim_type}
+                      </strong>
+                    </div>
+                    <blockquote>«{claim.quote}»</blockquote>
+                    {source && (
+                      <a
+                        href={source.final_url || source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Открыть источник
+                      </a>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
         </div>
-      )}
+      </details>
     </section>
   );
 }
 
 export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
   const { user } = useAuth();
-  const [country, setCountry] = useState(rfq.search_countries?.[0] ?? "Китай");
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(
+    rfq.search_countries?.length ? rfq.search_countries : ["Китай"],
+  );
+  const [countryToAdd, setCountryToAdd] = useState("");
+  const [supplierTarget, setSupplierTarget] = useState(rfq.supplier_target ?? 5);
   const [instructions, setInstructions] = useState("");
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
   const [qualification, setQualification] = useState<SupplierQualificationResponse | null>(null);
@@ -459,16 +507,23 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
     setData(null);
     setAddedUrls(new Set());
     try {
-      const job = await api.enqueueSupplierSearch(rfq.id, {
-        cas: rfq.cas,
-        name: rfq.name,
-        country: country || null,
-        additional_instructions: instructions || null,
-      });
+      const jobs = [];
+      for (const selectedCountry of selectedCountries) {
+        jobs.push(
+          await api.enqueueSupplierSearch(rfq.id, {
+            cas: rfq.cas,
+            name: rfq.name,
+            country: selectedCountry,
+            additional_instructions: instructions || null,
+            limit: supplierTarget,
+          }),
+        );
+      }
+      const job = jobs[jobs.length - 1];
       setSelectedRunId(job.search_run_id);
       setTrace(await api.getSearchRun(job.search_run_id));
       setNotice(
-        `Поиск #${job.search_run_id} добавлен в очередь, позиция ${job.queue_position}.`,
+        `Добавлено задач: ${jobs.length}. ИИ-агент будет искать до ${supplierTarget} поставщиков в каждой стране.`,
       );
       setRuns(await api.listSearchRuns(50, rfq.id));
     } catch (e) {
@@ -476,6 +531,18 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const addCountry = () => {
+    if (!countryToAdd || selectedCountries.includes(countryToAdd)) return;
+    setSelectedCountries((current) => [...current, countryToAdd]);
+    setCountryToAdd("");
+  };
+
+  const removeCountry = (value: string) => {
+    setSelectedCountries((current) =>
+      current.length === 1 ? current : current.filter((item) => item !== value),
+    );
   };
 
   const openRun = async (runId: number) => {
@@ -499,11 +566,21 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
 
   const activeCas = trace ? runText(trace, "cas") : rfq.cas;
   const activeName = trace ? runText(trace, "name") : rfq.name;
-  const activeCountry = trace ? runText(trace, "country") : country;
+  const activeCountry = trace
+    ? runText(trace, "country")
+    : selectedCountries[0] ?? "";
   const activeInstructions = trace
     ? runText(trace, "additional_instructions")
     : instructions;
   const candidateResults = data?.results ?? trace?.candidate_results ?? [];
+  const activeRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
+  const availableCountries = [
+    ...new Set([
+      ...COUNTRY_OPTIONS,
+      ...(rfq.search_countries ?? []),
+      ...runs.map((run) => runText(run, "country")).filter(Boolean),
+    ]),
+  ];
 
   const qualify = async () => {
     const searchRunId = data?.search_run_id ?? trace?.id;
@@ -579,33 +656,119 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
   return (
     <div className="supplier-search-workspace">
       <div className="tab-toolbar">
-        <div>
+        <div className="heading-with-help">
           <h1>Поиск поставщиков</h1>
-          <p className="note">
-            Запрос #{rfq.id}: {rfq.name}, CAS {rfq.cas}. Qwen формирует план,
-            поисковый коннектор сохраняет найденные страницы и источники.
-          </p>
+          <HelpTip text="ИИ-агент ищет компании по выбранным странам, затем помогает проверить их роль, документы и соответствие веществу." />
         </div>
       </div>
-      <div className="panel">
-        {(rfq.search_countries ?? []).length > 0 ? (
-          <p className="success">
-            Поиск запускается автоматически при создании запроса по выбранным
-            странам: {(rfq.search_countries ?? []).join(", ")}.
-          </p>
-        ) : (
-          <p className="note">
-            Этот запрос создан до появления автоматического поиска. При
-            необходимости добавьте поиск вручную.
-          </p>
-        )}
-        <details>
-          <summary>Запустить дополнительный поиск</summary>
-          <div className="row" style={{ marginTop: 12 }}>
-            <div className="field">
-              <label>Страна</label>
-              <input value={country} onChange={(e) => setCountry(e.target.value)} />
+
+      <div className="panel search-overview-panel">
+        <div className="search-overview-header">
+          <div>
+            <div className="heading-with-help">
+              <h2>Текущий поиск</h2>
+              <HelpTip text="Выберите страну, чтобы увидеть статус и результаты соответствующей задачи поиска." />
             </div>
+            <p className="note">Результаты обновляются автоматически.</p>
+          </div>
+          {traceBusy && <span className="note">Обновление…</span>}
+        </div>
+        {runs.length === 0 ? (
+          <p className="note">Поиск ещё не запускался.</p>
+        ) : (
+          <div className="current-search-grid">
+            <div className="field">
+              <label>Страна и запуск</label>
+              <select
+                value={activeRun?.id ?? ""}
+                onChange={(event) => void openRun(Number(event.target.value))}
+              >
+                {runs.map((run) => (
+                  <option key={run.id} value={run.id}>
+                    {runText(run, "country") || "Без страны"} —{" "}
+                    {SEARCH_STATUS_LABELS[run.status] || run.status}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {activeRun && (
+              <div className="current-search-summary">
+                <span className={`badge ${traceTone(activeRun.status)}`}>
+                  {SEARCH_STATUS_LABELS[activeRun.status] || activeRun.status}
+                </span>
+                {activeRun.queue_position !== null && (
+                  <span>В очереди: {activeRun.queue_position}</span>
+                )}
+                <span>Найдено: {activeRun.summary.candidate_count}</span>
+                <span>Проверено: {activeRun.summary.qualified_count}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <details className="panel settings-accordion">
+        <summary>
+          <span>
+            <strong>Настройки и новый поиск</strong>
+            <small>Страны, количество поставщиков и дополнительные требования</small>
+          </span>
+        </summary>
+        <div className="settings-accordion-body">
+          <div className="field">
+            <label>Страны поиска</label>
+            <div className="country-tokens">
+              {selectedCountries.map((selectedCountry) => (
+                <span className="country-token" key={selectedCountry}>
+                  {selectedCountry}
+                  <button
+                    type="button"
+                    aria-label={`Убрать страну ${selectedCountry}`}
+                    disabled={selectedCountries.length === 1}
+                    onClick={() => removeCountry(selectedCountry)}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="country-picker">
+              <select
+                value={countryToAdd}
+                onChange={(event) => setCountryToAdd(event.target.value)}
+              >
+                <option value="">Выберите страну</option>
+                {availableCountries
+                  .filter((item) => !selectedCountries.includes(item))
+                  .map((item) => (
+                    <option value={item} key={item}>
+                      {item}
+                    </option>
+                  ))}
+              </select>
+              <button
+                className="secondary"
+                type="button"
+                disabled={!countryToAdd}
+                onClick={addCountry}
+              >
+                Добавить
+              </button>
+            </div>
+          </div>
+          <div className="field compact-field">
+            <label>Поставщиков в каждой стране</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={supplierTarget}
+              onChange={(event) =>
+                setSupplierTarget(
+                  Math.min(20, Math.max(1, Number(event.target.value) || 1)),
+                )
+              }
+            />
           </div>
           <div className="field">
             <label>Дополнительные требования</label>
@@ -614,118 +777,76 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
               maxLength={4000}
               placeholder="Например: только производители фармацевтического грейда с GMP"
               value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
+              onChange={(event) => setInstructions(event.target.value)}
             />
           </div>
-          <button disabled={busy} onClick={() => void search()}>
-            {busy ? "Добавляем в очередь…" : "Добавить поиск в очередь"}
+          <button
+            disabled={busy || selectedCountries.length === 0}
+            onClick={() => void search()}
+          >
+            {busy
+              ? "Добавляем задачи…"
+              : `Начать поиск в ${selectedCountries.length} стран${
+                  selectedCountries.length === 1 ? "е" : "ах"
+                }`}
           </button>
-        </details>
-      </div>
+        </div>
+      </details>
+
       {notice && <p className="success">{notice}</p>}
       {error && <p className="error">{error}</p>}
-      <div className="panel">
-        <div className="search-jobs-header">
-          <div>
-            <h2>Запуски поиска по этому запросу</h2>
-            <p className="note">
-              Список обновляется автоматически каждые 3 секунды.
-            </p>
-          </div>
-          {traceBusy && <span className="note">Обновление…</span>}
-        </div>
-        {runs.length === 0 ? (
-          <p className="note">Задач поиска пока нет.</p>
-        ) : (
-          <div className="search-job-list">
-            {runs.map((run) => (
-              <button
-                type="button"
-                className={`search-job-card ${selectedRunId === run.id ? "selected" : ""}`}
-                key={run.id}
-                onClick={() => void openRun(run.id)}
-              >
-                <span className="search-job-main">
-                  <strong>{runText(run, "name") || `Поиск #${run.id}`}</strong>
-                  <small>
-                    CAS {runText(run, "cas") || "—"} · {runText(run, "country") || "любая страна"}
-                  </small>
-                  {run.error && <small className="error">{run.error}</small>}
-                </span>
-                <span className="search-job-progress">
-                  <span className={`badge ${traceTone(run.status)}`}>
-                    {SEARCH_STATUS_LABELS[run.status] || run.status}
-                  </span>
-                  {run.queue_position !== null && (
-                    <small>Позиция в очереди: {run.queue_position}</small>
-                  )}
-                  {run.result_count > 0 && (
-                    <small>Кандидатов: {run.result_count}</small>
-                  )}
-                  {run.summary.executed_query_count > 0 && (
-                    <small>
-                      Поиск: {run.summary.executed_query_count}/
-                      {run.summary.planned_query_count} запросов · страниц:{" "}
-                      {run.summary.raw_page_count}
-                    </small>
-                  )}
-                  {run.summary.qualified_count > 0 && (
-                    <small>
-                      Квалифицировано: {run.summary.qualified_count} · производителей:{" "}
-                      {run.summary.manufacturer_candidate_count}
-                    </small>
-                  )}
-                  <small>#{run.id}</small>
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
       {(data || candidateResults.length > 0) && (
         <div className="panel">
+          <div className="search-results-header">
+            <div className="heading-with-help">
+              <h2>Найденные поставщики</h2>
+              <HelpTip text="Сначала показываются кандидаты из поисковой выдачи. Дополнительная проверка помогает определить производителей, документы и риски." />
+            </div>
+            <strong>{candidateResults.length}</strong>
+          </div>
           {data ? (
             <>
-              <div className="note">Основной запрос: {data.query} · Qwen: {data.ai_used ? "план построен" : "использован fallback"}</div>
-              <div className="search-identity">
-                <strong>
-                  Вещество: {data.identity.canonical_name || activeName}
-                </strong>
-                <div className="note">
-                  CAS: {activeCas} · PubChem: {data.substance_lookup.found ? "найден" : "не подтверждён"}
-                  {data.substance_lookup.cid ? ` · CID ${data.substance_lookup.cid}` : ""}
-                  {data.substance_lookup.molecular_formula
-                    ? ` · ${data.substance_lookup.molecular_formula}`
-                    : ""}
-                </div>
-                <div className="note">
-                  Идентичность: {data.identity.status}
-                  {data.identity.search_names.length > 0
-                    ? ` · поисковые имена: ${data.identity.search_names.join(", ")}`
-                    : ""}
-                </div>
-                {data.identity.ambiguities.map((item) => (
-                  <div className="note" key={item}>Требует внимания: {item}</div>
-                ))}
-              </div>
-              {data.fallback_used && (
-                <p className="note">
-                  Для полноты выполнено несколько запросов, включая локализованные по стране.
-                </p>
-              )}
-              <details className="search-queries">
-                <summary>Показать план и использованные запросы ({data.search_plan.length})</summary>
-                <ul>
-                  {data.search_plan.map((item) => (
-                    <li key={item.query}>
-                      <code>{item.query}</code>
-                      {" — "}
-                      {item.language}, {item.purpose}, {item.source_type}, приоритет {item.priority}
-                    </li>
+              <details className="content-accordion">
+                <summary>Как ИИ-агент понял вещество</summary>
+                <div className="content-accordion-body search-identity">
+                  <strong>{data.identity.canonical_name || activeName}</strong>
+                  <div className="note">
+                    CAS: {activeCas} · справочник:{" "}
+                    {data.substance_lookup.found ? "подтверждён" : "не подтверждён"}
+                    {data.substance_lookup.molecular_formula
+                      ? ` · ${data.substance_lookup.molecular_formula}`
+                      : ""}
+                  </div>
+                  {data.identity.search_names.length > 0 && (
+                    <div className="note">
+                      Также искали: {data.identity.search_names.join(", ")}
+                    </div>
+                  )}
+                  {data.identity.ambiguities.map((item) => (
+                    <div className="qualification-warning" key={item}>
+                      Требует внимания: {item}
+                    </div>
                   ))}
-                </ul>
+                </div>
               </details>
-              <p className="note">{data.warning}</p>
+              <details className="content-accordion">
+                <summary>
+                  Поисковая стратегия и запросы ({data.search_plan.length})
+                </summary>
+                <div className="content-accordion-body search-plan-list">
+                  {data.search_plan.map((item) => (
+                    <article key={item.query}>
+                      <strong>
+                        {PURPOSE_LABELS[item.purpose] || "Поисковый запрос"}
+                      </strong>
+                      <code>{item.query}</code>
+                      <small>
+                        Язык: {LANGUAGE_LABELS[item.language] || item.language}
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              </details>
             </>
           ) : (
             <div className="qualification-warning">
@@ -738,30 +859,64 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
           )}
           {candidateResults.length > 0 && !qualification && (
             <div className="qualification-action">
-              <button disabled={qualifying} onClick={() => void qualify()}>
-                {qualifying ? "Qwen переводит и квалифицирует…" : "Перевести и квалифицировать результаты"}
-              </button>
-              <span className="note">Обычно занимает 1–3 минуты на Tesla T4.</span>
+              <div className="heading-with-help">
+                <button disabled={qualifying} onClick={() => void qualify()}>
+                  {qualifying
+                    ? "ИИ-агент проверяет поставщиков…"
+                    : `Проверить найденных поставщиков (${Math.min(
+                        candidateResults.length,
+                        5,
+                      )})`}
+                </button>
+                <HelpTip text="ИИ-агент откроет первичные страницы первых пяти кандидатов, переведёт данные и проверит роль компании, страну, CAS, GMP, ISO, CoA и TDS. Результат остаётся предварительным." />
+              </div>
+              <span className="note">Проверка может занять несколько минут.</span>
             </div>
           )}
-          {!qualification &&
-            candidateResults.map((result) => (
-              <div className="rfq-list-item" key={result.url}>
-                <div style={{ flex: 1 }}>
-                  <a href={result.url} target="_blank" rel="noreferrer">{result.title}</a>
-                  <div>
-                    <span className={`badge ${result.country_hint === "likely" ? "tone-ok" : "tone-neutral"}`}>
-                      {result.country_hint === "likely" ? "Есть признаки нужной страны" : "Страна требует проверки"}
-                    </span>
-                  </div>
-                  <div className="note">{result.snippet}</div>
-                  <div className="cas">{result.url}</div>
-                </div>
+          {!qualification && candidateResults.length > 0 && (
+            <details className="content-accordion" open>
+              <summary>Кандидаты из поисковой выдачи ({candidateResults.length})</summary>
+              <div className="content-accordion-body candidate-list">
+                {candidateResults.map((result) => (
+                  <details className="candidate-row" key={result.url}>
+                    <summary>
+                      <a
+                        href={result.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {result.title}
+                      </a>
+                      <span
+                        className={`badge ${
+                          result.country_hint === "likely"
+                            ? "tone-ok"
+                            : "tone-neutral"
+                        }`}
+                      >
+                        {result.country_hint === "likely"
+                          ? "Страна совпадает"
+                          : "Страна не подтверждена"}
+                      </span>
+                    </summary>
+                    <div className="candidate-row-body">
+                      <p>{result.snippet}</p>
+                      <a href={result.url} target="_blank" rel="noreferrer">
+                        Открыть источник
+                      </a>
+                    </div>
+                  </details>
+                ))}
               </div>
-            ))}
+            </details>
+          )}
           {qualification && (
             <>
-              <p className="note">{qualification.warning}</p>
+              <div className="qualification-warning">
+                Проверка предварительная. Перед решением откройте источники и
+                запросите документы у поставщика.
+              </div>
               <div className="qualification-grid">
                 {qualification.results.map((result) => (
                   <article className="qualification-card" key={result.url}>
@@ -812,8 +967,8 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
                       </ul>
                       {result.llm_confidence !== null && (
                         <p className="note">
-                          Исходная оценка Qwen: {result.llm_confidence}% — показана для аудита,
-                          но не участвует в итоговом балле.
+                          Исходная оценка ИИ-агента: {result.llm_confidence}% —
+                          показана для аудита, но не участвует в итоговом балле.
                         </p>
                       )}
                     </details>

@@ -23,6 +23,7 @@ export default function NewRfq({ onCreated }: Props) {
   const [volume, setVolume] = useState("500 kg");
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
+  const [supplierTarget, setSupplierTarget] = useState(5);
   const [customCountry, setCustomCountry] = useState("");
   const [aiInstructions, setAiInstructions] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +38,7 @@ export default function NewRfq({ onCreated }: Props) {
     volume: volume.trim() || null,
     channels: ["email"],
     search_countries: countries,
+    supplier_target: supplierTarget,
     additional_instructions: aiInstructions.trim() || null,
   });
 
@@ -165,6 +167,25 @@ export default function NewRfq({ onCreated }: Props) {
         {countries.length === 0 && (
           <span className="error">Выберите хотя бы одну страну.</span>
         )}
+      </div>
+
+      <div className="field">
+        <label>Сколько поставщиков найти в каждой стране</label>
+        <input
+          type="number"
+          min={1}
+          max={20}
+          value={supplierTarget}
+          onChange={(event) =>
+            setSupplierTarget(
+              Math.min(20, Math.max(1, Number(event.target.value) || 1)),
+            )
+          }
+        />
+        <span className="note">
+          ИИ-агент постарается найти указанное число подходящих компаний для
+          каждой выбранной страны.
+        </span>
       </div>
 
       <div className="field">

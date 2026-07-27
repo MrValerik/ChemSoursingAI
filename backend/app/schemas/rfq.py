@@ -22,6 +22,7 @@ class RFQCreate(BaseModel):
         max_length=10,
         examples=[["China", "India"]],
     )
+    supplier_target: int = Field(default=5, ge=1, le=20)
     additional_instructions: str | None = Field(default=None, max_length=4000)
     purity: str | None = None
     application: str | None = None
@@ -65,6 +66,7 @@ class RFQRead(BaseModel):
     incoterms: list[str] | None
     channels: list[str] | None
     search_countries: list[str] | None
+    supplier_target: int
     status: RFQStatus
     verified: bool
     verification: dict | None
@@ -89,6 +91,7 @@ class RFQListItem(BaseModel):
     status: RFQStatus
     verified: bool
     search_countries: list[str] | None
+    supplier_target: int
     created_at: datetime
 
     # Обогащение для сводной таблицы.

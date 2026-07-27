@@ -339,6 +339,7 @@ def test_creating_request_can_start_search_for_each_selected_country(client):
             "name": "Aspirin",
             "incoterms": ["CIP"],
             "search_countries": ["Китай", "Индия", " китай "],
+            "supplier_target": 7,
             "additional_instructions": "Только производители с GMP",
         },
     )
@@ -346,6 +347,7 @@ def test_creating_request_can_start_search_for_each_selected_country(client):
     assert response.status_code == 201
     request = response.json()
     assert request["search_countries"] == ["Китай", "Индия"]
+    assert request["supplier_target"] == 7
 
     runs = client.get(
         f"/search-runs?rfq_id={request['id']}",
@@ -357,6 +359,7 @@ def test_creating_request_can_start_search_for_each_selected_country(client):
     ]
     assert all(run["status"] == "queued" for run in runs)
     assert all(run["rfq_id"] == request["id"] for run in runs)
+    assert all(run["input_payload"]["limit"] == 7 for run in runs)
     assert all(
         run["input_payload"]["additional_instructions"]
         == "Только производители с GMP"

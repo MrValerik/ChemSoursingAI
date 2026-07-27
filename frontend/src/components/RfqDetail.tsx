@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { PriceHistoryItem, RFQRead } from "../api/types";
+import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
 import CommunicationHistory from "./CommunicationHistory";
@@ -66,6 +66,7 @@ export default function RfqDetail({
   const { user } = useAuth();
   const [tab, setTab] = useState<TabKey>("supplier_search");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [searchRuns, setSearchRuns] = useState<SearchRunListItem[]>([]);
 
   const [escOpen, setEscOpen] = useState(false);
   const [escReason, setEscReason] = useState("other");
@@ -75,6 +76,57 @@ export default function RfqDetail({
 
   const canEscalate = user?.role !== "auditor" && rfq.status !== "escalated";
   const doneStages = STAGE_BY_STATUS[rfq.status] ?? 0;
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const items = await api.listSearchRuns(50, rfq.id);
+        if (active) setSearchRuns(items);
+      } catch {
+        // Статус карточки не должен ломаться из-за временной ошибки polling.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [rfq.id]);
+
+  const searchTerminal = new Set([
+    "search_completed",
+    "completed",
+    "failed",
+    "cancelled",
+  ]);
+  const searchFinished =
+    searchRuns.length > 0 &&
+    searchRuns.every((run) => searchTerminal.has(run.status));
+  const searchSucceeded = searchRuns.some((run) =>
+    ["search_completed", "completed"].includes(run.status),
+  );
+  const searchFailed =
+    searchRuns.length > 0 && searchRuns.every((run) => run.status === "failed");
+
+  const stageClass = (index: number) => {
+    if (index === 0) {
+      const searchStarted = searchRuns.some(
+        (run) => !["queued", "identifying"].includes(run.status),
+      );
+      return rfq.verified || searchStarted || searchRuns.length > 0
+        ? "done"
+        : "current";
+    }
+    if (index === 1) {
+      if (searchFailed) return "error";
+      if (searchFinished && searchSucceeded) return "done";
+      if (searchRuns.length > 0 || doneStages >= 1) return "current";
+      return "";
+    }
+    return index < doneStages ? "done" : index === doneStages ? "current" : "";
+  };
 
   const escalate = async () => {
     setEscBusy(true);
@@ -200,7 +252,7 @@ export default function RfqDetail({
             {STAGES.map((s, i) => (
               <li
                 key={s}
-                className={i < doneStages ? "done" : i === doneStages ? "current" : ""}
+                className={stageClass(i)}
               >
                 {s}
               </li>

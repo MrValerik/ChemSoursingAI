@@ -111,7 +111,7 @@ def create(
                         if data.additional_instructions
                         else None
                     ),
-                    "limit": 5,
+                    "limit": data.supplier_target,
                 },
                 mode="queued_search",
                 status="queued",

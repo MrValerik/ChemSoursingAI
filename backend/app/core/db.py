@@ -73,6 +73,13 @@ def _apply_light_migrations() -> None:
                         f"ADD COLUMN search_countries {json_type}"
                     )
                 )
+            if "supplier_target" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE rfqs ADD COLUMN supplier_target "
+                        "INTEGER NOT NULL DEFAULT 5"
+                    )
+                )
     if "suppliers" in tables:
         cols = {c["name"] for c in inspector.get_columns("suppliers")}
         with engine.begin() as conn:
