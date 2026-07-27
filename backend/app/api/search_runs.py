@@ -57,6 +57,7 @@ def get_search_run(
             selectinload(SearchRun.owner),
             selectinload(SearchRun.agent_runs),
             selectinload(SearchRun.search_attempts),
+            selectinload(SearchRun.source_documents),
         )
     )
     if search_run is None or not _can_see(user, search_run):

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.db import SessionLocal
 from app.core.seed import seed_prompts
+from app.connectors.web_page import FetchedPage
 from app.extraction.llm_client import LLMUnavailableError
 from app.models import User
 from app.services.search_trace import create_search_run
@@ -348,6 +349,19 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
             ]
         },
     )
+    monkeypatch.setattr(
+        "app.api.supplier_search.fetch_web_page",
+        lambda url: FetchedPage(
+            url=url,
+            final_url=url,
+            domain="manufacturer.example",
+            title="Official aspirin product",
+            content_type="text/html",
+            http_status=200,
+            text="We manufacture Aspirin CAS 50-78-2 and provide CoA.",
+            content_hash="a" * 64,
+        ),
+    )
     source_url = "https://manufacturer.example/products/aspirin"
     with SessionLocal() as db:
         owner = db.query(User).filter(User.username == "ivanov").one()
@@ -393,11 +407,53 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
         f"/search-runs/{payload['search_run_id']}", headers=buyer
     ).json()
     assert trace["status"] == "completed"
+    assert trace["agent_runs"][-2]["agent_slug"] == "source_fetch"
     stage = trace["agent_runs"][-1]
     assert stage["agent_slug"] == "supplier_qualification"
     assert stage["prompt_version"] == payload["prompt_version"]
     assert "недоверенными данными" in stage["effective_system_prompt"]
     assert stage["output_payload"]["qualified_results"][0]["url"] == source_url
+    assert trace["source_documents"][0]["status"] == "completed"
+    assert trace["source_documents"][0]["content_hash"] == "a" * 64
+    assert "We manufacture" in trace["source_documents"][0]["text_content"]
+
+
+def test_qualification_keeps_failed_page_as_visible_fallback(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    monkeypatch.setattr(
+        "app.api.supplier_search.fetch_web_page",
+        lambda url: (_ for _ in ()).throw(RuntimeError("page blocked")),
+    )
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json",
+        lambda self, **kwargs: {"results": []},
+    )
+    response = client.post(
+        "/supplier-search/qualify",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "country": "China",
+            "results": [
+                {
+                    "title": "Search-only candidate",
+                    "url": "https://blocked.example/product",
+                    "snippet": "Search snippet mentioning CAS 50-78-2.",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200
+    trace = client.get(
+        f"/search-runs/{response.json()['search_run_id']}", headers=buyer
+    ).json()
+    assert trace["source_documents"][0]["status"] == "failed"
+    assert trace["source_documents"][0]["error"] == "page blocked"
+    qualification_input = trace["agent_runs"][-1]["input_payload"]["sources"][0]
+    assert qualification_input["fetch_status"] == "failed"
+    assert qualification_input["page_text"] is None
+    assert "50-78-2" in qualification_input["snippet"]
 
 
 def test_supplier_search_prioritizes_chinese_sources(client, monkeypatch):

@@ -354,6 +354,22 @@ export interface SearchAttemptRead {
   error: string | null;
 }
 
+export interface SourceDocumentRead {
+  id: number;
+  agent_run_id: number | null;
+  url: string;
+  final_url: string | null;
+  domain: string | null;
+  title: string | null;
+  content_type: string | null;
+  status: string;
+  http_status: number | null;
+  text_content: string | null;
+  content_hash: string | null;
+  retrieved_at: string;
+  error: string | null;
+}
+
 export interface SearchRunTrace {
   id: number;
   owner_id: number;
@@ -366,6 +382,7 @@ export interface SearchRunTrace {
   error: string | null;
   agent_runs: AgentRunRead[];
   search_attempts: SearchAttemptRead[];
+  source_documents: SourceDocumentRead[];
 }
 
 export interface DashboardOverdue {

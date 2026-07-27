@@ -10,10 +10,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.connectors.web_page import fetch_web_page
 from app.connectors.web_search import search_web
 from app.core.db import get_db
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
-from app.models import AgentRun, PromptTemplate, SearchRun, User
+from app.models import AgentRun, PromptTemplate, SearchRun, SourceDocument, User
 from app.models.enums import UserRole
 from app.services.search_trace import (
     create_search_run,
@@ -22,6 +23,7 @@ from app.services.search_trace import (
     finish_search_run,
     start_agent_run,
     start_search_attempt,
+    utc_now,
 )
 
 router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
@@ -201,7 +203,10 @@ def _qualification_system_prompt(prompt: PromptTemplate | None) -> str:
         "Для country_status используй claimed при прямом указании нахождения "
         "компании в требуемой стране, likely — только по косвенным признакам "
         "вроде домена или региона, mismatch — при явном указании другой страны, "
-        "иначе not_found. Кратко перечисли риски и недостающие доказательства. "
+        "иначе not_found. page_text — текст загруженной первичной страницы. "
+        "Если fetch_status равен failed, доступен только поисковый snippet: "
+        "считай его слабым свидетельством и снижай уверенность. "
+        "Кратко перечисли риски и недостающие доказательства. "
         "Не изменяй CAS, названия компаний и факты источника."
     )
 
@@ -567,6 +572,91 @@ def qualify_supplier_results(
     # Keep this assignment close to the call: the same effective prompt is
     # persisted below and shown verbatim in the search trace.
     system_prompt = _qualification_system_prompt(prompt)
+    fetch_run, fetch_clock = start_agent_run(
+        db,
+        search_run=search_run,
+        sequence=_next_agent_sequence(db, search_run.id),
+        agent_slug="source_fetch",
+        agent_name="Загрузка первичных страниц",
+        execution_type="tool",
+        input_payload={
+            "urls": [result.url for result in data.results],
+            "max_pages": len(data.results),
+        },
+    )
+    db.commit()
+
+    fetched_sources: list[dict] = []
+    fetch_summary: list[dict] = []
+    for index, result in enumerate(data.results):
+        source = SourceDocument(
+            search_run_id=search_run.id,
+            agent_run_id=fetch_run.id,
+            url=result.url,
+            domain=_domain_key(result.url),
+            title=result.title,
+            status="running",
+            retrieved_at=utc_now(),
+        )
+        db.add(source)
+        db.flush()
+        try:
+            page = fetch_web_page(result.url)
+            source.final_url = page.final_url
+            source.domain = page.domain
+            source.title = page.title or result.title
+            source.content_type = page.content_type
+            source.http_status = page.http_status
+            source.text_content = page.text
+            source.content_hash = page.content_hash
+            source.status = "completed"
+            fetched_sources.append(
+                {
+                    "result_index": index,
+                    "source_document_id": source.id,
+                    "title": result.title[:300],
+                    "snippet": result.snippet[:900],
+                    "url": result.url,
+                    "domain": source.domain,
+                    "fetch_status": "completed",
+                    "page_text": page.text[:4000],
+                }
+            )
+        except Exception as exc:
+            # A single inaccessible supplier page must not destroy the whole
+            # run. Its search snippet remains visible as explicitly weak data.
+            source.status = "failed"
+            source.error = str(exc)
+            fetched_sources.append(
+                {
+                    "result_index": index,
+                    "source_document_id": source.id,
+                    "title": result.title[:300],
+                    "snippet": result.snippet[:900],
+                    "url": result.url,
+                    "domain": source.domain,
+                    "fetch_status": "failed",
+                    "page_text": None,
+                    "fetch_error": source.error,
+                }
+            )
+        fetch_summary.append(
+            {
+                "source_document_id": source.id,
+                "url": result.url,
+                "status": source.status,
+                "content_hash": source.content_hash,
+                "error": source.error,
+            }
+        )
+        db.commit()
+
+    finish_agent_run(
+        fetch_run,
+        fetch_clock,
+        output_payload={"sources": fetch_summary},
+    )
+    db.commit()
     source_data = {
         "chemical": {
             "name": data.name,
@@ -574,17 +664,7 @@ def qualify_supplier_results(
             "country": data.country,
             "user_requirements": data.additional_instructions,
         },
-        "sources": [
-            {
-                "result_index": index,
-                "title": result.title[:300],
-                # Search snippets can be unexpectedly large. Keep the complete
-                # original in the API response, but bound the LLM context.
-                "snippet": result.snippet[:900],
-                "domain": _domain_key(result.url),
-            }
-            for index, result in enumerate(data.results)
-        ],
+        "sources": fetched_sources,
     }
     llm = LLMClient()
     qualification_run, qualification_clock = start_agent_run(

@@ -42,6 +42,11 @@ class SearchRun(Base, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="SearchAttempt.id",
     )
+    source_documents: Mapped[list["SourceDocument"]] = relationship(
+        back_populates="search_run",
+        cascade="all, delete-orphan",
+        order_by="SourceDocument.id",
+    )
 
 
 class AgentRun(Base, TimestampMixin):
@@ -117,3 +122,31 @@ class SearchAttempt(Base, TimestampMixin):
     agent_run: Mapped["AgentRun | None"] = relationship(
         back_populates="search_attempts"
     )
+
+
+class SourceDocument(Base, TimestampMixin):
+    """A bounded snapshot of a primary page used by the pipeline."""
+
+    __tablename__ = "source_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    search_run_id: Mapped[int] = mapped_column(
+        ForeignKey("search_runs.id", ondelete="CASCADE"), index=True
+    )
+    agent_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL"), default=None, index=True
+    )
+    url: Mapped[str] = mapped_column(Text)
+    final_url: Mapped[str | None] = mapped_column(Text, default=None)
+    domain: Mapped[str | None] = mapped_column(String(255), default=None, index=True)
+    title: Mapped[str | None] = mapped_column(Text, default=None)
+    content_type: Mapped[str | None] = mapped_column(String(255), default=None)
+    status: Mapped[str] = mapped_column(String(32), default="running", index=True)
+    http_status: Mapped[int | None] = mapped_column(Integer, default=None)
+    text_content: Mapped[str | None] = mapped_column(Text, default=None)
+    content_hash: Mapped[str | None] = mapped_column(String(64), default=None)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+
+    search_run: Mapped["SearchRun"] = relationship(back_populates="source_documents")
+    agent_run: Mapped["AgentRun | None"] = relationship()

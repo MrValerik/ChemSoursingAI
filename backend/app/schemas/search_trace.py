@@ -50,6 +50,24 @@ class SearchAttemptRead(BaseModel):
     error: str | None
 
 
+class SourceDocumentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    agent_run_id: int | None
+    url: str
+    final_url: str | None
+    domain: str | None
+    title: str | None
+    content_type: str | None
+    status: str
+    http_status: int | None
+    text_content: str | None
+    content_hash: str | None
+    retrieved_at: datetime
+    error: str | None
+
+
 class SearchRunListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,3 +85,4 @@ class SearchRunListItem(BaseModel):
 class SearchRunTrace(SearchRunListItem):
     agent_runs: list[AgentRunRead]
     search_attempts: list[SearchAttemptRead]
+    source_documents: list[SourceDocumentRead]

@@ -170,6 +170,37 @@ function SearchTracePanel({
           </details>
         ))}
       </div>
+
+      <div className="source-documents">
+        <h3>Снимки первичных страниц</h3>
+        {trace.source_documents.length === 0 && (
+          <p className="note">Первичные страницы в этом запуске ещё не загружались.</p>
+        )}
+        {trace.source_documents.map((source) => (
+          <details className="source-document-card" key={source.id}>
+            <summary>
+              <span className={`badge ${traceTone(source.status)}`}>{source.status}</span>
+              <strong>{source.title || source.domain || source.url}</strong>
+              <span className="note">
+                HTTP {source.http_status ?? "—"} · {source.content_type || "тип не определён"}
+              </span>
+            </summary>
+            <a href={source.final_url || source.url} target="_blank" rel="noreferrer">
+              {source.final_url || source.url}
+            </a>
+            {source.content_hash && (
+              <p className="source-hash">SHA-256: {source.content_hash}</p>
+            )}
+            {source.error && <div className="qualification-warning">{source.error}</div>}
+            {source.text_content && (
+              <div className="trace-block">
+                <h3>Текст, переданный агенту</h3>
+                <pre>{source.text_content}</pre>
+              </div>
+            )}
+          </details>
+        ))}
+      </div>
     </section>
   );
 }

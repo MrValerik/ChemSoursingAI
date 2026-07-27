@@ -651,13 +651,15 @@ table.summary tbody tr:hover { background: #f8fafc; }
 }
 
 .agent-trace-list,
-.search-attempts {
+.search-attempts,
+.source-documents {
   display: grid;
   gap: 10px;
 }
 
 .agent-trace-card,
-.search-attempt-card {
+.search-attempt-card,
+.source-document-card {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #fff;
@@ -665,7 +667,8 @@ table.summary tbody tr:hover { background: #f8fafc; }
 }
 
 .agent-trace-card > summary,
-.search-attempt-card > summary {
+.search-attempt-card > summary,
+.source-document-card > summary {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -762,6 +765,29 @@ table.summary tbody tr:hover { background: #f8fafc; }
   overflow-wrap: anywhere;
 }
 
+.source-document-card > a,
+.source-document-card > p,
+.source-document-card > .qualification-warning {
+  display: block;
+  margin: 12px;
+  overflow-wrap: anywhere;
+}
+
+.source-document-card > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.source-document-card > summary strong {
+  flex: 1;
+}
+
+.source-hash {
+  color: var(--muted);
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 @media (max-width: 760px) {
   .search-trace-header,
   .search-trace-actions {
@@ -770,7 +796,8 @@ table.summary tbody tr:hover { background: #f8fafc; }
   }
 
   .agent-trace-card > summary,
-  .search-attempt-card > summary {
+  .search-attempt-card > summary,
+  .source-document-card > summary {
     align-items: flex-start;
     flex-wrap: wrap;
   }
