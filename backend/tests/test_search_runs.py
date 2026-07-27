@@ -95,6 +95,7 @@ def test_owner_and_privileged_roles_can_read_full_trace(client):
         assert trace["agent_runs"][0]["output_payload"]["queries"]
         assert trace["search_attempts"][0]["connector"] == "duckduckgo_html"
         assert trace["search_attempts"][0]["result_count"] == 3
+        assert trace["search_attempts"][0]["results_payload"] is None
 
 
 def test_buyer_cannot_read_another_users_trace(client):

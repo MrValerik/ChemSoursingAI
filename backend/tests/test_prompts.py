@@ -10,6 +10,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.db import SessionLocal
 from app.core.seed import seed_prompts
+from app.extraction.llm_client import LLMUnavailableError
+from app.models import User
+from app.services.search_trace import create_search_run
 
 
 @pytest.fixture(scope="module")
@@ -157,8 +160,25 @@ def test_supplier_search_keeps_source_urls(client, monkeypatch):
         },
     )
     assert response.status_code == 200
-    assert response.json()["ai_used"] is True
-    assert response.json()["results"][0]["url"].startswith("https://")
+    payload = response.json()
+    assert payload["ai_used"] is True
+    assert payload["results"][0]["url"].startswith("https://")
+
+    trace_response = client.get(
+        f"/search-runs/{payload['search_run_id']}", headers=buyer
+    )
+    assert trace_response.status_code == 200
+    trace = trace_response.json()
+    assert trace["status"] == "search_completed"
+    assert [stage["agent_slug"] for stage in trace["agent_runs"]] == [
+        "search_planner",
+        "web_search",
+    ]
+    assert trace["agent_runs"][0]["effective_system_prompt"]
+    assert trace["agent_runs"][0]["output_payload"]["ai_query"]
+    assert trace["search_attempts"][0]["results_payload"][0]["url"].startswith(
+        "https://"
+    )
 
 
 def test_supplier_search_retries_with_broad_query(client, monkeypatch):
@@ -195,6 +215,44 @@ def test_supplier_search_retries_with_broad_query(client, monkeypatch):
     assert response.json()["fallback_used"] is True
     assert response.json()["ai_query"].startswith("site:gov.cn")
     assert response.json()["results"][0]["title"] == "Fallback manufacturer"
+
+
+def test_supplier_search_trace_records_safe_llm_fallback(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+
+    def unavailable(*args, **kwargs):
+        raise LLMUnavailableError("local model is offline")
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_text", unavailable
+    )
+    monkeypatch.setattr(
+        "app.api.supplier_search.search_web",
+        lambda query, limit: [
+            {
+                "title": "Fallback source",
+                "url": "https://fallback-source.cn/product",
+                "snippet": "CAS 50-78-2 product page",
+            }
+        ],
+    )
+
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "country": "China"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ai_used"] is False
+
+    trace = client.get(
+        f"/search-runs/{payload['search_run_id']}", headers=buyer
+    ).json()
+    assert trace["status"] == "search_completed"
+    assert trace["agent_runs"][0]["status"] == "failed"
+    assert "local model is offline" in trace["agent_runs"][0]["error"]
+    assert trace["agent_runs"][1]["status"] == "completed"
 
 
 def test_supplier_search_deduplicates_results_by_domain(client, monkeypatch):
@@ -262,10 +320,22 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
         },
     )
     source_url = "https://manufacturer.example/products/aspirin"
+    with SessionLocal() as db:
+        owner = db.query(User).filter(User.username == "ivanov").one()
+        search_run = create_search_run(
+            db,
+            owner_id=owner.id,
+            input_payload={"cas": "50-78-2", "name": "Aspirin"},
+        )
+        search_run.status = "search_completed"
+        db.commit()
+        search_run_id = search_run.id
+
     response = client.post(
         "/supplier-search/qualify",
         headers=buyer,
         json={
+            "search_run_id": search_run_id,
             "cas": "50-78-2",
             "name": "Aspirin",
             "country": "China",
@@ -280,13 +350,25 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
     )
 
     assert response.status_code == 200
-    result = response.json()["results"][0]
+    payload = response.json()
+    assert payload["search_run_id"] == search_run_id
+    result = payload["results"][0]
     assert result["url"] == source_url
     assert result["title"] == "Aspirin manufacturer"
     assert result["title_ru"] == "Производитель аспирина"
     assert result["supplier_type"] == "manufacturer"
     assert result["country_status"] == "claimed"
     assert result["gmp_status"] == "claimed"
+
+    trace = client.get(
+        f"/search-runs/{payload['search_run_id']}", headers=buyer
+    ).json()
+    assert trace["status"] == "completed"
+    stage = trace["agent_runs"][-1]
+    assert stage["agent_slug"] == "supplier_qualification"
+    assert stage["prompt_version"] == payload["prompt_version"]
+    assert "недоверенными данными" in stage["effective_system_prompt"]
+    assert stage["output_payload"]["qualified_results"][0]["url"] == source_url
 
 
 def test_supplier_search_prioritizes_chinese_sources(client, monkeypatch):
@@ -325,3 +407,29 @@ def test_supplier_search_prioritizes_chinese_sources(client, monkeypatch):
     assert any("生产厂家" in query for query in payload["queries_used"])
     assert payload["results"][0]["url"].endswith(".cn/product")
     assert payload["results"][0]["country_hint"] == "likely"
+
+
+def test_auditor_cannot_start_or_qualify_search(client):
+    auditor = _auth(client, "auditor")
+    search_payload = {"cas": "50-78-2", "name": "Aspirin", "country": "China"}
+    assert (
+        client.post("/supplier-search", headers=auditor, json=search_payload).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/supplier-search/qualify",
+            headers=auditor,
+            json={
+                **search_payload,
+                "results": [
+                    {
+                        "title": "Candidate",
+                        "url": "https://candidate.example/product",
+                        "snippet": "Candidate supplier",
+                    }
+                ],
+            },
+        ).status_code
+        == 403
+    )

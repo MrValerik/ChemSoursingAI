@@ -103,6 +103,9 @@ class SearchAttempt(Base, TimestampMixin):
     purpose: Mapped[str | None] = mapped_column(Text, default=None)
     status: Mapped[str] = mapped_column(String(32), default="running", index=True)
     result_count: Mapped[int | None] = mapped_column(Integer, default=None)
+    results_payload: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON, default=None
+    )
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None

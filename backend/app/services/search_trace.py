@@ -116,9 +116,11 @@ def finish_search_attempt(
     started_clock: float,
     *,
     result_count: int | None = None,
+    results_payload: list[dict[str, Any]] | None = None,
     error: str | None = None,
 ) -> None:
     attempt.result_count = result_count
+    attempt.results_payload = results_payload
     attempt.error = error
     attempt.status = "failed" if error else "completed"
     attempt.completed_at = utc_now()

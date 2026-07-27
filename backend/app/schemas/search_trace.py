@@ -43,6 +43,7 @@ class SearchAttemptRead(BaseModel):
     purpose: str | None
     status: str
     result_count: int | None
+    results_payload: list[dict[str, Any]] | None
     started_at: datetime
     completed_at: datetime | None
     latency_ms: int | None
