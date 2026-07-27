@@ -1,0 +1,4 @@
+interface:
+  display_name: "ChemSource Testing"
+  short_description: "Windows-friendly validation for ChemSource AI"
+  default_prompt: "Use $chemsource-testing to validate a ChemSource AI change on Windows."

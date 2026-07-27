@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.core.db import SessionLocal, engine
 from app.main import app
-from app.models import RfqAiSetting, SearchRun, User
+from app.models import RFQ, RfqAiSetting, SearchRun, User
 from app.search_worker import process_next_job, recover_interrupted_jobs
 from app.services.search_trace import (
     create_search_run,
@@ -187,6 +187,219 @@ def test_search_jobs_are_queued_and_processed_fifo(client):
     assert second_trace["status"] == "queued"
     assert second_trace["queue_position"] == 1
     assert process_next_job(executor=successful_executor) == second["search_run_id"]
+
+
+def test_worker_automatically_continues_to_source_check_and_qualification(
+    client, monkeypatch
+):
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(
+        client, buyer, cas="50-78-2", name="Aspirin"
+    )
+    source_url = "https://manufacturer.example/aspirin"
+
+    def successful_executor(data, db, user, *, search_run):
+        return {
+            "search_run_id": search_run.id,
+            "query": f'"{data.cas}" manufacturer',
+            "queries_used": [f'"{data.cas}" manufacturer'],
+            "results": [
+                {
+                    "title": "Aspirin manufacturer",
+                    "url": source_url,
+                    "snippet": "We manufacture Aspirin CAS 50-78-2.",
+                    "country_hint": "likely",
+                }
+            ],
+        }
+
+    def successful_qualifier(data, db, user):
+        assert data.search_run_id == queued["search_run_id"]
+        assert data.results[0].url == source_url
+        run = db.get(SearchRun, data.search_run_id)
+        fetch_stage, fetch_clock = start_agent_run(
+            db,
+            search_run=run,
+            sequence=5,
+            agent_slug="source_fetch",
+            agent_name="Загрузка первичных страниц",
+            execution_type="tool",
+            input_payload={"urls": [source_url]},
+        )
+        finish_agent_run(
+            fetch_stage,
+            fetch_clock,
+            output_payload={"sources": [{"url": source_url, "status": "completed"}]},
+        )
+        qualification_stage, qualification_clock = start_agent_run(
+            db,
+            search_run=run,
+            sequence=6,
+            agent_slug="supplier_qualification",
+            agent_name="Квалификация поставщиков",
+            execution_type="llm",
+            input_payload={"sources": [{"url": source_url}]},
+        )
+        finish_agent_run(
+            qualification_stage,
+            qualification_clock,
+            output_payload={
+                "qualified_results": [
+                    {
+                        "url": source_url,
+                        "supplier_type": "manufacturer",
+                    }
+                ]
+            },
+        )
+        finish_search_run(run)
+        db.commit()
+        return {"search_run_id": run.id, "results": []}
+
+    monkeypatch.setattr(
+        "app.search_worker.execute_supplier_search",
+        successful_executor,
+    )
+    monkeypatch.setattr(
+        "app.search_worker.execute_supplier_qualification",
+        successful_qualifier,
+    )
+    processed_id = process_next_job()
+
+    assert processed_id == queued["search_run_id"]
+    trace = client.get(f"/search-runs/{processed_id}", headers=buyer).json()
+    assert trace["status"] == "completed"
+    assert trace["result_payload"]["results"][0]["url"] == source_url
+    assert [stage["agent_slug"] for stage in trace["agent_runs"]] == [
+        "source_fetch",
+        "supplier_qualification",
+    ]
+    assert trace["summary"]["qualified_count"] == 1
+    assert trace["summary"]["manufacturer_candidate_count"] == 1
+
+
+def test_worker_resumes_linked_search_completed_run_without_repeating_search(
+    client,
+):
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(
+        client, buyer, cas="50-78-2", name="Aspirin"
+    )
+    source_url = "https://manufacturer.example/resumed-aspirin"
+
+    with SessionLocal() as db:
+        run = db.get(SearchRun, queued["search_run_id"])
+        assert run is not None
+        rfq = RFQ(
+            cas="50-78-2",
+            name="Aspirin qualification resume",
+            owner_id=run.owner_id,
+        )
+        db.add(rfq)
+        db.flush()
+        run.rfq_id = rfq.id
+        run.status = "search_completed"
+        run.result_payload = {
+            "search_run_id": run.id,
+            "query": '"50-78-2" manufacturer',
+            "queries_used": ['"50-78-2" manufacturer'],
+            "results": [
+                {
+                    "title": "Resumable Aspirin manufacturer",
+                    "url": source_url,
+                    "snippet": "We manufacture Aspirin CAS 50-78-2.",
+                    "country_hint": "likely",
+                }
+            ],
+        }
+        db.commit()
+
+    def repeated_search(*args, **kwargs):
+        raise AssertionError("persisted candidates must be reused")
+
+    def successful_qualifier(data, db, user):
+        assert data.search_run_id == queued["search_run_id"]
+        assert data.results[0].url == source_url
+        run = db.get(SearchRun, data.search_run_id)
+        fetch_stage, fetch_clock = start_agent_run(
+            db,
+            search_run=run,
+            sequence=5,
+            agent_slug="source_fetch",
+            agent_name="Загрузка первичных страниц",
+            execution_type="tool",
+            input_payload={"urls": [source_url]},
+        )
+        finish_agent_run(
+            fetch_stage,
+            fetch_clock,
+            output_payload={"sources": [{"url": source_url, "status": "completed"}]},
+        )
+        qualification_stage, qualification_clock = start_agent_run(
+            db,
+            search_run=run,
+            sequence=6,
+            agent_slug="supplier_qualification",
+            agent_name="Квалификация поставщиков",
+            execution_type="llm",
+            input_payload={"sources": [{"url": source_url}]},
+        )
+        finish_agent_run(
+            qualification_stage,
+            qualification_clock,
+            output_payload={
+                "qualified_results": [
+                    {
+                        "url": source_url,
+                        "supplier_type": "manufacturer",
+                    }
+                ]
+            },
+        )
+        finish_search_run(run)
+        db.commit()
+        return {"search_run_id": run.id, "results": []}
+
+    processed_id = process_next_job(
+        executor=repeated_search,
+        qualifier=successful_qualifier,
+    )
+
+    assert processed_id == queued["search_run_id"]
+    trace = client.get(f"/search-runs/{processed_id}", headers=buyer).json()
+    assert trace["status"] == "completed"
+    assert trace["result_payload"]["results"][0]["url"] == source_url
+    assert [stage["agent_slug"] for stage in trace["agent_runs"]] == [
+        "source_fetch",
+        "supplier_qualification",
+    ]
+
+
+def test_worker_completes_full_job_when_search_finds_no_candidates(
+    client, monkeypatch
+):
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(
+        client, buyer, cas="64-17-5", name="Ethanol"
+    )
+
+    monkeypatch.setattr(
+        "app.search_worker.execute_supplier_search",
+        lambda data, db, user, *, search_run: {
+            "search_run_id": search_run.id,
+            "query": f'"{data.cas}" manufacturer',
+            "queries_used": [f'"{data.cas}" manufacturer'],
+            "results": [],
+        },
+    )
+
+    assert process_next_job() == queued["search_run_id"]
+    trace = client.get(
+        f"/search-runs/{queued['search_run_id']}", headers=buyer
+    ).json()
+    assert trace["status"] == "completed"
+    assert trace["summary"]["candidate_count"] == 0
+    assert trace["summary"]["qualification_status"] == "not_started"
 
 
 def test_failed_job_does_not_block_the_queue(client):

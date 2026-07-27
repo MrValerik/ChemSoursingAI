@@ -1,0 +1,4 @@
+interface:
+  display_name: "ChemSource AI Pipeline"
+  short_description: "Evidence-first LLM extraction and sourcing"
+  default_prompt: "Use $chemsource-ai-pipeline to change the evidence-first AI pipeline safely."

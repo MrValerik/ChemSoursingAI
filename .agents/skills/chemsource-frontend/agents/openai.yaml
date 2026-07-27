@@ -1,0 +1,4 @@
+interface:
+  display_name: "ChemSource Frontend"
+  short_description: "React and Vite UI work for ChemSource AI"
+  default_prompt: "Use $chemsource-frontend to implement a ChemSource AI interface change."

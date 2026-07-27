@@ -1195,11 +1195,10 @@ def execute_supplier_search(
     return response_payload
 
 
-@router.post("/qualify")
-def qualify_supplier_results(
+def execute_supplier_qualification(
     data: SupplierQualificationRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    db: Session,
+    user: User,
 ) -> dict:
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
@@ -1515,3 +1514,13 @@ def qualify_supplier_results(
             "проверки по первичным документам."
         ),
     }
+
+
+@router.post("/qualify")
+def qualify_supplier_results(
+    data: SupplierQualificationRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Compatibility endpoint for explicit re-qualification and diagnostics."""
+    return execute_supplier_qualification(data, db, user)

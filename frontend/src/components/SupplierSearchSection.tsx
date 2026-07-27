@@ -156,6 +156,170 @@ const runText = (run: SearchRunListItem, key: string) => {
   return typeof value === "string" ? value : "";
 };
 
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+const asArray = (value: unknown): unknown[] =>
+  Array.isArray(value) ? value : [];
+
+const displayText = (value: unknown, fallback = "Не указано") =>
+  typeof value === "string" && value.trim()
+    ? value
+    : typeof value === "number"
+      ? String(value)
+      : fallback;
+
+const formatDuration = (latencyMs: number) => {
+  const totalSeconds = Math.max(0, Math.round(latencyMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes} мин ${seconds} сек`;
+};
+
+function StageResult({
+  slug,
+  output,
+}: {
+  slug: (typeof PIPELINE_STEPS)[number]["slug"];
+  output: Record<string, unknown>;
+}) {
+  if (slug === "substance_lookup") {
+    return (
+      <div className="stage-result-grid">
+        <div>
+          <span>Статус проверки</span>
+          <strong>{output.found ? "Вещество найдено" : "Не подтверждено"}</strong>
+        </div>
+        <div>
+          <span>Наименование в справочнике</span>
+          <strong>
+            {displayText(output.iupac_name ?? output.title ?? output.name)}
+          </strong>
+        </div>
+        <div>
+          <span>Молекулярная формула</span>
+          <strong>{displayText(output.molecular_formula)}</strong>
+        </div>
+        <div>
+          <span>Молекулярная масса</span>
+          <strong>{displayText(output.molecular_weight)}</strong>
+        </div>
+      </div>
+    );
+  }
+
+  if (slug === "substance_identity") {
+    const identity = asRecord(output.identity);
+    const names = asArray(identity.search_names).filter(
+      (item): item is string => typeof item === "string" && Boolean(item),
+    );
+    const ambiguities = asArray(identity.ambiguities).filter(
+      (item): item is string => typeof item === "string" && Boolean(item),
+    );
+    return (
+      <div className="stage-result-friendly">
+        <div className="stage-result-hero">
+          <span>Установленное наименование</span>
+          <strong>{displayText(identity.canonical_name)}</strong>
+        </div>
+        {names.length > 0 && (
+          <div>
+            <span className="stage-result-label">Варианты для поиска</span>
+            <div className="stage-result-tags">
+              {names.map((name) => (
+                <span key={name}>{name}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {ambiguities.length > 0 && (
+          <div className="stage-result-notice">
+            <strong>Требует внимания</strong>
+            {ambiguities.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (slug === "search_planner") {
+    const queries = asArray(output.queries).map(asRecord);
+    return (
+      <div className="stage-result-friendly">
+        <div className="stage-result-hero">
+          <span>Подготовлено поисковых сценариев</span>
+          <strong>{queries.length}</strong>
+        </div>
+        {queries.length > 0 && (
+          <div className="stage-result-list">
+            {queries.map((query, index) => (
+              <div key={`${displayText(query.query)}-${index}`}>
+                <span>{PURPOSE_LABELS[displayText(query.purpose, "")] || "Поиск поставщиков"}</span>
+                <strong>{displayText(query.query)}</strong>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (slug === "web_search") {
+    const queries = asArray(output.queries_used);
+    const results = asArray(output.results);
+    return (
+      <div className="stage-result-grid">
+        <div>
+          <span>Выполнено запросов</span>
+          <strong>{queries.length}</strong>
+        </div>
+        <div>
+          <span>Уникальных кандидатов</span>
+          <strong>{results.length}</strong>
+        </div>
+      </div>
+    );
+  }
+
+  if (slug === "source_fetch") {
+    const sources = asArray(output.sources).map(asRecord);
+    const completed = sources.filter((source) => source.status === "completed").length;
+    return (
+      <div className="stage-result-grid">
+        <div>
+          <span>Страниц обработано</span>
+          <strong>{sources.length}</strong>
+        </div>
+        <div>
+          <span>Страниц доступно для проверки</span>
+          <strong>{completed}</strong>
+        </div>
+      </div>
+    );
+  }
+
+  const results = asArray(output.qualified_results).map(asRecord);
+  const manufacturers = results.filter(
+    (result) => result.supplier_type === "manufacturer",
+  ).length;
+  return (
+    <div className="stage-result-grid">
+      <div>
+        <span>Компаний оценено</span>
+        <strong>{results.length}</strong>
+      </div>
+      <div>
+        <span>Вероятных производителей</span>
+        <strong>{manufacturers}</strong>
+      </div>
+    </div>
+  );
+}
+
 const qualificationFromTrace = (
   trace: SearchRunTrace,
 ): SupplierQualificationResponse | null => {
@@ -182,6 +346,17 @@ function SearchTracePanel({
   busy: boolean;
   onRefresh: () => void;
 }) {
+  const hasRunningStage = trace.agent_runs.some(
+    (stage) => stage.status !== "completed" && stage.status !== "failed",
+  );
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!hasRunningStage) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [hasRunningStage]);
+
   return (
     <section className="search-trace">
       <div className="search-trace-header">
@@ -203,28 +378,20 @@ function SearchTracePanel({
 
       {trace.error && <div className="qualification-warning">{trace.error}</div>}
 
-      <div className="search-run-metrics compact">
-        <div>
-          <strong>{trace.summary.candidate_count}</strong>
-          <span>найдено кандидатов</span>
-        </div>
-        <div>
-          <strong>{trace.summary.qualified_count}</strong>
-          <span>проверено ИИ-агентом</span>
-        </div>
-        <div>
-          <strong>{trace.summary.manufacturer_candidate_count}</strong>
-          <span>похожи на производителей</span>
-        </div>
-      </div>
-
       <div className="agent-pipeline">
         {PIPELINE_STEPS.map((step, index) => {
           const stage = trace.agent_runs.find(
             (item) => item.agent_slug === step.slug,
           );
-          const state = !stage
-            ? "waiting"
+          const skipped =
+            !stage &&
+            index >= 4 &&
+            (trace.status === "completed" || trace.status === "search_completed") &&
+            trace.summary.candidate_count === 0;
+          const state = skipped
+            ? "skipped"
+            : !stage
+              ? "waiting"
             : stage.status === "completed"
               ? "completed"
               : stage.status === "failed"
@@ -237,7 +404,9 @@ function SearchTracePanel({
                 ? "Выполняется"
                 : state === "failed"
                   ? "Ошибка"
-                  : "Ожидает запуска";
+                  : state === "skipped"
+                    ? "Пропущено: кандидаты не найдены"
+                    : "Ожидает запуска";
           const content = (
             <>
               <span className={`pipeline-marker ${state}`}>
@@ -247,16 +416,26 @@ function SearchTracePanel({
                 <strong>{step.title}</strong>
                 <small>{step.description}</small>
               </span>
-              <span className={`pipeline-status ${state}`}>{statusLabel}</span>
+              <span className={`pipeline-status ${state}`}>
+                {state === "running" && (
+                  <span className="loading-spinner" aria-hidden="true" />
+                )}
+                {statusLabel}
+              </span>
             </>
           );
           if (!stage) {
             return (
-              <div className="agent-pipeline-step waiting" key={step.slug}>
+              <div className={`agent-pipeline-step ${state}`} key={step.slug}>
                 {content}
               </div>
             );
           }
+          const elapsedMs =
+            stage.latency_ms ??
+            (state === "running"
+              ? Math.max(0, now - new Date(stage.started_at).getTime())
+              : null);
           return (
             <details
               className={`agent-pipeline-step ${state}`}
@@ -276,12 +455,21 @@ function SearchTracePanel({
                   {stage.prompt_version !== null && (
                     <span>Промпт: версия {stage.prompt_version}</span>
                   )}
-                  {stage.latency_ms !== null && (
-                    <span>Время: {stage.latency_ms} мс</span>
+                  {elapsedMs !== null && (
+                    <span>Время: {formatDuration(elapsedMs)}</span>
                   )}
                 </div>
                 {stage.error && (
                   <div className="qualification-warning">{stage.error}</div>
+                )}
+                {stage.output_payload && (
+                  <section className="stage-result">
+                    <h3>Результат этапа</h3>
+                    <StageResult
+                      slug={step.slug}
+                      output={stage.output_payload}
+                    />
+                  </section>
                 )}
                 {stage.effective_system_prompt && (
                   <details className="trace-subdetails">
@@ -301,7 +489,7 @@ function SearchTracePanel({
                 )}
                 {stage.output_payload && (
                   <details className="trace-subdetails">
-                    <summary>Результат этапа</summary>
+                    <summary>Технические данные результата</summary>
                     <div className="trace-block">
                       <pre>{formatJson(stage.output_payload)}</pre>
                     </div>
@@ -323,7 +511,7 @@ function SearchTracePanel({
         </summary>
         <div className="technical-accordion-body">
           <section>
-            <h3>Где и какими запросами искали</h3>
+            <h3>Источники и параметры поисковых запросов</h3>
             {trace.search_attempts.length === 0 && (
               <p className="note">Поисковые инструменты ещё не запускались.</p>
             )}
@@ -455,7 +643,6 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
   const [runs, setRuns] = useState<SearchRunListItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [qualifying, setQualifying] = useState(false);
   const [traceBusy, setTraceBusy] = useState(false);
   const [addedUrls, setAddedUrls] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -569,9 +756,6 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
   const activeCountry = trace
     ? runText(trace, "country")
     : selectedCountries[0] ?? "";
-  const activeInstructions = trace
-    ? runText(trace, "additional_instructions")
-    : instructions;
   const candidateResults = data?.results ?? trace?.candidate_results ?? [];
   const activeRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
   const availableCountries = [
@@ -581,36 +765,6 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
       ...runs.map((run) => runText(run, "country")).filter(Boolean),
     ]),
   ];
-
-  const qualify = async () => {
-    const searchRunId = data?.search_run_id ?? trace?.id;
-    if (!searchRunId || candidateResults.length === 0) return;
-    setQualifying(true);
-    setError(null);
-    try {
-      const result = await api.qualifySuppliers({
-        search_run_id: searchRunId,
-        cas: activeCas,
-        name: activeName,
-        country: activeCountry || null,
-        additional_instructions: activeInstructions || null,
-        results: candidateResults.slice(0, 5),
-      });
-      setQualification(result);
-      setTrace(await api.getSearchRun(result.search_run_id));
-    } catch (e) {
-      if (e instanceof ApiError && e.searchRunId) {
-        try {
-          setTrace(await api.getSearchRun(e.searchRunId));
-        } catch {
-          // Keep the qualification error if the trace cannot be reloaded.
-        }
-      }
-      setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setQualifying(false);
-    }
-  };
 
   const refreshTrace = async () => {
     const runId = selectedRunId ?? qualification?.search_run_id ?? data?.search_run_id;
@@ -669,17 +823,11 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
               <h2>Текущий поиск</h2>
               <HelpTip text="Выберите страну, чтобы увидеть статус и результаты соответствующей задачи поиска." />
             </div>
-            <p className="note">Результаты обновляются автоматически.</p>
           </div>
-          {traceBusy && <span className="note">Обновление…</span>}
-        </div>
-        {runs.length === 0 ? (
-          <p className="note">Поиск ещё не запускался.</p>
-        ) : (
-          <div className="current-search-grid">
-            <div className="field">
-              <label>Страна и запуск</label>
+          <div className="current-search-controls">
+            {runs.length > 0 && (
               <select
+                aria-label="Выбор текущего поиска"
                 value={activeRun?.id ?? ""}
                 onChange={(event) => void openRun(Number(event.target.value))}
               >
@@ -690,20 +838,28 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
                   </option>
                 ))}
               </select>
-            </div>
-            {activeRun && (
-              <div className="current-search-summary">
-                <span className={`badge ${traceTone(activeRun.status)}`}>
-                  {SEARCH_STATUS_LABELS[activeRun.status] || activeRun.status}
-                </span>
-                {activeRun.queue_position !== null && (
-                  <span>В очереди: {activeRun.queue_position}</span>
-                )}
-                <span>Найдено: {activeRun.summary.candidate_count}</span>
-                <span>Проверено: {activeRun.summary.qualified_count}</span>
-              </div>
+            )}
+            {traceBusy && (
+              <span className="current-search-refresh">
+                <span className="loading-spinner" aria-hidden="true" />
+                Обновление
+              </span>
             )}
           </div>
+        </div>
+        {runs.length === 0 ? (
+          <p className="note">Поиск ещё не запускался.</p>
+        ) : (
+          activeRun && (
+            <div className="current-search-summary">
+              <span className={`badge ${traceTone(activeRun.status)}`}>
+                {SEARCH_STATUS_LABELS[activeRun.status] || activeRun.status}
+              </span>
+              {activeRun.queue_position !== null && (
+                <span>Позиция в очереди: {activeRun.queue_position}</span>
+              )}
+            </div>
+          )
         )}
       </div>
 
@@ -807,7 +963,7 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
           {data ? (
             <>
               <details className="content-accordion">
-                <summary>Как ИИ-агент понял вещество</summary>
+                <summary>Результат идентификации вещества ИИ-агентом</summary>
                 <div className="content-accordion-body search-identity">
                   <strong>{data.identity.canonical_name || activeName}</strong>
                   <div className="note">
@@ -856,22 +1012,6 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
           )}
           {candidateResults.length === 0 && (
             <p className="note">Поисковый источник не вернул результатов. Попробуйте убрать часть дополнительных требований.</p>
-          )}
-          {candidateResults.length > 0 && !qualification && (
-            <div className="qualification-action">
-              <div className="heading-with-help">
-                <button disabled={qualifying} onClick={() => void qualify()}>
-                  {qualifying
-                    ? "ИИ-агент проверяет поставщиков…"
-                    : `Проверить найденных поставщиков (${Math.min(
-                        candidateResults.length,
-                        5,
-                      )})`}
-                </button>
-                <HelpTip text="ИИ-агент откроет первичные страницы первых пяти кандидатов, переведёт данные и проверит роль компании, страну, CAS, GMP, ISO, CoA и TDS. Результат остаётся предварительным." />
-              </div>
-              <span className="note">Проверка может занять несколько минут.</span>
-            </div>
           )}
           {!qualification && candidateResults.length > 0 && (
             <details className="content-accordion" open>

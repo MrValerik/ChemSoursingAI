@@ -13,11 +13,13 @@ from collections.abc import Callable
 from time import sleep
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.supplier_search import (
+    SupplierQualificationRequest,
     SupplierSearchRequest,
+    execute_supplier_qualification,
     execute_supplier_search,
 )
 from app.core.db import SessionLocal, init_db
@@ -65,7 +67,13 @@ def claim_next_job(db: Session) -> int | None:
         select(SearchRun)
         .where(
             SearchRun.mode == "queued_search",
-            SearchRun.status == "queued",
+            or_(
+                SearchRun.status == "queued",
+                and_(
+                    SearchRun.status == "search_completed",
+                    SearchRun.rfq_id.is_not(None),
+                ),
+            ),
         )
         .order_by(SearchRun.created_at, SearchRun.id)
         .limit(1)
@@ -76,7 +84,11 @@ def claim_next_job(db: Session) -> int | None:
     if run is None:
         db.commit()
         return None
-    run.status = "identifying"
+    run.status = (
+        "fetching_sources"
+        if run.status == "search_completed"
+        else "identifying"
+    )
     run.error = None
     db.commit()
     return run.id
@@ -86,8 +98,9 @@ def process_next_job(
     *,
     session_factory: sessionmaker[Session] = SessionLocal,
     executor: Callable[..., dict] | None = None,
+    qualifier: Callable[..., dict] | None = None,
 ) -> int | None:
-    """Claim and execute one job. Returns its id, or None if the queue is empty."""
+    """Execute search and its automatic qualification as one queued job."""
     with session_factory() as db:
         run_id = claim_next_job(db)
     if run_id is None:
@@ -106,15 +119,51 @@ def process_next_job(
             return run_id
         try:
             request = SupplierSearchRequest.model_validate(run.input_payload)
-            run_executor = executor or execute_supplier_search
-            result = run_executor(
-                request,
-                db,
-                user,
-                search_run=run,
+            persisted_result = (
+                run.result_payload
+                if run.status == "fetching_sources"
+                and isinstance(run.result_payload, dict)
+                and isinstance(run.result_payload.get("results"), list)
+                else None
             )
+            if persisted_result is not None:
+                result = persisted_result
+            else:
+                run_executor = executor or execute_supplier_search
+                result = run_executor(
+                    request,
+                    db,
+                    user,
+                    search_run=run,
+                )
             run.result_payload = result
-            if run.status not in _TERMINAL_STATUSES:
+            db.commit()
+
+            candidate_results = result.get("results")
+            run_qualifier = qualifier or (
+                execute_supplier_qualification if executor is None else None
+            )
+            if (
+                run_qualifier is not None
+                and isinstance(candidate_results, list)
+                and candidate_results
+            ):
+                qualification_request = SupplierQualificationRequest(
+                    search_run_id=run.id,
+                    cas=request.cas,
+                    name=request.name,
+                    country=request.country,
+                    additional_instructions=request.additional_instructions,
+                    results=candidate_results[:5],
+                )
+                run_qualifier(qualification_request, db, user)
+                run.result_payload = result
+            elif executor is None and isinstance(candidate_results, list):
+                # There is nothing to fetch or qualify. The full queued job is
+                # nevertheless complete, rather than being left between steps.
+                run.status = "completed"
+                run.completed_at = utc_now()
+            elif run.status not in _TERMINAL_STATUSES:
                 run.status = "search_completed"
             db.commit()
         except Exception as exc:

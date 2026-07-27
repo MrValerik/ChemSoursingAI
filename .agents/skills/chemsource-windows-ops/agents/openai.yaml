@@ -1,0 +1,4 @@
+interface:
+  display_name: "ChemSource Windows Ops"
+  short_description: "PowerShell and Docker workflows on Windows"
+  default_prompt: "Use $chemsource-windows-ops to run ChemSource AI safely from Windows."
