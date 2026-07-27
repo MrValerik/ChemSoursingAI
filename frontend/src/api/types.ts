@@ -435,7 +435,7 @@ export interface EvidenceClaimRead {
   created_at: string;
 }
 
-export interface SearchRunTrace {
+export interface SearchRunListItem {
   id: number;
   owner_id: number;
   owner_name: string | null;
@@ -445,10 +445,22 @@ export interface SearchRunTrace {
   started_at: string;
   completed_at: string | null;
   error: string | null;
+  queue_position: number | null;
+  result_count: number;
+}
+
+export interface SearchRunTrace extends SearchRunListItem {
+  result_payload: SupplierSearchResponse | null;
   agent_runs: AgentRunRead[];
   search_attempts: SearchAttemptRead[];
   source_documents: SourceDocumentRead[];
   evidence_claims: EvidenceClaimRead[];
+}
+
+export interface SupplierSearchJob {
+  search_run_id: number;
+  status: "queued";
+  queue_position: number;
 }
 
 export interface DashboardOverdue {

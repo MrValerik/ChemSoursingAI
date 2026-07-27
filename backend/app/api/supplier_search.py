@@ -1183,6 +1183,8 @@ def qualify_supplier_results(
     # Keep this assignment close to the call: the same effective prompt is
     # persisted below and shown verbatim in the search trace.
     system_prompt = _qualification_system_prompt(prompt)
+    search_run.status = "fetching_sources"
+    db.commit()
     fetch_run, fetch_clock = start_agent_run(
         db,
         search_run=search_run,
@@ -1282,6 +1284,8 @@ def qualify_supplier_results(
         "sources": fetched_sources,
     }
     llm = LLMClient()
+    search_run.status = "qualifying"
+    db.commit()
     qualification_run, qualification_clock = start_agent_run(
         db,
         search_run=search_run,

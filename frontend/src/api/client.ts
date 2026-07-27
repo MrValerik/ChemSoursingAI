@@ -11,8 +11,10 @@ import type {
   PromptRead,
   PromptVersionRead,
   RecipientRead,
+  SearchRunListItem,
   SupplierRead,
   SupplierQualificationResponse,
+  SupplierSearchJob,
   SupplierSearchResponse,
   SearchRunTrace,
   TemplateRead,
@@ -292,6 +294,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  enqueueSupplierSearch: (payload: {
+    cas: string;
+    name: string;
+    country?: string | null;
+    additional_instructions?: string | null;
+    limit?: number;
+  }) =>
+    request<SupplierSearchJob>(`/supplier-search/jobs`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  listSearchRuns: (limit = 50) =>
+    request<SearchRunListItem[]>(`/search-runs?limit=${limit}`),
 
   qualifySuppliers: (payload: {
     search_run_id?: number;

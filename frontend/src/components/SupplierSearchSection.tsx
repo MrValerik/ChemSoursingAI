@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type {
   CasEvidenceStatus,
@@ -6,6 +6,7 @@ import type {
   EvidenceStatus,
   QualifiedSupplierResult,
   QualifiedSupplierType,
+  SearchRunListItem,
   SearchRunTrace,
   SupplierQualificationResponse,
   SupplierSearchResponse,
@@ -68,6 +69,24 @@ const traceTone = (status: string) => {
   if (status === "completed" || status === "search_completed") return "tone-ok";
   if (status === "failed") return "tone-danger";
   return "tone-warn";
+};
+
+const SEARCH_STATUS_LABELS: Record<string, string> = {
+  queued: "В очереди",
+  identifying: "Проверка CAS и вещества",
+  planning: "Планирование запросов",
+  searching: "Поиск по источникам",
+  search_completed: "Кандидаты найдены",
+  fetching_sources: "Загрузка первичных страниц",
+  qualifying: "Квалификация поставщиков",
+  completed: "Завершено",
+  failed: "Ошибка",
+  cancelled: "Отменено",
+};
+
+const runText = (run: SearchRunListItem, key: string) => {
+  const value = run.input_payload[key];
+  return typeof value === "string" ? value : "";
 };
 
 function SearchTracePanel({
@@ -259,40 +278,102 @@ export default function SupplierSearchSection() {
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
   const [qualification, setQualification] = useState<SupplierQualificationResponse | null>(null);
   const [trace, setTrace] = useState<SearchRunTrace | null>(null);
+  const [runs, setRuns] = useState<SearchRunListItem[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [qualifying, setQualifying] = useState(false);
   const [traceBusy, setTraceBusy] = useState(false);
   const [addedUrls, setAddedUrls] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const items = await api.listSearchRuns();
+        if (!active) return;
+        setRuns(items);
+        if (selectedRunId !== null) {
+          const currentTrace = await api.getSearchRun(selectedRunId);
+          if (!active) return;
+          setTrace(currentTrace);
+          if (currentTrace.result_payload) {
+            setData(currentTrace.result_payload);
+          }
+        }
+      } catch {
+        // A transient polling failure must not hide the form or current result.
+      } finally {
+        refreshing = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [selectedRunId]);
 
   const search = async () => {
     setBusy(true);
     setError(null);
+    setNotice(null);
     setQualification(null);
     setTrace(null);
+    setData(null);
     setAddedUrls(new Set());
     try {
-      const result = await api.searchSuppliers({
+      const job = await api.enqueueSupplierSearch({
         cas,
         name,
         country: country || null,
         additional_instructions: instructions || null,
       });
-      setData(result);
-      setTrace(await api.getSearchRun(result.search_run_id));
+      setSelectedRunId(job.search_run_id);
+      setTrace(await api.getSearchRun(job.search_run_id));
+      setNotice(
+        `Поиск #${job.search_run_id} добавлен в очередь, позиция ${job.queue_position}.`,
+      );
+      setCas("");
+      setName("");
+      setInstructions("");
+      setRuns(await api.listSearchRuns());
     } catch (e) {
-      if (e instanceof ApiError && e.searchRunId) {
-        try {
-          setTrace(await api.getSearchRun(e.searchRunId));
-        } catch {
-          // The original search error is more useful than a secondary trace error.
-        }
-      }
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   };
+
+  const openRun = async (runId: number) => {
+    setSelectedRunId(runId);
+    setQualification(null);
+    setData(null);
+    setAddedUrls(new Set());
+    setError(null);
+    setTraceBusy(true);
+    try {
+      const currentTrace = await api.getSearchRun(runId);
+      setTrace(currentTrace);
+      setData(currentTrace.result_payload);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setTraceBusy(false);
+    }
+  };
+
+  const activeCas = trace ? runText(trace, "cas") : cas;
+  const activeName = trace ? runText(trace, "name") : name;
+  const activeCountry = trace ? runText(trace, "country") : country;
+  const activeInstructions = trace
+    ? runText(trace, "additional_instructions")
+    : instructions;
 
   const qualify = async () => {
     if (!data) return;
@@ -301,10 +382,10 @@ export default function SupplierSearchSection() {
     try {
       const result = await api.qualifySuppliers({
         search_run_id: data.search_run_id,
-        cas,
-        name,
-        country: country || null,
-        additional_instructions: instructions || null,
+        cas: activeCas,
+        name: activeName,
+        country: activeCountry || null,
+        additional_instructions: activeInstructions || null,
         results: data.results.slice(0, 5),
       });
       setQualification(result);
@@ -324,7 +405,7 @@ export default function SupplierSearchSection() {
   };
 
   const refreshTrace = async () => {
-    const runId = qualification?.search_run_id ?? data?.search_run_id;
+    const runId = selectedRunId ?? qualification?.search_run_id ?? data?.search_run_id;
     if (!runId) return;
     setTraceBusy(true);
     setError(null);
@@ -346,7 +427,7 @@ export default function SupplierSearchSection() {
           qualified && qualified.supplier_type !== "unknown"
             ? qualified.supplier_type
             : null,
-        country: country || null,
+        country: activeCountry || null,
         source: result.url,
         reputation: qualified
           ? `Проверяемый балл ${qualified.confidence}/100, требуется решение человека`
@@ -383,19 +464,68 @@ export default function SupplierSearchSection() {
           />
         </div>
         <button disabled={busy || !cas.trim() || !name.trim()} onClick={() => void search()}>
-          {busy ? "Qwen и поиск работают…" : "Найти поставщиков"}
+          {busy ? "Добавляем в очередь…" : "Найти поставщиков"}
         </button>
+        <span className="note">
+          После добавления можно сразу заполнить следующий запрос.
+        </span>
       </div>
+      {notice && <p className="success">{notice}</p>}
       {error && <p className="error">{error}</p>}
+      <div className="panel">
+        <div className="search-jobs-header">
+          <div>
+            <h2>Мои поиски</h2>
+            <p className="note">
+              Список обновляется автоматически каждые 3 секунды.
+            </p>
+          </div>
+          {traceBusy && <span className="note">Обновление…</span>}
+        </div>
+        {runs.length === 0 ? (
+          <p className="note">Задач поиска пока нет.</p>
+        ) : (
+          <div className="search-job-list">
+            {runs.map((run) => (
+              <button
+                type="button"
+                className={`search-job-card ${selectedRunId === run.id ? "selected" : ""}`}
+                key={run.id}
+                onClick={() => void openRun(run.id)}
+              >
+                <span className="search-job-main">
+                  <strong>{runText(run, "name") || `Поиск #${run.id}`}</strong>
+                  <small>
+                    CAS {runText(run, "cas") || "—"} · {runText(run, "country") || "любая страна"}
+                  </small>
+                  {run.error && <small className="error">{run.error}</small>}
+                </span>
+                <span className="search-job-progress">
+                  <span className={`badge ${traceTone(run.status)}`}>
+                    {SEARCH_STATUS_LABELS[run.status] || run.status}
+                  </span>
+                  {run.queue_position !== null && (
+                    <small>Позиция в очереди: {run.queue_position}</small>
+                  )}
+                  {run.result_count > 0 && (
+                    <small>Кандидатов: {run.result_count}</small>
+                  )}
+                  <small>#{run.id}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {data && (
         <div className="panel">
           <div className="note">Основной запрос: {data.query} · Qwen: {data.ai_used ? "да" : "fallback"}</div>
           <div className="search-identity">
             <strong>
-              Вещество: {data.identity.canonical_name || name}
+              Вещество: {data.identity.canonical_name || activeName}
             </strong>
             <div className="note">
-              CAS: {cas} · PubChem: {data.substance_lookup.found ? "найден" : "не подтверждён"}
+              CAS: {activeCas} · PubChem: {data.substance_lookup.found ? "найден" : "не подтверждён"}
               {data.substance_lookup.cid ? ` · CID ${data.substance_lookup.cid}` : ""}
               {data.substance_lookup.molecular_formula
                 ? ` · ${data.substance_lookup.molecular_formula}`
@@ -485,7 +615,7 @@ export default function SupplierSearchSection() {
                         CAS: {CAS_LABELS[result.cas_status]}
                       </span>
                       <span className={`badge ${result.country_status === "claimed" ? "tone-ok" : result.country_status === "mismatch" ? "tone-danger" : result.country_status === "likely" ? "tone-warn" : "tone-neutral"}`}>
-                        {country}: {COUNTRY_LABELS[result.country_status]}
+                        {activeCountry}: {COUNTRY_LABELS[result.country_status]}
                       </span>
                       {DOCUMENT_FIELDS.map((document) => {
                         const status = result[document.key];
