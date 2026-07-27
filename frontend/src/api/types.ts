@@ -235,6 +235,7 @@ export interface ChannelStatus {
 export type PromptKind =
   | "extraction"
   | "rfq_generation"
+  | "substance_identity"
   | "supplier_search"
   | "qualification"
   | "followup";
@@ -275,10 +276,38 @@ export interface SupplierSearchResult {
   country_hint: "likely" | "possible" | "unknown";
 }
 
+export interface SubstanceIdentity {
+  status: "verified" | "unverified" | "conflict" | "invalid_cas";
+  canonical_name: string | null;
+  search_names: string[];
+  input_name_matches: boolean | null;
+  substance_type: "single_substance" | "mixture" | "trade_name" | "unknown";
+  ambiguities: string[];
+}
+
+export interface SearchPlanItem {
+  query: string;
+  language: "en" | "zh" | "ru" | "other";
+  purpose: "manufacturer" | "product" | "documents" | "registry";
+  source_type: "official_site" | "catalog" | "registry" | "web";
+  priority: number;
+}
+
 export interface SupplierSearchResponse {
   search_run_id: number;
   query: string;
   queries_used: string[];
+  identity: SubstanceIdentity;
+  substance_lookup: {
+    found: boolean;
+    cid: number | null;
+    iupac_name: string | null;
+    molecular_formula: string | null;
+    molecular_weight: number | null;
+    source: string;
+    error: string | null;
+  };
+  search_plan: SearchPlanItem[];
   ai_query: string | null;
   ai_used: boolean;
   fallback_used: boolean;

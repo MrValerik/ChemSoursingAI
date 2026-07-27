@@ -19,6 +19,7 @@ rfq_router = APIRouter(prefix="/rfq", tags=["prompts"])
 PROMPT_KINDS = {
     "extraction",
     "rfq_generation",
+    "substance_identity",
     "supplier_search",
     "qualification",
     "followup",

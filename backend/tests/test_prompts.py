@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.db import SessionLocal
 from app.core.seed import seed_prompts
+from app.connectors.pubchem import SubstanceInfo
 from app.connectors.web_page import FetchedPage
 from app.extraction.llm_client import LLMUnavailableError
 from app.models import User
@@ -34,6 +35,54 @@ def _auth(client, username: str) -> dict:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
+@pytest.fixture(autouse=True)
+def _stub_pubchem(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.supplier_search.PubChemConnector.verify_cas",
+        lambda self, cas: SubstanceInfo(
+            cas=cas,
+            found=True,
+            cid=2244,
+            iupac_name="2-acetyloxybenzoic acid",
+            molecular_formula="C9H8O4",
+            molecular_weight=180.16,
+            synonyms=["Aspirin", "Acetylsalicylic acid"],
+        ),
+    )
+
+
+def _mock_search_agents(monkeypatch, query: str | None = None, error=None):
+    def response(self, **kwargs):
+        if error is not None:
+            raise error
+        if kwargs["schema_name"] == "substance_identity":
+            return {
+                "canonical_name": "2-acetyloxybenzoic acid",
+                "search_names": ["Aspirin", "Acetylsalicylic acid"],
+                "input_name_matches": True,
+                "substance_type": "single_substance",
+                "ambiguities": [],
+            }
+        if kwargs["schema_name"] == "supplier_search_plan":
+            return {
+                "queries": [
+                    {
+                        "query": query
+                        or '"Aspirin" "50-78-2" manufacturer China',
+                        "language": "en",
+                        "purpose": "manufacturer",
+                        "source_type": "official_site",
+                        "priority": 1,
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected schema: {kwargs['schema_name']}")
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json", response
+    )
+
+
 def test_prompt_versions_and_roles(client):
     admin = _auth(client, "admin")
     buyer = _auth(client, "ivanov")
@@ -42,7 +91,8 @@ def test_prompt_versions_and_roles(client):
     supplier_search_prompt = next(
         p for p in prompts if p["kind"] == "supplier_search"
     )
-    assert "Пользователь может писать" in supplier_search_prompt["system_prompt"]
+    assert "каждом запросе сохраняй CAS" in supplier_search_prompt["system_prompt"]
+    assert any(p["kind"] == "substance_identity" for p in prompts)
     assert "по-русски" in next(
         p for p in prompts if p["kind"] == "qualification"
     )["system_prompt"]
@@ -137,10 +187,7 @@ def test_rfq_instructions_and_preview(client, monkeypatch):
 
 def test_supplier_search_keeps_source_urls(client, monkeypatch):
     buyer = _auth(client, "ivanov")
-    monkeypatch.setattr(
-        "app.api.supplier_search.LLMClient.generate_text",
-        lambda self, **kwargs: '"Aspirin" "50-78-2" manufacturer China',
-    )
+    _mock_search_agents(monkeypatch)
     monkeypatch.setattr(
         "app.api.supplier_search.search_web",
         lambda query, limit: [
@@ -173,21 +220,100 @@ def test_supplier_search_keeps_source_urls(client, monkeypatch):
     trace = trace_response.json()
     assert trace["status"] == "search_completed"
     assert [stage["agent_slug"] for stage in trace["agent_runs"]] == [
+        "substance_lookup",
+        "substance_identity",
         "search_planner",
         "web_search",
     ]
-    assert trace["agent_runs"][0]["effective_system_prompt"]
-    assert trace["agent_runs"][0]["output_payload"]["ai_query"]
+    assert trace["agent_runs"][1]["effective_system_prompt"]
+    assert trace["agent_runs"][2]["effective_system_prompt"]
+    assert trace["agent_runs"][2]["output_payload"]["queries"]
     assert trace["search_attempts"][0]["results_payload"][0]["url"].startswith(
         "https://"
     )
 
 
+def test_supplier_search_rejects_invalid_cas_before_web(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    web_called = False
+
+    def fake_search(*args, **kwargs):
+        nonlocal web_called
+        web_called = True
+        return []
+
+    monkeypatch.setattr("app.api.supplier_search.search_web", fake_search)
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-3", "name": "Aspirin", "country": "China"},
+    )
+
+    assert response.status_code == 422
+    assert web_called is False
+    trace = client.get(
+        f"/search-runs/{response.json()['detail']['search_run_id']}",
+        headers=buyer,
+    ).json()
+    assert trace["status"] == "failed"
+    assert [stage["agent_slug"] for stage in trace["agent_runs"]] == [
+        "substance_lookup"
+    ]
+
+
+def test_supplier_search_drops_unverified_names_and_queries(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+
+    def response(self, **kwargs):
+        if kwargs["schema_name"] == "substance_identity":
+            return {
+                "canonical_name": "Invented miracle acid",
+                "search_names": ["Invented miracle acid", "Aspirin"],
+                "input_name_matches": True,
+                "substance_type": "single_substance",
+                "ambiguities": [],
+            }
+        return {
+            "queries": [
+                {
+                    "query": '"Invented miracle acid" manufacturer China',
+                    "language": "en",
+                    "purpose": "manufacturer",
+                    "source_type": "official_site",
+                    "priority": 1,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json", response
+    )
+    monkeypatch.setattr(
+        "app.api.supplier_search.search_web", lambda query, limit: []
+    )
+    result = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "country": "China"},
+    )
+
+    assert result.status_code == 200
+    payload = result.json()
+    assert payload["identity"]["canonical_name"] == "2-acetyloxybenzoic acid"
+    assert payload["identity"]["search_names"] == ["Aspirin"]
+    assert all("50-78-2" in item["query"] for item in payload["search_plan"])
+    assert all(
+        "Invented miracle acid" not in item["query"]
+        for item in payload["search_plan"]
+    )
+    assert payload["fallback_used"] is True
+
+
 def test_supplier_search_retries_with_broad_query(client, monkeypatch):
     buyer = _auth(client, "ivanov")
-    monkeypatch.setattr(
-        "app.api.supplier_search.LLMClient.generate_text",
-        lambda self, **kwargs: 'site:gov.cn "Aspirin" "50-78-2" GMP',
+    _mock_search_agents(
+        monkeypatch,
+        'site:gov.cn "Aspirin" "50-78-2" GMP',
     )
     queries: list[str] = []
 
@@ -225,8 +351,8 @@ def test_supplier_search_trace_records_safe_llm_fallback(client, monkeypatch):
     def unavailable(*args, **kwargs):
         raise LLMUnavailableError("local model is offline")
 
-    monkeypatch.setattr(
-        "app.api.supplier_search.LLMClient.generate_text", unavailable
+    _mock_search_agents(
+        monkeypatch, error=LLMUnavailableError("local model is offline")
     )
     monkeypatch.setattr(
         "app.api.supplier_search.search_web",
@@ -252,17 +378,14 @@ def test_supplier_search_trace_records_safe_llm_fallback(client, monkeypatch):
         f"/search-runs/{payload['search_run_id']}", headers=buyer
     ).json()
     assert trace["status"] == "search_completed"
-    assert trace["agent_runs"][0]["status"] == "failed"
-    assert "local model is offline" in trace["agent_runs"][0]["error"]
     assert trace["agent_runs"][1]["status"] == "completed"
+    assert "local model is offline" in trace["agent_runs"][1]["output_payload"]["fallback_reason"]
+    assert trace["agent_runs"][2]["status"] == "completed"
 
 
 def test_failed_search_returns_trace_id(client, monkeypatch):
     buyer = _auth(client, "ivanov")
-    monkeypatch.setattr(
-        "app.api.supplier_search.LLMClient.generate_text",
-        lambda self, **kwargs: '"Aspirin" "50-78-2" manufacturer',
-    )
+    _mock_search_agents(monkeypatch, '"Aspirin" "50-78-2" manufacturer')
 
     def failed_search(*args, **kwargs):
         raise OSError("connector blocked")
@@ -288,9 +411,9 @@ def test_failed_search_returns_trace_id(client, monkeypatch):
 
 def test_supplier_search_deduplicates_results_by_domain(client, monkeypatch):
     buyer = _auth(client, "ivanov")
-    monkeypatch.setattr(
-        "app.api.supplier_search.LLMClient.generate_text",
-        lambda self, **kwargs: '"Aspirin" "50-78-2" manufacturer supplier China CoA',
+    _mock_search_agents(
+        monkeypatch,
+        '"Aspirin" "50-78-2" manufacturer supplier China CoA',
     )
     monkeypatch.setattr(
         "app.api.supplier_search.search_web",
@@ -517,10 +640,7 @@ def test_qualification_keeps_failed_page_as_visible_fallback(client, monkeypatch
 
 def test_supplier_search_prioritizes_chinese_sources(client, monkeypatch):
     buyer = _auth(client, "ivanov")
-    monkeypatch.setattr(
-        "app.api.supplier_search.LLMClient.generate_text",
-        lambda self, **kwargs: '"Aspirin" "50-78-2" supplier',
-    )
+    _mock_search_agents(monkeypatch, '"Aspirin" "50-78-2" supplier')
 
     def fake_search(query, limit):
         if "生产厂家" in query:

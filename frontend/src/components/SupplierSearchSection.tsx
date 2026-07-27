@@ -390,15 +390,42 @@ export default function SupplierSearchSection() {
       {data && (
         <div className="panel">
           <div className="note">Основной запрос: {data.query} · Qwen: {data.ai_used ? "да" : "fallback"}</div>
+          <div className="search-identity">
+            <strong>
+              Вещество: {data.identity.canonical_name || name}
+            </strong>
+            <div className="note">
+              CAS: {cas} · PubChem: {data.substance_lookup.found ? "найден" : "не подтверждён"}
+              {data.substance_lookup.cid ? ` · CID ${data.substance_lookup.cid}` : ""}
+              {data.substance_lookup.molecular_formula
+                ? ` · ${data.substance_lookup.molecular_formula}`
+                : ""}
+            </div>
+            <div className="note">
+              Идентичность: {data.identity.status}
+              {data.identity.search_names.length > 0
+                ? ` · поисковые имена: ${data.identity.search_names.join(", ")}`
+                : ""}
+            </div>
+            {data.identity.ambiguities.map((item) => (
+              <div className="note" key={item}>Требует внимания: {item}</div>
+            ))}
+          </div>
           {data.fallback_used && (
             <p className="note">
               Для полноты выполнено несколько запросов, включая локализованные по стране.
             </p>
           )}
           <details className="search-queries">
-            <summary>Показать использованные запросы ({data.queries_used.length})</summary>
+            <summary>Показать план и использованные запросы ({data.search_plan.length})</summary>
             <ul>
-              {data.queries_used.map((query) => <li key={query}>{query}</li>)}
+              {data.search_plan.map((item) => (
+                <li key={item.query}>
+                  <code>{item.query}</code>
+                  {" — "}
+                  {item.language}, {item.purpose}, {item.source_type}, приоритет {item.priority}
+                </li>
+              ))}
             </ul>
           </details>
           <p className="note">{data.warning}</p>

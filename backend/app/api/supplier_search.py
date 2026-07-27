@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.connectors.pubchem import PubChemConnector
 from app.connectors.web_page import fetch_web_page
 from app.connectors.web_search import search_web
 from app.core.db import get_db
@@ -32,6 +33,7 @@ from app.services.search_trace import (
     start_search_attempt,
     utc_now,
 )
+from app.services.cas import is_valid_cas, normalize_cas
 from app.services.supplier_scoring import score_supplier
 
 router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
@@ -43,6 +45,29 @@ class SupplierSearchRequest(BaseModel):
     country: str | None = Field(default="China", max_length=100)
     additional_instructions: str | None = Field(default=None, max_length=4000)
     limit: int = Field(default=5, ge=1, le=20)
+
+
+class SubstanceIdentity(BaseModel):
+    status: Literal["verified", "unverified", "conflict", "invalid_cas"]
+    canonical_name: str | None = Field(default=None, max_length=500)
+    search_names: list[str] = Field(default_factory=list, max_length=8)
+    input_name_matches: bool | None = None
+    substance_type: Literal[
+        "single_substance", "mixture", "trade_name", "unknown"
+    ] = "unknown"
+    ambiguities: list[str] = Field(default_factory=list, max_length=5)
+
+
+class SearchPlanItem(BaseModel):
+    query: str = Field(..., min_length=5, max_length=500)
+    language: Literal["en", "zh", "ru", "other"]
+    purpose: Literal["manufacturer", "product", "documents", "registry"]
+    source_type: Literal["official_site", "catalog", "registry", "web"]
+    priority: int = Field(..., ge=1, le=5)
+
+
+class SearchPlan(BaseModel):
+    queries: list[SearchPlanItem] = Field(..., min_length=1, max_length=8)
 
 
 class SupplierSearchResultInput(BaseModel):
@@ -253,12 +278,109 @@ _QUALIFICATION_SCHEMA = {
 _SEE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN, UserRole.AUDITOR}
 
 
+_IDENTITY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "canonical_name": {"type": ["string", "null"], "maxLength": 500},
+        "search_names": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {"type": "string", "minLength": 1, "maxLength": 500},
+        },
+        "input_name_matches": {"type": ["boolean", "null"]},
+        "substance_type": {
+            "type": "string",
+            "enum": ["single_substance", "mixture", "trade_name", "unknown"],
+        },
+        "ambiguities": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {"type": "string", "maxLength": 500},
+        },
+    },
+    "required": [
+        "canonical_name",
+        "search_names",
+        "input_name_matches",
+        "substance_type",
+        "ambiguities",
+    ],
+    "additionalProperties": False,
+}
+
+_SEARCH_PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "queries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "minLength": 5,
+                        "maxLength": 500,
+                    },
+                    "language": {
+                        "type": "string",
+                        "enum": ["en", "zh", "ru", "other"],
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "enum": [
+                            "manufacturer",
+                            "product",
+                            "documents",
+                            "registry",
+                        ],
+                    },
+                    "source_type": {
+                        "type": "string",
+                        "enum": ["official_site", "catalog", "registry", "web"],
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5,
+                    },
+                },
+                "required": [
+                    "query",
+                    "language",
+                    "purpose",
+                    "source_type",
+                    "priority",
+                ],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["queries"],
+    "additionalProperties": False,
+}
+
+
+def _identity_system_prompt(prompt: PromptTemplate) -> str:
+    return (
+        prompt.system_prompt
+        + "\n\nРаботай только с переданными фактами PubChem. canonical_name и "
+        "каждый элемент search_names должны дословно совпадать с input_name, "
+        "iupac_name или одним из synonyms. Не придумывай переводы, синонимы, "
+        "формулы и свойства. ambiguities описывай кратко по-русски."
+    )
+
+
 def _search_planner_prompt(prompt: PromptTemplate) -> str:
     return (
         prompt.system_prompt
-        + "\nВерни ровно одну строку поискового запроса без объяснений. "
-        "Даже если пользователь ввёл название по-русски, используй CAS, "
-        "английское название вещества и термины страны поиска."
+        + "\n\nСоставь до восьми независимых поисковых запросов. Каждый запрос "
+        "обязан содержать CAS дословно. Используй только названия из "
+        "переданного identity, не придумывай компании и URL. Покрой поиск "
+        "производителя, продукта и документов; для Китая добавь китайский "
+        "запрос. Верни только объект по JSON-схеме."
     )
 
 
@@ -391,29 +513,176 @@ def _is_china(country: str | None) -> bool:
     }
 
 
-def _search_queries(
-    data: SupplierSearchRequest, ai_query: str | None
-) -> list[str]:
-    """Строит независимые запросы: ИИ, общий и локализованные по стране."""
-    candidates = [ai_query, _fallback_query(data)]
+def _fallback_identity(
+    data: SupplierSearchRequest, lookup: dict
+) -> SubstanceIdentity:
+    """Build a safe identity without allowing the model to invent aliases."""
+    names = [
+        lookup.get("iupac_name"),
+        data.name,
+        *(lookup.get("synonyms") or []),
+    ]
+    unique_names: list[str] = []
+    for name in names:
+        if (
+            isinstance(name, str)
+            and name.strip()
+            and name.casefold() not in {item.casefold() for item in unique_names}
+        ):
+            unique_names.append(name.strip())
+        if len(unique_names) == 8:
+            break
+    all_known_names = {
+        name.casefold()
+        for name in [lookup.get("iupac_name"), *(lookup.get("synonyms") or [])]
+        if isinstance(name, str) and name.strip()
+    }
+    input_name_matches = (
+        data.name.casefold() in all_known_names if lookup.get("found") else None
+    )
+    return SubstanceIdentity(
+        status=(
+            "verified"
+            if lookup.get("found") and input_name_matches
+            else "unverified"
+        ),
+        canonical_name=lookup.get("iupac_name") or data.name,
+        search_names=unique_names or [data.name],
+        input_name_matches=input_name_matches,
+        substance_type="single_substance" if lookup.get("found") else "unknown",
+        ambiguities=(
+            []
+            if lookup.get("found")
+            else [f"PubChem не подтвердил CAS: {lookup.get('error') or 'not_found'}"]
+        ),
+    )
+
+
+def _validated_identity(
+    data: SupplierSearchRequest, lookup: dict, raw: dict
+) -> SubstanceIdentity:
+    """Accept only names that were present in the immutable lookup payload."""
+    fallback = _fallback_identity(data, lookup)
+    allowed_values = [
+        data.name,
+        lookup.get("iupac_name"),
+        *(lookup.get("synonyms") or []),
+    ]
+    allowed = {
+        value.casefold(): value.strip()
+        for value in allowed_values
+        if isinstance(value, str) and value.strip()
+    }
+    parsed = SubstanceIdentity(
+        status="verified" if lookup.get("found") else "unverified",
+        **raw,
+    )
+    canonical = (
+        allowed.get(parsed.canonical_name.casefold())
+        if parsed.canonical_name
+        else None
+    )
+    search_names: list[str] = []
+    for name in parsed.search_names:
+        accepted = allowed.get(name.casefold())
+        if accepted and accepted.casefold() not in {
+            item.casefold() for item in search_names
+        }:
+            search_names.append(accepted)
+    if not search_names:
+        return fallback
+    return parsed.model_copy(
+        update={
+            "status": (
+                "conflict"
+                if parsed.input_name_matches is False
+                else "verified"
+                if parsed.input_name_matches is True
+                else "unverified"
+            ),
+            "canonical_name": canonical or fallback.canonical_name,
+            "search_names": search_names,
+        }
+    )
+
+
+def _fallback_search_plan(
+    data: SupplierSearchRequest, identity: SubstanceIdentity
+) -> list[SearchPlanItem]:
+    """Build deterministic coverage that remains available without the LLM."""
+    preferred_name = identity.canonical_name or data.name
+    candidates = [
+        SearchPlanItem(
+            query=_fallback_query(
+                data.model_copy(update={"name": preferred_name})
+            ),
+            language="en",
+            purpose="manufacturer",
+            source_type="web",
+            priority=1,
+        )
+    ]
     if _is_china(data.country):
         candidates.extend(
             [
-                f'"{data.name}" "{data.cas}" (manufacturer OR factory) China',
-                f'"{data.cas}" (生产厂家 OR 工厂) 中国',
-                f'"{data.cas}" (manufacturer OR factory) site:.cn',
+                SearchPlanItem(
+                    query=f'"{preferred_name}" "{data.cas}" (manufacturer OR factory) China',
+                    language="en",
+                    purpose="manufacturer",
+                    source_type="official_site",
+                    priority=2,
+                ),
+                SearchPlanItem(
+                    query=f'"{data.cas}" (生产厂家 OR 工厂) 中国',
+                    language="zh",
+                    purpose="manufacturer",
+                    source_type="official_site",
+                    priority=2,
+                ),
+                SearchPlanItem(
+                    query=f'"{data.cas}" (CoA OR TDS OR SDS) site:.cn',
+                    language="en",
+                    purpose="documents",
+                    source_type="official_site",
+                    priority=3,
+                ),
             ]
         )
     elif data.country:
         candidates.append(
-            f'"{data.name}" "{data.cas}" manufacturer factory "{data.country}"'
+            SearchPlanItem(
+                query=f'"{preferred_name}" "{data.cas}" manufacturer factory "{data.country}"',
+                language="en",
+                purpose="manufacturer",
+                source_type="official_site",
+                priority=2,
+            )
         )
+    return candidates
 
-    unique: list[str] = []
-    for query in candidates:
-        if query and query not in unique:
-            unique.append(query)
-    return unique
+
+def _merge_search_plans(
+    data: SupplierSearchRequest,
+    ai_items: list[SearchPlanItem],
+    fallback_items: list[SearchPlanItem],
+) -> tuple[list[SearchPlanItem], int]:
+    """Reject unsafe model queries and add deterministic coverage."""
+    accepted: list[SearchPlanItem] = []
+    seen: set[str] = set()
+    rejected_count = 0
+    for item in [*ai_items, *fallback_items]:
+        normalized = item.query.strip()
+        if data.cas not in normalized:
+            rejected_count += 1
+            continue
+        key = normalized.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        accepted.append(item.model_copy(update={"query": normalized}))
+        if len(accepted) == 8:
+            break
+    return accepted, rejected_count
 
 
 def _domain_key(url: str) -> str:
@@ -499,6 +768,119 @@ def supplier_search(
     )
     db.commit()
 
+    normalized_cas = normalize_cas(data.cas)
+    lookup_stage, lookup_clock = start_agent_run(
+        db,
+        search_run=search_run,
+        sequence=1,
+        agent_slug="substance_lookup",
+        agent_name="Проверка CAS в PubChem",
+        execution_type="tool",
+        input_payload={"cas": normalized_cas},
+    )
+    db.commit()
+    lookup = PubChemConnector().verify_cas(normalized_cas).as_dict()
+    finish_agent_run(lookup_stage, lookup_clock, output_payload=lookup)
+    db.commit()
+    if not is_valid_cas(normalized_cas):
+        error = "CAS не прошёл проверку формата и контрольной суммы"
+        finish_search_run(search_run, error=error)
+        db.commit()
+        raise HTTPException(
+            status_code=422,
+            detail={"message": error, "search_run_id": search_run.id},
+        )
+    data = data.model_copy(update={"cas": normalized_cas})
+
+    identity_prompt = db.scalar(
+        select(PromptTemplate)
+        .where(
+            PromptTemplate.kind == "substance_identity",
+            PromptTemplate.is_active.is_(True),
+        )
+        .order_by(PromptTemplate.id)
+        .limit(1)
+    )
+    llm = LLMClient()
+    identity = _fallback_identity(data, lookup)
+    identity_error: str | None = None
+    identity_input = {
+        "input_name": data.name,
+        "cas": normalized_cas,
+        "pubchem": lookup,
+    }
+    if identity_prompt and lookup.get("found"):
+        identity_system_prompt = _identity_system_prompt(identity_prompt)
+        identity_run, identity_clock = start_agent_run(
+            db,
+            search_run=search_run,
+            sequence=2,
+            agent_slug="substance_identity",
+            agent_name="Агент идентичности вещества",
+            execution_type="llm",
+            input_payload=identity_input,
+            prompt=identity_prompt,
+            effective_system_prompt=llm.effective_json_system_prompt(
+                identity_system_prompt
+            ),
+            model=llm.model,
+            temperature=0,
+            max_tokens=512,
+        )
+        db.commit()
+        try:
+            raw_identity = llm.generate_json(
+                system_prompt=identity_system_prompt,
+                user_text=json.dumps(identity_input, ensure_ascii=False),
+                schema_name="substance_identity",
+                json_schema=_IDENTITY_SCHEMA,
+                max_tokens=512,
+            )
+            identity = _validated_identity(data, lookup, raw_identity)
+            finish_agent_run(
+                identity_run,
+                identity_clock,
+                output_payload={
+                    "identity": identity.model_dump(),
+                    "raw": raw_identity,
+                },
+            )
+        except (LLMUnavailableError, ValidationError) as exc:
+            identity_error = str(exc)
+            finish_agent_run(
+                identity_run,
+                identity_clock,
+                output_payload={
+                    "identity": identity.model_dump(),
+                    "fallback_reason": identity_error,
+                },
+            )
+        db.commit()
+    else:
+        identity_run, identity_clock = start_agent_run(
+            db,
+            search_run=search_run,
+            sequence=2,
+            agent_slug="substance_identity",
+            agent_name="Агент идентичности вещества",
+            execution_type="deterministic",
+            input_payload=identity_input,
+        )
+        identity_error = (
+            "Активный промпт идентичности не найден"
+            if not identity_prompt
+            else f"PubChem недоступен: {lookup.get('error') or 'not_found'}"
+        )
+        finish_agent_run(
+            identity_run,
+            identity_clock,
+            output_payload={
+                "identity": identity.model_dump(),
+                "fallback_reason": identity_error,
+            },
+        )
+        db.commit()
+
     prompt = db.scalar(
         select(PromptTemplate)
         .where(
@@ -508,69 +890,71 @@ def supplier_search(
         .order_by(PromptTemplate.id)
         .limit(1)
     )
-    ai_query: str | None = None
+    ai_items: list[SearchPlanItem] = []
     ai_used = False
     planner_error: str | None = None
-    llm = LLMClient()
     if prompt:
         base_system_prompt = _search_planner_prompt(prompt)
         planner_input = {
-            "name": data.name,
-            "cas": data.cas,
+            "identity": identity.model_dump(),
+            "cas": normalized_cas,
             "country": data.country or "любая",
             "additional_instructions": data.additional_instructions,
         }
-        effective_prompt = llm.effective_text_system_prompt(
-            base_system_prompt, data.additional_instructions
-        )
         planner_run, planner_clock = start_agent_run(
             db,
             search_run=search_run,
-            sequence=1,
+            sequence=3,
             agent_slug="search_planner",
             agent_name="Планировщик поиска",
             execution_type="llm",
             input_payload=planner_input,
             prompt=prompt,
-            effective_system_prompt=effective_prompt,
+            effective_system_prompt=llm.effective_json_system_prompt(
+                base_system_prompt
+            ),
             model=llm.model,
-            temperature=0.1,
-            max_tokens=64,
+            temperature=0,
+            max_tokens=1024,
         )
         db.commit()
         try:
-            generated = llm.generate_text(
+            generated = llm.generate_json(
                 system_prompt=base_system_prompt,
-                user_text=(
-                    f"Вещество: {data.name}\nCAS: {data.cas}\n"
-                    f"Страна: {data.country or 'любая'}"
-                ),
-                additional_instructions=data.additional_instructions,
-                # A search query is one short line; a larger budget only adds latency.
-                max_tokens=64,
+                user_text=json.dumps(planner_input, ensure_ascii=False),
+                schema_name="supplier_search_plan",
+                json_schema=_SEARCH_PLAN_SCHEMA,
+                max_tokens=1024,
             )
-            candidate = generated.strip().strip("`").splitlines()[0].strip()
-            if 5 <= len(candidate) <= 500:
-                ai_query = candidate
-                ai_used = True
+            parsed_plan = SearchPlan.model_validate(generated)
+            ai_items = parsed_plan.queries
+            ai_used = bool(ai_items)
             finish_agent_run(
                 planner_run,
                 planner_clock,
                 output_payload={
-                    "raw_text": generated,
-                    "ai_query": ai_query,
+                    "raw": generated,
+                    "queries": [item.model_dump() for item in ai_items],
                     "accepted": ai_used,
                 },
             )
-        except LLMUnavailableError as exc:
+        except (LLMUnavailableError, ValidationError) as exc:
             planner_error = str(exc)
-            finish_agent_run(planner_run, planner_clock, error=planner_error)
+            finish_agent_run(
+                planner_run,
+                planner_clock,
+                output_payload={
+                    "queries": [],
+                    "accepted": False,
+                    "fallback_reason": planner_error,
+                },
+            )
         db.commit()
     else:
         planner_run, planner_clock = start_agent_run(
             db,
             search_run=search_run,
-            sequence=1,
+            sequence=3,
             agent_slug="search_planner",
             agent_name="Планировщик поиска",
             execution_type="deterministic",
@@ -580,23 +964,26 @@ def supplier_search(
             planner_run,
             planner_clock,
             output_payload={
-                "ai_query": None,
+                "queries": [],
                 "accepted": False,
                 "fallback_reason": "Активный промпт поиска не найден",
             },
         )
         db.commit()
 
-    planned_queries = _search_queries(data, ai_query)
+    fallback_items = _fallback_search_plan(data, identity)
+    planned_queries, rejected_queries = _merge_search_plans(
+        data, ai_items, fallback_items
+    )
     search_stage, search_clock = start_agent_run(
         db,
         search_run=search_run,
-        sequence=2,
+        sequence=4,
         agent_slug="web_search",
         agent_name="Поиск в открытых источниках",
         execution_type="tool",
         input_payload={
-            "queries": planned_queries,
+            "queries": [item.model_dump() for item in planned_queries],
             "limit": data.limit,
             "country": data.country,
         },
@@ -607,7 +994,8 @@ def supplier_search(
     raw_results: list[dict] = []
     search_errors: list[str] = []
     fetch_limit = min(data.limit * 2, 20)
-    for query in planned_queries:
+    for plan_item in planned_queries:
+        query = plan_item.query
         attempted_queries.append(query)
         attempt, attempt_clock = start_search_attempt(
             db,
@@ -615,9 +1003,9 @@ def supplier_search(
             agent_run=search_stage,
             connector="duckduckgo_html",
             query=query,
-            language="zh" if any("\u4e00" <= char <= "\u9fff" for char in query) else "en",
-            source_type="search_results",
-            purpose="Найти страницы кандидатов-поставщиков",
+            language=plan_item.language,
+            source_type=plan_item.source_type,
+            purpose=plan_item.purpose,
         )
         db.commit()
         try:
@@ -659,9 +1047,12 @@ def supplier_search(
         search_clock,
         output_payload={
             "queries_used": attempted_queries,
+            "search_plan": [item.model_dump() for item in planned_queries],
             "results": results,
             "errors": search_errors,
             "planner_fallback_reason": planner_error,
+            "identity_fallback_reason": identity_error,
+            "rejected_model_queries": rejected_queries,
         },
     )
     search_run.status = "search_completed"
@@ -670,9 +1061,12 @@ def supplier_search(
         "search_run_id": search_run.id,
         "query": attempted_queries[0],
         "queries_used": attempted_queries,
-        "ai_query": ai_query,
+        "identity": identity.model_dump(),
+        "substance_lookup": lookup,
+        "search_plan": [item.model_dump() for item in planned_queries],
+        "ai_query": ai_items[0].query if ai_items else None,
         "ai_used": ai_used,
-        "fallback_used": fallback_used,
+        "fallback_used": fallback_used or bool(identity_error) or rejected_queries > 0,
         "results": results,
         "warning": (
             "Результаты являются кандидатами. Статус производителя и документы "
