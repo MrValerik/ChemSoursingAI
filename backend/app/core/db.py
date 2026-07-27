@@ -10,6 +10,7 @@ from collections.abc import Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.models import Base
@@ -22,12 +23,18 @@ _connect_args = (
     if _settings.sqlalchemy_dsn.startswith("sqlite")
     else {}
 )
+_pool_options = (
+    {"poolclass": NullPool}
+    if _settings.sqlalchemy_dsn.startswith("sqlite")
+    else {}
+)
 
 engine = create_engine(
     _settings.sqlalchemy_dsn,
     pool_pre_ping=True,
     connect_args=_connect_args,
     future=True,
+    **_pool_options,
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)

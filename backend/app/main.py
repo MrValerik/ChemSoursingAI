@@ -21,6 +21,7 @@ from app.api import (
     prompts,
     quotations,
     rfq,
+    search_runs,
     settings as settings_api,
     substances,
     supplier_search,
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(communications.router)
     app.include_router(substances.router)
     app.include_router(supplier_search.router)
+    app.include_router(search_runs.router)
     app.include_router(rfq.router)
     app.include_router(quotations.router)
     app.include_router(extraction.router)
