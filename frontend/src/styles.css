@@ -521,6 +521,22 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .suppliers-layout { display: flex; gap: 16px; align-items: flex-start; }
 .suppliers-list, .templates-list { flex: 1; min-width: 0; }
 .supplier-card { width: 360px; flex-shrink: 0; }
+.supplier-metrics .dash-card { cursor: default; }
+.supplier-metrics .dash-card:hover {
+  border-color: var(--border);
+  background: var(--panel);
+}
+.supplier-filters .filter-search { flex-basis: 320px; }
+.supplier-details { margin-top: 14px; }
+.supplier-request-links {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 14px;
+}
+.supplier-request-links button {
+  width: 100%;
+  text-align: left;
+}
 .row-active { background: #eff6ff !important; }
 .row-actions { display: flex; gap: 6px; }
 .link { color: var(--brand); cursor: pointer; text-decoration: underline; }

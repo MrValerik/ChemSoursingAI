@@ -53,6 +53,54 @@ def test_add_supplier_manually(client):
     assert resp.json()["channels"] == ["email"]
 
 
+def test_supplier_registry_includes_filters_and_request_metrics(client):
+    headers = _login(client)
+    rfq = client.post(
+        "/rfq?verify=false",
+        headers=headers,
+        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+    ).json()
+    supplier = client.post(
+        f"/suppliers?rfq_id={rfq['id']}",
+        headers=headers,
+        json={
+            "company": "Evidence Metrics Chemical",
+            "type": "manufacturer",
+            "country": "China",
+            "email": "metrics@supplier.example",
+            "source": "https://metrics.example/product",
+            "qualification_status": "candidate",
+            "evidence_score": 78,
+            "certificates": ["ISO 9001"],
+        },
+    ).json()
+    assert supplier["qualification_status"] == "candidate"
+
+    registry = client.get("/suppliers", headers=headers).json()
+    item = next(row for row in registry if row["id"] == supplier["id"])
+    assert item["qualification_status"] == "candidate"
+    assert item["evidence_score"] == 78
+    assert item["last_checked_at"] is not None
+    assert item["contacts_count"] == 1
+    assert item["request_count"] == 1
+    assert item["linked_requests"] == [
+        {"rfq_id": rfq["id"], "name": "Aspirin", "cas": "50-78-2"}
+    ]
+    assert item["certificates"] == ["ISO 9001"]
+
+    duplicate = client.post(
+        f"/suppliers?rfq_id={rfq['id']}",
+        headers=headers,
+        json={
+            "company": "Duplicate title from the same source",
+            "source": "https://metrics.example/product",
+            "evidence_score": 82,
+        },
+    ).json()
+    assert duplicate["id"] == supplier["id"]
+    assert duplicate["request_count"] == 1
+
+
 def test_select_and_dispatch(client):
     headers = _login(client)
     rfq = client.post(

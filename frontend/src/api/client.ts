@@ -182,19 +182,33 @@ export const api = {
 
   listSuppliers: () => request<SupplierRead[]>(`/suppliers`),
 
-  addSupplier: (payload: {
-    company: string;
-    type?: string | null;
-    country?: string | null;
-    email?: string | null;
-    whatsapp?: string | null;
-    source?: string | null;
-    reputation?: string | null;
-  }) =>
-    request<SupplierRead>(`/suppliers`, {
+  addSupplier: (
+    payload: {
+      company: string;
+      type?: string | null;
+      country?: string | null;
+      email?: string | null;
+      whatsapp?: string | null;
+      source?: string | null;
+      reputation?: string | null;
+      qualification_status?: string;
+      evidence_score?: number | null;
+      certificates?: string[] | null;
+    },
+    rfqId?: number,
+    searchRunId?: number,
+  ) => {
+    const params = new URLSearchParams();
+    if (rfqId !== undefined) params.set("rfq_id", String(rfqId));
+    if (searchRunId !== undefined) {
+      params.set("search_run_id", String(searchRunId));
+    }
+    const query = params.size > 0 ? `?${params.toString()}` : "";
+    return request<SupplierRead>(`/suppliers${query}`, {
       method: "POST",
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
   listRecipients: (rfqId: number) =>
     request<RecipientRead[]>(`/rfq/${rfqId}/recipients`),

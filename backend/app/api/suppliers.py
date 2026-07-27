@@ -4,7 +4,7 @@ Email работает в безопасном demo-режиме либо реа
 включения EMAIL_DELIVERY_MODE=live. WhatsApp пока остаётся демонстрационным.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -16,7 +16,16 @@ from app.connectors.email import (
 )
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.models import Communication, RfqRecipient, Supplier, User
+from app.models import (
+    Communication,
+    Quotation,
+    RFQ,
+    RfqRecipient,
+    RfqSupplierLink,
+    SearchRun,
+    Supplier,
+    User,
+)
 from app.models.enums import (
     Channel,
     CommDirection,
@@ -25,13 +34,14 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.manager import Manager
-from app.models.rfq import RFQ
 from app.schemas.supplier import (
     RecipientRead,
     RecipientsSelect,
     SupplierCreate,
     SupplierRead,
+    SupplierRequestLink,
 )
+from app.services.search_trace import utc_now
 from app.services.rfq_service import render_rfq_text
 
 router = APIRouter(tags=["suppliers"], dependencies=[Depends(get_current_user)])
@@ -47,44 +57,190 @@ def _supplier_channels(s: Supplier) -> list[Channel]:
     return sorted(channels, key=lambda c: c.value)
 
 
-def _to_supplier_read(s: Supplier) -> SupplierRead:
+def _to_supplier_read(
+    s: Supplier,
+    *,
+    linked_requests: list[SupplierRequestLink] | None = None,
+    has_coa: bool = False,
+    has_tds: bool = False,
+) -> SupplierRead:
     read = SupplierRead.model_validate(s)
     read.channels = _supplier_channels(s)
+    read.contacts_count = len(s.managers)
+    read.linked_requests = linked_requests or []
+    read.request_count = len(read.linked_requests)
+    read.has_coa = has_coa
+    read.has_tds = has_tds
     return read
 
 
 @router.get("/suppliers", response_model=list[SupplierRead])
 def list_suppliers(db: Session = Depends(get_db)) -> list[SupplierRead]:
-    """Реестр поставщиков (кандидаты для рассылки)."""
+    """Глобальный реестр компаний с закупочными метриками."""
     stmt = select(Supplier).options(joinedload(Supplier.managers)).order_by(Supplier.company)
     suppliers = db.scalars(stmt).unique().all()
-    return [_to_supplier_read(s) for s in suppliers]
+    supplier_ids = [supplier.id for supplier in suppliers]
+    linked: dict[int, dict[int, SupplierRequestLink]] = {
+        supplier_id: {} for supplier_id in supplier_ids
+    }
+    documents: dict[int, dict[str, bool]] = {
+        supplier_id: {"has_coa": False, "has_tds": False}
+        for supplier_id in supplier_ids
+    }
+    if supplier_ids:
+        candidate_rows = db.execute(
+            select(
+                RfqSupplierLink.supplier_id,
+                RFQ.id,
+                RFQ.name,
+                RFQ.cas,
+            )
+            .join(RFQ, RFQ.id == RfqSupplierLink.rfq_id)
+            .where(RfqSupplierLink.supplier_id.in_(supplier_ids))
+        ).all()
+        for supplier_id, rfq_id, name, cas in candidate_rows:
+            linked[supplier_id][rfq_id] = SupplierRequestLink(
+                rfq_id=rfq_id,
+                name=name,
+                cas=cas,
+            )
+
+        recipient_rows = db.execute(
+            select(
+                RfqRecipient.supplier_id,
+                RFQ.id,
+                RFQ.name,
+                RFQ.cas,
+            )
+            .join(RFQ, RFQ.id == RfqRecipient.rfq_id)
+            .where(RfqRecipient.supplier_id.in_(supplier_ids))
+        ).all()
+        for supplier_id, rfq_id, name, cas in recipient_rows:
+            linked[supplier_id][rfq_id] = SupplierRequestLink(
+                rfq_id=rfq_id,
+                name=name,
+                cas=cas,
+            )
+
+        quotation_rows = db.execute(
+            select(
+                Manager.supplier_id,
+                Quotation.has_coa,
+                Quotation.has_tds,
+            )
+            .join(Manager, Manager.id == Quotation.manager_id)
+            .where(Manager.supplier_id.in_(supplier_ids))
+        ).all()
+        for supplier_id, has_coa, has_tds in quotation_rows:
+            documents[supplier_id]["has_coa"] |= bool(has_coa)
+            documents[supplier_id]["has_tds"] |= bool(has_tds)
+
+    return [
+        _to_supplier_read(
+            supplier,
+            linked_requests=list(linked[supplier.id].values()),
+            **documents[supplier.id],
+        )
+        for supplier in suppliers
+    ]
 
 
 @router.post("/suppliers", response_model=SupplierRead, status_code=201)
 def add_supplier(
     data: SupplierCreate,
+    rfq_id: int | None = Query(default=None, ge=1),
+    search_run_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SupplierRead:
     """Ручное добавление поставщика с контактом (раздел 9)."""
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
-    supplier = Supplier(
-        company=data.company.strip(),
-        country=data.country,
-        type=data.type,
-        reputation=data.reputation,
-        source=data.source or "добавлен вручную",
+    rfq: RFQ | None = None
+    if rfq_id is not None:
+        rfq = db.get(RFQ, rfq_id)
+        can_see_all = user.role in {
+            UserRole.HEAD,
+            UserRole.ADMIN,
+            UserRole.AUDITOR,
+        }
+        if rfq is None or (
+            not can_see_all
+            and rfq.owner_id is not None
+            and rfq.owner_id != user.id
+        ):
+            raise HTTPException(status_code=404, detail="RFQ not found")
+    search_run: SearchRun | None = None
+    if search_run_id is not None:
+        search_run = db.get(SearchRun, search_run_id)
+        if (
+            rfq is None
+            or search_run is None
+            or search_run.rfq_id != rfq.id
+        ):
+            raise HTTPException(status_code=422, detail="Поиск не связан с запросом")
+
+    supplier = None
+    source_is_url = bool(
+        data.source
+        and data.source.lower().startswith(("http://", "https://"))
     )
-    if data.email or data.whatsapp:
-        supplier.managers.append(
-            Manager(email=data.email, whatsapp=data.whatsapp)
+    if source_is_url:
+        supplier = db.scalar(
+            select(Supplier)
+            .where(Supplier.source == data.source)
+            .options(joinedload(Supplier.managers))
+            .limit(1)
         )
-    db.add(supplier)
+    if supplier is None:
+        supplier = Supplier(
+            company=data.company.strip(),
+            country=data.country,
+            type=data.type,
+            reputation=data.reputation,
+            source=data.source or "добавлен вручную",
+            qualification_status=data.qualification_status,
+            evidence_score=data.evidence_score,
+            certificates=data.certificates,
+            last_checked_at=utc_now() if data.evidence_score is not None else None,
+        )
+        if data.email or data.whatsapp:
+            supplier.managers.append(
+                Manager(email=data.email, whatsapp=data.whatsapp)
+            )
+        db.add(supplier)
+        db.flush()
+    elif data.evidence_score is not None:
+        supplier.evidence_score = max(
+            supplier.evidence_score or 0,
+            data.evidence_score,
+        )
+        supplier.last_checked_at = utc_now()
+
+    if rfq is not None:
+        link = db.scalar(
+            select(RfqSupplierLink).where(
+                RfqSupplierLink.rfq_id == rfq.id,
+                RfqSupplierLink.supplier_id == supplier.id,
+            )
+        )
+        if link is None:
+            db.add(
+                RfqSupplierLink(
+                    rfq_id=rfq.id,
+                    supplier_id=supplier.id,
+                    search_run_id=search_run.id if search_run else None,
+                    source_url=data.source,
+                )
+            )
     db.commit()
     db.refresh(supplier)
-    return _to_supplier_read(supplier)
+    linked_requests = (
+        [SupplierRequestLink(rfq_id=rfq.id, name=rfq.name, cas=rfq.cas)]
+        if rfq is not None
+        else []
+    )
+    return _to_supplier_read(supplier, linked_requests=linked_requests)
 
 
 def _get_rfq(db: Session, rfq_id: int) -> RFQ:

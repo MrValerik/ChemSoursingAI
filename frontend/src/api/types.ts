@@ -153,6 +153,11 @@ export interface PriceHistoryItem {
 }
 
 export type SupplierTypeKind = "manufacturer" | "distributor";
+export type SupplierQualificationStatus =
+  | "candidate"
+  | "under_review"
+  | "verified"
+  | "rejected";
 export type ChannelKind = "email" | "whatsapp";
 export type DispatchStatusKind = "queued" | "sent" | "delivered" | "read" | "error";
 
@@ -165,6 +170,18 @@ export interface SupplierRead {
   source: string | null;
   certificates: string[] | null;
   channels: ChannelKind[];
+  qualification_status: SupplierQualificationStatus;
+  evidence_score: number | null;
+  last_checked_at: string | null;
+  contacts_count: number;
+  request_count: number;
+  linked_requests: {
+    rfq_id: number;
+    name: string;
+    cas: string;
+  }[];
+  has_coa: boolean;
+  has_tds: boolean;
 }
 
 export interface RecipientRead {

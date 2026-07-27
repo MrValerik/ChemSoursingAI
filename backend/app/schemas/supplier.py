@@ -19,6 +19,18 @@ class SupplierCreate(BaseModel):
     whatsapp: str | None = None
     source: str | None = "добавлен вручную"
     reputation: str | None = None
+    qualification_status: str = Field(
+        default="candidate",
+        pattern="^(candidate|under_review|verified|rejected)$",
+    )
+    evidence_score: int | None = Field(default=None, ge=0, le=100)
+    certificates: list[str] | None = None
+
+
+class SupplierRequestLink(BaseModel):
+    rfq_id: int
+    name: str
+    cas: str
 
 
 class SupplierRead(BaseModel):
@@ -31,9 +43,17 @@ class SupplierRead(BaseModel):
     reputation: str | None
     source: str | None
     certificates: list[str] | None
+    qualification_status: str
+    evidence_score: int | None
+    last_checked_at: datetime | None
 
     # Доступные каналы по контактам менеджеров.
-    channels: list[Channel] = []
+    channels: list[Channel] = Field(default_factory=list)
+    contacts_count: int = 0
+    request_count: int = 0
+    linked_requests: list[SupplierRequestLink] = Field(default_factory=list)
+    has_coa: bool = False
+    has_tds: bool = False
 
 
 class RecipientAdd(BaseModel):

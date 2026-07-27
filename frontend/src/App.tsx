@@ -40,7 +40,7 @@ function Sections() {
           onJumpConsumed={() => setJumpRfqId(null)}
         />
       )}
-      {section === "suppliers" && <SuppliersSection />}
+      {section === "suppliers" && <SuppliersSection onOpenRfq={openRfq} />}
       {section === "review" && <ReviewQueue onOpenRfq={openRfq} />}
       {section === "templates" && <TemplatesSection />}
       {section === "prompts" && <PromptStudio />}

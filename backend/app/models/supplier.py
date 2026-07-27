@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from datetime import datetime
+
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import JSON, String
+from sqlalchemy import DateTime, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -28,6 +30,15 @@ class Supplier(Base, TimestampMixin):
     source: Mapped[str | None] = mapped_column(String(255))
     # Сертификаты (GMP/ISO и пр.) — список строк.
     certificates: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    # Статус в реестре задаётся человеком; предварительная ИИ-квалификация
+    # создаёт только кандидата и не подтверждает контрагента автоматически.
+    qualification_status: Mapped[str] = mapped_column(
+        String(32), default="candidate", index=True
+    )
+    evidence_score: Mapped[int | None] = mapped_column(Integer, default=None)
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
 
     managers: Mapped[list["Manager"]] = relationship(
         back_populates="supplier", cascade="all, delete-orphan"

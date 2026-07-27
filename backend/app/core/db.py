@@ -67,9 +67,32 @@ def _apply_light_migrations() -> None:
                 conn.execute(text("ALTER TABLE rfqs ADD COLUMN owner_id INTEGER"))
     if "suppliers" in tables:
         cols = {c["name"] for c in inspector.get_columns("suppliers")}
-        if "source" not in cols:
-            with engine.begin() as conn:
+        with engine.begin() as conn:
+            if "source" not in cols:
                 conn.execute(text("ALTER TABLE suppliers ADD COLUMN source VARCHAR(255)"))
+            if "qualification_status" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE suppliers ADD COLUMN qualification_status "
+                        "VARCHAR(32) NOT NULL DEFAULT 'candidate'"
+                    )
+                )
+            if "evidence_score" not in cols:
+                conn.execute(
+                    text("ALTER TABLE suppliers ADD COLUMN evidence_score INTEGER")
+                )
+            if "last_checked_at" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE suppliers ADD COLUMN last_checked_at TIMESTAMP"
+                    )
+                )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_suppliers_qualification_status "
+                    "ON suppliers (qualification_status)"
+                )
+            )
     if "communications" in tables:
         cols = {c["name"] for c in inspector.get_columns("communications")}
         additions = {

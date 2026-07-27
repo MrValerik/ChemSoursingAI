@@ -8,6 +8,7 @@ from app.models.prompt import PromptTemplate, PromptVersion, RfqAiSetting
 from app.models.quotation import Quotation
 from app.models.recipient import RfqRecipient
 from app.models.rfq import RFQ
+from app.models.rfq_supplier import RfqSupplierLink
 from app.models.search_trace import (
     AgentRun,
     EvidenceClaim,
@@ -23,6 +24,7 @@ __all__ = [
     "Base",
     "User",
     "RFQ",
+    "RfqSupplierLink",
     "Supplier",
     "Template",
     "Manager",

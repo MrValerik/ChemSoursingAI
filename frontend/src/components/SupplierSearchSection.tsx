@@ -417,18 +417,24 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
   const add = async (result: SupplierSearchResult | QualifiedSupplierResult) => {
     try {
       const qualified = "company_name" in result ? result : null;
-      await api.addSupplier({
-        company: (qualified?.company_name || result.title).slice(0, 255),
-        type:
-          qualified && qualified.supplier_type !== "unknown"
-            ? qualified.supplier_type
+      await api.addSupplier(
+        {
+          company: (qualified?.company_name || result.title).slice(0, 255),
+          type:
+            qualified && qualified.supplier_type !== "unknown"
+              ? qualified.supplier_type
+              : null,
+          country: activeCountry || null,
+          source: result.url,
+          reputation: qualified
+            ? `Проверяемый балл ${qualified.confidence}/100, требуется решение человека`
             : null,
-        country: activeCountry || null,
-        source: result.url,
-        reputation: qualified
-          ? `Проверяемый балл ${qualified.confidence}/100, требуется решение человека`
-          : null,
-      });
+          qualification_status: "candidate",
+          evidence_score: qualified?.confidence ?? null,
+        },
+        rfq.id,
+        trace?.id ?? data?.search_run_id,
+      );
       setAddedUrls((current) => new Set(current).add(result.url));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
