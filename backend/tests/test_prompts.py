@@ -255,6 +255,35 @@ def test_supplier_search_trace_records_safe_llm_fallback(client, monkeypatch):
     assert trace["agent_runs"][1]["status"] == "completed"
 
 
+def test_failed_search_returns_trace_id(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_text",
+        lambda self, **kwargs: '"Aspirin" "50-78-2" manufacturer',
+    )
+
+    def failed_search(*args, **kwargs):
+        raise OSError("connector blocked")
+
+    monkeypatch.setattr("app.api.supplier_search.search_web", failed_search)
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "country": "China"},
+    )
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail["message"].endswith("connector blocked")
+
+    trace = client.get(
+        f"/search-runs/{detail['search_run_id']}", headers=buyer
+    ).json()
+    assert trace["status"] == "failed"
+    assert trace["agent_runs"][-1]["status"] == "failed"
+    assert trace["search_attempts"]
+    assert all(attempt["status"] == "failed" for attempt in trace["search_attempts"])
+
+
 def test_supplier_search_deduplicates_results_by_domain(client, monkeypatch):
     buyer = _auth(client, "ivanov")
     monkeypatch.setattr(

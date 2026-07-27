@@ -626,3 +626,152 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .qualification-card summary { cursor: pointer; color: var(--brand); }
 .source-link { font-size: 12px; overflow-wrap: anywhere; }
 .qualification-card button { align-self: flex-start; margin-top: auto; }
+
+.search-trace {
+  display: grid;
+  gap: 18px;
+}
+
+.search-trace h2,
+.search-trace h3,
+.search-trace p {
+  margin-top: 0;
+}
+
+.search-trace-header,
+.search-trace-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.search-trace-actions {
+  justify-content: flex-end;
+}
+
+.agent-trace-list,
+.search-attempts {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-trace-card,
+.search-attempt-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.agent-trace-card > summary,
+.search-attempt-card > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  cursor: pointer;
+  background: #f8fafc;
+}
+
+.agent-trace-card > summary > span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+}
+
+.agent-trace-card summary small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.agent-trace-order {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+}
+
+.agent-trace-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 12px 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trace-block {
+  padding: 12px;
+}
+
+.trace-block h3 {
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.trace-block pre {
+  max-height: 420px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.search-query-text {
+  margin: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.search-attempt-card > p,
+.search-attempt-card > .qualification-warning {
+  margin: 0 12px 12px;
+}
+
+.search-attempt-result {
+  display: grid;
+  gap: 4px;
+  margin: 0 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.search-attempt-result p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.search-attempt-result span {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .search-trace-header,
+  .search-trace-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .agent-trace-card > summary,
+  .search-attempt-card > summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

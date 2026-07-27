@@ -493,7 +493,7 @@ def supplier_search(
         db.commit()
         raise HTTPException(
             status_code=502,
-            detail=error,
+            detail={"message": error, "search_run_id": search_run.id},
         )
     results = _rank_results(raw_results, data.country, data.limit)
     fallback_used = len(attempted_queries) > 1
@@ -620,7 +620,8 @@ def qualify_supplier_results(
         finish_search_run(search_run, error=error)
         db.commit()
         raise HTTPException(
-            status_code=503, detail=error
+            status_code=503,
+            detail={"message": error, "search_run_id": search_run.id},
         ) from exc
 
     qualifications: dict[int, SupplierQualification] = {}

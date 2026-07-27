@@ -14,6 +14,7 @@ import type {
   SupplierRead,
   SupplierQualificationResponse,
   SupplierSearchResponse,
+  SearchRunTrace,
   TemplateRead,
   UserAdminRead,
   UserRead,
@@ -32,7 +33,11 @@ const BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const TOKEN_KEY = "chemsource_token";
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    public searchRunId: number | null = null,
+  ) {
     super(message);
   }
 }
@@ -57,13 +62,22 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       onUnauthorized?.();
     }
     let detail = resp.statusText;
+    let searchRunId: number | null = null;
     try {
       const data = await resp.json();
-      detail = (data as { detail?: string }).detail ?? detail;
+      const errorDetail = (data as {
+        detail?: string | { message?: string; search_run_id?: number };
+      }).detail;
+      if (typeof errorDetail === "string") {
+        detail = errorDetail;
+      } else if (errorDetail) {
+        detail = errorDetail.message ?? detail;
+        searchRunId = errorDetail.search_run_id ?? null;
+      }
     } catch {
       /* тело не JSON — оставляем statusText */
     }
-    throw new ApiError(resp.status, detail);
+    throw new ApiError(resp.status, detail, searchRunId);
   }
   if (resp.status === 204) {
     return undefined as T;
@@ -280,6 +294,7 @@ export const api = {
     }),
 
   qualifySuppliers: (payload: {
+    search_run_id?: number;
     cas: string;
     name: string;
     country?: string | null;
@@ -290,6 +305,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  getSearchRun: (id: number) =>
+    request<SearchRunTrace>(`/search-runs/${id}`),
 
   createPrompt: (payload: {
     kind: string;

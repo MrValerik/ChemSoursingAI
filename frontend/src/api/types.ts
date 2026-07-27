@@ -276,6 +276,7 @@ export interface SupplierSearchResult {
 }
 
 export interface SupplierSearchResponse {
+  search_run_id: number;
   query: string;
   queries_used: string[];
   ai_query: string | null;
@@ -308,10 +309,63 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
 }
 
 export interface SupplierQualificationResponse {
+  search_run_id: number;
   results: QualifiedSupplierResult[];
   prompt_id: number | null;
   prompt_version: number | null;
   warning: string;
+}
+
+export interface AgentRunRead {
+  id: number;
+  sequence: number;
+  agent_slug: string;
+  agent_name: string;
+  execution_type: "llm" | "tool" | "deterministic" | string;
+  status: string;
+  prompt_id: number | null;
+  prompt_version: number | null;
+  effective_system_prompt: string | null;
+  input_payload: Record<string, unknown> | null;
+  output_payload: Record<string, unknown> | null;
+  model: string | null;
+  temperature: number | null;
+  max_tokens: number | null;
+  started_at: string;
+  completed_at: string | null;
+  latency_ms: number | null;
+  error: string | null;
+}
+
+export interface SearchAttemptRead {
+  id: number;
+  agent_run_id: number | null;
+  connector: string;
+  query: string;
+  language: string | null;
+  source_type: string | null;
+  purpose: string | null;
+  status: string;
+  result_count: number | null;
+  results_payload: SupplierSearchResult[] | null;
+  started_at: string;
+  completed_at: string | null;
+  latency_ms: number | null;
+  error: string | null;
+}
+
+export interface SearchRunTrace {
+  id: number;
+  owner_id: number;
+  owner_name: string | null;
+  status: string;
+  mode: string;
+  input_payload: Record<string, unknown>;
+  started_at: string;
+  completed_at: string | null;
+  error: string | null;
+  agent_runs: AgentRunRead[];
+  search_attempts: SearchAttemptRead[];
 }
 
 export interface DashboardOverdue {

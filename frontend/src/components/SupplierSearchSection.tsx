@@ -6,6 +6,7 @@ import type {
   EvidenceStatus,
   QualifiedSupplierResult,
   QualifiedSupplierType,
+  SearchRunTrace,
   SupplierQualificationResponse,
   SupplierSearchResponse,
   SupplierSearchResult,
@@ -51,6 +52,128 @@ const evidenceTone = (status: EvidenceStatus) => {
   return "tone-neutral";
 };
 
+const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
+
+const traceTone = (status: string) => {
+  if (status === "completed" || status === "search_completed") return "tone-ok";
+  if (status === "failed") return "tone-danger";
+  return "tone-warn";
+};
+
+function SearchTracePanel({
+  trace,
+  busy,
+  onRefresh,
+}: {
+  trace: SearchRunTrace;
+  busy: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="search-trace">
+      <div className="search-trace-header">
+        <div>
+          <h2>Ход поиска и работа агентов</h2>
+          <p className="note">
+            Запуск #{trace.id} · {trace.owner_name || `пользователь ${trace.owner_id}`}
+          </p>
+        </div>
+        <div className="search-trace-actions">
+          <span className={`badge ${traceTone(trace.status)}`}>{trace.status}</span>
+          <button className="secondary" disabled={busy} onClick={onRefresh}>
+            {busy ? "Обновление…" : "Обновить журнал"}
+          </button>
+        </div>
+      </div>
+
+      {trace.error && <div className="qualification-warning">{trace.error}</div>}
+
+      <div className="agent-trace-list">
+        {trace.agent_runs.map((stage) => (
+          <details className="agent-trace-card" key={stage.id}>
+            <summary>
+              <span className="agent-trace-order">{stage.sequence}</span>
+              <span>
+                <strong>{stage.agent_name}</strong>
+                <small>
+                  {stage.execution_type === "llm"
+                    ? "Локальная Qwen"
+                    : stage.execution_type === "tool"
+                      ? "Системный инструмент, без промпта"
+                      : "Детерминированный fallback"}
+                </small>
+              </span>
+              <span className={`badge ${traceTone(stage.status)}`}>{stage.status}</span>
+              <span className="note">
+                {stage.latency_ms === null ? "—" : `${stage.latency_ms} мс`}
+              </span>
+            </summary>
+
+            <div className="agent-trace-meta">
+              <span>Код: {stage.agent_slug}</span>
+              {stage.prompt_version !== null && (
+                <span>Промпт: #{stage.prompt_id}, версия {stage.prompt_version}</span>
+              )}
+              {stage.model && <span>Модель: {stage.model}</span>}
+              {stage.temperature !== null && <span>temperature: {stage.temperature}</span>}
+              {stage.max_tokens !== null && <span>max tokens: {stage.max_tokens}</span>}
+            </div>
+
+            {stage.error && <div className="qualification-warning">{stage.error}</div>}
+
+            {stage.effective_system_prompt && (
+              <div className="trace-block">
+                <h3>Фактический системный промпт</h3>
+                <pre>{stage.effective_system_prompt}</pre>
+              </div>
+            )}
+            {stage.input_payload && (
+              <div className="trace-block">
+                <h3>Вход агента</h3>
+                <pre>{formatJson(stage.input_payload)}</pre>
+              </div>
+            )}
+            {stage.output_payload && (
+              <div className="trace-block">
+                <h3>Результат агента</h3>
+                <pre>{formatJson(stage.output_payload)}</pre>
+              </div>
+            )}
+          </details>
+        ))}
+      </div>
+
+      <div className="search-attempts">
+        <h3>Где и какими запросами искали</h3>
+        {trace.search_attempts.length === 0 && (
+          <p className="note">Поисковые инструменты в этом запуске не вызывались.</p>
+        )}
+        {trace.search_attempts.map((attempt) => (
+          <details className="search-attempt-card" key={attempt.id}>
+            <summary>
+              <span className={`badge ${traceTone(attempt.status)}`}>{attempt.status}</span>
+              <strong>{attempt.connector}</strong>
+              <span className="note">
+                {attempt.language || "язык не указан"} · результатов: {attempt.result_count ?? "—"}
+              </span>
+            </summary>
+            <div className="search-query-text">{attempt.query}</div>
+            {attempt.purpose && <p className="note">Цель: {attempt.purpose}</p>}
+            {attempt.error && <div className="qualification-warning">{attempt.error}</div>}
+            {attempt.results_payload?.map((result) => (
+              <div className="search-attempt-result" key={`${attempt.id}-${result.url}`}>
+                <a href={result.url} target="_blank" rel="noreferrer">{result.title}</a>
+                <p>{result.snippet}</p>
+                <span>{result.url}</span>
+              </div>
+            ))}
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function SupplierSearchSection() {
   const { user } = useAuth();
   const [cas, setCas] = useState("");
@@ -59,8 +182,10 @@ export default function SupplierSearchSection() {
   const [instructions, setInstructions] = useState("");
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
   const [qualification, setQualification] = useState<SupplierQualificationResponse | null>(null);
+  const [trace, setTrace] = useState<SearchRunTrace | null>(null);
   const [busy, setBusy] = useState(false);
   const [qualifying, setQualifying] = useState(false);
+  const [traceBusy, setTraceBusy] = useState(false);
   const [addedUrls, setAddedUrls] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
@@ -68,17 +193,25 @@ export default function SupplierSearchSection() {
     setBusy(true);
     setError(null);
     setQualification(null);
+    setTrace(null);
     setAddedUrls(new Set());
     try {
-      setData(
-        await api.searchSuppliers({
-          cas,
-          name,
-          country: country || null,
-          additional_instructions: instructions || null,
-        }),
-      );
+      const result = await api.searchSuppliers({
+        cas,
+        name,
+        country: country || null,
+        additional_instructions: instructions || null,
+      });
+      setData(result);
+      setTrace(await api.getSearchRun(result.search_run_id));
     } catch (e) {
+      if (e instanceof ApiError && e.searchRunId) {
+        try {
+          setTrace(await api.getSearchRun(e.searchRunId));
+        } catch {
+          // The original search error is more useful than a secondary trace error.
+        }
+      }
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -90,19 +223,41 @@ export default function SupplierSearchSection() {
     setQualifying(true);
     setError(null);
     try {
-      setQualification(
-        await api.qualifySuppliers({
-          cas,
-          name,
-          country: country || null,
-          additional_instructions: instructions || null,
-          results: data.results.slice(0, 5),
-        }),
-      );
+      const result = await api.qualifySuppliers({
+        search_run_id: data.search_run_id,
+        cas,
+        name,
+        country: country || null,
+        additional_instructions: instructions || null,
+        results: data.results.slice(0, 5),
+      });
+      setQualification(result);
+      setTrace(await api.getSearchRun(result.search_run_id));
     } catch (e) {
+      if (e instanceof ApiError && e.searchRunId) {
+        try {
+          setTrace(await api.getSearchRun(e.searchRunId));
+        } catch {
+          // Keep the qualification error if the trace cannot be reloaded.
+        }
+      }
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setQualifying(false);
+    }
+  };
+
+  const refreshTrace = async () => {
+    const runId = qualification?.search_run_id ?? data?.search_run_id;
+    if (!runId) return;
+    setTraceBusy(true);
+    setError(null);
+    try {
+      setTrace(await api.getSearchRun(runId));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setTraceBusy(false);
     }
   };
 
@@ -270,6 +425,15 @@ export default function SupplierSearchSection() {
               </div>
             </>
           )}
+        </div>
+      )}
+      {trace && (
+        <div className="panel">
+          <SearchTracePanel
+            trace={trace}
+            busy={traceBusy}
+            onRefresh={() => void refreshTrace()}
+          />
         </div>
       )}
     </div>
