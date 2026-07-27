@@ -8,7 +8,13 @@ from app.models.prompt import PromptTemplate, PromptVersion, RfqAiSetting
 from app.models.quotation import Quotation
 from app.models.recipient import RfqRecipient
 from app.models.rfq import RFQ
-from app.models.search_trace import AgentRun, SearchAttempt, SearchRun, SourceDocument
+from app.models.search_trace import (
+    AgentRun,
+    EvidenceClaim,
+    SearchAttempt,
+    SearchRun,
+    SourceDocument,
+)
 from app.models.supplier import Supplier
 from app.models.template import Template
 from app.models.user import User
@@ -31,4 +37,5 @@ __all__ = [
     "AgentRun",
     "SearchAttempt",
     "SourceDocument",
+    "EvidenceClaim",
 ]

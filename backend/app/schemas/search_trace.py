@@ -68,6 +68,21 @@ class SourceDocumentRead(BaseModel):
     error: str | None
 
 
+class EvidenceClaimRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    agent_run_id: int
+    source_document_id: int
+    result_index: int
+    claim_type: str
+    claim_value: str
+    support_status: str
+    quote: str
+    quote_verified: bool
+    created_at: datetime
+
+
 class SearchRunListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -86,3 +101,4 @@ class SearchRunTrace(SearchRunListItem):
     agent_runs: list[AgentRunRead]
     search_attempts: list[SearchAttemptRead]
     source_documents: list[SourceDocumentRead]
+    evidence_claims: list[EvidenceClaimRead]

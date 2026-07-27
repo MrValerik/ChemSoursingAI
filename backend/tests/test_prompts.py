@@ -1,5 +1,6 @@
 """Промпты: роли, версии, настройки RFQ и безопасный предпросмотр."""
 
+import json
 import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_prompts.db")
@@ -326,9 +327,12 @@ def test_supplier_search_deduplicates_results_by_domain(client, monkeypatch):
 
 def test_supplier_qualification_preserves_sources(client, monkeypatch):
     buyer = _auth(client, "ivanov")
-    monkeypatch.setattr(
-        "app.api.supplier_search.LLMClient.generate_json",
-        lambda self, **kwargs: {
+
+    def qualification_response(self, **kwargs):
+        source_document_id = json.loads(kwargs["user_text"])["sources"][0][
+            "source_document_id"
+        ]
+        return {
             "results": [
                 {
                     "result_index": 0,
@@ -345,9 +349,50 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
                     "confidence": 74,
                     "red_flags": ["GMP не подтверждён документом"],
                     "missing_evidence": ["GMP-сертификат", "TDS"],
+                    "evidence": [
+                        {
+                            "source_document_id": source_document_id,
+                            "claim_type": "chemical_identity",
+                            "claim_value": "CAS и вещество совпадают",
+                            "support_status": "supports",
+                            "quote": "Aspirin CAS 50-78-2",
+                        },
+                        {
+                            "source_document_id": source_document_id,
+                            "claim_type": "manufacturer_role",
+                            "claim_value": "Компания заявляет о производстве",
+                            "support_status": "supports",
+                            "quote": "We manufacture Aspirin CAS 50-78-2",
+                        },
+                        {
+                            "source_document_id": source_document_id,
+                            "claim_type": "coa",
+                            "claim_value": "CoA доступен",
+                            "support_status": "supports",
+                            "quote": "provide CoA",
+                        },
+                        {
+                            "source_document_id": source_document_id,
+                            "claim_type": "country",
+                            "claim_value": "Производственная площадка в Китае",
+                            "support_status": "supports",
+                            "quote": "China facility",
+                        },
+                        {
+                            "source_document_id": source_document_id,
+                            "claim_type": "gmp",
+                            "claim_value": "GMP подтверждён",
+                            "support_status": "supports",
+                            "quote": "Certified to GMP requirements",
+                        },
+                    ],
                 }
             ]
-        },
+        }
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json",
+        qualification_response,
     )
     monkeypatch.setattr(
         "app.api.supplier_search.fetch_web_page",
@@ -358,7 +403,7 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
             title="Official aspirin product",
             content_type="text/html",
             http_status=200,
-            text="We manufacture Aspirin CAS 50-78-2 and provide CoA.",
+            text="China facility. We manufacture Aspirin CAS 50-78-2 and provide CoA.",
             content_hash="a" * 64,
         ),
     )
@@ -401,7 +446,10 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
     assert result["title_ru"] == "Производитель аспирина"
     assert result["supplier_type"] == "manufacturer"
     assert result["country_status"] == "claimed"
-    assert result["gmp_status"] == "claimed"
+    assert result["gmp_status"] == "not_found"
+    assert "GMP не подтверждён проверенной цитатой" in result["red_flags"]
+    assert len(result["evidence"]) == 4
+    assert all(item["quote_verified"] for item in result["evidence"])
 
     trace = client.get(
         f"/search-runs/{payload['search_run_id']}", headers=buyer
@@ -416,6 +464,13 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
     assert trace["source_documents"][0]["status"] == "completed"
     assert trace["source_documents"][0]["content_hash"] == "a" * 64
     assert "We manufacture" in trace["source_documents"][0]["text_content"]
+    assert len(trace["evidence_claims"]) == 4
+    assert trace["evidence_claims"][0]["quote_verified"] is True
+    assert stage["output_payload"]["validated_evidence_count"] == 4
+    assert len(stage["output_payload"]["rejected_evidence"]) == 1
+    assert "дословно не найдена" in stage["output_payload"]["rejected_evidence"][0][
+        "rejection_reason"
+    ]
 
 
 def test_qualification_keeps_failed_page_as_visible_fallback(client, monkeypatch):

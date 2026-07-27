@@ -652,7 +652,8 @@ table.summary tbody tr:hover { background: #f8fafc; }
 
 .agent-trace-list,
 .search-attempts,
-.source-documents {
+.source-documents,
+.evidence-claims {
   display: grid;
   gap: 10px;
 }
@@ -786,6 +787,49 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .source-hash {
   color: var(--muted);
   font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.evidence-claim-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--brand);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.evidence-claim-card > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.evidence-claim-card p,
+.evidence-claim-card blockquote {
+  margin: 0;
+}
+
+.evidence-claim-card blockquote,
+.candidate-evidence blockquote {
+  padding: 8px 10px;
+  border-left: 3px solid #93c5fd;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 12px;
+}
+
+.candidate-evidence {
+  display: grid;
+  gap: 6px;
+}
+
+.candidate-evidence blockquote {
+  margin: 0;
+}
+
+.candidate-evidence blockquote span {
+  font-weight: 700;
 }
 
 @media (max-width: 760px) {

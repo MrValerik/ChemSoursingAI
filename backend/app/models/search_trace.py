@@ -47,6 +47,11 @@ class SearchRun(Base, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="SourceDocument.id",
     )
+    evidence_claims: Mapped[list["EvidenceClaim"]] = relationship(
+        back_populates="search_run",
+        cascade="all, delete-orphan",
+        order_by="EvidenceClaim.id",
+    )
 
 
 class AgentRun(Base, TimestampMixin):
@@ -150,3 +155,30 @@ class SourceDocument(Base, TimestampMixin):
 
     search_run: Mapped["SearchRun"] = relationship(back_populates="source_documents")
     agent_run: Mapped["AgentRun | None"] = relationship()
+
+
+class EvidenceClaim(Base, TimestampMixin):
+    """An atomic conclusion backed by an exact quote from a saved source."""
+
+    __tablename__ = "evidence_claims"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    search_run_id: Mapped[int] = mapped_column(
+        ForeignKey("search_runs.id", ondelete="CASCADE"), index=True
+    )
+    agent_run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True
+    )
+    source_document_id: Mapped[int] = mapped_column(
+        ForeignKey("source_documents.id", ondelete="CASCADE"), index=True
+    )
+    result_index: Mapped[int] = mapped_column(Integer, index=True)
+    claim_type: Mapped[str] = mapped_column(String(64), index=True)
+    claim_value: Mapped[str] = mapped_column(Text)
+    support_status: Mapped[str] = mapped_column(String(32))
+    quote: Mapped[str] = mapped_column(Text)
+    quote_verified: Mapped[bool] = mapped_column(default=True)
+
+    search_run: Mapped["SearchRun"] = relationship(back_populates="evidence_claims")
+    agent_run: Mapped["AgentRun"] = relationship()
+    source_document: Mapped["SourceDocument"] = relationship()

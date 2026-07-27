@@ -14,7 +14,14 @@ from app.connectors.web_page import fetch_web_page
 from app.connectors.web_search import search_web
 from app.core.db import get_db
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
-from app.models import AgentRun, PromptTemplate, SearchRun, SourceDocument, User
+from app.models import (
+    AgentRun,
+    EvidenceClaim,
+    PromptTemplate,
+    SearchRun,
+    SourceDocument,
+    User,
+)
 from app.models.enums import UserRole
 from app.services.search_trace import (
     create_search_run,
@@ -66,6 +73,24 @@ EvidenceStatus = Literal["claimed", "not_found", "contradicted"]
 SupplierKind = Literal["manufacturer", "distributor", "unknown"]
 CasStatus = Literal["confirmed", "mentioned", "not_found", "mismatch"]
 CountryStatus = Literal["claimed", "likely", "not_found", "mismatch"]
+ClaimType = Literal[
+    "chemical_identity",
+    "manufacturer_role",
+    "country",
+    "gmp",
+    "iso",
+    "coa",
+    "tds",
+]
+ClaimSupport = Literal["supports", "contradicts"]
+
+
+class QualificationEvidence(BaseModel):
+    source_document_id: int = Field(..., ge=1)
+    claim_type: ClaimType
+    claim_value: str = Field(..., min_length=1, max_length=500)
+    support_status: ClaimSupport
+    quote: str = Field(..., min_length=5, max_length=500)
 
 
 class SupplierQualification(BaseModel):
@@ -83,6 +108,7 @@ class SupplierQualification(BaseModel):
     confidence: int = Field(..., ge=0, le=100)
     red_flags: list[str] = Field(default_factory=list, max_length=4)
     missing_evidence: list[str] = Field(default_factory=list, max_length=5)
+    evidence: list[QualificationEvidence] = Field(default_factory=list, max_length=10)
 
 
 _QUALIFICATION_SCHEMA = {
@@ -150,6 +176,53 @@ _QUALIFICATION_SCHEMA = {
                         "items": {"type": "string", "maxLength": 500},
                         "maxItems": 5,
                     },
+                    "evidence": {
+                        "type": "array",
+                        "maxItems": 10,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "source_document_id": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                },
+                                "claim_type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "chemical_identity",
+                                        "manufacturer_role",
+                                        "country",
+                                        "gmp",
+                                        "iso",
+                                        "coa",
+                                        "tds",
+                                    ],
+                                },
+                                "claim_value": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 500,
+                                },
+                                "support_status": {
+                                    "type": "string",
+                                    "enum": ["supports", "contradicts"],
+                                },
+                                "quote": {
+                                    "type": "string",
+                                    "minLength": 5,
+                                    "maxLength": 500,
+                                },
+                            },
+                            "required": [
+                                "source_document_id",
+                                "claim_type",
+                                "claim_value",
+                                "support_status",
+                                "quote",
+                            ],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "required": [
                     "result_index",
@@ -166,6 +239,7 @@ _QUALIFICATION_SCHEMA = {
                     "confidence",
                     "red_flags",
                     "missing_evidence",
+                    "evidence",
                 ],
                 "additionalProperties": False,
             },
@@ -206,6 +280,10 @@ def _qualification_system_prompt(prompt: PromptTemplate | None) -> str:
         "иначе not_found. page_text — текст загруженной первичной страницы. "
         "Если fetch_status равен failed, доступен только поисковый snippet: "
         "считай его слабым свидетельством и снижай уверенность. "
+        "В evidence включай только факты из page_text. Для каждого факта укажи "
+        "source_document_id и короткую quote, дословно скопированную из page_text. "
+        "Не переводи и не исправляй quote. По одному факту создавай одну запись. "
+        "Если page_text отсутствует, evidence для этого источника должен быть пуст. "
         "Кратко перечисли риски и недостающие доказательства. "
         "Не изменяй CAS, названия компаний и факты источника."
     )
@@ -222,6 +300,79 @@ def _next_agent_sequence(db: Session, search_run_id: int) -> int:
         )
     )
     return (latest or 0) + 1
+
+
+def _evidence_rejection_reason(
+    evidence: QualificationEvidence,
+    *,
+    result_index: int,
+    source_documents: dict[int, SourceDocument],
+    source_indexes: dict[int, int],
+) -> str | None:
+    source = source_documents.get(evidence.source_document_id)
+    if source is None:
+        return "source_document_id не принадлежит этому запуску"
+    if source_indexes.get(source.id) != result_index:
+        return "источник относится к другому кандидату"
+    if source.status != "completed" or not source.text_content:
+        return "первичная страница не была успешно загружена"
+    if evidence.quote not in source.text_content:
+        return "цитата дословно не найдена в сохранённом тексте"
+    return None
+
+
+def _apply_evidence_gates(
+    qualification: SupplierQualification,
+    evidence_items: list[dict],
+) -> dict:
+    """Prevent high-confidence labels without a validated atomic source."""
+    payload = qualification.model_dump(exclude={"evidence"})
+    supported = {
+        item["claim_type"]
+        for item in evidence_items
+        if item["support_status"] == "supports"
+    }
+    contradicted = {
+        item["claim_type"]
+        for item in evidence_items
+        if item["support_status"] == "contradicts"
+    }
+    red_flags = list(payload["red_flags"])
+
+    def flag(message: str) -> None:
+        if message not in red_flags:
+            red_flags.append(message)
+
+    if payload["supplier_type"] == "manufacturer" and "manufacturer_role" not in supported:
+        payload["supplier_type"] = "unknown"
+        flag("Статус производителя не подтверждён проверенной цитатой")
+
+    if "chemical_identity" in contradicted:
+        payload["cas_status"] = "mismatch"
+    elif payload["cas_status"] == "confirmed" and "chemical_identity" not in supported:
+        payload["cas_status"] = "not_found"
+        flag("Совпадение вещества не подтверждено проверенной цитатой")
+
+    if "country" in contradicted:
+        payload["country_status"] = "mismatch"
+    elif payload["country_status"] == "claimed" and "country" not in supported:
+        payload["country_status"] = "not_found"
+        flag("Страна не подтверждена проверенной цитатой")
+
+    for field, claim_type, label in (
+        ("gmp_status", "gmp", "GMP"),
+        ("iso_status", "iso", "ISO"),
+        ("coa_status", "coa", "CoA"),
+        ("tds_status", "tds", "TDS"),
+    ):
+        if claim_type in contradicted:
+            payload[field] = "contradicted"
+        elif payload[field] == "claimed" and claim_type not in supported:
+            payload[field] = "not_found"
+            flag(f"{label} не подтверждён проверенной цитатой")
+
+    payload["red_flags"] = red_flags
+    return payload
 
 
 def _fallback_query(data: SupplierSearchRequest) -> str:
@@ -588,6 +739,8 @@ def qualify_supplier_results(
 
     fetched_sources: list[dict] = []
     fetch_summary: list[dict] = []
+    source_documents_by_id: dict[int, SourceDocument] = {}
+    source_index_by_id: dict[int, int] = {}
     for index, result in enumerate(data.results):
         source = SourceDocument(
             search_run_id=search_run.id,
@@ -600,6 +753,8 @@ def qualify_supplier_results(
         )
         db.add(source)
         db.flush()
+        source_documents_by_id[source.id] = source
+        source_index_by_id[source.id] = index
         try:
             page = fetch_web_page(result.url)
             source.final_url = page.final_url
@@ -679,7 +834,7 @@ def qualify_supplier_results(
         effective_system_prompt=llm.effective_json_system_prompt(system_prompt),
         model=llm.model,
         temperature=0,
-        max_tokens=768,
+        max_tokens=1536,
     )
     db.commit()
     try:
@@ -688,7 +843,7 @@ def qualify_supplier_results(
             user_text=json.dumps(source_data, ensure_ascii=False),
             schema_name="supplier_qualification",
             json_schema=_QUALIFICATION_SCHEMA,
-            max_tokens=768,
+            max_tokens=1536,
         )
     except LLMUnavailableError as exc:
         error = f"Qwen недоступна: {exc}"
@@ -712,6 +867,57 @@ def qualify_supplier_results(
             continue
         if parsed.result_index < len(data.results):
             qualifications.setdefault(parsed.result_index, parsed)
+
+    validated_evidence: dict[int, list[dict]] = {}
+    rejected_evidence: list[dict] = []
+    seen_evidence: set[tuple[int, str, str, str]] = set()
+    for result_index, qualification in qualifications.items():
+        for evidence in qualification.evidence:
+            reason = _evidence_rejection_reason(
+                evidence,
+                result_index=result_index,
+                source_documents=source_documents_by_id,
+                source_indexes=source_index_by_id,
+            )
+            dedupe_key = (
+                evidence.source_document_id,
+                evidence.claim_type,
+                evidence.support_status,
+                evidence.quote,
+            )
+            if reason is None and dedupe_key in seen_evidence:
+                reason = "дублирующее доказательство"
+            if reason is not None:
+                rejected_evidence.append(
+                    {
+                        "result_index": result_index,
+                        **evidence.model_dump(),
+                        "rejection_reason": reason,
+                    }
+                )
+                continue
+
+            seen_evidence.add(dedupe_key)
+            claim = EvidenceClaim(
+                search_run_id=search_run.id,
+                agent_run_id=qualification_run.id,
+                source_document_id=evidence.source_document_id,
+                result_index=result_index,
+                claim_type=evidence.claim_type,
+                claim_value=evidence.claim_value,
+                support_status=evidence.support_status,
+                quote=evidence.quote,
+                quote_verified=True,
+            )
+            db.add(claim)
+            db.flush()
+            validated_evidence.setdefault(result_index, []).append(
+                {
+                    "id": claim.id,
+                    **evidence.model_dump(),
+                    "quote_verified": True,
+                }
+            )
 
     combined_results: list[dict] = []
     for index, source in enumerate(data.results):
@@ -737,11 +943,20 @@ def qualify_supplier_results(
                     "confidence": 0,
                     "red_flags": ["Автоматическая оценка не получена"],
                     "missing_evidence": ["Требуется ручная проверка источника"],
+                    "evidence": [],
                 }
             )
             continue
+        evidence_items = validated_evidence.get(index, [])
+        qualification_payload = _apply_evidence_gates(
+            qualification, evidence_items
+        )
         combined_results.append(
-            {**source.model_dump(), **qualification.model_dump()}
+            {
+                **source.model_dump(),
+                **qualification_payload,
+                "evidence": evidence_items,
+            }
         )
 
     finish_agent_run(
@@ -750,6 +965,10 @@ def qualify_supplier_results(
         output_payload={
             "model_output": raw,
             "qualified_results": combined_results,
+            "validated_evidence_count": sum(
+                len(items) for items in validated_evidence.values()
+            ),
+            "rejected_evidence": rejected_evidence,
         },
     )
     finish_search_run(search_run)
@@ -760,8 +979,9 @@ def qualify_supplier_results(
         "prompt_id": prompt.id if prompt else None,
         "prompt_version": prompt.version if prompt else None,
         "warning": (
-            "Квалификация предварительная и основана только на фрагментах "
-            "поисковой выдачи. Сертификаты и статус производителя требуют "
+            "Квалификация предварительная и основана на сохранённых первичных "
+            "страницах; для недоступных сайтов используется только слабый "
+            "поисковый сниппет. Сертификаты и статус производителя требуют "
             "проверки по первичным документам."
         ),
     }

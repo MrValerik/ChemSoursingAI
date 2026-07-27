@@ -46,6 +46,16 @@ const DOCUMENT_FIELDS = [
   { key: "tds_status", label: "TDS" },
 ] as const;
 
+const CLAIM_LABELS: Record<string, string> = {
+  chemical_identity: "Совпадение вещества",
+  manufacturer_role: "Роль производителя",
+  country: "Страна",
+  gmp: "GMP",
+  iso: "ISO",
+  coa: "CoA",
+  tds: "TDS",
+};
+
 const evidenceTone = (status: EvidenceStatus) => {
   if (status === "claimed") return "tone-warn";
   if (status === "contradicted") return "tone-danger";
@@ -200,6 +210,41 @@ function SearchTracePanel({
             )}
           </details>
         ))}
+      </div>
+
+      <div className="evidence-claims">
+        <h3>Проверенные атомарные доказательства</h3>
+        {trace.evidence_claims.length === 0 && (
+          <p className="note">
+            Агент пока не вернул ни одной цитаты, прошедшей серверную проверку.
+          </p>
+        )}
+        {trace.evidence_claims.map((claim) => {
+          const source = trace.source_documents.find(
+            (item) => item.id === claim.source_document_id,
+          );
+          return (
+            <article className="evidence-claim-card" key={claim.id}>
+              <div>
+                <span
+                  className={`badge ${
+                    claim.support_status === "supports" ? "tone-ok" : "tone-danger"
+                  }`}
+                >
+                  {claim.support_status === "supports" ? "подтверждает" : "противоречит"}
+                </span>
+                <strong>{CLAIM_LABELS[claim.claim_type] || claim.claim_type}</strong>
+              </div>
+              <p>{claim.claim_value}</p>
+              <blockquote>«{claim.quote}»</blockquote>
+              {source && (
+                <a href={source.final_url || source.url} target="_blank" rel="noreferrer">
+                  Источник #{source.id}: {source.title || source.domain || source.url}
+                </a>
+              )}
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -430,6 +475,37 @@ export default function SupplierSearchSection() {
                     {result.missing_evidence.length > 0 && (
                       <div className="note">
                         <strong>Запросить:</strong> {result.missing_evidence.join("; ")}
+                      </div>
+                    )}
+
+                    {result.evidence.length > 0 && (
+                      <div className="candidate-evidence">
+                        <strong>Проверенные цитаты:</strong>
+                        {result.evidence.map((evidence) => {
+                          const source = trace?.source_documents.find(
+                            (item) => item.id === evidence.source_document_id,
+                          );
+                          return (
+                            <blockquote key={evidence.id}>
+                              <span>
+                                {CLAIM_LABELS[evidence.claim_type] || evidence.claim_type}:
+                              </span>{" "}
+                              «{evidence.quote}»
+                              {source && (
+                                <>
+                                  {" "}
+                                  <a
+                                    href={source.final_url || source.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    источник
+                                  </a>
+                                </>
+                              )}
+                            </blockquote>
+                          );
+                        })}
                       </div>
                     )}
 

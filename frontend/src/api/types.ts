@@ -306,6 +306,17 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
   confidence: number;
   red_flags: string[];
   missing_evidence: string[];
+  evidence: QualifiedEvidence[];
+}
+
+export interface QualifiedEvidence {
+  id: number;
+  source_document_id: number;
+  claim_type: string;
+  claim_value: string;
+  support_status: "supports" | "contradicts";
+  quote: string;
+  quote_verified: boolean;
 }
 
 export interface SupplierQualificationResponse {
@@ -370,6 +381,19 @@ export interface SourceDocumentRead {
   error: string | null;
 }
 
+export interface EvidenceClaimRead {
+  id: number;
+  agent_run_id: number;
+  source_document_id: number;
+  result_index: number;
+  claim_type: string;
+  claim_value: string;
+  support_status: "supports" | "contradicts";
+  quote: string;
+  quote_verified: boolean;
+  created_at: string;
+}
+
 export interface SearchRunTrace {
   id: number;
   owner_id: number;
@@ -383,6 +407,7 @@ export interface SearchRunTrace {
   agent_runs: AgentRunRead[];
   search_attempts: SearchAttemptRead[];
   source_documents: SourceDocumentRead[];
+  evidence_claims: EvidenceClaimRead[];
 }
 
 export interface DashboardOverdue {
