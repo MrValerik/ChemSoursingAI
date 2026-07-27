@@ -88,6 +88,7 @@ class SearchRunListItem(BaseModel):
 
     id: int
     owner_id: int
+    rfq_id: int | None
     owner_name: str | None = None
     status: str
     mode: str

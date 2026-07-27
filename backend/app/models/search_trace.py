@@ -12,6 +12,7 @@ from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.prompt import PromptTemplate
+    from app.models.rfq import RFQ
     from app.models.user import User
 
 
@@ -22,6 +23,9 @@ class SearchRun(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    rfq_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rfqs.id", ondelete="SET NULL"), index=True, default=None
+    )
     status: Mapped[str] = mapped_column(String(32), default="running", index=True)
     mode: Mapped[str] = mapped_column(String(32), default="expert")
     input_payload: Mapped[dict[str, Any]] = mapped_column(JSON)
@@ -35,6 +39,7 @@ class SearchRun(Base, TimestampMixin):
     error: Mapped[str | None] = mapped_column(Text, default=None)
 
     owner: Mapped["User"] = relationship()
+    rfq: Mapped["RFQ | None"] = relationship(back_populates="search_runs")
     agent_runs: Mapped[list["AgentRun"]] = relationship(
         back_populates="search_run",
         cascade="all, delete-orphan",

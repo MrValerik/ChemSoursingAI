@@ -8,6 +8,7 @@ import { useAuth } from "../auth/AuthContext";
 import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
 
 type QuickFilter = "all" | "attention" | "incomplete" | "review";
+type ScopeFilter = "mine" | "all";
 type SortKey = "id" | "name" | "status" | "n_quotations" | "completeness_pct" | "owner_name";
 
 const NEEDS_ATTENTION = (r: RFQListItem) =>
@@ -32,6 +33,7 @@ export default function RequestsTable({
   const [loading, setLoading] = useState(true);
 
   const [quick, setQuick] = useState<QuickFilter>("all");
+  const [scope, setScope] = useState<ScopeFilter>("mine");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [search, setSearch] = useState("");
@@ -57,6 +59,7 @@ export default function RequestsTable({
 
   const filtered = useMemo(() => {
     let out = rows;
+    if (scope === "mine" && user) out = out.filter((r) => r.owner_id === user.id);
     if (quick === "attention") out = out.filter(NEEDS_ATTENTION);
     if (quick === "incomplete")
       out = out.filter((r) => r.n_quotations > 0 && r.completeness_pct < 100);
@@ -79,7 +82,7 @@ export default function RequestsTable({
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
       return String(av).localeCompare(String(bv), "ru") * dir;
     });
-  }, [rows, quick, statusFilter, ownerFilter, search, sortKey, sortAsc]);
+  }, [rows, scope, user, quick, statusFilter, ownerFilter, search, sortKey, sortAsc]);
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) setSortAsc((v) => !v);
@@ -124,11 +127,28 @@ export default function RequestsTable({
       <div className="requests-header">
         <h1>Запросы</h1>
         <div className="requests-actions">
-          <button onClick={onNew}>+ Новый запрос</button>
+          <button onClick={onNew}>+ Создать новый запрос</button>
           <button className="secondary" onClick={exportCsv} disabled={filtered.length === 0}>
             Экспорт CSV
           </button>
         </div>
+      </div>
+
+      <div className="tabs request-scope-tabs">
+        <button
+          className={`tab ${scope === "mine" ? "active" : ""}`}
+          onClick={() => setScope("mine")}
+        >
+          Мои запросы
+        </button>
+        {showOwner && (
+          <button
+            className={`tab ${scope === "all" ? "active" : ""}`}
+            onClick={() => setScope("all")}
+          >
+            Все запросы
+          </button>
+        )}
       </div>
 
       <div className="requests-filters">

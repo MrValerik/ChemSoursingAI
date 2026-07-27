@@ -15,6 +15,7 @@ from app.models.enums import RFQStatus
 if TYPE_CHECKING:
     from app.models.escalation import Escalation
     from app.models.quotation import Quotation
+    from app.models.search_trace import SearchRun
     from app.models.user import User
 
 
@@ -56,4 +57,7 @@ class RFQ(Base, TimestampMixin):
     )
     escalations: Mapped[list["Escalation"]] = relationship(
         back_populates="rfq", cascade="all, delete-orphan"
+    )
+    search_runs: Mapped[list["SearchRun"]] = relationship(
+        back_populates="rfq"
     )

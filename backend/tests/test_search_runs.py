@@ -225,3 +225,52 @@ def test_invalid_cas_is_not_enqueued(client):
         json={"cas": "50-78-3", "name": "Aspirin", "country": "China"},
     )
     assert response.status_code == 422
+
+
+def test_search_job_is_bound_to_rfq_and_uses_its_substance(client):
+    buyer = _auth(client, "ivanov")
+    rfq = client.post(
+        "/rfq?verify=false",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+    ).json()
+
+    response = client.post(
+        f"/supplier-search/jobs?rfq_id={rfq['id']}",
+        headers=buyer,
+        json={
+            "cas": "64-17-5",
+            "name": "Ethanol",
+            "country": "China",
+        },
+    )
+
+    assert response.status_code == 202
+    run_id = response.json()["search_run_id"]
+    trace = client.get(f"/search-runs/{run_id}", headers=buyer).json()
+    assert trace["rfq_id"] == rfq["id"]
+    assert trace["input_payload"]["cas"] == rfq["cas"]
+    assert trace["input_payload"]["name"] == rfq["name"]
+
+    listed = client.get(
+        f"/search-runs?rfq_id={rfq['id']}", headers=buyer
+    ).json()
+    assert [item["id"] for item in listed] == [run_id]
+
+
+def test_buyer_cannot_enqueue_search_for_another_users_rfq(client):
+    head = _auth(client, "petrova")
+    rfq = client.post(
+        "/rfq?verify=false",
+        headers=head,
+        json={"cas": "64-17-5", "name": "Ethanol", "incoterms": ["CIP"]},
+    ).json()
+    buyer = _auth(client, "ivanov")
+
+    response = client.post(
+        f"/supplier-search/jobs?rfq_id={rfq['id']}",
+        headers=buyer,
+        json={"cas": rfq["cas"], "name": rfq["name"], "country": "China"},
+    )
+
+    assert response.status_code == 404

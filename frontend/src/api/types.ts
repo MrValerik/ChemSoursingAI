@@ -438,6 +438,7 @@ export interface EvidenceClaimRead {
 export interface SearchRunListItem {
   id: number;
   owner_id: number;
+  rfq_id: number | null;
   owner_name: string | null;
   status: string;
   mode: string;

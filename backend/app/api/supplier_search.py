@@ -4,7 +4,7 @@ import json
 from typing import Literal
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from app.models import (
     AgentRun,
     EvidenceClaim,
     PromptTemplate,
+    RFQ,
     SearchRun,
     SourceDocument,
     User,
@@ -761,11 +762,26 @@ def _rank_results(
 @router.post("/jobs", response_model=SupplierSearchJobRead, status_code=202)
 def enqueue_supplier_search(
     data: SupplierSearchRequest,
+    rfq_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SupplierSearchJobRead:
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    if rfq_id is not None:
+        rfq = db.get(RFQ, rfq_id)
+        can_see_all = user.role in {
+            UserRole.HEAD,
+            UserRole.ADMIN,
+            UserRole.AUDITOR,
+        }
+        if rfq is None or (
+            not can_see_all
+            and rfq.owner_id is not None
+            and rfq.owner_id != user.id
+        ):
+            raise HTTPException(status_code=404, detail="RFQ not found")
+        data = data.model_copy(update={"cas": rfq.cas, "name": rfq.name})
     normalized_cas = normalize_cas(data.cas)
     if not is_valid_cas(normalized_cas):
         raise HTTPException(
@@ -776,6 +792,7 @@ def enqueue_supplier_search(
     search_run = create_search_run(
         db,
         owner_id=user.id,
+        rfq_id=rfq_id,
         input_payload=payload,
         mode="queued_search",
         status="queued",

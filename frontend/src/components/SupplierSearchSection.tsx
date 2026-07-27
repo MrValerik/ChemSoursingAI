@@ -6,6 +6,7 @@ import type {
   EvidenceStatus,
   QualifiedSupplierResult,
   QualifiedSupplierType,
+  RFQRead,
   SearchRunListItem,
   SearchRunTrace,
   SupplierQualificationResponse,
@@ -269,10 +270,8 @@ function SearchTracePanel({
   );
 }
 
-export default function SupplierSearchSection() {
+export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
   const { user } = useAuth();
-  const [cas, setCas] = useState("");
-  const [name, setName] = useState("");
   const [country, setCountry] = useState("China");
   const [instructions, setInstructions] = useState("");
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
@@ -294,7 +293,7 @@ export default function SupplierSearchSection() {
       if (refreshing) return;
       refreshing = true;
       try {
-        const items = await api.listSearchRuns();
+        const items = await api.listSearchRuns(50, rfq.id);
         if (!active) return;
         setRuns(items);
         if (selectedRunId !== null) {
@@ -317,7 +316,7 @@ export default function SupplierSearchSection() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [selectedRunId]);
+  }, [rfq.id, selectedRunId]);
 
   const search = async () => {
     setBusy(true);
@@ -328,9 +327,9 @@ export default function SupplierSearchSection() {
     setData(null);
     setAddedUrls(new Set());
     try {
-      const job = await api.enqueueSupplierSearch({
-        cas,
-        name,
+      const job = await api.enqueueSupplierSearch(rfq.id, {
+        cas: rfq.cas,
+        name: rfq.name,
         country: country || null,
         additional_instructions: instructions || null,
       });
@@ -339,10 +338,7 @@ export default function SupplierSearchSection() {
       setNotice(
         `Поиск #${job.search_run_id} добавлен в очередь, позиция ${job.queue_position}.`,
       );
-      setCas("");
-      setName("");
-      setInstructions("");
-      setRuns(await api.listSearchRuns());
+      setRuns(await api.listSearchRuns(50, rfq.id));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -368,8 +364,8 @@ export default function SupplierSearchSection() {
     }
   };
 
-  const activeCas = trace ? runText(trace, "cas") : cas;
-  const activeName = trace ? runText(trace, "name") : name;
+  const activeCas = trace ? runText(trace, "cas") : rfq.cas;
+  const activeName = trace ? runText(trace, "name") : rfq.name;
   const activeCountry = trace ? runText(trace, "country") : country;
   const activeInstructions = trace
     ? runText(trace, "additional_instructions")
@@ -440,17 +436,18 @@ export default function SupplierSearchSection() {
   };
 
   return (
-    <div className="requests-page">
-      <div className="requests-header">
+    <div className="supplier-search-workspace">
+      <div className="tab-toolbar">
         <div>
           <h1>Поиск поставщиков</h1>
-          <p className="note">Qwen формирует запрос, а найденные факты сохраняются со ссылками.</p>
+          <p className="note">
+            Запрос #{rfq.id}: {rfq.name}, CAS {rfq.cas}. Qwen формирует план,
+            поисковый коннектор сохраняет найденные страницы и источники.
+          </p>
         </div>
       </div>
       <div className="panel">
         <div className="row">
-          <div className="field"><label>CAS</label><input value={cas} onChange={(e) => setCas(e.target.value)} /></div>
-          <div className="field" style={{ flex: 2 }}><label>Вещество</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
           <div className="field"><label>Страна</label><input value={country} onChange={(e) => setCountry(e.target.value)} /></div>
         </div>
         <div className="field">
@@ -463,11 +460,11 @@ export default function SupplierSearchSection() {
             onChange={(e) => setInstructions(e.target.value)}
           />
         </div>
-        <button disabled={busy || !cas.trim() || !name.trim()} onClick={() => void search()}>
-          {busy ? "Добавляем в очередь…" : "Найти поставщиков"}
+        <button disabled={busy} onClick={() => void search()}>
+          {busy ? "Добавляем в очередь…" : "Запустить поиск для запроса"}
         </button>
         <span className="note">
-          После добавления можно сразу заполнить следующий запрос.
+          Поиск выполняется в фоне. Можно вернуться к списку запросов или продолжить работу.
         </span>
       </div>
       {notice && <p className="success">{notice}</p>}
@@ -475,7 +472,7 @@ export default function SupplierSearchSection() {
       <div className="panel">
         <div className="search-jobs-header">
           <div>
-            <h2>Мои поиски</h2>
+            <h2>Запуски поиска по этому запросу</h2>
             <p className="note">
               Список обновляется автоматически каждые 3 секунды.
             </p>

@@ -295,20 +295,25 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  enqueueSupplierSearch: (payload: {
-    cas: string;
-    name: string;
-    country?: string | null;
-    additional_instructions?: string | null;
-    limit?: number;
-  }) =>
-    request<SupplierSearchJob>(`/supplier-search/jobs`, {
+  enqueueSupplierSearch: (
+    rfqId: number,
+    payload: {
+      cas: string;
+      name: string;
+      country?: string | null;
+      additional_instructions?: string | null;
+      limit?: number;
+    },
+  ) =>
+    request<SupplierSearchJob>(`/supplier-search/jobs?rfq_id=${rfqId}`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),
 
-  listSearchRuns: (limit = 50) =>
-    request<SearchRunListItem[]>(`/search-runs?limit=${limit}`),
+  listSearchRuns: (limit = 50, rfqId?: number) =>
+    request<SearchRunListItem[]>(
+      `/search-runs?limit=${limit}${rfqId === undefined ? "" : `&rfq_id=${rfqId}`}`,
+    ),
 
   qualifySuppliers: (payload: {
     search_run_id?: number;

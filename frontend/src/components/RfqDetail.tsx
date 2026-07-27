@@ -9,12 +9,14 @@ import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
 import CommunicationHistory from "./CommunicationHistory";
 import ExtractReplies from "./ExtractReplies";
+import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
 import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
 
 type TabKey =
   | "verification"
+  | "supplier_search"
   | "rfq"
   | "suppliers"
   | "dispatch"
@@ -24,8 +26,9 @@ type TabKey =
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "verification", label: "Верификация" },
+  { key: "supplier_search", label: "Поиск поставщиков" },
+  { key: "suppliers", label: "Отбор поставщиков" },
   { key: "rfq", label: "RFQ" },
-  { key: "suppliers", label: "Поставщики" },
   { key: "dispatch", label: "Рассылка" },
   { key: "replies", label: "Ответы" },
   { key: "summary", label: "Сводка" },
@@ -33,16 +36,16 @@ const TABS: { key: TabKey; label: string }[] = [
 ];
 
 // Статус → пройденные этапы конвейера (раздел 7: «Этапы»).
-const STAGES = ["Проверка", "RFQ", "Рассылка", "Ответы", "Сводка"];
+const STAGES = ["Проверка", "Поиск", "Отбор", "RFQ", "Рассылка", "Ответы", "Сводка"];
 const STAGE_BY_STATUS: Record<string, number> = {
   draft: 0,
   verified: 1,
-  sent: 3,
-  collecting: 3,
-  parsed: 4,
-  summarized: 5,
-  escalated: 4,
-  closed: 5,
+  sent: 5,
+  collecting: 5,
+  parsed: 6,
+  summarized: 7,
+  escalated: 6,
+  closed: 7,
 };
 
 const ESCALATION_REASONS: [string, string][] = [
@@ -222,6 +225,7 @@ export default function RfqDetail({
           </div>
 
           {tab === "verification" && <VerificationTab rfq={rfq} />}
+          {tab === "supplier_search" && <SupplierSearchSection rfq={rfq} />}
 
           {tab === "rfq" && (
             <div className="panel">

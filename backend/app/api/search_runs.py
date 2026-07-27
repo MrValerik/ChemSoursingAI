@@ -36,6 +36,7 @@ def _list_item(
 def list_search_runs(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    rfq_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[SearchRunListItem]:
@@ -46,6 +47,8 @@ def list_search_runs(
         .limit(limit)
         .offset(offset)
     )
+    if rfq_id is not None:
+        stmt = stmt.where(SearchRun.rfq_id == rfq_id)
     if user.role not in _SEE_ALL_ROLES:
         stmt = stmt.where(SearchRun.owner_id == user.id)
     runs = db.scalars(stmt).all()
