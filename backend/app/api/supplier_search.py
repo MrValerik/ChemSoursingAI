@@ -759,6 +759,39 @@ def _rank_results(
     ]
 
 
+def _search_coverage_is_sufficient(
+    *,
+    executed_items: list[SearchPlanItem],
+    planned_items: list[SearchPlanItem],
+    country: str | None,
+    ranked_results: list[dict],
+    limit: int,
+) -> bool:
+    """Stop only after result volume and distinct search intents are covered."""
+    if len(executed_items) < min(3, len(planned_items)):
+        return False
+    purposes = {item.purpose for item in executed_items}
+    if "manufacturer" not in purposes:
+        return False
+    if any(item.purpose == "documents" for item in planned_items):
+        if "documents" not in purposes:
+            return False
+    if _is_china(country) and any(
+        item.language == "zh" for item in planned_items
+    ):
+        if not any(item.language == "zh" for item in executed_items):
+            return False
+    if len(ranked_results) < limit:
+        return False
+    if country:
+        likely_count = sum(
+            item["country_hint"] == "likely" for item in ranked_results
+        )
+        if likely_count < limit:
+            return False
+    return True
+
+
 @router.post("/jobs", response_model=SupplierSearchJobRead, status_code=202)
 def enqueue_supplier_search(
     data: SupplierSearchRequest,
@@ -1071,12 +1104,14 @@ def execute_supplier_search(
     db.commit()
 
     attempted_queries: list[str] = []
+    executed_items: list[SearchPlanItem] = []
     raw_results: list[dict] = []
     search_errors: list[str] = []
     fetch_limit = min(data.limit * 2, 20)
     for plan_item in planned_queries:
         query = plan_item.query
         attempted_queries.append(query)
+        executed_items.append(plan_item)
         attempt, attempt_clock = start_search_attempt(
             db,
             search_run=search_run,
@@ -1105,10 +1140,13 @@ def execute_supplier_search(
             continue
         db.commit()
         current = _rank_results(raw_results, data.country, data.limit)
-        country_candidates = sum(
-            item["country_hint"] == "likely" for item in current
-        )
-        if len(current) >= data.limit and country_candidates >= data.limit:
+        if _search_coverage_is_sufficient(
+            executed_items=executed_items,
+            planned_items=planned_queries,
+            country=data.country,
+            ranked_results=current,
+            limit=data.limit,
+        ):
             break
 
     if not raw_results and search_errors:

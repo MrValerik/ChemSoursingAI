@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AgentRunRead(BaseModel):
@@ -83,6 +83,16 @@ class EvidenceClaimRead(BaseModel):
     created_at: datetime
 
 
+class SearchRunSummary(BaseModel):
+    planned_query_count: int = 0
+    executed_query_count: int = 0
+    raw_page_count: int = 0
+    candidate_count: int = 0
+    qualified_count: int = 0
+    manufacturer_candidate_count: int = 0
+    qualification_status: str = "not_started"
+
+
 class SearchRunListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -98,6 +108,7 @@ class SearchRunListItem(BaseModel):
     error: str | None
     queue_position: int | None = None
     result_count: int = 0
+    summary: SearchRunSummary = Field(default_factory=SearchRunSummary)
 
 
 class SearchRunTrace(SearchRunListItem):
@@ -106,3 +117,5 @@ class SearchRunTrace(SearchRunListItem):
     search_attempts: list[SearchAttemptRead]
     source_documents: list[SourceDocumentRead]
     evidence_claims: list[EvidenceClaimRead]
+    candidate_results: list[dict[str, Any]] = Field(default_factory=list)
+    qualified_results: list[dict[str, Any]] = Field(default_factory=list)

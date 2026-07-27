@@ -730,6 +730,74 @@ table.summary tbody tr:hover { background: #f8fafc; }
   justify-content: flex-end;
 }
 
+.agent-stage-tabs {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  margin-bottom: 0;
+}
+
+.agent-stage-tabs .tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.search-run-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.search-run-metrics > div {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.search-run-metrics strong {
+  color: var(--brand);
+  font-size: 22px;
+}
+
+.search-run-metrics span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-pipeline-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-pipeline-step {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.agent-pipeline-step:hover {
+  background: #f8fafc;
+  border-color: var(--brand);
+}
+
+.agent-pipeline-step span:nth-child(2) {
+  display: grid;
+  gap: 3px;
+}
+
+.agent-pipeline-step small {
+  color: var(--muted);
+}
+
 .agent-trace-list,
 .search-attempts,
 .source-documents,

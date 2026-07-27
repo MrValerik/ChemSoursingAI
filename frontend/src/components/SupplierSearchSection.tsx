@@ -90,6 +90,23 @@ const runText = (run: SearchRunListItem, key: string) => {
   return typeof value === "string" ? value : "";
 };
 
+const qualificationFromTrace = (
+  trace: SearchRunTrace,
+): SupplierQualificationResponse | null => {
+  if (trace.qualified_results.length === 0) return null;
+  const stage = [...trace.agent_runs]
+    .reverse()
+    .find((item) => item.agent_slug === "supplier_qualification");
+  return {
+    search_run_id: trace.id,
+    results: trace.qualified_results,
+    prompt_id: stage?.prompt_id ?? null,
+    prompt_version: stage?.prompt_version ?? null,
+    warning:
+      "Квалификация предварительная. Проверьте первичные источники и документы перед решением.",
+  };
+};
+
 function SearchTracePanel({
   trace,
   busy,
@@ -99,6 +116,15 @@ function SearchTracePanel({
   busy: boolean;
   onRefresh: () => void;
 }) {
+  const [activeView, setActiveView] = useState("overview");
+  const selectedStage = trace.agent_runs.find(
+    (stage) => activeView === `agent-${stage.id}`,
+  );
+
+  useEffect(() => {
+    setActiveView("overview");
+  }, [trace.id]);
+
   return (
     <section className="search-trace">
       <div className="search-trace-header">
@@ -118,9 +144,103 @@ function SearchTracePanel({
 
       {trace.error && <div className="qualification-warning">{trace.error}</div>}
 
-      <div className="agent-trace-list">
+      <div className="tabs agent-stage-tabs">
+        <button
+          className={`tab ${activeView === "overview" ? "active" : ""}`}
+          onClick={() => setActiveView("overview")}
+        >
+          Сводка
+        </button>
         {trace.agent_runs.map((stage) => (
-          <details className="agent-trace-card" key={stage.id}>
+          <button
+            className={`tab ${
+              activeView === `agent-${stage.id}` ? "active" : ""
+            }`}
+            key={stage.id}
+            onClick={() => setActiveView(`agent-${stage.id}`)}
+          >
+            {stage.agent_name}
+          </button>
+        ))}
+        <button
+          className={`tab ${activeView === "sources" ? "active" : ""}`}
+          onClick={() => setActiveView("sources")}
+        >
+          Источники
+        </button>
+        <button
+          className={`tab ${activeView === "evidence" ? "active" : ""}`}
+          onClick={() => setActiveView("evidence")}
+        >
+          Доказательства
+        </button>
+      </div>
+
+      {activeView === "overview" && (
+        <>
+          <div className="search-run-metrics">
+            <div>
+              <strong>{trace.summary.planned_query_count}</strong>
+              <span>запросов составила Qwen</span>
+            </div>
+            <div>
+              <strong>{trace.summary.executed_query_count}</strong>
+              <span>запросов выполнено поисковиком</span>
+            </div>
+            <div>
+              <strong>{trace.summary.raw_page_count}</strong>
+              <span>страниц вернула выдача</span>
+            </div>
+            <div>
+              <strong>{trace.summary.candidate_count}</strong>
+              <span>кандидатов после удаления дублей</span>
+            </div>
+            <div>
+              <strong>{trace.summary.qualified_count}</strong>
+              <span>кандидатов квалифицировано</span>
+            </div>
+            <div>
+              <strong>{trace.summary.manufacturer_candidate_count}</strong>
+              <span>предварительно похожи на производителей</span>
+            </div>
+          </div>
+          <div className="agent-pipeline-summary">
+            {trace.agent_runs.map((stage) => (
+              <button
+                className="agent-pipeline-step"
+                key={stage.id}
+                onClick={() => setActiveView(`agent-${stage.id}`)}
+              >
+                <span className="agent-trace-order">{stage.sequence}</span>
+                <span>
+                  <strong>{stage.agent_name}</strong>
+                  <small>
+                    {stage.execution_type === "llm"
+                      ? "Qwen: промпт и структурированный результат"
+                      : stage.execution_type === "tool"
+                        ? "Инструмент: фактический внешний вызов"
+                        : "Безопасный детерминированный fallback"}
+                  </small>
+                </span>
+                <span className={`badge ${traceTone(stage.status)}`}>
+                  {stage.status}
+                </span>
+              </button>
+            ))}
+          </div>
+          {trace.summary.qualification_status === "not_started" && (
+            <div className="qualification-warning">
+              Найденные страницы ещё не квалифицированы. Они являются кандидатами,
+              а не подтверждёнными производителями.
+            </div>
+          )}
+        </>
+      )}
+
+      {selectedStage && (
+        <div className="agent-trace-list">
+          {[selectedStage].map((stage) => (
+          <details className="agent-trace-card" key={stage.id} open>
             <summary>
               <span className="agent-trace-order">{stage.sequence}</span>
               <span>
@@ -171,9 +291,11 @@ function SearchTracePanel({
             )}
           </details>
         ))}
-      </div>
+        </div>
+      )}
 
-      <div className="search-attempts">
+      {selectedStage?.agent_slug === "web_search" && (
+        <div className="search-attempts">
         <h3>Где и какими запросами искали</h3>
         {trace.search_attempts.length === 0 && (
           <p className="note">Поисковые инструменты в этом запуске не вызывались.</p>
@@ -199,9 +321,11 @@ function SearchTracePanel({
             ))}
           </details>
         ))}
-      </div>
+        </div>
+      )}
 
-      <div className="source-documents">
+      {activeView === "sources" && (
+        <div className="source-documents">
         <h3>Снимки первичных страниц</h3>
         {trace.source_documents.length === 0 && (
           <p className="note">Первичные страницы в этом запуске ещё не загружались.</p>
@@ -230,9 +354,11 @@ function SearchTracePanel({
             )}
           </details>
         ))}
-      </div>
+        </div>
+      )}
 
-      <div className="evidence-claims">
+      {activeView === "evidence" && (
+        <div className="evidence-claims">
         <h3>Проверенные атомарные доказательства</h3>
         {trace.evidence_claims.length === 0 && (
           <p className="note">
@@ -265,7 +391,8 @@ function SearchTracePanel({
             </article>
           );
         })}
-      </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -303,6 +430,8 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
           if (currentTrace.result_payload) {
             setData(currentTrace.result_payload);
           }
+          const restoredQualification = qualificationFromTrace(currentTrace);
+          if (restoredQualification) setQualification(restoredQualification);
         }
       } catch {
         // A transient polling failure must not hide the form or current result.
@@ -357,6 +486,7 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
       const currentTrace = await api.getSearchRun(runId);
       setTrace(currentTrace);
       setData(currentTrace.result_payload);
+      setQualification(qualificationFromTrace(currentTrace));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -370,19 +500,21 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
   const activeInstructions = trace
     ? runText(trace, "additional_instructions")
     : instructions;
+  const candidateResults = data?.results ?? trace?.candidate_results ?? [];
 
   const qualify = async () => {
-    if (!data) return;
+    const searchRunId = data?.search_run_id ?? trace?.id;
+    if (!searchRunId || candidateResults.length === 0) return;
     setQualifying(true);
     setError(null);
     try {
       const result = await api.qualifySuppliers({
-        search_run_id: data.search_run_id,
+        search_run_id: searchRunId,
         cas: activeCas,
         name: activeName,
         country: activeCountry || null,
         additional_instructions: activeInstructions || null,
-        results: data.results.slice(0, 5),
+        results: candidateResults.slice(0, 5),
       });
       setQualification(result);
       setTrace(await api.getSearchRun(result.search_run_id));
@@ -513,6 +645,19 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
                   {run.result_count > 0 && (
                     <small>Кандидатов: {run.result_count}</small>
                   )}
+                  {run.summary.executed_query_count > 0 && (
+                    <small>
+                      Поиск: {run.summary.executed_query_count}/
+                      {run.summary.planned_query_count} запросов · страниц:{" "}
+                      {run.summary.raw_page_count}
+                    </small>
+                  )}
+                  {run.summary.qualified_count > 0 && (
+                    <small>
+                      Квалифицировано: {run.summary.qualified_count} · производителей:{" "}
+                      {run.summary.manufacturer_candidate_count}
+                    </small>
+                  )}
                   <small>#{run.id}</small>
                 </span>
               </button>
@@ -520,52 +665,61 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
           </div>
         )}
       </div>
-      {data && (
+      {(data || candidateResults.length > 0) && (
         <div className="panel">
-          <div className="note">Основной запрос: {data.query} · Qwen: {data.ai_used ? "да" : "fallback"}</div>
-          <div className="search-identity">
-            <strong>
-              Вещество: {data.identity.canonical_name || activeName}
-            </strong>
-            <div className="note">
-              CAS: {activeCas} · PubChem: {data.substance_lookup.found ? "найден" : "не подтверждён"}
-              {data.substance_lookup.cid ? ` · CID ${data.substance_lookup.cid}` : ""}
-              {data.substance_lookup.molecular_formula
-                ? ` · ${data.substance_lookup.molecular_formula}`
-                : ""}
+          {data ? (
+            <>
+              <div className="note">Основной запрос: {data.query} · Qwen: {data.ai_used ? "план построен" : "использован fallback"}</div>
+              <div className="search-identity">
+                <strong>
+                  Вещество: {data.identity.canonical_name || activeName}
+                </strong>
+                <div className="note">
+                  CAS: {activeCas} · PubChem: {data.substance_lookup.found ? "найден" : "не подтверждён"}
+                  {data.substance_lookup.cid ? ` · CID ${data.substance_lookup.cid}` : ""}
+                  {data.substance_lookup.molecular_formula
+                    ? ` · ${data.substance_lookup.molecular_formula}`
+                    : ""}
+                </div>
+                <div className="note">
+                  Идентичность: {data.identity.status}
+                  {data.identity.search_names.length > 0
+                    ? ` · поисковые имена: ${data.identity.search_names.join(", ")}`
+                    : ""}
+                </div>
+                {data.identity.ambiguities.map((item) => (
+                  <div className="note" key={item}>Требует внимания: {item}</div>
+                ))}
+              </div>
+              {data.fallback_used && (
+                <p className="note">
+                  Для полноты выполнено несколько запросов, включая локализованные по стране.
+                </p>
+              )}
+              <details className="search-queries">
+                <summary>Показать план и использованные запросы ({data.search_plan.length})</summary>
+                <ul>
+                  {data.search_plan.map((item) => (
+                    <li key={item.query}>
+                      <code>{item.query}</code>
+                      {" — "}
+                      {item.language}, {item.purpose}, {item.source_type}, приоритет {item.priority}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+              <p className="note">{data.warning}</p>
+            </>
+          ) : (
+            <div className="qualification-warning">
+              Это результат старого запуска. Итоговый пакет не был сохранён,
+              поэтому кандидаты восстановлены из журнала поискового инструмента.
             </div>
-            <div className="note">
-              Идентичность: {data.identity.status}
-              {data.identity.search_names.length > 0
-                ? ` · поисковые имена: ${data.identity.search_names.join(", ")}`
-                : ""}
-            </div>
-            {data.identity.ambiguities.map((item) => (
-              <div className="note" key={item}>Требует внимания: {item}</div>
-            ))}
-          </div>
-          {data.fallback_used && (
-            <p className="note">
-              Для полноты выполнено несколько запросов, включая локализованные по стране.
-            </p>
           )}
-          <details className="search-queries">
-            <summary>Показать план и использованные запросы ({data.search_plan.length})</summary>
-            <ul>
-              {data.search_plan.map((item) => (
-                <li key={item.query}>
-                  <code>{item.query}</code>
-                  {" — "}
-                  {item.language}, {item.purpose}, {item.source_type}, приоритет {item.priority}
-                </li>
-              ))}
-            </ul>
-          </details>
-          <p className="note">{data.warning}</p>
-          {data.results.length === 0 && (
+          {candidateResults.length === 0 && (
             <p className="note">Поисковый источник не вернул результатов. Попробуйте убрать часть дополнительных требований.</p>
           )}
-          {data.results.length > 0 && !qualification && (
+          {candidateResults.length > 0 && !qualification && (
             <div className="qualification-action">
               <button disabled={qualifying} onClick={() => void qualify()}>
                 {qualifying ? "Qwen переводит и квалифицирует…" : "Перевести и квалифицировать результаты"}
@@ -574,7 +728,7 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
             </div>
           )}
           {!qualification &&
-            data.results.map((result) => (
+            candidateResults.map((result) => (
               <div className="rfq-list-item" key={result.url}>
                 <div style={{ flex: 1 }}>
                   <a href={result.url} target="_blank" rel="noreferrer">{result.title}</a>

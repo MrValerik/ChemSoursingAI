@@ -97,6 +97,15 @@ def test_owner_and_privileged_roles_can_read_full_trace(client):
         assert trace["search_attempts"][0]["connector"] == "duckduckgo_html"
         assert trace["search_attempts"][0]["result_count"] == 3
         assert trace["search_attempts"][0]["results_payload"] is None
+        assert trace["summary"] == {
+            "planned_query_count": 1,
+            "executed_query_count": 1,
+            "raw_page_count": 3,
+            "candidate_count": 0,
+            "qualified_count": 0,
+            "manufacturer_candidate_count": 0,
+            "qualification_status": "not_started",
+        }
 
 
 def test_buyer_cannot_read_another_users_trace(client):
@@ -274,3 +283,47 @@ def test_buyer_cannot_enqueue_search_for_another_users_rfq(client):
     )
 
     assert response.status_code == 404
+
+
+def test_legacy_search_results_are_visible_without_result_payload(client):
+    with SessionLocal() as db:
+        owner = db.query(User).filter(User.username == "ivanov").one()
+        run = create_search_run(
+            db,
+            owner_id=owner.id,
+            input_payload={"cas": "50-78-2", "name": "Aspirin"},
+        )
+        stage, clock = start_agent_run(
+            db,
+            search_run=run,
+            sequence=1,
+            agent_slug="web_search",
+            agent_name="Поиск в открытых источниках",
+            execution_type="tool",
+            input_payload={"queries": [{"query": "legacy query"}]},
+        )
+        finish_agent_run(
+            stage,
+            clock,
+            output_payload={
+                "results": [
+                    {
+                        "title": "Legacy candidate",
+                        "url": "https://legacy.example/product",
+                        "snippet": "Aspirin CAS 50-78-2",
+                        "country_hint": "likely",
+                    }
+                ]
+            },
+        )
+        finish_search_run(run)
+        db.commit()
+        run_id = run.id
+
+    trace = client.get(
+        f"/search-runs/{run_id}", headers=_auth(client, "ivanov")
+    ).json()
+    assert trace["result_payload"] is None
+    assert trace["result_count"] == 1
+    assert trace["summary"]["candidate_count"] == 1
+    assert trace["candidate_results"][0]["title"] == "Legacy candidate"

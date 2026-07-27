@@ -673,6 +673,53 @@ def test_supplier_search_prioritizes_chinese_sources(client, monkeypatch):
     assert payload["results"][0]["country_hint"] == "likely"
 
 
+def test_supplier_search_covers_documents_and_chinese_before_early_stop(
+    client, monkeypatch
+):
+    buyer = _auth(client, "ivanov")
+    _mock_search_agents(
+        monkeypatch,
+        '"Aspirin" "50-78-2" manufacturer China',
+    )
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.search_web",
+        lambda query, limit: [
+            {
+                "title": f"China candidate {index}",
+                "url": f"https://candidate-{index}.cn/product",
+                "snippet": "China manufacturer CAS 50-78-2",
+            }
+            for index in range(5)
+        ],
+    )
+
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "country": "China",
+            "limit": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    trace = client.get(
+        f"/search-runs/{response.json()['search_run_id']}", headers=buyer
+    ).json()
+    assert any(
+        attempt["language"] == "zh" for attempt in trace["search_attempts"]
+    )
+    assert any(
+        attempt["purpose"] == "documents"
+        for attempt in trace["search_attempts"]
+    )
+    assert trace["summary"]["planned_query_count"] >= 4
+    assert trace["summary"]["executed_query_count"] >= 4
+
+
 def test_auditor_cannot_start_or_qualify_search(client):
     auditor = _auth(client, "auditor")
     search_payload = {"cas": "50-78-2", "name": "Aspirin", "country": "China"}

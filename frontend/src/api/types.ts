@@ -465,6 +465,15 @@ export interface SearchRunListItem {
   error: string | null;
   queue_position: number | null;
   result_count: number;
+  summary: {
+    planned_query_count: number;
+    executed_query_count: number;
+    raw_page_count: number;
+    candidate_count: number;
+    qualified_count: number;
+    manufacturer_candidate_count: number;
+    qualification_status: string;
+  };
 }
 
 export interface SearchRunTrace extends SearchRunListItem {
@@ -473,6 +482,8 @@ export interface SearchRunTrace extends SearchRunListItem {
   search_attempts: SearchAttemptRead[];
   source_documents: SourceDocumentRead[];
   evidence_claims: EvidenceClaimRead[];
+  candidate_results: SupplierSearchResult[];
+  qualified_results: QualifiedSupplierResult[];
 }
 
 export interface SupplierSearchJob {
