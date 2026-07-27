@@ -32,6 +32,7 @@ from app.services.search_trace import (
     start_search_attempt,
     utc_now,
 )
+from app.services.supplier_scoring import score_supplier
 
 router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
 
@@ -941,6 +942,12 @@ def qualify_supplier_results(
                     "coa_status": "not_found",
                     "tds_status": "not_found",
                     "confidence": 0,
+                    "llm_confidence": None,
+                    "score_breakdown": score_supplier(
+                        {"supplier_type": "unknown", "cas_status": "not_found"},
+                        [],
+                    ).to_dict(),
+                    "shortlist_eligible": False,
                     "red_flags": ["Автоматическая оценка не получена"],
                     "missing_evidence": ["Требуется ручная проверка источника"],
                     "evidence": [],
@@ -951,6 +958,11 @@ def qualify_supplier_results(
         qualification_payload = _apply_evidence_gates(
             qualification, evidence_items
         )
+        score = score_supplier(qualification_payload, evidence_items)
+        qualification_payload["llm_confidence"] = qualification.confidence
+        qualification_payload["confidence"] = score.total
+        qualification_payload["score_breakdown"] = score.to_dict()
+        qualification_payload["shortlist_eligible"] = score.shortlist_eligible
         combined_results.append(
             {
                 **source.model_dump(),

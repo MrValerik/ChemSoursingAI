@@ -304,6 +304,18 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
   coa_status: EvidenceStatus;
   tds_status: EvidenceStatus;
   confidence: number;
+  llm_confidence: number | null;
+  score_breakdown: {
+    total: number;
+    identity: number;
+    supplier_role: number;
+    country: number;
+    documents: number;
+    evidence_quality: number;
+    hard_exclusion: boolean;
+    shortlist_eligible: boolean;
+  };
+  shortlist_eligible: boolean;
   red_flags: string[];
   missing_evidence: string[];
   evidence: QualifiedEvidence[];

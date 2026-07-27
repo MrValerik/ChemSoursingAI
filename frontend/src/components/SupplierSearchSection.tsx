@@ -349,7 +349,7 @@ export default function SupplierSearchSection() {
         country: country || null,
         source: result.url,
         reputation: qualified
-          ? `ИИ-уверенность ${qualified.confidence}%, требуется проверка`
+          ? `Проверяемый балл ${qualified.confidence}/100, требуется решение человека`
           : null,
       });
       setAddedUrls((current) => new Set(current).add(result.url));
@@ -443,7 +443,7 @@ export default function SupplierSearchSection() {
                       </div>
                       <div className="confidence">
                         <strong>{result.confidence}%</strong>
-                        <span>уверенность</span>
+                        <span>проверяемый балл</span>
                       </div>
                     </div>
 
@@ -451,6 +451,9 @@ export default function SupplierSearchSection() {
                     <p>{result.summary_ru}</p>
 
                     <div className="qualification-evidence">
+                      <span className={`badge ${result.shortlist_eligible ? "tone-ok" : "tone-neutral"}`}>
+                        {result.shortlist_eligible ? "Допущен в shortlist" : "Только экспертный список"}
+                      </span>
                       <span className={`badge ${result.cas_status === "confirmed" ? "tone-ok" : result.cas_status === "mismatch" ? "tone-danger" : "tone-neutral"}`}>
                         CAS: {CAS_LABELS[result.cas_status]}
                       </span>
@@ -466,6 +469,23 @@ export default function SupplierSearchSection() {
                         );
                       })}
                     </div>
+
+                    <details className="score-breakdown">
+                      <summary>Показать расчёт балла</summary>
+                      <ul>
+                        <li>Совпадение вещества: {result.score_breakdown.identity}/35</li>
+                        <li>Роль компании: {result.score_breakdown.supplier_role}/25</li>
+                        <li>Страна: {result.score_breakdown.country}/10</li>
+                        <li>Документы: {result.score_breakdown.documents}/15</li>
+                        <li>Качество доказательств: {result.score_breakdown.evidence_quality}/15</li>
+                      </ul>
+                      {result.llm_confidence !== null && (
+                        <p className="note">
+                          Исходная оценка Qwen: {result.llm_confidence}% — показана для аудита,
+                          но не участвует в итоговом балле.
+                        </p>
+                      )}
+                    </details>
 
                     {result.red_flags.length > 0 && (
                       <div className="qualification-warning">

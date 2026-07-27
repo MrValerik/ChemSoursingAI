@@ -450,6 +450,10 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
     assert "GMP не подтверждён проверенной цитатой" in result["red_flags"]
     assert len(result["evidence"]) == 4
     assert all(item["quote_verified"] for item in result["evidence"])
+    assert result["llm_confidence"] == 74
+    assert result["confidence"] == 88
+    assert result["shortlist_eligible"] is True
+    assert result["score_breakdown"]["identity"] == 35
 
     trace = client.get(
         f"/search-runs/{payload['search_run_id']}", headers=buyer
