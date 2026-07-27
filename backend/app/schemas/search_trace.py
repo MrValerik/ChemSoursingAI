@@ -95,9 +95,12 @@ class SearchRunListItem(BaseModel):
     started_at: datetime
     completed_at: datetime | None
     error: str | None
+    queue_position: int | None = None
+    result_count: int = 0
 
 
 class SearchRunTrace(SearchRunListItem):
+    result_payload: dict[str, Any] | None
     agent_runs: list[AgentRunRead]
     search_attempts: list[SearchAttemptRead]
     source_documents: list[SourceDocumentRead]

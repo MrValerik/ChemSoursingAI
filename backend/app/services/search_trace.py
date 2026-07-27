@@ -21,10 +21,11 @@ def create_search_run(
     owner_id: int,
     input_payload: dict[str, Any],
     mode: str = "expert",
+    status: str = "running",
 ) -> SearchRun:
     run = SearchRun(
         owner_id=owner_id,
-        status="running",
+        status=status,
         mode=mode,
         input_payload=input_payload,
         started_at=utc_now(),

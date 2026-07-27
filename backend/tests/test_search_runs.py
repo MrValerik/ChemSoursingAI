@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 
 from app.core.db import SessionLocal, engine
 from app.main import app
-from app.models import User
+from app.models import SearchRun, User
+from app.search_worker import process_next_job, recover_interrupted_jobs
 from app.services.search_trace import (
     create_search_run,
     finish_agent_run,
@@ -119,3 +120,108 @@ def test_buyer_cannot_read_another_users_trace(client):
 
 def test_search_run_requires_authentication(client):
     assert client.get("/search-runs").status_code == 401
+
+
+def _enqueue_search(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    cas: str,
+    name: str,
+) -> dict:
+    response = client.post(
+        "/supplier-search/jobs",
+        headers=headers,
+        json={"cas": cas, "name": name, "country": "China"},
+    )
+    assert response.status_code == 202
+    return response.json()
+
+
+def test_search_jobs_are_queued_and_processed_fifo(client):
+    buyer = _auth(client, "ivanov")
+    first = _enqueue_search(
+        client, buyer, cas="50-78-2", name="Aspirin"
+    )
+    second = _enqueue_search(
+        client, buyer, cas="64-17-5", name="Ethanol"
+    )
+    assert first["status"] == "queued"
+    assert first["queue_position"] == 1
+    assert second["queue_position"] == 2
+
+    listed = {
+        item["id"]: item for item in client.get("/search-runs", headers=buyer).json()
+    }
+    assert listed[first["search_run_id"]]["queue_position"] == 1
+    assert listed[second["search_run_id"]]["queue_position"] == 2
+
+    def successful_executor(data, db, user, *, search_run):
+        return {
+            "search_run_id": search_run.id,
+            "query": f'"{data.cas}" manufacturer',
+            "queries_used": [f'"{data.cas}" manufacturer'],
+            "results": [],
+        }
+
+    processed_id = process_next_job(executor=successful_executor)
+    assert processed_id == first["search_run_id"]
+    first_trace = client.get(
+        f"/search-runs/{processed_id}", headers=buyer
+    ).json()
+    assert first_trace["status"] == "search_completed"
+    assert first_trace["result_payload"]["search_run_id"] == processed_id
+
+    second_trace = client.get(
+        f"/search-runs/{second['search_run_id']}", headers=buyer
+    ).json()
+    assert second_trace["status"] == "queued"
+    assert second_trace["queue_position"] == 1
+    assert process_next_job(executor=successful_executor) == second["search_run_id"]
+
+
+def test_failed_job_does_not_block_the_queue(client):
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(
+        client, buyer, cas="67-56-1", name="Methanol"
+    )
+
+    def failed_executor(*args, **kwargs):
+        raise RuntimeError("search connector unavailable")
+
+    processed_id = process_next_job(executor=failed_executor)
+    assert processed_id == queued["search_run_id"]
+    trace = client.get(f"/search-runs/{processed_id}", headers=buyer).json()
+    assert trace["status"] == "failed"
+    assert trace["error"] == "search connector unavailable"
+
+
+def test_worker_marks_interrupted_jobs_as_failed(client):
+    with SessionLocal() as db:
+        owner = db.query(User).filter(User.username == "ivanov").one()
+        run = create_search_run(
+            db,
+            owner_id=owner.id,
+            input_payload={"cas": "71-43-2", "name": "Benzene"},
+            mode="queued_search",
+            status="searching",
+        )
+        db.commit()
+        run_id = run.id
+
+    with SessionLocal() as db:
+        assert recover_interrupted_jobs(db) == 1
+        recovered = db.get(SearchRun, run_id)
+        assert recovered is not None
+        assert recovered.status == "failed"
+        assert "перезапуском worker" in recovered.error
+
+
+def test_invalid_cas_is_not_enqueued(client):
+    buyer = _auth(client, "ivanov")
+    response = client.post(
+        "/supplier-search/jobs",
+        headers=buyer,
+        json={"cas": "50-78-3", "name": "Aspirin", "country": "China"},
+    )
+    assert response.status_code == 422

@@ -19,9 +19,16 @@ def _can_see(user: User, search_run: SearchRun) -> bool:
     return user.role in _SEE_ALL_ROLES or search_run.owner_id == user.id
 
 
-def _list_item(search_run: SearchRun) -> SearchRunListItem:
+def _list_item(
+    search_run: SearchRun,
+    *,
+    queue_position: int | None = None,
+) -> SearchRunListItem:
     item = SearchRunListItem.model_validate(search_run)
     item.owner_name = search_run.owner.full_name if search_run.owner else None
+    item.queue_position = queue_position
+    results = (search_run.result_payload or {}).get("results")
+    item.result_count = len(results) if isinstance(results, list) else 0
     return item
 
 
@@ -41,7 +48,24 @@ def list_search_runs(
     )
     if user.role not in _SEE_ALL_ROLES:
         stmt = stmt.where(SearchRun.owner_id == user.id)
-    return [_list_item(run) for run in db.scalars(stmt).all()]
+    runs = db.scalars(stmt).all()
+    queued_ids = list(
+        db.scalars(
+            select(SearchRun.id)
+            .where(
+                SearchRun.mode == "queued_search",
+                SearchRun.status == "queued",
+            )
+            .order_by(SearchRun.created_at, SearchRun.id)
+        ).all()
+    )
+    queue_positions = {
+        run_id: position for position, run_id in enumerate(queued_ids, start=1)
+    }
+    return [
+        _list_item(run, queue_position=queue_positions.get(run.id))
+        for run in runs
+    ]
 
 
 @router.get("/{search_run_id}", response_model=SearchRunTrace)
@@ -65,4 +89,21 @@ def get_search_run(
         raise HTTPException(status_code=404, detail="Search run not found")
     item = SearchRunTrace.model_validate(search_run)
     item.owner_name = search_run.owner.full_name if search_run.owner else None
+    if search_run.status == "queued":
+        queued_ids = list(
+            db.scalars(
+                select(SearchRun.id)
+                .where(
+                    SearchRun.mode == "queued_search",
+                    SearchRun.status == "queued",
+                )
+                .order_by(SearchRun.created_at, SearchRun.id)
+            ).all()
+        )
+        try:
+            item.queue_position = queued_ids.index(search_run.id) + 1
+        except ValueError:
+            item.queue_position = None
+    results = (search_run.result_payload or {}).get("results")
+    item.result_count = len(results) if isinstance(results, list) else 0
     return item

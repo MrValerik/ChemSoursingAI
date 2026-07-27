@@ -34,9 +34,12 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Поднимутся четыре сервиса: `db` (Postgres + pgvector), `redis`, `backend` и
-`frontend` (nginx + собранное React-приложение). Бэкенд дождётся готовности БД,
-а frontend — готовности backend; таблицы создадутся при старте API.
+Поднимутся пять сервисов: `db` (Postgres + pgvector), `redis`, `backend`,
+`search-worker` и `frontend` (nginx + собранное React-приложение).
+`search-worker` последовательно выполняет сохранённые в PostgreSQL задания
+поиска, чтобы единственный слот локальной Qwen не получал параллельные запросы.
+Бэкенд дождётся готовности БД, а frontend — готовности backend; таблицы
+создадутся при старте API.
 
 Остановить: `docker compose down` (данные БД сохраняются в томе `pgdata`;
 для полной очистки — `docker compose down -v`).
@@ -98,6 +101,9 @@ pytest
 | POST | `/prompts/preview` | Предпросмотр промпта на локальной Qwen |
 | GET/PUT | `/rfq/{id}/ai-settings` | Промпт и инструкции конкретного RFQ |
 | POST | `/supplier-search` | ИИ-запрос и поиск кандидатов со ссылками |
+| POST | `/supplier-search/jobs` | Поставить поиск в очередь и сразу получить ID |
+| GET | `/search-runs` | Очередь, история и текущие статусы поисков |
+| GET | `/search-runs/{id}` | Результат и подробная трассировка этапов |
 | POST | `/supplier-search/qualify` | Русский перевод и предварительная квалификация найденных кандидатов |
 | POST | `/email/sync` | Загрузить новые ответы из общего IMAP-ящика |
 | GET | `/rfq/{id}/communications` | История Email-переписки по RFQ |

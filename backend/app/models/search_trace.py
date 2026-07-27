@@ -25,6 +25,9 @@ class SearchRun(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="running", index=True)
     mode: Mapped[str] = mapped_column(String(32), default="expert")
     input_payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, default=None
+    )
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None

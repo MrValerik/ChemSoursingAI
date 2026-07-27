@@ -70,6 +70,12 @@ class SearchPlan(BaseModel):
     queries: list[SearchPlanItem] = Field(..., min_length=1, max_length=8)
 
 
+class SupplierSearchJobRead(BaseModel):
+    search_run_id: int
+    status: Literal["queued"]
+    queue_position: int
+
+
 class SupplierSearchResultInput(BaseModel):
     title: str = Field(..., min_length=1, max_length=1000)
     url: str = Field(..., min_length=8, max_length=4000)
@@ -752,20 +758,73 @@ def _rank_results(
     ]
 
 
+@router.post("/jobs", response_model=SupplierSearchJobRead, status_code=202)
+def enqueue_supplier_search(
+    data: SupplierSearchRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SupplierSearchJobRead:
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    normalized_cas = normalize_cas(data.cas)
+    if not is_valid_cas(normalized_cas):
+        raise HTTPException(
+            status_code=422,
+            detail="CAS не прошёл проверку формата и контрольной суммы",
+        )
+    payload = data.model_copy(update={"cas": normalized_cas}).model_dump()
+    search_run = create_search_run(
+        db,
+        owner_id=user.id,
+        input_payload=payload,
+        mode="queued_search",
+        status="queued",
+    )
+    db.commit()
+    queue_position = db.scalar(
+        select(func.count(SearchRun.id)).where(
+            SearchRun.mode == "queued_search",
+            SearchRun.status == "queued",
+            SearchRun.id <= search_run.id,
+        )
+    )
+    return SupplierSearchJobRead(
+        search_run_id=search_run.id,
+        status="queued",
+        queue_position=queue_position or 1,
+    )
+
+
 @router.post("")
 def supplier_search(
     data: SupplierSearchRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    return execute_supplier_search(data, db, user)
+
+
+def execute_supplier_search(
+    data: SupplierSearchRequest,
+    db: Session,
+    user: User,
+    *,
+    search_run: SearchRun | None = None,
+) -> dict:
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
 
-    search_run = create_search_run(
-        db,
-        owner_id=user.id,
-        input_payload=data.model_dump(),
-    )
+    if search_run is None:
+        search_run = create_search_run(
+            db,
+            owner_id=user.id,
+            input_payload=data.model_dump(),
+        )
+    elif search_run.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Чужая задача поиска")
+    search_run.status = "identifying"
+    search_run.error = None
+    search_run.completed_at = None
     db.commit()
 
     normalized_cas = normalize_cas(data.cas)
@@ -881,6 +940,8 @@ def supplier_search(
         )
         db.commit()
 
+    search_run.status = "planning"
+    db.commit()
     prompt = db.scalar(
         select(PromptTemplate)
         .where(
@@ -975,6 +1036,8 @@ def supplier_search(
     planned_queries, rejected_queries = _merge_search_plans(
         data, ai_items, fallback_items
     )
+    search_run.status = "searching"
+    db.commit()
     search_stage, search_clock = start_agent_run(
         db,
         search_run=search_run,
@@ -1055,9 +1118,7 @@ def supplier_search(
             "rejected_model_queries": rejected_queries,
         },
     )
-    search_run.status = "search_completed"
-    db.commit()
-    return {
+    response_payload = {
         "search_run_id": search_run.id,
         "query": attempted_queries[0],
         "queries_used": attempted_queries,
@@ -1073,6 +1134,10 @@ def supplier_search(
             "необходимо подтвердить по первичному источнику."
         ),
     }
+    search_run.result_payload = response_payload
+    search_run.status = "search_completed"
+    db.commit()
+    return response_payload
 
 
 @router.post("/qualify")

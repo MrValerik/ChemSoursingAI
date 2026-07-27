@@ -97,6 +97,17 @@ def _apply_light_migrations() -> None:
                         f"ADD COLUMN results_payload {json_type}"
                     )
                 )
+    if "search_runs" in tables:
+        cols = {c["name"] for c in inspector.get_columns("search_runs")}
+        if "result_payload" not in cols:
+            json_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs "
+                        f"ADD COLUMN result_payload {json_type}"
+                    )
+                )
 
 
 def get_db() -> Iterator[Session]:
