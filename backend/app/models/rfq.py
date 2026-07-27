@@ -36,6 +36,7 @@ class RFQ(Base, TimestampMixin):
     # Базисы поставки (Incoterm) и каналы рассылки (Channel) — списки строк.
     incoterms: Mapped[list[str] | None] = mapped_column(JSON, default=None)
     channels: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    search_countries: Mapped[list[str] | None] = mapped_column(JSON, default=None)
 
     status: Mapped[RFQStatus] = mapped_column(
         SAEnum(RFQStatus), default=RFQStatus.DRAFT, index=True

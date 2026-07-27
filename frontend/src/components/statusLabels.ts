@@ -5,7 +5,7 @@ import type { RFQStatus } from "../api/types";
 export const STATUS_LABELS: Record<RFQStatus, string> = {
   draft: "Черновик",
   verified: "Вещество проверено",
-  sent: "RFQ разослан",
+  sent: "Запросы поставщикам отправлены",
   collecting: "Сбор ответов",
   parsed: "Ответы извлечены",
   summarized: "Сводка готова",

@@ -62,9 +62,17 @@ def _apply_light_migrations() -> None:
     tables = inspector.get_table_names()
     if "rfqs" in tables:
         cols = {c["name"] for c in inspector.get_columns("rfqs")}
-        if "owner_id" not in cols:
-            with engine.begin() as conn:
+        json_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+        with engine.begin() as conn:
+            if "owner_id" not in cols:
                 conn.execute(text("ALTER TABLE rfqs ADD COLUMN owner_id INTEGER"))
+            if "search_countries" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE rfqs "
+                        f"ADD COLUMN search_countries {json_type}"
+                    )
+                )
     if "suppliers" in tables:
         cols = {c["name"] for c in inspector.get_columns("suppliers")}
         with engine.begin() as conn:

@@ -88,7 +88,7 @@ def build_rfq(data: RFQInput) -> dict:
 
 
 def _build_subject(data: RFQInput) -> str:
-    return f"RFQ: {data.name} (CAS {data.cas})"
+    return f"Request for quotation: {data.name} (CAS {data.cas})"
 
 
 def _build_body(data: RFQInput, incoterms: list[str]) -> str:

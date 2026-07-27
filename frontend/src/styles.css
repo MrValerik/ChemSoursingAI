@@ -66,8 +66,10 @@ body {
 .row { display: flex; gap: 12px; }
 .row > .field { flex: 1; }
 
-.checks { display: flex; gap: 16px; }
+.checks { display: flex; flex-wrap: wrap; gap: 16px; }
 .checks label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
+.inline-add { display: flex; gap: 8px; margin-top: 10px; max-width: 560px; }
+.inline-add input { flex: 1; }
 
 button {
   background: var(--primary);

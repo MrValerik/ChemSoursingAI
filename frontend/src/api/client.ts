@@ -92,6 +92,8 @@ export interface RFQCreatePayload {
   name: string;
   incoterms: string[];
   channels?: string[];
+  search_countries: string[];
+  additional_instructions?: string | null;
   purity?: string | null;
   application?: string | null;
   volume?: string | null;
@@ -119,11 +121,18 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  createRfq: (payload: RFQCreatePayload, verify = true) =>
-    request<RFQRead>(`/rfq?verify=${verify}`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
+  createRfq: (
+    payload: RFQCreatePayload,
+    verify = true,
+    startSearch = false,
+  ) =>
+    request<RFQRead>(
+      `/rfq?verify=${verify}&start_search=${startSearch}`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
 
   getRfq: (id: number) => request<RFQRead>(`/rfq/${id}`),
 

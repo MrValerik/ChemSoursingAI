@@ -5,7 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 
 const KIND_LABELS: Record<PromptKind, string> = {
   extraction: "Извлечение котировки",
-  rfq_generation: "Формирование RFQ",
+  rfq_generation: "Формирование первого письма",
   substance_identity: "Идентификация вещества",
   supplier_search: "Поиск поставщиков",
   qualification: "Квалификация",

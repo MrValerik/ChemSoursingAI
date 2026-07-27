@@ -399,7 +399,7 @@ function SearchTracePanel({
 
 export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
   const { user } = useAuth();
-  const [country, setCountry] = useState("China");
+  const [country, setCountry] = useState(rfq.search_countries?.[0] ?? "Китай");
   const [instructions, setInstructions] = useState("");
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
   const [qualification, setQualification] = useState<SupplierQualificationResponse | null>(null);
@@ -423,6 +423,9 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
         const items = await api.listSearchRuns(50, rfq.id);
         if (!active) return;
         setRuns(items);
+        if (selectedRunId === null && items.length > 0) {
+          setSelectedRunId(items[0].id);
+        }
         if (selectedRunId !== null) {
           const currentTrace = await api.getSearchRun(selectedRunId);
           if (!active) return;
@@ -585,25 +588,39 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
         </div>
       </div>
       <div className="panel">
-        <div className="row">
-          <div className="field"><label>Страна</label><input value={country} onChange={(e) => setCountry(e.target.value)} /></div>
-        </div>
-        <div className="field">
-          <label>Дополнительный поисковый промпт</label>
-          <textarea
-            rows={3}
-            maxLength={4000}
-            placeholder="Например: только производители фармацевтического грейда с GMP"
-            value={instructions}
-            onChange={(e) => setInstructions(e.target.value)}
-          />
-        </div>
-        <button disabled={busy} onClick={() => void search()}>
-          {busy ? "Добавляем в очередь…" : "Запустить поиск для запроса"}
-        </button>
-        <span className="note">
-          Поиск выполняется в фоне. Можно вернуться к списку запросов или продолжить работу.
-        </span>
+        {(rfq.search_countries ?? []).length > 0 ? (
+          <p className="success">
+            Поиск запускается автоматически при создании запроса по выбранным
+            странам: {(rfq.search_countries ?? []).join(", ")}.
+          </p>
+        ) : (
+          <p className="note">
+            Этот запрос создан до появления автоматического поиска. При
+            необходимости добавьте поиск вручную.
+          </p>
+        )}
+        <details>
+          <summary>Запустить дополнительный поиск</summary>
+          <div className="row" style={{ marginTop: 12 }}>
+            <div className="field">
+              <label>Страна</label>
+              <input value={country} onChange={(e) => setCountry(e.target.value)} />
+            </div>
+          </div>
+          <div className="field">
+            <label>Дополнительные требования</label>
+            <textarea
+              rows={3}
+              maxLength={4000}
+              placeholder="Например: только производители фармацевтического грейда с GMP"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+            />
+          </div>
+          <button disabled={busy} onClick={() => void search()}>
+            {busy ? "Добавляем в очередь…" : "Добавить поиск в очередь"}
+          </button>
+        </details>
       </div>
       {notice && <p className="success">{notice}</p>}
       {error && <p className="error">{error}</p>}

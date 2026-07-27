@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.core.db import SessionLocal, engine
 from app.main import app
-from app.models import SearchRun, User
+from app.models import RfqAiSetting, SearchRun, User
 from app.search_worker import process_next_job, recover_interrupted_jobs
 from app.services.search_trace import (
     create_search_run,
@@ -327,3 +327,43 @@ def test_legacy_search_results_are_visible_without_result_payload(client):
     assert trace["result_count"] == 1
     assert trace["summary"]["candidate_count"] == 1
     assert trace["candidate_results"][0]["title"] == "Legacy candidate"
+
+
+def test_creating_request_can_start_search_for_each_selected_country(client):
+    buyer = _auth(client, "ivanov")
+    response = client.post(
+        "/rfq?verify=false&start_search=true",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "incoterms": ["CIP"],
+            "search_countries": ["Китай", "Индия", " китай "],
+            "additional_instructions": "Только производители с GMP",
+        },
+    )
+
+    assert response.status_code == 201
+    request = response.json()
+    assert request["search_countries"] == ["Китай", "Индия"]
+
+    runs = client.get(
+        f"/search-runs?rfq_id={request['id']}",
+        headers=buyer,
+    ).json()
+    assert [run["input_payload"]["country"] for run in reversed(runs)] == [
+        "Китай",
+        "Индия",
+    ]
+    assert all(run["status"] == "queued" for run in runs)
+    assert all(run["rfq_id"] == request["id"] for run in runs)
+    assert all(
+        run["input_payload"]["additional_instructions"]
+        == "Только производители с GMP"
+        for run in runs
+    )
+
+    with SessionLocal() as db:
+        setting = db.get(RfqAiSetting, request["id"])
+        assert setting is not None
+        assert setting.additional_instructions == "Только производители с GMP"
