@@ -1,15 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError, type RFQCreatePayload } from "../api/client";
-import type { RFQRead } from "../api/types";
+import type { RFQRead, SubstanceRecord } from "../api/types";
+import { Field, Input, Select, Textarea } from "./ui";
 
 const ALL_INCOTERMS = ["CIP", "FCA", "EXW"];
-const COUNTRY_OPTIONS = [
-  "Китай",
-  "Индия",
-  "Турция",
-  "Германия",
-  "США",
-];
+const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
 
 interface Props {
   onCreated: (rfq: RFQRead) => void;
@@ -24,10 +19,15 @@ export default function NewRfq({ onCreated }: Props) {
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
   const [supplierTarget, setSupplierTarget] = useState(5);
-  const [customCountry, setCustomCountry] = useState("");
   const [aiInstructions, setAiInstructions] = useState("");
+  const [substances, setSubstances] = useState<SubstanceRecord[]>([]);
+  const [substanceId, setSubstanceId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.listSubstances().then(setSubstances).catch(() => setSubstances([]));
+  }, []);
 
   const payload = (): RFQCreatePayload => ({
     cas: cas.trim(),
@@ -39,6 +39,7 @@ export default function NewRfq({ onCreated }: Props) {
     channels: ["email"],
     search_countries: countries,
     supplier_target: supplierTarget,
+    substance_id: substanceId,
     additional_instructions: aiInstructions.trim() || null,
   });
 
@@ -56,15 +57,15 @@ export default function NewRfq({ onCreated }: Props) {
         : [...current, country],
     );
 
-  const addCustomCountry = () => {
-    const country = customCountry.trim();
-    if (!country) return;
-    setCountries((current) =>
-      current.some((item) => item.toLocaleLowerCase() === country.toLocaleLowerCase())
-        ? current
-        : [...current, country],
-    );
-    setCustomCountry("");
+  const chooseSubstance = (value: string) => {
+    const id = value ? Number(value) : null;
+    setSubstanceId(id);
+    if (id === null) return;
+    const selected = substances.find((item) => item.id === id);
+    if (selected) {
+      setCas(selected.cas);
+      setName(selected.preferred_name);
+    }
   };
 
   const onCreate = async () => {
@@ -95,26 +96,47 @@ export default function NewRfq({ onCreated }: Props) {
         выбранным странам в очередь. Можно сразу создавать следующий запрос.
       </p>
 
+      <Field
+        label="Вещество из справочника"
+        hint="Если карточка уже существует, её подтверждённые названия и исключения автоматически применятся в поиске."
+      >
+        <Select
+          value={substanceId ?? ""}
+          onChange={(event) => chooseSubstance(event.target.value)}
+        >
+          <option value="">Новое вещество — заполнить вручную</option>
+          {substances.map((substance) => (
+            <option key={substance.id} value={substance.id}>
+              {substance.preferred_name} · CAS {substance.cas}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
       <div className="row">
-        <div className="field">
-          <label>CAS-номер</label>
-          <input value={cas} onChange={(event) => setCas(event.target.value)} />
-        </div>
-        <div className="field">
-          <label>Наименование вещества</label>
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-        </div>
+        <Field label="CAS-номер">
+          <Input
+            disabled={substanceId !== null}
+            value={cas}
+            onChange={(event) => setCas(event.target.value)}
+          />
+        </Field>
+        <Field label="Наименование вещества">
+          <Input
+            disabled={substanceId !== null}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </Field>
       </div>
 
       <div className="row">
-        <div className="field">
-          <label>Чистота / грейд</label>
-          <input value={purity} onChange={(event) => setPurity(event.target.value)} />
-        </div>
-        <div className="field">
-          <label>Требуемый объём</label>
-          <input value={volume} onChange={(event) => setVolume(event.target.value)} />
-        </div>
+        <Field label="Чистота / грейд">
+          <Input value={purity} onChange={(event) => setPurity(event.target.value)} />
+        </Field>
+        <Field label="Требуемый объём">
+          <Input value={volume} onChange={(event) => setVolume(event.target.value)} />
+        </Field>
       </div>
 
       <div className="field">
@@ -130,48 +152,18 @@ export default function NewRfq({ onCreated }: Props) {
               {country}
             </label>
           ))}
-          {countries
-            .filter((country) => !COUNTRY_OPTIONS.includes(country))
-            .map((country) => (
-              <label key={country}>
-                <input
-                  type="checkbox"
-                  checked
-                  onChange={() => toggleCountry(country)}
-                />
-                {country}
-              </label>
-            ))}
-        </div>
-        <div className="inline-add">
-          <input
-            value={customCountry}
-            placeholder="Добавить другую страну"
-            onChange={(event) => setCustomCountry(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                addCustomCountry();
-              }
-            }}
-          />
-          <button
-            type="button"
-            className="secondary"
-            onClick={addCustomCountry}
-            disabled={!customCountry.trim()}
-          >
-            Добавить
-          </button>
         </div>
         {countries.length === 0 && (
           <span className="error">Выберите хотя бы одну страну.</span>
         )}
       </div>
 
-      <div className="field">
-        <label>Сколько поставщиков найти в каждой стране</label>
-        <input
+      <Field
+        className="compact-field"
+        label="Сколько поставщиков найти в каждой стране"
+        hint="ИИ-агент постарается найти указанное число подходящих компаний для каждой выбранной страны."
+      >
+        <Input
           type="number"
           min={1}
           max={20}
@@ -182,33 +174,26 @@ export default function NewRfq({ onCreated }: Props) {
             )
           }
         />
-        <span className="note">
-          ИИ-агент постарается найти указанное число подходящих компаний для
-          каждой выбранной страны.
-        </span>
-      </div>
+      </Field>
 
-      <div className="field">
-        <label>Применение</label>
-        <textarea
+      <Field label="Применение">
+        <Textarea
           value={application}
           onChange={(event) => setApplication(event.target.value)}
         />
-      </div>
+      </Field>
 
-      <div className="field">
-        <label>Дополнительные требования для ИИ</label>
-        <textarea
+      <Field
+        label="Дополнительные требования для ИИ"
+        hint="Эти требования будут применены к автоматическому поиску и последующей обработке ответов поставщиков."
+      >
+        <Textarea
           maxLength={4000}
           placeholder="Например: искать только производителей фармацевтического грейда с GMP"
           value={aiInstructions}
           onChange={(event) => setAiInstructions(event.target.value)}
         />
-        <span className="note">
-          Эти требования будут применены к автоматическому поиску и последующей
-          обработке ответов поставщиков.
-        </span>
-      </div>
+      </Field>
 
       <div className="field">
         <label>Условия поставки</label>

@@ -22,6 +22,27 @@ export interface SubstanceInfo {
   error: string | null;
 }
 
+export type SubstanceReviewStatus =
+  | "unreviewed"
+  | "needs_review"
+  | "confirmed";
+
+export interface SubstanceRecord {
+  id: number;
+  cas: string;
+  preferred_name: string;
+  synonyms: string[];
+  excluded_names: string[];
+  notes: string | null;
+  review_status: SubstanceReviewStatus | string;
+  verification: Record<string, unknown> | null;
+  reviewed_by_id: number | null;
+  reviewed_by_name: string | null;
+  request_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RFQPreview {
   subject: string;
   body: string;
@@ -44,6 +65,9 @@ export interface RFQRead {
   status: RFQStatus;
   verified: boolean;
   verification: SubstanceInfo | null;
+  substance_id: number | null;
+  substance_preferred_name: string | null;
+  substance_review_status: string | null;
   created_at: string;
   updated_at: string;
   owner_id: number | null;
@@ -336,6 +360,7 @@ export interface SupplierSearchResponse {
   ai_used: boolean;
   fallback_used: boolean;
   results: SupplierSearchResult[];
+  reserve_results?: SupplierSearchResult[];
   warning: string;
 }
 
@@ -389,6 +414,11 @@ export interface SupplierQualificationResponse {
   results: QualifiedSupplierResult[];
   prompt_id: number | null;
   prompt_version: number | null;
+  registry_links?: Array<{ result_index: number; supplier_id: number }>;
+  requested_supplier_count?: number;
+  verified_source_count?: number;
+  replacement_candidates_used?: number;
+  source_shortfall?: number;
   warning: string;
 }
 

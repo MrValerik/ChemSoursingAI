@@ -22,6 +22,7 @@ from app.models import (
     RFQ,
     SearchRun,
     SourceDocument,
+    Substance,
     User,
 )
 from app.models.enums import UserRole
@@ -35,6 +36,8 @@ from app.services.search_trace import (
     start_search_attempt,
     utc_now,
 )
+from app.services.search_countries import normalize_search_country
+from app.services.supplier_registry import register_qualified_candidate
 from app.services.supplier_scoring import score_supplier
 from app.services.supplier_sources import (
     SourceKind,
@@ -54,9 +57,17 @@ _QUALIFICATION_BATCH_SIZE = 2
 class SupplierSearchRequest(BaseModel):
     cas: str = Field(..., min_length=3, max_length=20)
     name: str = Field(..., min_length=2, max_length=255)
-    country: str | None = Field(default="China", max_length=100)
+    country: str = Field(default="Китай", max_length=100)
     additional_instructions: str | None = Field(default=None, max_length=4000)
     limit: int = Field(default=5, ge=1, le=20)
+    catalog_preferred_name: str | None = Field(default=None, max_length=255)
+    known_synonyms: list[str] = Field(default_factory=list, max_length=50)
+    excluded_names: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("country")
+    @classmethod
+    def validate_country(cls, value: str) -> str:
+        return normalize_search_country(value)
 
 
 class SubstanceIdentity(BaseModel):
@@ -109,8 +120,9 @@ class SupplierQualificationRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=255)
     country: str | None = Field(default=None, max_length=100)
     additional_instructions: str | None = Field(default=None, max_length=4000)
+    target_count: int | None = Field(default=None, ge=1, le=20)
     results: list[SupplierSearchResultInput] = Field(
-        ..., min_length=1, max_length=5
+        ..., min_length=1, max_length=60
     )
 
 
@@ -521,7 +533,14 @@ def _fallback_identity(
     data: SupplierSearchRequest, lookup: dict
 ) -> SubstanceIdentity:
     """Build a safe identity without allowing the model to invent aliases."""
+    excluded = {
+        name.casefold()
+        for name in data.excluded_names
+        if isinstance(name, str) and name.strip()
+    }
     names = [
+        data.catalog_preferred_name,
+        *data.known_synonyms,
         lookup.get("iupac_name"),
         data.name,
         *(lookup.get("synonyms") or []),
@@ -531,6 +550,7 @@ def _fallback_identity(
         if (
             isinstance(name, str)
             and name.strip()
+            and name.casefold() not in excluded
             and name.casefold() not in {item.casefold() for item in unique_names}
         ):
             unique_names.append(name.strip())
@@ -538,8 +558,14 @@ def _fallback_identity(
             break
     all_known_names = {
         name.casefold()
-        for name in [lookup.get("iupac_name"), *(lookup.get("synonyms") or [])]
+        for name in [
+            data.catalog_preferred_name,
+            *data.known_synonyms,
+            lookup.get("iupac_name"),
+            *(lookup.get("synonyms") or []),
+        ]
         if isinstance(name, str) and name.strip()
+        and name.casefold() not in excluded
     }
     input_name_matches = (
         data.name.casefold() in all_known_names if lookup.get("found") else None
@@ -550,7 +576,9 @@ def _fallback_identity(
             if lookup.get("found") and input_name_matches
             else "unverified"
         ),
-        canonical_name=lookup.get("iupac_name") or data.name,
+        canonical_name=(
+            data.catalog_preferred_name or lookup.get("iupac_name") or data.name
+        ),
         search_names=unique_names or [data.name],
         input_name_matches=input_name_matches,
         substance_type="single_substance" if lookup.get("found") else "unknown",
@@ -567,8 +595,15 @@ def _validated_identity(
 ) -> SubstanceIdentity:
     """Accept only names that were present in the immutable lookup payload."""
     fallback = _fallback_identity(data, lookup)
+    excluded = {
+        name.casefold()
+        for name in data.excluded_names
+        if isinstance(name, str) and name.strip()
+    }
     allowed_values = [
         data.name,
+        data.catalog_preferred_name,
+        *data.known_synonyms,
         lookup.get("iupac_name"),
         *(lookup.get("synonyms") or []),
     ]
@@ -576,6 +611,7 @@ def _validated_identity(
         value.casefold(): value.strip()
         for value in allowed_values
         if isinstance(value, str) and value.strip()
+        and value.casefold() not in excluded
     }
     parsed = SubstanceIdentity(
         status="verified" if lookup.get("found") else "unverified",
@@ -849,7 +885,26 @@ def enqueue_supplier_search(
             and rfq.owner_id != user.id
         ):
             raise HTTPException(status_code=404, detail="RFQ not found")
-        data = data.model_copy(update={"cas": rfq.cas, "name": rfq.name})
+        substance = (
+            db.get(Substance, rfq.substance_id)
+            if rfq.substance_id is not None
+            else None
+        )
+        data = data.model_copy(
+            update={
+                "cas": rfq.cas,
+                "name": rfq.name,
+                "catalog_preferred_name": (
+                    substance.preferred_name if substance else None
+                ),
+                "known_synonyms": (
+                    list(substance.synonyms or []) if substance else []
+                ),
+                "excluded_names": (
+                    list(substance.excluded_names or []) if substance else []
+                ),
+            }
+        )
     normalized_cas = normalize_cas(data.cas)
     if not is_valid_cas(normalized_cas):
         raise HTTPException(
@@ -952,6 +1007,11 @@ def execute_supplier_search(
         "input_name": data.name,
         "cas": normalized_cas,
         "pubchem": lookup,
+        "expert_rules": {
+            "preferred_name": data.catalog_preferred_name,
+            "accepted_synonyms": data.known_synonyms,
+            "excluded_names": data.excluded_names,
+        },
     }
     if identity_prompt and lookup.get("found"):
         identity_system_prompt = _identity_system_prompt(identity_prompt)
@@ -1142,7 +1202,8 @@ def execute_supplier_search(
     executed_items: list[SearchPlanItem] = []
     raw_results: list[dict] = []
     search_errors: list[str] = []
-    fetch_limit = min(data.limit * 2, 20)
+    reserve_limit = min(max(data.limit * 3, data.limit + 5), 60)
+    fetch_limit = min(reserve_limit * 2, 20)
     for plan_item in planned_queries:
         query = plan_item.query
         attempted_queries.append(query)
@@ -1174,13 +1235,13 @@ def execute_supplier_search(
             db.commit()
             continue
         db.commit()
-        current = _rank_results(raw_results, data.country, data.limit)
+        current = _rank_results(raw_results, data.country, reserve_limit)
         if _search_coverage_is_sufficient(
             executed_items=executed_items,
             planned_items=planned_queries,
             country=data.country,
             ranked_results=current,
-            limit=data.limit,
+            limit=reserve_limit,
         ):
             break
 
@@ -1193,7 +1254,9 @@ def execute_supplier_search(
             status_code=502,
             detail={"message": error, "search_run_id": search_run.id},
         )
-    results = _rank_results(raw_results, data.country, data.limit)
+    ranked_pool = _rank_results(raw_results, data.country, reserve_limit)
+    results = ranked_pool[: data.limit]
+    reserve_results = ranked_pool[data.limit :]
     source_counts: dict[str, int] = {}
     for result in results:
         kind = result["source_kind"]
@@ -1206,6 +1269,7 @@ def execute_supplier_search(
             "queries_used": attempted_queries,
             "search_plan": [item.model_dump() for item in planned_queries],
             "results": results,
+            "reserve_results": reserve_results,
             "errors": search_errors,
             "planner_fallback_reason": planner_error,
             "identity_fallback_reason": identity_error,
@@ -1225,6 +1289,7 @@ def execute_supplier_search(
         "ai_used": ai_used,
         "fallback_used": fallback_used or bool(identity_error) or rejected_queries > 0,
         "results": results,
+        "reserve_results": reserve_results,
         "warning": (
             "Сначала проверяются карточки Echemi, затем региональные источники. "
             "Результаты являются кандидатами: статус производителя, лицензии "
@@ -1299,7 +1364,13 @@ def execute_supplier_qualification(
     fetch_summary: list[dict] = []
     source_documents_by_id: dict[int, SourceDocument] = {}
     source_index_by_id: dict[int, int] = {}
+    requested_supplier_count = min(
+        data.target_count or len(data.results),
+        len(data.results),
+    )
     for index, result in enumerate(data.results):
+        if len(fetched_sources) >= requested_supplier_count:
+            break
         source = SourceDocument(
             search_run_id=search_run.id,
             agent_run_id=fetch_run.id,
@@ -1337,39 +1408,38 @@ def execute_supplier_qualification(
                 }
             )
         except Exception as exc:
-            # A single inaccessible supplier page must not destroy the whole
-            # run. Its search snippet remains visible as explicitly weak data.
+            # A failed page is an audit record, not a qualified candidate.
+            # Continue with the next ranked result until the requested number
+            # of successfully opened primary sources has been reached.
             source.status = "failed"
             source.error = str(exc)
-            fetched_sources.append(
-                {
-                    "result_index": index,
-                    "source_document_id": source.id,
-                    "title": result.title[:300],
-                    "snippet": result.snippet[:900],
-                    "url": result.url,
-                    "domain": source.domain,
-                    "source_kind": result.source_kind,
-                    "fetch_status": "failed",
-                    "page_text": None,
-                    "fetch_error": source.error,
-                }
-            )
         fetch_summary.append(
             {
                 "source_document_id": source.id,
                 "url": result.url,
+                "source_kind": result.source_kind,
                 "status": source.status,
                 "content_hash": source.content_hash,
                 "error": source.error,
+                "used_as_replacement": index >= requested_supplier_count,
             }
         )
         db.commit()
 
+    replacement_candidates_used = max(
+        0, len(fetch_summary) - requested_supplier_count
+    )
+    source_shortfall = requested_supplier_count - len(fetched_sources)
     finish_agent_run(
         fetch_run,
         fetch_clock,
-        output_payload={"sources": fetch_summary},
+        output_payload={
+            "sources": fetch_summary,
+            "requested_supplier_count": requested_supplier_count,
+            "verified_source_count": len(fetched_sources),
+            "replacement_candidates_used": replacement_candidates_used,
+            "source_shortfall": source_shortfall,
+        },
     )
     db.commit()
     source_data = {
@@ -1380,6 +1450,7 @@ def execute_supplier_qualification(
             "user_requirements": data.additional_instructions,
         },
         "sources": fetched_sources,
+        "requested_supplier_count": requested_supplier_count,
     }
     llm = LLMClient()
     search_run.status = "qualifying"
@@ -1517,7 +1588,12 @@ def execute_supplier_qualification(
             )
 
     combined_results: list[dict] = []
+    fetched_indexes = {
+        int(source["result_index"]) for source in fetched_sources
+    }
     for index, source in enumerate(data.results):
+        if index not in fetched_indexes:
+            continue
         qualification = qualifications.get(index)
         if qualification is None:
             combined_results.append(
@@ -1567,6 +1643,29 @@ def execute_supplier_qualification(
             }
         )
 
+    registry_links: list[dict] = []
+    for result in combined_results:
+        supplier = register_qualified_candidate(
+            db,
+            search_run=search_run,
+            result=result,
+        )
+        if supplier is not None:
+            registry_links.append(
+                {
+                    "result_index": result["result_index"],
+                    "supplier_id": supplier.id,
+                }
+            )
+
+    shortfall_error = (
+        "Не удалось проверить запрошенное количество поставщиков: "
+        f"доступно первичных источников {len(fetched_sources)} из "
+        f"{requested_supplier_count}. Недоступные сайты исключены, "
+        "резерв кандидатов исчерпан."
+        if source_shortfall
+        else None
+    )
     finish_agent_run(
         qualification_run,
         qualification_clock,
@@ -1579,20 +1678,31 @@ def execute_supplier_qualification(
                 len(items) for items in validated_evidence.values()
             ),
             "rejected_evidence": rejected_evidence,
+            "registry_links": registry_links,
+            "requested_supplier_count": requested_supplier_count,
+            "verified_source_count": len(fetched_sources),
+            "replacement_candidates_used": replacement_candidates_used,
+            "source_shortfall": source_shortfall,
         },
     )
-    finish_search_run(search_run)
+    finish_search_run(search_run, error=shortfall_error)
     db.commit()
     return {
         "search_run_id": search_run.id,
         "results": combined_results,
         "prompt_id": prompt.id if prompt else None,
         "prompt_version": prompt.version if prompt else None,
+        "registry_links": registry_links,
+        "requested_supplier_count": requested_supplier_count,
+        "verified_source_count": len(fetched_sources),
+        "replacement_candidates_used": replacement_candidates_used,
+        "source_shortfall": source_shortfall,
         "warning": (
             "Квалификация предварительная и основана на сохранённых первичных "
-            "страницах; для недоступных сайтов используется только слабый "
-            "поисковый сниппет. Сертификаты и статус производителя требуют "
-            "проверки по первичным документам."
+            "страницах. Недоступные сайты не учитываются: система автоматически "
+            "переходит к следующему кандидату. Сертификаты и статус производителя "
+            "требуют проверки по первичным документам."
+            + (f" {shortfall_error}" if shortfall_error else "")
         ),
     }
 

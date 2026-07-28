@@ -27,6 +27,7 @@ import type {
   RFQRead,
   RfqAiSetting,
   SubstanceInfo,
+  SubstanceRecord,
   SummaryRow,
   TokenResponse,
 } from "./types";
@@ -94,6 +95,7 @@ export interface RFQCreatePayload {
   channels?: string[];
   search_countries: string[];
   supplier_target: number;
+  substance_id?: number | null;
   additional_instructions?: string | null;
   purity?: string | null;
   application?: string | null;
@@ -115,6 +117,53 @@ export const api = {
   // --- Вещества и RFQ ---
   verifyCas: (cas: string) =>
     request<SubstanceInfo>(`/substances/verify?cas=${encodeURIComponent(cas)}`),
+
+  listSubstances: (query = "") =>
+    request<SubstanceRecord[]>(
+      `/substances${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`,
+    ),
+
+  createSubstance: (payload: {
+    cas: string;
+    preferred_name: string;
+    synonyms?: string[];
+    excluded_names?: string[];
+    notes?: string | null;
+  }) =>
+    request<SubstanceRecord>(`/substances`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateSubstance: (
+    id: number,
+    payload: {
+      preferred_name?: string;
+      synonyms?: string[];
+      excluded_names?: string[];
+      notes?: string | null;
+    },
+  ) =>
+    request<SubstanceRecord>(`/substances/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  decideSubstanceIdentity: (
+    rfqId: number,
+    payload: {
+      action: "confirm" | "reject";
+      suggested_name: string;
+      preferred_name?: string | null;
+      synonyms?: string[];
+      note?: string | null;
+      verification?: Record<string, unknown> | null;
+    },
+  ) =>
+    request<SubstanceRecord>(`/substances/rfq/${rfqId}/decision`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   previewRfq: (payload: RFQCreatePayload) =>
     request<RFQPreview>(`/rfq/preview`, {

@@ -14,8 +14,9 @@ from app.core.seed import seed_prompts
 from app.connectors.pubchem import SubstanceInfo
 from app.connectors.web_page import FetchedPage
 from app.extraction.llm_client import LLMUnavailableError
-from app.models import User
+from app.models import RFQ, RfqSupplierLink, Supplier, User
 from app.services.search_trace import create_search_run
+from app.services.supplier_registry import register_qualified_candidate
 
 
 @pytest.fixture(scope="module")
@@ -602,15 +603,153 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
     ]
 
 
-def test_qualification_keeps_failed_page_as_visible_fallback(client, monkeypatch):
+def test_qualified_candidate_is_registered_idempotently(client):
+    with SessionLocal() as db:
+        owner = db.query(User).filter(User.username == "ivanov").one()
+        rfq = RFQ(
+            cas="50-78-2",
+            name="Aspirin",
+            owner_id=owner.id,
+        )
+        db.add(rfq)
+        db.flush()
+        run = create_search_run(
+            db,
+            owner_id=owner.id,
+            rfq_id=rfq.id,
+            input_payload={
+                "cas": "50-78-2",
+                "name": "Aspirin",
+                "country": "China",
+            },
+        )
+        result = {
+            "result_index": 0,
+            "url": "https://auto-registry.example/aspirin",
+            "title": "Aspirin manufacturer",
+            "company_name": "Auto Registry Chemical",
+            "supplier_type": "manufacturer",
+            "confidence": 88,
+            "gmp_status": "not_found",
+            "iso_status": "claimed",
+            "coa_status": "claimed",
+            "tds_status": "not_found",
+        }
+
+        first = register_qualified_candidate(
+            db, search_run=run, result=result
+        )
+        second = register_qualified_candidate(
+            db, search_run=run, result=result
+        )
+        db.commit()
+
+        assert first is not None
+        assert second is not None
+        assert first.id == second.id
+        assert first.qualification_status == "candidate"
+        assert first.evidence_score == 88
+        assert first.certificates == ["CoA", "ISO"]
+        assert (
+            db.query(Supplier)
+            .filter(Supplier.source == result["url"])
+            .count()
+            == 1
+        )
+        assert (
+            db.query(RfqSupplierLink)
+            .filter(
+                RfqSupplierLink.rfq_id == rfq.id,
+                RfqSupplierLink.supplier_id == first.id,
+            )
+            .count()
+            == 1
+        )
+
+
+def test_qualification_replaces_failed_page_and_never_sends_it_to_llm(
+    client, monkeypatch
+):
+    buyer = _auth(client, "ivanov")
+    seen_sources: list[list[int]] = []
+
+    def fetch_page(url):
+        if "blocked" in url:
+            raise RuntimeError("page blocked")
+        return FetchedPage(
+            url=url,
+            final_url=url,
+            domain="replacement.example",
+            title="Replacement supplier",
+            content_type="text/html",
+            http_status=200,
+            text="We manufacture Aspirin CAS 50-78-2.",
+            content_hash="c" * 64,
+        )
+
+    def qualify(self, **kwargs):
+        sources = json.loads(kwargs["user_text"])["sources"]
+        seen_sources.append([source["result_index"] for source in sources])
+        return {"results": []}
+
+    monkeypatch.setattr("app.api.supplier_search.fetch_web_page", fetch_page)
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json", qualify
+    )
+    response = client.post(
+        "/supplier-search/qualify",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "country": "China",
+            "target_count": 1,
+            "results": [
+                {
+                    "title": "Search-only candidate",
+                    "url": "https://blocked.example/product",
+                    "snippet": "Search snippet mentioning CAS 50-78-2.",
+                },
+                {
+                    "title": "Replacement candidate",
+                    "url": "https://replacement.example/product",
+                    "snippet": "Aspirin manufacturer.",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["result_index"] for item in payload["results"]] == [1]
+    assert payload["verified_source_count"] == 1
+    assert payload["replacement_candidates_used"] == 1
+    assert payload["source_shortfall"] == 0
+    assert seen_sources == [[1]]
+    trace = client.get(
+        f"/search-runs/{payload['search_run_id']}", headers=buyer
+    ).json()
+    assert trace["status"] == "completed"
+    assert trace["source_documents"][0]["status"] == "failed"
+    assert trace["source_documents"][0]["error"] == "page blocked"
+    assert trace["source_documents"][1]["status"] == "completed"
+    qualification_input = trace["agent_runs"][-1]["input_payload"]["sources"]
+    assert [item["result_index"] for item in qualification_input] == [1]
+
+
+def test_qualification_fails_run_when_verified_source_pool_is_exhausted(
+    client, monkeypatch
+):
     buyer = _auth(client, "ivanov")
     monkeypatch.setattr(
         "app.api.supplier_search.fetch_web_page",
         lambda url: (_ for _ in ()).throw(RuntimeError("page blocked")),
     )
+
+    def must_not_call_llm(self, **kwargs):
+        raise AssertionError("Недоступный источник нельзя передавать ИИ-агенту")
+
     monkeypatch.setattr(
-        "app.api.supplier_search.LLMClient.generate_json",
-        lambda self, **kwargs: {"results": []},
+        "app.api.supplier_search.LLMClient.generate_json", must_not_call_llm
     )
     response = client.post(
         "/supplier-search/qualify",
@@ -621,23 +760,23 @@ def test_qualification_keeps_failed_page_as_visible_fallback(client, monkeypatch
             "country": "China",
             "results": [
                 {
-                    "title": "Search-only candidate",
+                    "title": "Blocked candidate",
                     "url": "https://blocked.example/product",
                     "snippet": "Search snippet mentioning CAS 50-78-2.",
                 }
             ],
         },
     )
+
     assert response.status_code == 200
+    payload = response.json()
+    assert payload["results"] == []
+    assert payload["source_shortfall"] == 1
     trace = client.get(
-        f"/search-runs/{response.json()['search_run_id']}", headers=buyer
+        f"/search-runs/{payload['search_run_id']}", headers=buyer
     ).json()
-    assert trace["source_documents"][0]["status"] == "failed"
-    assert trace["source_documents"][0]["error"] == "page blocked"
-    qualification_input = trace["agent_runs"][-1]["input_payload"]["sources"][0]
-    assert qualification_input["fetch_status"] == "failed"
-    assert qualification_input["page_text"] is None
-    assert "50-78-2" in qualification_input["snippet"]
+    assert trace["status"] == "failed"
+    assert "резерв кандидатов исчерпан" in trace["error"]
 
 
 def test_supplier_qualification_batches_five_candidates(client, monkeypatch):

@@ -13,9 +13,11 @@ type View = "table" | "new" | "detail";
 export default function RfqWorkspace({
   jumpRfqId,
   onJumpConsumed,
+  onOpenSubstance,
 }: {
   jumpRfqId?: number | null;
   onJumpConsumed?: () => void;
+  onOpenSubstance?: (id: number) => void;
 }) {
   const [view, setView] = useState<View>("table");
   const [selected, setSelected] = useState<RFQRead | null>(null);
@@ -68,6 +70,7 @@ export default function RfqWorkspace({
         rfq={selected}
         onBack={backToTable}
         onChanged={setSelected}
+        onOpenSubstance={onOpenSubstance}
       />
     );
   }

@@ -492,6 +492,53 @@ def test_invalid_cas_is_not_enqueued(client):
     assert response.status_code == 422
 
 
+def test_supplier_search_rejects_unsupported_country(client):
+    buyer = _auth(client, "ivanov")
+    response = client.post(
+        "/supplier-search/jobs",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "country": "Германия",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Россия, Китай, Индия" in response.text
+
+
+def test_rfq_normalizes_allowed_country_aliases_and_rejects_other_markets(
+    client,
+):
+    buyer = _auth(client, "ivanov")
+    accepted = client.post(
+        "/rfq?verify=false",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "incoterms": ["CIP"],
+            "search_countries": ["Russia", "China", "India"],
+        },
+    )
+    rejected = client.post(
+        "/rfq?verify=false",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "incoterms": ["CIP"],
+            "search_countries": ["Турция"],
+        },
+    )
+
+    assert accepted.status_code == 201
+    assert accepted.json()["search_countries"] == ["Россия", "Китай", "Индия"]
+    assert rejected.status_code == 422
+    assert "Россия, Китай, Индия" in rejected.text
+
+
 def test_search_job_is_bound_to_rfq_and_uses_its_substance(client):
     buyer = _auth(client, "ivanov")
     rfq = client.post(

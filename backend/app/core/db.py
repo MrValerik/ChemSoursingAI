@@ -80,6 +80,41 @@ def _apply_light_migrations() -> None:
                         "INTEGER NOT NULL DEFAULT 5"
                     )
                 )
+            if "substance_id" not in cols:
+                conn.execute(
+                    text("ALTER TABLE rfqs ADD COLUMN substance_id INTEGER")
+                )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_rfqs_substance_id "
+                    "ON rfqs (substance_id)"
+                )
+            )
+            if "substances" in tables:
+                empty_json = (
+                    "CAST('[]' AS JSONB)"
+                    if engine.dialect.name == "postgresql"
+                    else "'[]'"
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO substances "
+                        "(cas, preferred_name, synonyms, excluded_names, review_status) "
+                        "SELECT r.cas, MIN(r.name), "
+                        f"{empty_json}, {empty_json}, 'unreviewed' "
+                        "FROM rfqs r "
+                        "LEFT JOIN substances s ON s.cas = r.cas "
+                        "WHERE r.cas IS NOT NULL AND s.id IS NULL "
+                        "GROUP BY r.cas"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "UPDATE rfqs SET substance_id = ("
+                        "SELECT s.id FROM substances s WHERE s.cas = rfqs.cas"
+                        ") WHERE substance_id IS NULL"
+                    )
+                )
     if "suppliers" in tables:
         cols = {c["name"] for c in inspector.get_columns("suppliers")}
         with engine.begin() as conn:

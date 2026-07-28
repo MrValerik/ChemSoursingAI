@@ -1,17 +1,61 @@
-"""Эндпоинт верификации вещества по CAS."""
+"""Верификация и глобальный справочник химических веществ."""
 from app.api.deps import get_current_user
 
-from fastapi import Depends, APIRouter, Query
+from fastapi import Depends, APIRouter, HTTPException, Query
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, joinedload
 
 from app.connectors.pubchem import PubChemConnector
 from app.core.db import get_db
+from app.models.enums import UserRole
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
+from app.models.substance import Substance
+from app.models.user import User
+from app.schemas.substance import (
+    SubstanceCreate,
+    SubstanceDecision,
+    SubstanceRead,
+    SubstanceUpdate,
+)
+from app.services.substance_service import (
+    SubstanceConflictError,
+    apply_rfq_decision,
+    create_substance,
+    update_substance,
+)
 
 router = APIRouter(prefix="/substances", tags=["substances"], dependencies=[Depends(get_current_user)])
+
+_SEE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN, UserRole.AUDITOR}
+
+
+def _can_see_rfq(user: User, rfq: RFQ) -> bool:
+    return (
+        user.role in _SEE_ALL_ROLES
+        or rfq.owner_id is None
+        or rfq.owner_id == user.id
+    )
+
+
+def _ensure_editor(user: User) -> None:
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+
+
+def _to_read(db: Session, substance: Substance) -> SubstanceRead:
+    item = SubstanceRead.model_validate(substance)
+    item.reviewed_by_name = (
+        substance.reviewed_by.full_name if substance.reviewed_by else None
+    )
+    item.request_count = (
+        db.scalar(
+            select(func.count(RFQ.id)).where(RFQ.substance_id == substance.id)
+        )
+        or 0
+    )
+    return item
 
 
 @router.get("/verify")
@@ -29,11 +73,7 @@ def price_history(
     cas: str = Query(..., description="CAS-номер"),
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    """История закупочных цен по веществу (раздел 8 UI/UX-плана).
-
-    Источник — котировки прошлых запросов с тем же CAS: специалист сразу
-    видит ориентир и оценивает адекватность новых предложений.
-    """
+    """Возвращает историю котировок запросов с тем же CAS."""
     stmt = (
         select(Quotation, RFQ.id.label("rfq_id"))
         .join(RFQ, RFQ.id == Quotation.rfq_id)
@@ -45,11 +85,101 @@ def price_history(
     return [
         {
             "rfq_id": rfq_id,
-            "date": q.created_at.date().isoformat(),
-            "price": float(q.price),
-            "currency": q.currency,
-            "incoterm": q.incoterm,
-            "moq": q.moq,
+            "date": quotation.created_at.date().isoformat(),
+            "price": float(quotation.price),
+            "currency": quotation.currency,
+            "incoterm": quotation.incoterm,
+            "moq": quotation.moq,
         }
-        for q, rfq_id in rows
+        for quotation, rfq_id in rows
     ]
+
+
+@router.get("", response_model=list[SubstanceRead])
+def list_substances(
+    q: str | None = Query(default=None, max_length=255),
+    limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[SubstanceRead]:
+    """Возвращает единый справочник с экспертными правилами идентификации."""
+    substances = list(
+        db.scalars(
+            select(Substance)
+            .options(joinedload(Substance.reviewed_by))
+            .order_by(Substance.preferred_name)
+            .limit(limit)
+        ).all()
+    )
+    if q and q.strip():
+        needle = q.strip().casefold()
+        substances = [
+            substance
+            for substance in substances
+            if needle in substance.cas.casefold()
+            or needle in substance.preferred_name.casefold()
+            or any(
+                needle in synonym.casefold()
+                for synonym in list(substance.synonyms or [])
+            )
+        ]
+    return [_to_read(db, substance) for substance in substances]
+
+
+@router.post("", response_model=SubstanceRead, status_code=201)
+def add_substance(
+    data: SubstanceCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SubstanceRead:
+    _ensure_editor(user)
+    try:
+        substance = create_substance(db, data, reviewer_id=user.id)
+    except SubstanceConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _to_read(db, substance)
+
+
+@router.post("/rfq/{rfq_id}/decision", response_model=SubstanceRead)
+def decide_rfq_identity(
+    rfq_id: int,
+    data: SubstanceDecision,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SubstanceRead:
+    """Сохраняет подтверждение или опровержение вывода ИИ для будущих запросов."""
+    _ensure_editor(user)
+    rfq = db.get(RFQ, rfq_id)
+    if rfq is None or not _can_see_rfq(user, rfq):
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    substance = apply_rfq_decision(db, rfq, data, reviewer_id=user.id)
+    return _to_read(db, substance)
+
+
+@router.get("/{substance_id}", response_model=SubstanceRead)
+def get_substance(
+    substance_id: int,
+    db: Session = Depends(get_db),
+) -> SubstanceRead:
+    substance = db.get(
+        Substance,
+        substance_id,
+        options=[joinedload(Substance.reviewed_by)],
+    )
+    if substance is None:
+        raise HTTPException(status_code=404, detail="Substance not found")
+    return _to_read(db, substance)
+
+
+@router.patch("/{substance_id}", response_model=SubstanceRead)
+def edit_substance(
+    substance_id: int,
+    data: SubstanceUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SubstanceRead:
+    _ensure_editor(user)
+    substance = db.get(Substance, substance_id)
+    if substance is None:
+        raise HTTPException(status_code=404, detail="Substance not found")
+    substance = update_substance(db, substance, data, reviewer_id=user.id)
+    return _to_read(db, substance)

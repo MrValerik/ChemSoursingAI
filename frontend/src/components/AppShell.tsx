@@ -4,10 +4,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import type { UserRole } from "../api/types";
+import { IconButton, Input } from "./ui";
 
 export type SectionKey =
   | "dashboard"
   | "requests"
+  | "substances"
   | "suppliers"
   | "review"
   | "templates"
@@ -24,6 +26,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { key: "dashboard", label: "Дашборд", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "requests", label: "Запросы", roles: ["buyer", "head", "admin", "auditor"] },
+  { key: "substances", label: "Химические вещества", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "suppliers", label: "Поставщики", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "review", label: "Ручной разбор", roles: ["buyer", "head", "auditor"] },
   { key: "templates", label: "Шаблоны", roles: ["buyer", "head", "admin", "auditor"] },
@@ -77,23 +80,23 @@ export default function AppShell({
 
       <div className="shell-body">
         <header className="shell-topbar" ref={menuRef}>
-          <input
+          <Input
             className="topbar-search"
             placeholder="Поиск: CAS / вещество / поставщик"
             title="Глобальный поиск (в разработке)"
           />
           <div className="topbar-right">
             <div className="topbar-menu">
-              <button
+              <IconButton
                 className="icon-btn"
+                icon="bell"
+                label="Уведомления"
                 title="Уведомления"
                 onClick={() => {
                   setNotifOpen((v) => !v);
                   setProfileOpen(false);
                 }}
-              >
-                🔔
-              </button>
+              />
               {notifOpen && (
                 <div className="dropdown">
                   <div className="dropdown-title">Уведомления</div>
