@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.models import RfqAiSetting, User
+from app.models import RfqAiSetting, Substance, User
 from app.models.enums import EscalationStatus, UserRole
 from app.models.escalation import Escalation
 from app.models.quotation import Quotation
@@ -85,6 +85,17 @@ def create(
     """Создаёт RFQ: верификация CAS, генерация текста, сохранение."""
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    selected_substance = None
+    if data.substance_id is not None:
+        selected_substance = db.get(Substance, data.substance_id)
+        if selected_substance is None:
+            raise HTTPException(status_code=422, detail="Вещество не найдено")
+        data = data.model_copy(
+            update={
+                "cas": selected_substance.cas,
+                "name": selected_substance.preferred_name,
+            }
+        )
     try:
         rfq = create_rfq(db, data, verify=verify, owner_id=user.id)
     except UnsupportedIncotermError as exc:
@@ -105,6 +116,21 @@ def create(
                 input_payload={
                     "cas": rfq.cas,
                     "name": rfq.name,
+                    "catalog_preferred_name": (
+                        selected_substance.preferred_name
+                        if selected_substance
+                        else None
+                    ),
+                    "known_synonyms": (
+                        list(selected_substance.synonyms or [])
+                        if selected_substance
+                        else []
+                    ),
+                    "excluded_names": (
+                        list(selected_substance.excluded_names or [])
+                        if selected_substance
+                        else []
+                    ),
                     "country": country,
                     "additional_instructions": (
                         data.additional_instructions.strip()
@@ -197,4 +223,10 @@ def _to_read(rfq: RFQ) -> RFQRead:
     read.rfq_subject = subject
     read.rfq_body = body
     read.owner_name = rfq.owner.full_name if rfq.owner else None
+    read.substance_preferred_name = (
+        rfq.substance.preferred_name if rfq.substance else None
+    )
+    read.substance_review_status = (
+        rfq.substance.review_status if rfq.substance else None
+    )
     return read

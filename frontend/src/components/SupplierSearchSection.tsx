@@ -4,16 +4,16 @@ import type {
   CasEvidenceStatus,
   CountryEvidenceStatus,
   EvidenceStatus,
-  QualifiedSupplierResult,
   QualifiedSupplierType,
   RFQRead,
   SearchRunListItem,
   SearchRunTrace,
   SupplierQualificationResponse,
   SupplierSearchResponse,
-  SupplierSearchResult,
+  SubstanceRecord,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { HelpTip, Icon, Input, Select, Textarea } from "./ui";
 
 const TYPE_LABELS: Record<QualifiedSupplierType, string> = {
   manufacturer: "Производитель",
@@ -64,6 +64,78 @@ const evidenceTone = (status: EvidenceStatus) => {
   return "tone-neutral";
 };
 
+const evidenceExplanation = (
+  result: SupplierQualificationResponse["results"][number],
+  claimType: string,
+  rule: string,
+) => {
+  const evidence = result.evidence.filter(
+    (item) => item.claim_type === claimType,
+  );
+  if (evidence.length === 0) {
+    return `${rule} Проверенной дословной цитаты на странице не найдено.`;
+  }
+  return `${rule} ${evidence
+    .map(
+      (item) =>
+        `${item.support_status === "supports" ? "Подтверждение" : "Противоречие"}: «${item.quote}»`,
+    )
+    .join(" ")}`;
+};
+
+function EvidenceBadge({
+  className,
+  label,
+  explanation,
+}: {
+  className: string;
+  label: string;
+  explanation: string;
+}) {
+  return (
+    <span className="evidence-status">
+      <span className={`badge ${className}`}>{label}</span>
+      <HelpTip text={explanation} />
+    </span>
+  );
+}
+
+const scoreExplanation = (
+  result: SupplierQualificationResponse["results"][number],
+) =>
+  [
+    `Итог ${result.confidence}/100 =`,
+    `вещество ${result.score_breakdown.identity}/35 +`,
+    `роль компании ${result.score_breakdown.supplier_role}/25 +`,
+    `страна ${result.score_breakdown.country}/10 +`,
+    `документы ${result.score_breakdown.documents}/15 +`,
+    `качество доказательств ${result.score_breakdown.evidence_quality}/15.`,
+    "Баллы начисляются только по дословно проверенным цитатам.",
+    "При противоречии по веществу или CAS итоговый балл обнуляется.",
+  ].join(" ");
+
+const shortlistExplanation = (
+  result: SupplierQualificationResponse["results"][number],
+) => {
+  const hasIdentity = result.evidence.some(
+    (item) =>
+      item.claim_type === "chemical_identity" &&
+      item.support_status === "supports",
+  );
+  const hasManufacturerRole = result.evidence.some(
+    (item) =>
+      item.claim_type === "manufacturer_role" &&
+      item.support_status === "supports",
+  );
+  return [
+    "Для включения в короткий список нужны одновременно:",
+    `балл не ниже 70 (${result.confidence >= 70 ? "выполнено" : `сейчас ${result.confidence}`});`,
+    `тип «Производитель» (${result.supplier_type === "manufacturer" ? "выполнено" : "не подтверждено"});`,
+    `подтверждение вещества (${hasIdentity ? "есть" : "нет"});`,
+    `подтверждение собственного производства (${hasManufacturerRole ? "есть" : "нет"}).`,
+  ].join(" ");
+};
+
 const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
 
 const traceTone = (status: string) => {
@@ -85,13 +157,7 @@ const SEARCH_STATUS_LABELS: Record<string, string> = {
   cancelled: "Отменено",
 };
 
-const COUNTRY_OPTIONS = [
-  "Китай",
-  "Индия",
-  "Турция",
-  "Германия",
-  "США",
-];
+const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
 
 const PIPELINE_STEPS = [
   {
@@ -139,17 +205,6 @@ const LANGUAGE_LABELS: Record<string, string> = {
   ru: "русский",
   other: "другой язык",
 };
-
-function HelpTip({ text }: { text: string }) {
-  return (
-    <span className="help-tip">
-      <button type="button" aria-label={text}>
-        ?
-      </button>
-      <span role="tooltip">{text}</span>
-    </span>
-  );
-}
 
 const runText = (run: SearchRunListItem, key: string) => {
   const value = run.input_payload[key];
@@ -327,11 +382,38 @@ const qualificationFromTrace = (
   const stage = [...trace.agent_runs]
     .reverse()
     .find((item) => item.agent_slug === "supplier_qualification");
+  const output = stage?.output_payload ?? {};
+  const registryLinks = Array.isArray(output.registry_links)
+    ? output.registry_links.filter(
+        (item): item is { result_index: number; supplier_id: number } =>
+          typeof item === "object" &&
+          item !== null &&
+          typeof (item as { result_index?: unknown }).result_index === "number" &&
+          typeof (item as { supplier_id?: unknown }).supplier_id === "number",
+      )
+    : [];
   return {
     search_run_id: trace.id,
     results: trace.qualified_results,
     prompt_id: stage?.prompt_id ?? null,
     prompt_version: stage?.prompt_version ?? null,
+    registry_links: registryLinks,
+    requested_supplier_count:
+      typeof output.requested_supplier_count === "number"
+        ? output.requested_supplier_count
+        : undefined,
+    verified_source_count:
+      typeof output.verified_source_count === "number"
+        ? output.verified_source_count
+        : undefined,
+    replacement_candidates_used:
+      typeof output.replacement_candidates_used === "number"
+        ? output.replacement_candidates_used
+        : undefined,
+    source_shortfall:
+      typeof output.source_shortfall === "number"
+        ? output.source_shortfall
+        : undefined,
     warning:
       "Квалификация предварительная. Проверьте первичные источники и документы перед решением.",
   };
@@ -629,14 +711,23 @@ function SearchTracePanel({
   );
 }
 
-export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
+export default function SupplierSearchSection({
+  rfq,
+  onOpenSubstance,
+}: {
+  rfq: RFQRead;
+  onOpenSubstance?: (id: number) => void;
+}) {
   const { user } = useAuth();
-  const [selectedCountries, setSelectedCountries] = useState<string[]>(
-    rfq.search_countries?.length ? rfq.search_countries : ["Китай"],
+  const supportedRfqCountries = (rfq.search_countries ?? []).filter((country) =>
+    COUNTRY_OPTIONS.includes(country),
   );
-  const [countryToAdd, setCountryToAdd] = useState("");
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(
+    supportedRfqCountries.length ? supportedRfqCountries : ["Китай"],
+  );
   const [supplierTarget, setSupplierTarget] = useState(rfq.supplier_target ?? 5);
   const [instructions, setInstructions] = useState("");
+  const [repeatSearchOpen, setRepeatSearchOpen] = useState(false);
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
   const [qualification, setQualification] = useState<SupplierQualificationResponse | null>(null);
   const [trace, setTrace] = useState<SearchRunTrace | null>(null);
@@ -644,9 +735,13 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [traceBusy, setTraceBusy] = useState(false);
-  const [addedUrls, setAddedUrls] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [substanceRecord, setSubstanceRecord] = useState<SubstanceRecord | null>(null);
+  const [identityDecision, setIdentityDecision] = useState<"reject" | null>(null);
+  const [correctedName, setCorrectedName] = useState(rfq.name);
+  const [decisionNote, setDecisionNote] = useState("");
+  const [decisionBusy, setDecisionBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -692,7 +787,6 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
     setQualification(null);
     setTrace(null);
     setData(null);
-    setAddedUrls(new Set());
     try {
       const jobs = [];
       for (const selectedCountry of selectedCountries) {
@@ -712,6 +806,7 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
       setNotice(
         `Добавлено задач: ${jobs.length}. ИИ-агент будет искать до ${supplierTarget} поставщиков в каждой стране.`,
       );
+      setRepeatSearchOpen(false);
       setRuns(await api.listSearchRuns(50, rfq.id));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -720,23 +815,17 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
     }
   };
 
-  const addCountry = () => {
-    if (!countryToAdd || selectedCountries.includes(countryToAdd)) return;
-    setSelectedCountries((current) => [...current, countryToAdd]);
-    setCountryToAdd("");
-  };
-
-  const removeCountry = (value: string) => {
+  const toggleSearchCountry = (country: string) =>
     setSelectedCountries((current) =>
-      current.length === 1 ? current : current.filter((item) => item !== value),
+      current.includes(country)
+        ? current.filter((item) => item !== country)
+        : [...current, country],
     );
-  };
 
   const openRun = async (runId: number) => {
     setSelectedRunId(runId);
     setQualification(null);
     setData(null);
-    setAddedUrls(new Set());
     setError(null);
     setTraceBusy(true);
     try {
@@ -758,14 +847,6 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
     : selectedCountries[0] ?? "";
   const candidateResults = data?.results ?? trace?.candidate_results ?? [];
   const activeRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
-  const availableCountries = [
-    ...new Set([
-      ...COUNTRY_OPTIONS,
-      ...(rfq.search_countries ?? []),
-      ...runs.map((run) => runText(run, "country")).filter(Boolean),
-    ]),
-  ];
-
   const refreshTrace = async () => {
     const runId = selectedRunId ?? qualification?.search_run_id ?? data?.search_run_id;
     if (!runId) return;
@@ -780,30 +861,39 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
     }
   };
 
-  const add = async (result: SupplierSearchResult | QualifiedSupplierResult) => {
+  const saveIdentityDecision = async (action: "confirm" | "reject") => {
+    if (!data) return;
+    const suggestedName = data.identity.canonical_name || activeName;
+    setDecisionBusy(true);
+    setError(null);
     try {
-      const qualified = "company_name" in result ? result : null;
-      await api.addSupplier(
-        {
-          company: (qualified?.company_name || result.title).slice(0, 255),
-          type:
-            qualified && qualified.supplier_type !== "unknown"
-              ? qualified.supplier_type
-              : null,
-          country: activeCountry || null,
-          source: result.url,
-          reputation: qualified
-            ? `Проверяемый балл ${qualified.confidence}/100, требуется решение человека`
-            : null,
-          qualification_status: "candidate",
-          evidence_score: qualified?.confidence ?? null,
-        },
-        rfq.id,
-        trace?.id ?? data?.search_run_id,
+      const saved = await api.decideSubstanceIdentity(rfq.id, {
+        action,
+        suggested_name: suggestedName,
+        preferred_name:
+          action === "confirm" ? activeName : correctedName.trim() || null,
+        synonyms:
+          action === "confirm"
+            ? [
+                activeName,
+                suggestedName,
+                ...data.identity.search_names,
+              ]
+            : [activeName],
+        note: decisionNote.trim() || null,
+        verification: data.substance_lookup,
+      });
+      setSubstanceRecord(saved);
+      setIdentityDecision(null);
+      setNotice(
+        action === "confirm"
+          ? "Соответствие подтверждено. Названия сохранены в справочнике веществ."
+          : "Вывод ИИ отклонён. Исправленное название и исключение сохранены.",
       );
-      setAddedUrls((current) => new Set(current).add(result.url));
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : String(caught));
+    } finally {
+      setDecisionBusy(false);
     }
   };
 
@@ -818,34 +908,47 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
 
       <div className="panel search-overview-panel">
         <div className="search-overview-header">
-          <div>
+          <div className="search-overview-title-row">
             <div className="heading-with-help">
               <h2>Текущий поиск</h2>
               <HelpTip text="Выберите страну, чтобы увидеть статус и результаты соответствующей задачи поиска." />
             </div>
+            <button
+              aria-controls="repeat-search-settings"
+              aria-expanded={repeatSearchOpen}
+              className="secondary repeat-search-toggle"
+              type="button"
+              onClick={() => setRepeatSearchOpen((current) => !current)}
+            >
+              <Icon name="search" size={16} />
+              Повторный поиск с другими параметрами
+            </button>
           </div>
-          <div className="current-search-controls">
-            {runs.length > 0 && (
-              <select
-                aria-label="Выбор текущего поиска"
-                value={activeRun?.id ?? ""}
-                onChange={(event) => void openRun(Number(event.target.value))}
-              >
-                {runs.map((run) => (
-                  <option key={run.id} value={run.id}>
-                    {runText(run, "country") || "Без страны"} —{" "}
-                    {SEARCH_STATUS_LABELS[run.status] || run.status}
-                  </option>
-                ))}
-              </select>
-            )}
-            {traceBusy && (
-              <span className="current-search-refresh">
-                <span className="loading-spinner" aria-hidden="true" />
-                Обновление
-              </span>
-            )}
-          </div>
+          {runs.length > 0 && (
+            <label className="current-search-field">
+              <span className="ui-field-label">Страна поиска</span>
+              <div className="current-search-controls">
+                <Select
+                  aria-label="Выбор текущего поиска"
+                  value={activeRun?.id ?? ""}
+                  onChange={(event) => void openRun(Number(event.target.value))}
+                >
+                  {runs.map((run) => (
+                    <option key={run.id} value={run.id}>
+                      {runText(run, "country") || "Без страны"} —{" "}
+                      {SEARCH_STATUS_LABELS[run.status] || run.status}
+                    </option>
+                  ))}
+                </Select>
+                {traceBusy && (
+                  <span className="current-search-refresh">
+                    <span className="loading-spinner" aria-hidden="true" />
+                    Обновление
+                  </span>
+                )}
+              </div>
+            </label>
+          )}
         </div>
         {runs.length === 0 ? (
           <p className="note">Поиск ещё не запускался.</p>
@@ -861,93 +964,88 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
             </div>
           )
         )}
-      </div>
 
-      <details className="panel settings-accordion">
-        <summary>
-          <span>
-            <strong>Настройки и новый поиск</strong>
-            <small>Страны, количество поставщиков и дополнительные требования</small>
-          </span>
-        </summary>
-        <div className="settings-accordion-body">
-          <div className="field">
-            <label>Страны поиска</label>
-            <div className="country-tokens">
-              {selectedCountries.map((selectedCountry) => (
-                <span className="country-token" key={selectedCountry}>
-                  {selectedCountry}
-                  <button
-                    type="button"
-                    aria-label={`Убрать страну ${selectedCountry}`}
-                    disabled={selectedCountries.length === 1}
-                    onClick={() => removeCountry(selectedCountry)}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div className="country-picker">
-              <select
-                value={countryToAdd}
-                onChange={(event) => setCountryToAdd(event.target.value)}
-              >
-                <option value="">Выберите страну</option>
-                {availableCountries
-                  .filter((item) => !selectedCountries.includes(item))
-                  .map((item) => (
-                    <option value={item} key={item}>
-                      {item}
-                    </option>
-                  ))}
-              </select>
+        {repeatSearchOpen && (
+          <section
+            aria-label="Настроить повторный поиск"
+            className="repeat-search-settings"
+            id="repeat-search-settings"
+          >
+            <div className="repeat-search-settings-header">
+              <div>
+                <h3>Настроить повторный поиск</h3>
+                <p>
+                  Измените страны, количество поставщиков или дополнительные
+                  требования для нового запуска.
+                </p>
+              </div>
               <button
-                className="secondary"
+                aria-label="Закрыть настройки повторного поиска"
+                className="ui-icon-button"
                 type="button"
-                disabled={!countryToAdd}
-                onClick={addCountry}
+                onClick={() => setRepeatSearchOpen(false)}
               >
-                Добавить
+                <Icon name="close" size={17} />
               </button>
             </div>
-          </div>
-          <div className="field compact-field">
-            <label>Поставщиков в каждой стране</label>
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={supplierTarget}
-              onChange={(event) =>
-                setSupplierTarget(
-                  Math.min(20, Math.max(1, Number(event.target.value) || 1)),
-                )
-              }
-            />
-          </div>
-          <div className="field">
-            <label>Дополнительные требования</label>
-            <textarea
-              rows={3}
-              maxLength={4000}
-              placeholder="Например: только производители фармацевтического грейда с GMP"
-              value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
-            />
-          </div>
-          <button
-            disabled={busy || selectedCountries.length === 0}
-            onClick={() => void search()}
-          >
-            {busy
-              ? "Добавляем задачи…"
-              : `Начать поиск в ${selectedCountries.length} стран${
-                  selectedCountries.length === 1 ? "е" : "ах"
-                }`}
-          </button>
-        </div>
-      </details>
+            <div className="repeat-search-settings-body">
+              <div className="field">
+                <label>Страны поиска</label>
+                <div className="checks repeat-search-countries">
+                  {COUNTRY_OPTIONS.map((country) => (
+                    <label key={country}>
+                      <input
+                        checked={selectedCountries.includes(country)}
+                        type="checkbox"
+                        onChange={() => toggleSearchCountry(country)}
+                      />
+                      {country}
+                    </label>
+                  ))}
+                </div>
+                {selectedCountries.length === 0 && (
+                  <span className="error">Выберите хотя бы одну страну.</span>
+                )}
+              </div>
+              <div className="field compact-field">
+                <label>Поставщиков в каждой стране</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={supplierTarget}
+                  onChange={(event) =>
+                    setSupplierTarget(
+                      Math.min(20, Math.max(1, Number(event.target.value) || 1)),
+                    )
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Дополнительные требования</label>
+                <Textarea
+                  rows={3}
+                  maxLength={4000}
+                  placeholder="Например: только производители фармацевтического грейда с GMP"
+                  value={instructions}
+                  onChange={(event) => setInstructions(event.target.value)}
+                />
+              </div>
+              <button
+                disabled={busy || selectedCountries.length === 0}
+                type="button"
+                onClick={() => void search()}
+              >
+                {busy
+                  ? "Добавляем задачи…"
+                  : `Начать поиск в ${selectedCountries.length} стран${
+                      selectedCountries.length === 1 ? "е" : "ах"
+                    }`}
+              </button>
+            </div>
+          </section>
+        )}
+      </div>
 
       {notice && <p className="success">{notice}</p>}
       {error && <p className="error">{error}</p>}
@@ -983,6 +1081,85 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
                       Требует внимания: {item}
                     </div>
                   ))}
+                  <div className="identity-decision">
+                    <div>
+                      <strong>Решение специалиста</strong>
+                      <p className="note">
+                        Подтвердите соответствие или укажите корректное название.
+                        Решение сохранится для следующих запросов.
+                      </p>
+                    </div>
+                    {(substanceRecord || rfq.substance_id) && (
+                      <div className="identity-saved-rule">
+                        <Icon name="check" size={17} />
+                        <span>
+                          {substanceRecord?.review_status === "confirmed" ||
+                          rfq.substance_review_status === "confirmed"
+                            ? "Правило подтверждено и сохранено"
+                            : "Карточка вещества сохранена и требует уточнения"}
+                        </span>
+                        {onOpenSubstance && (
+                          <button
+                            className="secondary"
+                            onClick={() =>
+                              onOpenSubstance(
+                                substanceRecord?.id ?? rfq.substance_id!,
+                              )
+                            }
+                          >
+                            Открыть карточку
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {user?.role !== "auditor" && (
+                      <div className="identity-actions">
+                        <button
+                          disabled={decisionBusy}
+                          onClick={() => void saveIdentityDecision("confirm")}
+                        >
+                          Подтвердить соответствие
+                        </button>
+                        <button
+                          className="secondary"
+                          disabled={decisionBusy}
+                          onClick={() =>
+                            setIdentityDecision((current) =>
+                              current === "reject" ? null : "reject",
+                            )
+                          }
+                        >
+                          Указать другое название
+                        </button>
+                      </div>
+                    )}
+                    {identityDecision === "reject" && (
+                      <div className="identity-correction-form">
+                        <label>
+                          <span className="ui-field-label">Корректное наименование</span>
+                          <Input
+                            value={correctedName}
+                            onChange={(event) => setCorrectedName(event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span className="ui-field-label">Комментарий к решению</span>
+                          <Textarea
+                            rows={2}
+                            placeholder="Почему предложенное название не подходит"
+                            value={decisionNote}
+                            onChange={(event) => setDecisionNote(event.target.value)}
+                          />
+                        </label>
+                        <button
+                          disabled={decisionBusy || !correctedName.trim()}
+                          onClick={() => void saveIdentityDecision("reject")}
+                        >
+                          {decisionBusy ? "Сохранение…" : "Сохранить исправление"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </details>
               <details className="content-accordion">
@@ -1068,8 +1245,11 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
                         </span>
                       </div>
                       <div className="confidence">
-                        <strong>{result.confidence}%</strong>
-                        <span>проверяемый балл</span>
+                        <div className="confidence-value">
+                          <strong>{result.confidence}%</strong>
+                          <HelpTip text={scoreExplanation(result)} />
+                        </div>
+                        <span>балл по проверенным данным</span>
                       </div>
                     </div>
 
@@ -1077,21 +1257,60 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
                     <p>{result.summary_ru}</p>
 
                     <div className="qualification-evidence">
-                      <span className={`badge ${result.shortlist_eligible ? "tone-ok" : "tone-neutral"}`}>
-                        {result.shortlist_eligible ? "Допущен в shortlist" : "Только экспертный список"}
-                      </span>
-                      <span className={`badge ${result.cas_status === "confirmed" ? "tone-ok" : result.cas_status === "mismatch" ? "tone-danger" : "tone-neutral"}`}>
-                        CAS: {CAS_LABELS[result.cas_status]}
-                      </span>
-                      <span className={`badge ${result.country_status === "claimed" ? "tone-ok" : result.country_status === "mismatch" ? "tone-danger" : result.country_status === "likely" ? "tone-warn" : "tone-neutral"}`}>
-                        {activeCountry}: {COUNTRY_LABELS[result.country_status]}
-                      </span>
+                      <EvidenceBadge
+                        className={result.shortlist_eligible ? "tone-ok" : "tone-neutral"}
+                        label={
+                          result.shortlist_eligible
+                            ? "Включён в короткий список"
+                            : "Не включён в короткий список"
+                        }
+                        explanation={shortlistExplanation(result)}
+                      />
+                      <EvidenceBadge
+                        className={
+                          result.cas_status === "confirmed"
+                            ? "tone-ok"
+                            : result.cas_status === "mismatch"
+                              ? "tone-danger"
+                              : "tone-neutral"
+                        }
+                        label={`CAS: ${CAS_LABELS[result.cas_status]}`}
+                        explanation={evidenceExplanation(
+                          result,
+                          "chemical_identity",
+                          `Статус «${CAS_LABELS[result.cas_status]}» показывает, найдено ли на открытой первичной странице точное подтверждение CAS ${activeCas} и вещества.`,
+                        )}
+                      />
+                      <EvidenceBadge
+                        className={
+                          result.country_status === "claimed"
+                            ? "tone-ok"
+                            : result.country_status === "mismatch"
+                              ? "tone-danger"
+                              : result.country_status === "likely"
+                                ? "tone-warn"
+                                : "tone-neutral"
+                        }
+                        label={`${activeCountry}: ${COUNTRY_LABELS[result.country_status]}`}
+                        explanation={evidenceExplanation(
+                          result,
+                          "country",
+                          `Статус «${COUNTRY_LABELS[result.country_status]}» показывает, подтверждает ли первичная страница связь компании или производственной площадки со страной поиска.`,
+                        )}
+                      />
                       {DOCUMENT_FIELDS.map((document) => {
                         const status = result[document.key];
                         return (
-                          <span className={`badge ${evidenceTone(status)}`} key={document.key}>
-                            {document.label}: {EVIDENCE_LABELS[status]}
-                          </span>
+                          <EvidenceBadge
+                            className={evidenceTone(status)}
+                            explanation={evidenceExplanation(
+                              result,
+                              document.key.replace("_status", ""),
+                              `Статус «${EVIDENCE_LABELS[status]}» означает результат проверки упоминания ${document.label} на первичной странице. Он не заменяет проверку самого документа.`,
+                            )}
+                            key={document.key}
+                            label={`${document.label}: ${EVIDENCE_LABELS[status]}`}
+                          />
                         );
                       })}
                     </div>
@@ -1125,38 +1344,47 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
                     )}
 
                     {result.evidence.length > 0 && (
-                      <div className="candidate-evidence">
-                        <strong>Проверенные цитаты:</strong>
-                        {result.evidence.map((evidence) => {
-                          const source = trace?.source_documents.find(
-                            (item) => item.id === evidence.source_document_id,
-                          );
-                          return (
-                            <blockquote key={evidence.id}>
-                              <span>
-                                {CLAIM_LABELS[evidence.claim_type] || evidence.claim_type}:
-                              </span>{" "}
-                              «{evidence.quote}»
-                              {source && (
-                                <>
-                                  {" "}
-                                  <a
-                                    href={source.final_url || source.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    источник
-                                  </a>
-                                </>
-                              )}
-                            </blockquote>
-                          );
-                        })}
-                      </div>
+                      <details className="candidate-evidence">
+                        <summary>
+                          Проверенные цитаты ({result.evidence.length})
+                        </summary>
+                        <div className="candidate-evidence-list">
+                          {result.evidence.map((evidence) => {
+                            const source = trace?.source_documents.find(
+                              (item) => item.id === evidence.source_document_id,
+                            );
+                            return (
+                              <blockquote key={evidence.id}>
+                                <span>
+                                  {CLAIM_LABELS[evidence.claim_type] || evidence.claim_type}:
+                                </span>{" "}
+                                «{evidence.quote}»
+                                {source && (
+                                  <>
+                                    {" "}
+                                    <a
+                                      href={source.final_url || source.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      источник
+                                    </a>
+                                  </>
+                                )}
+                              </blockquote>
+                            );
+                          })}
+                        </div>
+                      </details>
                     )}
 
                     <details>
-                      <summary>Показать оригинальный текст</summary>
+                      <summary>Исходный фрагмент поисковой выдачи</summary>
+                      <p className="note">
+                        Заголовок и краткое описание получены от поисковой
+                        системы до проверки страницы. Они сохранены для аудита
+                        поиска и не считаются доказательством.
+                      </p>
                       <p className="note">{result.title}</p>
                       <p className="note">{result.snippet}</p>
                     </details>
@@ -1164,14 +1392,13 @@ export default function SupplierSearchSection({ rfq }: { rfq: RFQRead }) {
                       Открыть первичный источник
                     </a>
 
-                    {user?.role !== "auditor" && (
-                      <button
-                        className="secondary"
-                        disabled={addedUrls.has(result.url)}
-                        onClick={() => void add(result)}
-                      >
-                        {addedUrls.has(result.url) ? "Кандидат добавлен" : "Добавить кандидата"}
-                      </button>
+                    {qualification.registry_links?.some(
+                      (link) => link.result_index === result.result_index,
+                    ) && (
+                      <div className="candidate-auto-saved">
+                        <Icon name="check" size={16} />
+                        Кандидат автоматически сохранён в реестре поставщиков
+                      </div>
                     )}
                   </article>
                 ))}

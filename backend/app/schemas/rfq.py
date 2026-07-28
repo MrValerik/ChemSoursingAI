@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import RFQStatus
+from app.services.search_countries import normalize_search_country
 
 
 class RFQCreate(BaseModel):
@@ -17,12 +18,13 @@ class RFQCreate(BaseModel):
     incoterms: list[str] = Field(..., examples=[["CIP", "FCA", "EXW"]])
     channels: list[str] = Field(default_factory=list, examples=[["email"]])
     search_countries: list[str] = Field(
-        default_factory=lambda: ["China"],
+        default_factory=lambda: ["Китай"],
         min_length=1,
-        max_length=10,
-        examples=[["China", "India"]],
+        max_length=3,
+        examples=[["Россия", "Китай", "Индия"]],
     )
     supplier_target: int = Field(default=5, ge=1, le=20)
+    substance_id: int | None = Field(default=None, ge=1)
     additional_instructions: str | None = Field(default=None, max_length=4000)
     purity: str | None = None
     application: str | None = None
@@ -36,11 +38,9 @@ class RFQCreate(BaseModel):
         countries: list[str] = []
         seen: set[str] = set()
         for value in values:
-            country = value.strip()
-            if not country:
+            if not value.strip():
                 continue
-            if len(country) > 100:
-                raise ValueError("Название страны не должно превышать 100 символов")
+            country = normalize_search_country(value)
             key = country.casefold()
             if key not in seen:
                 seen.add(key)
@@ -70,6 +70,9 @@ class RFQRead(BaseModel):
     status: RFQStatus
     verified: bool
     verification: dict | None
+    substance_id: int | None
+    substance_preferred_name: str | None = None
+    substance_review_status: str | None = None
     owner_id: int | None = None
     created_at: datetime
     updated_at: datetime

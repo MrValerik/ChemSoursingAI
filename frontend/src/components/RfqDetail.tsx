@@ -58,10 +58,12 @@ export default function RfqDetail({
   rfq,
   onBack,
   onChanged,
+  onOpenSubstance,
 }: {
   rfq: RFQRead;
   onBack: () => void;
   onChanged: (r: RFQRead) => void;
+  onOpenSubstance?: (id: number) => void;
 }) {
   const { user } = useAuth();
   const [tab, setTab] = useState<TabKey>("supplier_search");
@@ -277,7 +279,12 @@ export default function RfqDetail({
           </div>
 
           {tab === "overview" && <OverviewTab rfq={rfq} />}
-          {tab === "supplier_search" && <SupplierSearchSection rfq={rfq} />}
+          {tab === "supplier_search" && (
+            <SupplierSearchSection
+              rfq={rfq}
+              onOpenSubstance={onOpenSubstance}
+            />
+          )}
 
           {tab === "suppliers" && (
             <SuppliersTab rfqId={rfq.id} onGoToDispatch={() => setTab("dispatch")} />

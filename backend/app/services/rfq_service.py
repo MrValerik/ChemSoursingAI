@@ -62,6 +62,7 @@ def create_rfq(
         channels=data.channels or [],
         search_countries=data.search_countries,
         supplier_target=data.supplier_target,
+        substance_id=data.substance_id,
         status=status,
         verified=verified,
         verification=verification,

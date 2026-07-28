@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.escalation import Escalation
     from app.models.quotation import Quotation
     from app.models.search_trace import SearchRun
+    from app.models.substance import Substance
     from app.models.user import User
 
 
@@ -46,6 +47,10 @@ class RFQ(Base, TimestampMixin):
     # Данные верификации вещества (снимок ответа PubChem).
     verified: Mapped[bool] = mapped_column(default=False)
     verification: Mapped[dict | None] = mapped_column(JSON, default=None)
+    substance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("substances.id"), index=True, default=None
+    )
+    substance: Mapped["Substance | None"] = relationship(back_populates="rfqs")
 
     # Ответственный закупщик (раздел 4 UI/UX-плана: данные принадлежат
     # запросу и его ответственному; роли расширяют видимость).

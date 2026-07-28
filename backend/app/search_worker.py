@@ -142,13 +142,21 @@ def process_next_job(
             db.commit()
 
             candidate_results = result.get("results")
+            reserve_results = result.get("reserve_results")
+            qualification_pool = (
+                [
+                    *candidate_results,
+                    *(reserve_results if isinstance(reserve_results, list) else []),
+                ]
+                if isinstance(candidate_results, list)
+                else []
+            )
             run_qualifier = qualifier or (
                 execute_supplier_qualification if executor is None else None
             )
             if (
                 run_qualifier is not None
-                and isinstance(candidate_results, list)
-                and candidate_results
+                and qualification_pool
             ):
                 qualification_request = SupplierQualificationRequest(
                     search_run_id=run.id,
@@ -156,7 +164,8 @@ def process_next_job(
                     name=request.name,
                     country=request.country,
                     additional_instructions=request.additional_instructions,
-                    results=candidate_results[:5],
+                    target_count=request.limit,
+                    results=qualification_pool[:60],
                 )
                 run_qualifier(qualification_request, db, user)
                 run.result_payload = result
