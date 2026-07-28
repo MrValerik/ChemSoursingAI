@@ -423,9 +423,39 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .detail-params { width: 260px; flex-shrink: 0; }
 .detail-main { flex: 1; min-width: 0; }
 
+.parameters-heading {
+  margin-bottom: 10px;
+}
+.parameters-heading h2 {
+  margin: 0;
+}
 .params-list { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
 .params-list dt { font-size: 12px; color: var(--muted); }
 .params-list dd { margin: 0; font-size: 13px; }
+.param-label,
+.param-value {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.param-value {
+  flex-wrap: wrap;
+}
+.param-value > span:first-child {
+  overflow-wrap: anywhere;
+}
+.param-label .help-tip > button,
+.param-value .help-tip > button,
+.parameters-heading .help-tip > button {
+  width: 20px;
+  height: 20px;
+}
+.param-label .help-tip > span[role="tooltip"],
+.param-value .help-tip > span[role="tooltip"] {
+  right: auto;
+  left: 0;
+}
 
 .stages { list-style: none; margin: 0; padding: 0; }
 .stages li {

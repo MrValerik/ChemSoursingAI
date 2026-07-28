@@ -13,6 +13,7 @@ import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
 import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
+import { HelpTip } from "./ui";
 
 type TabKey =
   | "overview"
@@ -53,6 +54,43 @@ const ESCALATION_REASONS: [string, string][] = [
   ["shortage", "Дефицит"],
   ["custom_synthesis", "Кастомный синтез"],
 ];
+
+const COUNTRY_LABELS: Record<string, string> = {
+  russia: "Россия",
+  "russian federation": "Россия",
+  ru: "Россия",
+  china: "Китай",
+  cn: "Китай",
+  prc: "Китай",
+  india: "Индия",
+  in: "Индия",
+};
+
+const INCOTERM_HELP: Record<string, string> = {
+  CIP: "CIP: продавец оплачивает перевозку и страхование до согласованного пункта, но риск переходит при передаче первому перевозчику.",
+  FCA: "FCA: продавец передаёт товар перевозчику покупателя в согласованном месте.",
+  EXW: "EXW: покупатель забирает товар со склада или площадки продавца и организует основную перевозку.",
+};
+
+const displayCountry = (value: string) =>
+  COUNTRY_LABELS[value.trim().toLocaleLowerCase()] || value.trim();
+
+const purityHelp = (value: string) => {
+  const normalized = value.trim().toLocaleUpperCase();
+  if (normalized === "USP") {
+    return "USP — требования Фармакопеи США (United States Pharmacopeia) к качеству и чистоте вещества. Соответствие должно подтверждаться спецификацией и CoA поставщика.";
+  }
+  if (["EP", "PH. EUR.", "PH EUR"].includes(normalized)) {
+    return "EP / Ph. Eur. — требования Европейской фармакопеи. Соответствие проверяется по спецификации и CoA поставщика.";
+  }
+  if (normalized === "BP") {
+    return "BP — требования Британской фармакопеи. Соответствие проверяется по спецификации и CoA поставщика.";
+  }
+  if (normalized === "ACS") {
+    return "ACS — требования Американского химического общества к реактивному грейду вещества.";
+  }
+  return `«${value}» — требуемый грейд или стандарт чистоты, указанный в запросе. Его необходимо подтвердить документами поставщика.`;
+};
 
 export default function RfqDetail({
   rfq,
@@ -111,6 +149,26 @@ export default function RfqDetail({
   );
   const searchFailed =
     searchRuns.length > 0 && searchRuns.every((run) => run.status === "failed");
+  const actualSearchCountries = [
+    ...new Set(
+      [
+        ...(rfq.search_countries ?? []),
+        ...searchRuns.map((run) => {
+          const country = run.input_payload.country;
+          return typeof country === "string" ? country : "";
+        }),
+      ]
+        .map(displayCountry)
+        .filter(Boolean),
+    ),
+  ];
+  const incoterms = rfq.incoterms ?? [];
+  const incotermsExplanation =
+    incoterms
+      .map((code) => INCOTERM_HELP[code.toLocaleUpperCase()])
+      .filter(Boolean)
+      .join(" ") ||
+    "Условия поставки ещё не заданы.";
 
   const stageClass = (index: number) => {
     if (index === 0) {
@@ -204,47 +262,100 @@ export default function RfqDetail({
 
       <div className="detail-layout">
         <aside className="detail-params panel">
-          <h2>Параметры</h2>
+          <div className="heading-with-help parameters-heading">
+            <h2>Параметры</h2>
+            <HelpTip text="Основные условия закупочного запроса. Значки рядом с названиями и значениями объясняют термин и его значение для текущего запроса." />
+          </div>
           <dl className="params-list">
-            <dt>CAS</dt>
-            <dd>
-              {rfq.cas}{" "}
+            <dt className="param-label">
+              CAS
+              <HelpTip text="CAS Registry Number — уникальный числовой идентификатор химического вещества. Он помогает отличать вещества с похожими названиями." />
+            </dt>
+            <dd className="param-value">
+              <span>{rfq.cas}</span>
               {rfq.verified ? (
                 <span className="badge tone-ok">проверен</span>
               ) : (
                 <span className="badge tone-neutral">не проверен</span>
               )}
+              <HelpTip
+                text={
+                  rfq.verified
+                    ? `CAS ${rfq.cas} прошёл автоматическую проверку. Перед закупочным решением всё равно сравните его со спецификацией и CoA.`
+                    : `CAS ${rfq.cas} ещё не подтверждён справочником или решением специалиста. Результаты поиска следует считать предварительными.`
+                }
+              />
             </dd>
             {rfq.purity && (
               <>
-                <dt>Чистота</dt>
-                <dd>{rfq.purity}</dd>
+                <dt className="param-label">
+                  Чистота
+                  <HelpTip text="Требуемая степень чистоты, фармакопейный стандарт или промышленный грейд вещества." />
+                </dt>
+                <dd className="param-value">
+                  <span>{rfq.purity}</span>
+                  <HelpTip text={purityHelp(rfq.purity)} />
+                </dd>
               </>
             )}
             {rfq.volume && (
               <>
-                <dt>Объём</dt>
-                <dd>{rfq.volume}</dd>
+                <dt className="param-label">
+                  Объём
+                  <HelpTip text="Количество вещества, которое планируется запросить у поставщиков." />
+                </dt>
+                <dd className="param-value">
+                  <span>{rfq.volume}</span>
+                  <HelpTip text={`Для этого запроса требуется ${rfq.volume}. Поставщик должен отдельно подтвердить MOQ и доступный объём.`} />
+                </dd>
               </>
             )}
             {rfq.target_price != null && (
               <>
-                <dt>Ориентир</dt>
-                <dd>
-                  {rfq.target_price} {rfq.currency}
+                <dt className="param-label">
+                  Ориентир
+                  <HelpTip text="Внутренний ценовой ориентир для сравнения предложений. Он не является заказом или обещанием поставщику." />
+                </dt>
+                <dd className="param-value">
+                  <span>
+                    {rfq.target_price} {rfq.currency}
+                  </span>
+                  <HelpTip text={`Ценовой ориентир запроса: ${rfq.target_price} ${rfq.currency}. Для сравнения нужно учитывать единицу цены и базис поставки.`} />
                 </dd>
               </>
             )}
-            <dt>Базисы</dt>
-            <dd>{(rfq.incoterms ?? []).join(", ") || "—"}</dd>
-            <dt>Каналы</dt>
-            <dd>{(rfq.channels ?? []).join(", ") || "—"}</dd>
-            <dt>Страны поиска</dt>
-            <dd>{(rfq.search_countries ?? []).join(", ") || "без ограничения"}</dd>
+            <dt className="param-label">
+              Базисы
+              <HelpTip text="Incoterms определяют распределение расходов, обязанностей и рисков между продавцом и покупателем." />
+            </dt>
+            <dd className="param-value">
+              <span>{incoterms.join(", ") || "—"}</span>
+              <HelpTip text={incotermsExplanation} />
+            </dd>
+            <dt className="param-label">
+              Страны поиска
+              <HelpTip text="Страны, в которых запускался автоматический поиск поставщиков для этого запроса." />
+            </dt>
+            <dd className="param-value">
+              <span>{actualSearchCountries.join(", ") || "поиск не запускался"}</span>
+              <HelpTip
+                text={
+                  actualSearchCountries.length > 0
+                    ? `Фактически созданы запуски поиска: ${actualSearchCountries.join(", ")}. Повторно добавленная страна появляется здесь после постановки задачи в очередь.`
+                    : "Для запроса пока нет ни одного запуска поиска."
+                }
+              />
+            </dd>
             {rfq.owner_name && (
               <>
-                <dt>Ответственный</dt>
-                <dd>{rfq.owner_name}</dd>
+                <dt className="param-label">
+                  Ответственный
+                  <HelpTip text="Сотрудник, отвечающий за ведение запроса и проверку результатов." />
+                </dt>
+                <dd className="param-value">
+                  <span>{rfq.owner_name}</span>
+                  <HelpTip text={`${rfq.owner_name} назначен ответственным за этот закупочный запрос.`} />
+                </dd>
               </>
             )}
           </dl>
