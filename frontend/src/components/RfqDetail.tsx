@@ -4,18 +4,19 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { PriceHistoryItem, RFQRead } from "../api/types";
+import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
 import CommunicationHistory from "./CommunicationHistory";
 import ExtractReplies from "./ExtractReplies";
+import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
 import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
 
 type TabKey =
-  | "verification"
-  | "rfq"
+  | "overview"
+  | "supplier_search"
   | "suppliers"
   | "dispatch"
   | "replies"
@@ -23,26 +24,26 @@ type TabKey =
   | "history";
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: "verification", label: "Верификация" },
-  { key: "rfq", label: "RFQ" },
-  { key: "suppliers", label: "Поставщики" },
-  { key: "dispatch", label: "Рассылка" },
+  { key: "overview", label: "Обзор" },
+  { key: "supplier_search", label: "Поиск и проверка" },
+  { key: "suppliers", label: "Отобранные поставщики" },
+  { key: "dispatch", label: "Общение" },
   { key: "replies", label: "Ответы" },
-  { key: "summary", label: "Сводка" },
+  { key: "summary", label: "Сравнение" },
   { key: "history", label: "История" },
 ];
 
 // Статус → пройденные этапы конвейера (раздел 7: «Этапы»).
-const STAGES = ["Проверка", "RFQ", "Рассылка", "Ответы", "Сводка"];
+const STAGES = ["Проверка вещества", "Поиск", "Отбор", "Общение", "Ответы", "Сравнение"];
 const STAGE_BY_STATUS: Record<string, number> = {
   draft: 0,
   verified: 1,
-  sent: 3,
-  collecting: 3,
-  parsed: 4,
-  summarized: 5,
-  escalated: 4,
-  closed: 5,
+  sent: 4,
+  collecting: 4,
+  parsed: 5,
+  summarized: 6,
+  escalated: 5,
+  closed: 6,
 };
 
 const ESCALATION_REASONS: [string, string][] = [
@@ -63,8 +64,9 @@ export default function RfqDetail({
   onChanged: (r: RFQRead) => void;
 }) {
   const { user } = useAuth();
-  const [tab, setTab] = useState<TabKey>("verification");
+  const [tab, setTab] = useState<TabKey>("supplier_search");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [searchRuns, setSearchRuns] = useState<SearchRunListItem[]>([]);
 
   const [escOpen, setEscOpen] = useState(false);
   const [escReason, setEscReason] = useState("other");
@@ -74,6 +76,57 @@ export default function RfqDetail({
 
   const canEscalate = user?.role !== "auditor" && rfq.status !== "escalated";
   const doneStages = STAGE_BY_STATUS[rfq.status] ?? 0;
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const items = await api.listSearchRuns(50, rfq.id);
+        if (active) setSearchRuns(items);
+      } catch {
+        // Статус карточки не должен ломаться из-за временной ошибки polling.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [rfq.id]);
+
+  const searchTerminal = new Set([
+    "search_completed",
+    "completed",
+    "failed",
+    "cancelled",
+  ]);
+  const searchFinished =
+    searchRuns.length > 0 &&
+    searchRuns.every((run) => searchTerminal.has(run.status));
+  const searchSucceeded = searchRuns.some((run) =>
+    ["search_completed", "completed"].includes(run.status),
+  );
+  const searchFailed =
+    searchRuns.length > 0 && searchRuns.every((run) => run.status === "failed");
+
+  const stageClass = (index: number) => {
+    if (index === 0) {
+      const searchStarted = searchRuns.some(
+        (run) => !["queued", "identifying"].includes(run.status),
+      );
+      return rfq.verified || searchStarted || searchRuns.length > 0
+        ? "done"
+        : "current";
+    }
+    if (index === 1) {
+      if (searchFailed) return "error";
+      if (searchFinished && searchSucceeded) return "done";
+      if (searchRuns.length > 0 || doneStages >= 1) return "current";
+      return "";
+    }
+    return index < doneStages ? "done" : index === doneStages ? "current" : "";
+  };
 
   const escalate = async () => {
     setEscBusy(true);
@@ -97,7 +150,7 @@ export default function RfqDetail({
           ← К запросам
         </button>
         <h1>
-          RFQ #{rfq.id} · {rfq.name}
+          Запрос #{rfq.id} · {rfq.name}
         </h1>
         <span className={`badge tone-${STATUS_TONE[rfq.status]}`}>
           {STATUS_LABELS[rfq.status]}
@@ -184,6 +237,8 @@ export default function RfqDetail({
             <dd>{(rfq.incoterms ?? []).join(", ") || "—"}</dd>
             <dt>Каналы</dt>
             <dd>{(rfq.channels ?? []).join(", ") || "—"}</dd>
+            <dt>Страны поиска</dt>
+            <dd>{(rfq.search_countries ?? []).join(", ") || "без ограничения"}</dd>
             {rfq.owner_name && (
               <>
                 <dt>Ответственный</dt>
@@ -197,7 +252,7 @@ export default function RfqDetail({
             {STAGES.map((s, i) => (
               <li
                 key={s}
-                className={i < doneStages ? "done" : i === doneStages ? "current" : ""}
+                className={stageClass(i)}
               >
                 {s}
               </li>
@@ -221,33 +276,8 @@ export default function RfqDetail({
             ))}
           </div>
 
-          {tab === "verification" && <VerificationTab rfq={rfq} />}
-
-          {tab === "rfq" && (
-            <div className="panel">
-              <h2>Текст запроса</h2>
-              {rfq.rfq_subject && (
-                <p>
-                  <b>Тема:</b> {rfq.rfq_subject}
-                </p>
-              )}
-              {rfq.rfq_body ? (
-                <>
-                  <pre className="letter">{rfq.rfq_body}</pre>
-                  <div className="actions">
-                    <button
-                      className="secondary"
-                      onClick={() => void navigator.clipboard.writeText(rfq.rfq_body ?? "")}
-                    >
-                      Скопировать текст
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p className="note">Текст RFQ не сгенерирован.</p>
-              )}
-            </div>
-          )}
+          {tab === "overview" && <OverviewTab rfq={rfq} />}
+          {tab === "supplier_search" && <SupplierSearchSection rfq={rfq} />}
 
           {tab === "suppliers" && (
             <SuppliersTab rfqId={rfq.id} onGoToDispatch={() => setTab("dispatch")} />
@@ -255,7 +285,7 @@ export default function RfqDetail({
 
           {tab === "dispatch" && (
             <DispatchTab
-              rfqId={rfq.id}
+              rfq={rfq}
               onStatusChanged={() => {
                 void api.getRfq(rfq.id).then(onChanged);
               }}
@@ -286,7 +316,7 @@ export default function RfqDetail({
   );
 }
 
-function VerificationTab({ rfq }: { rfq: RFQRead }) {
+function OverviewTab({ rfq }: { rfq: RFQRead }) {
   const [history, setHistory] = useState<PriceHistoryItem[] | null>(null);
 
   useEffect(() => {

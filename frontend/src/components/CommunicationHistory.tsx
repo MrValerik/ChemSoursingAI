@@ -71,7 +71,7 @@ export default function CommunicationHistory({
         <div>
           <h2>Email-переписка</h2>
           <p className="note">
-            Ответы связываются с запросом по метке RFQ и Message-ID. Неполный
+            Ответы автоматически связываются с запросом по служебной метке и Message-ID. Неполный
             ответ создаёт дозапрос-черновик.
           </p>
         </div>
@@ -89,7 +89,7 @@ export default function CommunicationHistory({
           котировок: {syncResult.quotations_created} · черновиков:{" "}
           {syncResult.followups_drafted}
           {syncResult.unmatched > 0 && (
-            <> · без связи с RFQ: {syncResult.unmatched}</>
+            <> · без связи с запросом: {syncResult.unmatched}</>
           )}
           {syncResult.errors.length > 0 && (
             <div className="error">{syncResult.errors.join("; ")}</div>

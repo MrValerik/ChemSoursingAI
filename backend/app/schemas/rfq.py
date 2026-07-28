@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import RFQStatus
 
@@ -16,11 +16,38 @@ class RFQCreate(BaseModel):
     name: str = Field(..., examples=["Acetylsalicylic acid"])
     incoterms: list[str] = Field(..., examples=[["CIP", "FCA", "EXW"]])
     channels: list[str] = Field(default_factory=list, examples=[["email"]])
+    search_countries: list[str] = Field(
+        default_factory=lambda: ["China"],
+        min_length=1,
+        max_length=10,
+        examples=[["China", "India"]],
+    )
+    supplier_target: int = Field(default=5, ge=1, le=20)
+    additional_instructions: str | None = Field(default=None, max_length=4000)
     purity: str | None = None
     application: str | None = None
     volume: str | None = None
     target_price: float | None = None
     currency: str = "USD"
+
+    @field_validator("search_countries")
+    @classmethod
+    def normalize_search_countries(cls, values: list[str]) -> list[str]:
+        countries: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            country = value.strip()
+            if not country:
+                continue
+            if len(country) > 100:
+                raise ValueError("Название страны не должно превышать 100 символов")
+            key = country.casefold()
+            if key not in seen:
+                seen.add(key)
+                countries.append(country)
+        if not countries:
+            raise ValueError("Выберите хотя бы одну страну поиска")
+        return countries
 
 
 class RFQRead(BaseModel):
@@ -38,6 +65,8 @@ class RFQRead(BaseModel):
     currency: str | None
     incoterms: list[str] | None
     channels: list[str] | None
+    search_countries: list[str] | None
+    supplier_target: int
     status: RFQStatus
     verified: bool
     verification: dict | None
@@ -61,6 +90,8 @@ class RFQListItem(BaseModel):
     name: str
     status: RFQStatus
     verified: bool
+    search_countries: list[str] | None
+    supplier_target: int
     created_at: datetime
 
     # Обогащение для сводной таблицы.

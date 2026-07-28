@@ -107,7 +107,7 @@ def build_search_queries(
         candidates.extend(
             [
                 f'site:chemexcil.in ("{name}" OR "{cas}")',
-                f'site:cdsco.gov.in "{name}" (GMP OR manufacturer OR API)',
+                f'site:cdsco.gov.in ("{name}" OR "{cas}") (GMP OR manufacturer OR API)',
                 f'site:pharmexcil.com ("{name}" OR "{cas}")',
                 f'site:.in "{cas}" (manufacturer OR factory OR producer)',
                 f'"{name}" "{cas}" (manufacturer OR producer OR factory) India',

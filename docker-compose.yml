@@ -35,7 +35,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
       LLM_MODEL: ${LLM_MODEL:-Qwen_Qwen3.5-27B-Q4_K_M}
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
-      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       # Email по умолчанию работает в demo и не выполняет внешнюю отправку.
       EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-demo}
       EMAIL_FROM: ${EMAIL_FROM:-}
@@ -65,6 +65,25 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+
+  search-worker:
+    build: ./backend
+    restart: unless-stopped
+    command: ["python", "-m", "app.search_worker"]
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-chemsource}:${POSTGRES_PASSWORD:-change_me}@db:5432/${POSTGRES_DB:-chemsource}
+      REDIS_URL: redis://redis:6379/0
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-dev-secret-change-in-prod}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
+      LLM_MODEL: ${LLM_MODEL:-Qwen_Qwen3.5-27B-Q4_K_M}
+      LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   frontend:
     build: ./frontend

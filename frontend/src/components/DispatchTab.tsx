@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { DispatchStatusKind, RecipientRead } from "../api/types";
+import type { DispatchStatusKind, RecipientRead, RFQRead } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
 const STATUS_LABELS: Record<DispatchStatusKind, string> = {
@@ -23,12 +23,13 @@ const STATUS_TONE: Record<DispatchStatusKind, string> = {
 };
 
 export default function DispatchTab({
-  rfqId,
+  rfq,
   onStatusChanged,
 }: {
-  rfqId: number;
+  rfq: RFQRead;
   onStatusChanged: () => void;
 }) {
+  const rfqId = rfq.id;
   const { user } = useAuth();
   const readOnly = user?.role === "auditor";
 
@@ -76,28 +77,57 @@ export default function DispatchTab({
   };
 
   return (
-    <div className="panel">
-      <div className="tab-toolbar">
-        <h2>Рассылка RFQ</h2>
-        {!readOnly && (
-          <button onClick={() => void dispatch()} disabled={busy || queued.length === 0}>
-            {busy ? "Отправка…" : `Разослать выбранным (${queued.length})`}
-          </button>
+    <div>
+      <div className="panel">
+        <h2>Первое письмо поставщикам</h2>
+        <p className="note">
+          Текст формируется из параметров запроса. Перед реальной отправкой его
+          можно проверить вместе со списком получателей.
+        </p>
+        {rfq.rfq_subject && (
+          <p>
+            <b>Тема:</b> {rfq.rfq_subject}
+          </p>
+        )}
+        {rfq.rfq_body ? (
+          <>
+            <pre className="letter">{rfq.rfq_body}</pre>
+            <div className="actions">
+              <button
+                className="secondary"
+                onClick={() => void navigator.clipboard.writeText(rfq.rfq_body ?? "")}
+              >
+                Скопировать текст
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="note">Текст первого письма ещё не сформирован.</p>
         )}
       </div>
-      <p className="note">
-        Email использует SMTP в live-режиме. Без него сохраняется безопасная
-        демонстрация; WhatsApp пока работает только как демонстрационный канал.
-      </p>
 
-      {error && <p className="error">{error}</p>}
-
-      {recipients.length === 0 ? (
+      <div className="panel">
+        <div className="tab-toolbar">
+          <h2>Получатели и отправка</h2>
+          {!readOnly && (
+            <button onClick={() => void dispatch()} disabled={busy || queued.length === 0}>
+              {busy ? "Отправка…" : `Отправить выбранным (${queued.length})`}
+            </button>
+          )}
+        </div>
         <p className="note">
-          Получатели не выбраны — отметьте поставщиков на вкладке «Поставщики».
+          Email использует SMTP в live-режиме. Без него сохраняется безопасная
+          демонстрация; WhatsApp пока работает только как демонстрационный канал.
         </p>
-      ) : (
-        <table className="summary">
+
+        {error && <p className="error">{error}</p>}
+
+        {recipients.length === 0 ? (
+          <p className="note">
+            Получатели не выбраны — добавьте их на вкладке «Отобранные поставщики».
+          </p>
+        ) : (
+          <table className="summary">
           <thead>
             <tr>
               <th>Получатель</th>
@@ -131,8 +161,9 @@ export default function DispatchTab({
               </tr>
             ))}
           </tbody>
-        </table>
-      )}
+          </table>
+        )}
+      </div>
     </div>
   );
 }

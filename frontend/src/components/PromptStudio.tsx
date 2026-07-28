@@ -5,7 +5,8 @@ import { useAuth } from "../auth/AuthContext";
 
 const KIND_LABELS: Record<PromptKind, string> = {
   extraction: "Извлечение котировки",
-  rfq_generation: "Формирование RFQ",
+  rfq_generation: "Формирование первого письма",
+  substance_identity: "Идентификация вещества",
   supplier_search: "Поиск поставщиков",
   qualification: "Квалификация",
   followup: "Дозапрос данных",
@@ -203,7 +204,7 @@ export default function PromptStudio() {
             </div>
 
             <div className="panel">
-              <h2>Предпросмотр на Qwen</h2>
+              <h2>Предпросмотр с ИИ-агентом</h2>
               <div className="field">
                 <label>Тестовые входные данные</label>
                 <textarea rows={5} value={sample} onChange={(e) => setSample(e.target.value)} />
@@ -213,7 +214,7 @@ export default function PromptStudio() {
                 <textarea rows={3} value={extra} onChange={(e) => setExtra(e.target.value)} />
               </div>
               <button disabled={busy || !sample.trim()} onClick={() => void preview()}>
-                {busy ? "Qwen обрабатывает…" : "Запустить предпросмотр"}
+                {busy ? "ИИ-агент обрабатывает…" : "Запустить предпросмотр"}
               </button>
               {output && <pre className="letter" style={{ marginTop: 12 }}>{output}</pre>}
             </div>

@@ -9,7 +9,6 @@ export type SectionKey =
   | "dashboard"
   | "requests"
   | "suppliers"
-  | "search"
   | "review"
   | "templates"
   | "prompts"
@@ -25,8 +24,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { key: "dashboard", label: "Дашборд", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "requests", label: "Запросы", roles: ["buyer", "head", "admin", "auditor"] },
-  { key: "suppliers", label: "Поставщики", roles: ["buyer", "head", "auditor"] },
-  { key: "search", label: "Поиск поставщиков", roles: ["buyer", "head", "admin", "auditor"] },
+  { key: "suppliers", label: "Поставщики", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "review", label: "Ручной разбор", roles: ["buyer", "head", "auditor"] },
   { key: "templates", label: "Шаблоны", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "prompts", label: "ИИ-промпты", roles: ["buyer", "head", "admin", "auditor"] },

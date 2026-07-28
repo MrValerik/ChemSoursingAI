@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, JSON, Numeric, String, Text
+from sqlalchemy import ForeignKey, Integer, JSON, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -15,6 +15,7 @@ from app.models.enums import RFQStatus
 if TYPE_CHECKING:
     from app.models.escalation import Escalation
     from app.models.quotation import Quotation
+    from app.models.search_trace import SearchRun
     from app.models.user import User
 
 
@@ -35,6 +36,8 @@ class RFQ(Base, TimestampMixin):
     # Базисы поставки (Incoterm) и каналы рассылки (Channel) — списки строк.
     incoterms: Mapped[list[str] | None] = mapped_column(JSON, default=None)
     channels: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    search_countries: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    supplier_target: Mapped[int] = mapped_column(Integer, default=5)
 
     status: Mapped[RFQStatus] = mapped_column(
         SAEnum(RFQStatus), default=RFQStatus.DRAFT, index=True
@@ -56,4 +59,7 @@ class RFQ(Base, TimestampMixin):
     )
     escalations: Mapped[list["Escalation"]] = relationship(
         back_populates="rfq", cascade="all, delete-orphan"
+    )
+    search_runs: Mapped[list["SearchRun"]] = relationship(
+        back_populates="rfq"
     )

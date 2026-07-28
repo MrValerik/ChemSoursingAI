@@ -11,9 +11,12 @@ import type {
   PromptRead,
   PromptVersionRead,
   RecipientRead,
+  SearchRunListItem,
   SupplierRead,
   SupplierQualificationResponse,
+  SupplierSearchJob,
   SupplierSearchResponse,
+  SearchRunTrace,
   TemplateRead,
   UserAdminRead,
   UserRead,
@@ -32,7 +35,11 @@ const BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const TOKEN_KEY = "chemsource_token";
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    public searchRunId: number | null = null,
+  ) {
     super(message);
   }
 }
@@ -57,13 +64,22 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       onUnauthorized?.();
     }
     let detail = resp.statusText;
+    let searchRunId: number | null = null;
     try {
       const data = await resp.json();
-      detail = (data as { detail?: string }).detail ?? detail;
+      const errorDetail = (data as {
+        detail?: string | { message?: string; search_run_id?: number };
+      }).detail;
+      if (typeof errorDetail === "string") {
+        detail = errorDetail;
+      } else if (errorDetail) {
+        detail = errorDetail.message ?? detail;
+        searchRunId = errorDetail.search_run_id ?? null;
+      }
     } catch {
       /* тело не JSON — оставляем statusText */
     }
-    throw new ApiError(resp.status, detail);
+    throw new ApiError(resp.status, detail, searchRunId);
   }
   if (resp.status === 204) {
     return undefined as T;
@@ -76,6 +92,9 @@ export interface RFQCreatePayload {
   name: string;
   incoterms: string[];
   channels?: string[];
+  search_countries: string[];
+  supplier_target: number;
+  additional_instructions?: string | null;
   purity?: string | null;
   application?: string | null;
   volume?: string | null;
@@ -103,11 +122,18 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  createRfq: (payload: RFQCreatePayload, verify = true) =>
-    request<RFQRead>(`/rfq?verify=${verify}`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
+  createRfq: (
+    payload: RFQCreatePayload,
+    verify = true,
+    startSearch = false,
+  ) =>
+    request<RFQRead>(
+      `/rfq?verify=${verify}&start_search=${startSearch}`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
 
   getRfq: (id: number) => request<RFQRead>(`/rfq/${id}`),
 
@@ -166,19 +192,33 @@ export const api = {
 
   listSuppliers: () => request<SupplierRead[]>(`/suppliers`),
 
-  addSupplier: (payload: {
-    company: string;
-    type?: string | null;
-    country?: string | null;
-    email?: string | null;
-    whatsapp?: string | null;
-    source?: string | null;
-    reputation?: string | null;
-  }) =>
-    request<SupplierRead>(`/suppliers`, {
+  addSupplier: (
+    payload: {
+      company: string;
+      type?: string | null;
+      country?: string | null;
+      email?: string | null;
+      whatsapp?: string | null;
+      source?: string | null;
+      reputation?: string | null;
+      qualification_status?: string;
+      evidence_score?: number | null;
+      certificates?: string[] | null;
+    },
+    rfqId?: number,
+    searchRunId?: number,
+  ) => {
+    const params = new URLSearchParams();
+    if (rfqId !== undefined) params.set("rfq_id", String(rfqId));
+    if (searchRunId !== undefined) {
+      params.set("search_run_id", String(searchRunId));
+    }
+    const query = params.size > 0 ? `?${params.toString()}` : "";
+    return request<SupplierRead>(`/suppliers${query}`, {
       method: "POST",
       body: JSON.stringify(payload),
-    }),
+    });
+  },
 
   listRecipients: (rfqId: number) =>
     request<RecipientRead[]>(`/rfq/${rfqId}/recipients`),
@@ -279,7 +319,28 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  enqueueSupplierSearch: (
+    rfqId: number,
+    payload: {
+      cas: string;
+      name: string;
+      country?: string | null;
+      additional_instructions?: string | null;
+      limit?: number;
+    },
+  ) =>
+    request<SupplierSearchJob>(`/supplier-search/jobs?rfq_id=${rfqId}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  listSearchRuns: (limit = 50, rfqId?: number) =>
+    request<SearchRunListItem[]>(
+      `/search-runs?limit=${limit}${rfqId === undefined ? "" : `&rfq_id=${rfqId}`}`,
+    ),
+
   qualifySuppliers: (payload: {
+    search_run_id?: number;
     cas: string;
     name: string;
     country?: string | null;
@@ -290,6 +351,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  getSearchRun: (id: number) =>
+    request<SearchRunTrace>(`/search-runs/${id}`),
 
   createPrompt: (payload: {
     kind: string;

@@ -39,6 +39,8 @@ export interface RFQRead {
   currency: string | null;
   incoterms: string[] | null;
   channels: string[] | null;
+  search_countries: string[] | null;
+  supplier_target: number;
   status: RFQStatus;
   verified: boolean;
   verification: SubstanceInfo | null;
@@ -62,6 +64,8 @@ export interface RFQListItem {
   name: string;
   status: RFQStatus;
   verified: boolean;
+  search_countries: string[] | null;
+  supplier_target: number;
   created_at: string;
 }
 
@@ -153,6 +157,11 @@ export interface PriceHistoryItem {
 }
 
 export type SupplierTypeKind = "manufacturer" | "distributor";
+export type SupplierQualificationStatus =
+  | "candidate"
+  | "under_review"
+  | "verified"
+  | "rejected";
 export type ChannelKind = "email" | "whatsapp";
 export type DispatchStatusKind = "queued" | "sent" | "delivered" | "read" | "error";
 
@@ -165,6 +174,18 @@ export interface SupplierRead {
   source: string | null;
   certificates: string[] | null;
   channels: ChannelKind[];
+  qualification_status: SupplierQualificationStatus;
+  evidence_score: number | null;
+  last_checked_at: string | null;
+  contacts_count: number;
+  request_count: number;
+  linked_requests: {
+    rfq_id: number;
+    name: string;
+    cas: string;
+  }[];
+  has_coa: boolean;
+  has_tds: boolean;
 }
 
 export interface RecipientRead {
@@ -235,6 +256,7 @@ export interface ChannelStatus {
 export type PromptKind =
   | "extraction"
   | "rfq_generation"
+  | "substance_identity"
   | "supplier_search"
   | "qualification"
   | "followup";
@@ -276,11 +298,40 @@ export interface SupplierSearchResult {
   source_kind: "echemi" | "india_registry" | "india_web" | "web";
 }
 
+export interface SubstanceIdentity {
+  status: "verified" | "unverified" | "conflict" | "invalid_cas";
+  canonical_name: string | null;
+  search_names: string[];
+  input_name_matches: boolean | null;
+  substance_type: "single_substance" | "mixture" | "trade_name" | "unknown";
+  ambiguities: string[];
+}
+
+export interface SearchPlanItem {
+  query: string;
+  language: "en" | "zh" | "ru" | "other";
+  purpose: "manufacturer" | "product" | "documents" | "registry";
+  source_type: "official_site" | "catalog" | "registry" | "web";
+  priority: number;
+}
+
 export interface SupplierSearchResponse {
+  search_run_id: number;
   query: string;
   queries_used: string[];
   search_strategy: "echemi_first";
   source_counts: Record<string, number>;
+  identity: SubstanceIdentity;
+  substance_lookup: {
+    found: boolean;
+    cid: number | null;
+    iupac_name: string | null;
+    molecular_formula: string | null;
+    molecular_weight: number | null;
+    source: string;
+    error: string | null;
+  };
+  search_plan: SearchPlanItem[];
   ai_query: string | null;
   ai_used: boolean;
   fallback_used: boolean;
@@ -306,15 +357,146 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
   coa_status: EvidenceStatus;
   tds_status: EvidenceStatus;
   confidence: number;
+  llm_confidence: number | null;
+  score_breakdown: {
+    total: number;
+    identity: number;
+    supplier_role: number;
+    country: number;
+    documents: number;
+    evidence_quality: number;
+    hard_exclusion: boolean;
+    shortlist_eligible: boolean;
+  };
+  shortlist_eligible: boolean;
   red_flags: string[];
   missing_evidence: string[];
+  evidence: QualifiedEvidence[];
+}
+
+export interface QualifiedEvidence {
+  id: number;
+  source_document_id: number;
+  claim_type: string;
+  claim_value: string;
+  support_status: "supports" | "contradicts";
+  quote: string;
+  quote_verified: boolean;
 }
 
 export interface SupplierQualificationResponse {
+  search_run_id: number;
   results: QualifiedSupplierResult[];
   prompt_id: number | null;
   prompt_version: number | null;
   warning: string;
+}
+
+export interface AgentRunRead {
+  id: number;
+  sequence: number;
+  agent_slug: string;
+  agent_name: string;
+  execution_type: "llm" | "tool" | "deterministic" | string;
+  status: string;
+  prompt_id: number | null;
+  prompt_version: number | null;
+  effective_system_prompt: string | null;
+  input_payload: Record<string, unknown> | null;
+  output_payload: Record<string, unknown> | null;
+  model: string | null;
+  temperature: number | null;
+  max_tokens: number | null;
+  started_at: string;
+  completed_at: string | null;
+  latency_ms: number | null;
+  error: string | null;
+}
+
+export interface SearchAttemptRead {
+  id: number;
+  agent_run_id: number | null;
+  connector: string;
+  query: string;
+  language: string | null;
+  source_type: string | null;
+  purpose: string | null;
+  status: string;
+  result_count: number | null;
+  results_payload: SupplierSearchResult[] | null;
+  started_at: string;
+  completed_at: string | null;
+  latency_ms: number | null;
+  error: string | null;
+}
+
+export interface SourceDocumentRead {
+  id: number;
+  agent_run_id: number | null;
+  url: string;
+  final_url: string | null;
+  domain: string | null;
+  title: string | null;
+  content_type: string | null;
+  status: string;
+  http_status: number | null;
+  text_content: string | null;
+  content_hash: string | null;
+  retrieved_at: string;
+  error: string | null;
+}
+
+export interface EvidenceClaimRead {
+  id: number;
+  agent_run_id: number;
+  source_document_id: number;
+  result_index: number;
+  claim_type: string;
+  claim_value: string;
+  support_status: "supports" | "contradicts";
+  quote: string;
+  quote_verified: boolean;
+  created_at: string;
+}
+
+export interface SearchRunListItem {
+  id: number;
+  owner_id: number;
+  rfq_id: number | null;
+  owner_name: string | null;
+  status: string;
+  mode: string;
+  input_payload: Record<string, unknown>;
+  started_at: string;
+  completed_at: string | null;
+  error: string | null;
+  queue_position: number | null;
+  result_count: number;
+  summary: {
+    planned_query_count: number;
+    executed_query_count: number;
+    raw_page_count: number;
+    candidate_count: number;
+    qualified_count: number;
+    manufacturer_candidate_count: number;
+    qualification_status: string;
+  };
+}
+
+export interface SearchRunTrace extends SearchRunListItem {
+  result_payload: SupplierSearchResponse | null;
+  agent_runs: AgentRunRead[];
+  search_attempts: SearchAttemptRead[];
+  source_documents: SourceDocumentRead[];
+  evidence_claims: EvidenceClaimRead[];
+  candidate_results: SupplierSearchResult[];
+  qualified_results: QualifiedSupplierResult[];
+}
+
+export interface SupplierSearchJob {
+  search_run_id: number;
+  status: "queued";
+  queue_position: number;
 }
 
 export interface DashboardOverdue {

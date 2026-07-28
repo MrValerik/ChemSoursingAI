@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.models import User
+from app.models import RfqAiSetting, User
 from app.models.enums import EscalationStatus, UserRole
 from app.models.escalation import Escalation
 from app.models.quotation import Quotation
@@ -23,6 +23,7 @@ from app.services.rfq_builder import (
     build_rfq,
 )
 from app.services.rfq_service import create_rfq, render_rfq_text
+from app.services.search_trace import create_search_run
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
@@ -74,6 +75,10 @@ def preview_rfq(
 def create(
     data: RFQCreate,
     verify: bool = Query(default=True, description="Верифицировать CAS через PubChem"),
+    start_search: bool = Query(
+        default=False,
+        description="Сразу поставить поиск поставщиков в очередь",
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> RFQRead:
@@ -84,6 +89,35 @@ def create(
         rfq = create_rfq(db, data, verify=verify, owner_id=user.id)
     except UnsupportedIncotermError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if data.additional_instructions:
+        db.add(
+            RfqAiSetting(
+                rfq_id=rfq.id,
+                additional_instructions=data.additional_instructions.strip(),
+            )
+        )
+    if start_search:
+        for country in data.search_countries:
+            create_search_run(
+                db,
+                owner_id=user.id,
+                rfq_id=rfq.id,
+                input_payload={
+                    "cas": rfq.cas,
+                    "name": rfq.name,
+                    "country": country,
+                    "additional_instructions": (
+                        data.additional_instructions.strip()
+                        if data.additional_instructions
+                        else None
+                    ),
+                    "limit": data.supplier_target,
+                },
+                mode="queued_search",
+                status="queued",
+            )
+    db.commit()
+    db.refresh(rfq)
     return _to_read(rfq)
 
 

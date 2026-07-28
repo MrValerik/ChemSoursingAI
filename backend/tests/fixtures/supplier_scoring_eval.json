@@ -1,0 +1,42 @@
+[
+  {
+    "name": "verified_manufacturer",
+    "assessment": {
+      "supplier_type": "manufacturer",
+      "cas_status": "confirmed"
+    },
+    "evidence": [
+      {"claim_type": "chemical_identity", "support_status": "supports", "quote_verified": true},
+      {"claim_type": "manufacturer_role", "support_status": "supports", "quote_verified": true},
+      {"claim_type": "country", "support_status": "supports", "quote_verified": true},
+      {"claim_type": "gmp", "support_status": "supports", "quote_verified": true},
+      {"claim_type": "coa", "support_status": "supports", "quote_verified": true}
+    ],
+    "expected": {"min_score": 90, "shortlist_eligible": true, "hard_exclusion": false}
+  },
+  {
+    "name": "documented_distributor",
+    "assessment": {
+      "supplier_type": "distributor",
+      "cas_status": "confirmed"
+    },
+    "evidence": [
+      {"claim_type": "chemical_identity", "support_status": "supports", "quote_verified": true},
+      {"claim_type": "manufacturer_role", "support_status": "supports", "quote_verified": true},
+      {"claim_type": "country", "support_status": "supports", "quote_verified": true}
+    ],
+    "expected": {"max_score": 69, "shortlist_eligible": false, "hard_exclusion": false}
+  },
+  {
+    "name": "cas_contradiction",
+    "assessment": {
+      "supplier_type": "manufacturer",
+      "cas_status": "mismatch"
+    },
+    "evidence": [
+      {"claim_type": "chemical_identity", "support_status": "contradicts", "quote_verified": true},
+      {"claim_type": "manufacturer_role", "support_status": "supports", "quote_verified": true}
+    ],
+    "expected": {"max_score": 0, "shortlist_eligible": false, "hard_exclusion": true}
+  }
+]

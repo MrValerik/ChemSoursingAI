@@ -1,0 +1,4 @@
+interface:
+  display_name: "ChemSource Backend"
+  short_description: "FastAPI backend changes for ChemSource AI"
+  default_prompt: "Use $chemsource-backend to implement a safe ChemSource AI backend change."

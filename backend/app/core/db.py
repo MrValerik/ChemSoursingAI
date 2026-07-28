@@ -10,6 +10,7 @@ from collections.abc import Iterator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.models import Base
@@ -22,12 +23,18 @@ _connect_args = (
     if _settings.sqlalchemy_dsn.startswith("sqlite")
     else {}
 )
+_pool_options = (
+    {"poolclass": NullPool}
+    if _settings.sqlalchemy_dsn.startswith("sqlite")
+    else {}
+)
 
 engine = create_engine(
     _settings.sqlalchemy_dsn,
     pool_pre_ping=True,
     connect_args=_connect_args,
     future=True,
+    **_pool_options,
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -55,14 +62,52 @@ def _apply_light_migrations() -> None:
     tables = inspector.get_table_names()
     if "rfqs" in tables:
         cols = {c["name"] for c in inspector.get_columns("rfqs")}
-        if "owner_id" not in cols:
-            with engine.begin() as conn:
+        json_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+        with engine.begin() as conn:
+            if "owner_id" not in cols:
                 conn.execute(text("ALTER TABLE rfqs ADD COLUMN owner_id INTEGER"))
+            if "search_countries" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE rfqs "
+                        f"ADD COLUMN search_countries {json_type}"
+                    )
+                )
+            if "supplier_target" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE rfqs ADD COLUMN supplier_target "
+                        "INTEGER NOT NULL DEFAULT 5"
+                    )
+                )
     if "suppliers" in tables:
         cols = {c["name"] for c in inspector.get_columns("suppliers")}
-        if "source" not in cols:
-            with engine.begin() as conn:
+        with engine.begin() as conn:
+            if "source" not in cols:
                 conn.execute(text("ALTER TABLE suppliers ADD COLUMN source VARCHAR(255)"))
+            if "qualification_status" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE suppliers ADD COLUMN qualification_status "
+                        "VARCHAR(32) NOT NULL DEFAULT 'candidate'"
+                    )
+                )
+            if "evidence_score" not in cols:
+                conn.execute(
+                    text("ALTER TABLE suppliers ADD COLUMN evidence_score INTEGER")
+                )
+            if "last_checked_at" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE suppliers ADD COLUMN last_checked_at TIMESTAMP"
+                    )
+                )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_suppliers_qualification_status "
+                    "ON suppliers (qualification_status)"
+                )
+            )
     if "communications" in tables:
         cols = {c["name"] for c in inspector.get_columns("communications")}
         additions = {
@@ -79,6 +124,41 @@ def _apply_light_migrations() -> None:
                             f"ALTER TABLE communications ADD COLUMN {name} {sql_type}"
                         )
                     )
+    if "search_attempts" in tables:
+        cols = {c["name"] for c in inspector.get_columns("search_attempts")}
+        if "results_payload" not in cols:
+            json_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_attempts "
+                        f"ADD COLUMN results_payload {json_type}"
+                    )
+                )
+    if "search_runs" in tables:
+        cols = {c["name"] for c in inspector.get_columns("search_runs")}
+        json_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+        with engine.begin() as conn:
+            if "result_payload" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs "
+                        f"ADD COLUMN result_payload {json_type}"
+                    )
+                )
+            if "rfq_id" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs ADD COLUMN rfq_id INTEGER "
+                        "REFERENCES rfqs(id) ON DELETE SET NULL"
+                    )
+                )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_search_runs_rfq_id "
+                    "ON search_runs (rfq_id)"
+                )
+            )
 
 
 def get_db() -> Iterator[Session]:

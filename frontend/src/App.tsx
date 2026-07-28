@@ -10,7 +10,6 @@ import SettingsSection from "./components/SettingsSection";
 import SuppliersSection from "./components/SuppliersSection";
 import TemplatesSection from "./components/TemplatesSection";
 import PromptStudio from "./components/PromptStudio";
-import SupplierSearchSection from "./components/SupplierSearchSection";
 
 function Sections() {
   const { user, loading } = useAuth();
@@ -41,8 +40,7 @@ function Sections() {
           onJumpConsumed={() => setJumpRfqId(null)}
         />
       )}
-      {section === "suppliers" && <SuppliersSection />}
-      {section === "search" && <SupplierSearchSection />}
+      {section === "suppliers" && <SuppliersSection onOpenRfq={openRfq} />}
       {section === "review" && <ReviewQueue onOpenRfq={openRfq} />}
       {section === "templates" && <TemplatesSection />}
       {section === "prompts" && <PromptStudio />}
