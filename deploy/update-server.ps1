@@ -40,6 +40,54 @@ function Invoke-External {
     }
 }
 
+function Sync-MainWithOrigin {
+    param(
+        [Parameter(Mandatory = $true)][string]$GitExecutable,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot
+    )
+
+    Invoke-External -Executable $GitExecutable -Arguments @(
+        "-C", $RepositoryRoot, "fetch", "origin", "main"
+    ) -FailureMessage "Не удалось обновить сведения об origin/main."
+
+    $divergence = (
+        & $GitExecutable -C $RepositoryRoot rev-list --left-right --count "origin/main...HEAD"
+    ).Trim() -split "\s+"
+    if ($LASTEXITCODE -ne 0 -or $divergence.Count -ne 2) {
+        throw "Не удалось сравнить локальную ветку main с origin/main."
+    }
+
+    $remoteAhead = [int]$divergence[0]
+    $localAhead = [int]$divergence[1]
+    if ($remoteAhead -eq 0) {
+        Write-Host "Синхронизация main: локальных коммитов для отправки — $localAhead."
+        return
+    }
+
+    Write-Host (
+        "В origin/main обнаружено новых коммитов: $remoteAhead. " +
+        "Выполняется автоматический rebase локального main."
+    )
+    & $GitExecutable -C $RepositoryRoot rebase origin/main
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+
+    $conflicts = @(
+        & $GitExecutable -C $RepositoryRoot diff --name-only --diff-filter=U
+    )
+    & $GitExecutable -C $RepositoryRoot rebase --abort
+    $conflictText = if ($conflicts.Count -gt 0) {
+        $conflicts -join ", "
+    } else {
+        "Git не сообщил имена файлов."
+    }
+    throw (
+        "Автоматическая синхронизация main остановлена из-за конфликтов. " +
+        "Rebase отменён, ВМ не запускалась. Конфликтующие файлы: $conflictText"
+    )
+}
+
 $git = Resolve-Application "git"
 $ssh = Resolve-Application "ssh"
 $curl = Resolve-Application "curl.exe"
@@ -57,19 +105,6 @@ if ($localChanges.Count -gt 0) {
     throw "В локальном репозитории есть незакоммиченные изменения. Сначала зафиксируйте их."
 }
 
-Invoke-External -Executable $git -Arguments @(
-    "-C", $repositoryRoot, "fetch", "origin", "main"
-) -FailureMessage "Не удалось обновить сведения об origin/main."
-
-$localCommit = (& $git -C $repositoryRoot rev-parse HEAD).Trim()
-$remoteCommit = (& $git -C $repositoryRoot rev-parse origin/main).Trim()
-if ($LASTEXITCODE -ne 0 -or $localCommit -ne $remoteCommit) {
-    throw (
-        "Локальный main не совпадает с origin/main. " +
-        "Локально: $localCommit; origin: $remoteCommit."
-    )
-}
-
 if (-not (Test-Path -LiteralPath $SshKeyPath -PathType Leaf)) {
     throw "SSH-ключ не найден: $SshKeyPath"
 }
@@ -85,22 +120,70 @@ $python = if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
 }
 $npm = Resolve-Application "npm.cmd"
 
-Push-Location (Join-Path $repositoryRoot "backend")
-try {
-    Invoke-External -Executable $python -Arguments @(
-        "-m", "pytest", "-q"
-    ) -FailureMessage "Backend-тесты не прошли."
-} finally {
-    Pop-Location
-}
+$published = $false
+$maxPublishAttempts = 3
+for ($publishAttempt = 1; $publishAttempt -le $maxPublishAttempts; $publishAttempt++) {
+    Sync-MainWithOrigin -GitExecutable $git -RepositoryRoot $repositoryRoot
 
-Push-Location (Join-Path $repositoryRoot "frontend")
-try {
-    Invoke-External -Executable $npm -Arguments @(
-        "run", "build"
-    ) -FailureMessage "Frontend-сборка не прошла."
-} finally {
-    Pop-Location
+    Push-Location (Join-Path $repositoryRoot "backend")
+    try {
+        Invoke-External -Executable $python -Arguments @(
+            "-m", "pytest", "-q"
+        ) -FailureMessage "Backend-тесты не прошли."
+    } finally {
+        Pop-Location
+    }
+
+    Push-Location (Join-Path $repositoryRoot "frontend")
+    try {
+        Invoke-External -Executable $npm -Arguments @(
+            "run", "build"
+        ) -FailureMessage "Frontend-сборка не прошла."
+    } finally {
+        Pop-Location
+    }
+
+    & $git -C $repositoryRoot push origin HEAD:main
+    $pushExitCode = $LASTEXITCODE
+
+    Invoke-External -Executable $git -Arguments @(
+        "-C", $repositoryRoot, "fetch", "origin", "main"
+    ) -FailureMessage "Не удалось проверить опубликованный origin/main."
+
+    $localCommit = (& $git -C $repositoryRoot rev-parse HEAD).Trim()
+    $remoteCommit = (& $git -C $repositoryRoot rev-parse origin/main).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "Не удалось определить commit после отправки main."
+    }
+    if ($pushExitCode -eq 0 -and $localCommit -eq $remoteCommit) {
+        $published = $true
+        break
+    }
+
+    $remoteAhead = [int](
+        (
+            & $git -C $repositoryRoot rev-list --count "HEAD..origin/main"
+        ).Trim()
+    )
+    if ($LASTEXITCODE -ne 0 -or $remoteAhead -eq 0) {
+        throw (
+            "Не удалось автоматически отправить main в origin. " +
+            "ВМ не запускалась. Проверьте доступ к GitHub и правила защиты ветки."
+        )
+    }
+    if ($publishAttempt -lt $maxPublishAttempts) {
+        Write-Host (
+            "origin/main изменился во время проверок. " +
+            "Повторная синхронизация и проверка: попытка $($publishAttempt + 1) " +
+            "из $maxPublishAttempts."
+        )
+    }
+}
+if (-not $published) {
+    throw (
+        "origin/main продолжает изменяться. После $maxPublishAttempts попыток " +
+        "публикация остановлена, ВМ не запускалась."
+    )
 }
 
 $vmScript = Join-Path $PSScriptRoot "yc-vm.ps1"
