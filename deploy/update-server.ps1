@@ -246,8 +246,15 @@ git -C "$project_dir" pull --ff-only origin main
 exec bash "$project_dir/deploy/update-server.sh" "$expected_commit"
 '@
 
-$remoteCommand = "bash -s -- '$RemoteProjectDir' '$localCommit'"
-$remoteBootstrap | & $ssh @sshArguments $sshTarget $remoteCommand
+$remoteBootstrapLf = $remoteBootstrap.Replace("`r`n", "`n").Replace("`r", "`n")
+$remoteBootstrapBase64 = [Convert]::ToBase64String(
+    [System.Text.Encoding]::UTF8.GetBytes($remoteBootstrapLf)
+)
+$remoteCommand = (
+    "printf '%s' '$remoteBootstrapBase64' | base64 --decode | " +
+    "bash -s -- '$RemoteProjectDir' '$localCommit'"
+)
+& $ssh @sshArguments $sshTarget $remoteCommand
 if ($LASTEXITCODE -ne 0) {
     throw "Развёртывание на ВМ завершилось с ошибкой."
 }
