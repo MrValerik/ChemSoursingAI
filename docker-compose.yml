@@ -35,7 +35,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
       LLM_MODEL: ${LLM_MODEL:-Qwen_Qwen3.5-27B-Q4_K_M}
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
-      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       # Email по умолчанию работает в demo и не выполняет внешнюю отправку.
       EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-demo}
       EMAIL_FROM: ${EMAIL_FROM:-}
@@ -78,7 +78,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
       LLM_MODEL: ${LLM_MODEL:-Qwen_Qwen3.5-27B-Q4_K_M}
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
-      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
     depends_on:
       db:
         condition: service_healthy

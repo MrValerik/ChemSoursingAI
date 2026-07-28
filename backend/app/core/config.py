@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     llm_base_url: str = Field(default="http://127.0.0.1:8080/v1")
     llm_model: str = Field(default="Qwen_Qwen3.5-27B-Q4_K_M")
     llm_api_key: str = Field(default="not-needed-for-local")
-    llm_timeout_s: int = Field(default=300)
+    llm_timeout_s: int = Field(default=600)
 
     # --- Email-коннектор (IMAP/SMTP) ---
     # demo сохраняет безопасное поведение без внешней отправки; live включает SMTP.
