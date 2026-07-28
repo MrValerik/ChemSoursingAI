@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.core.db import SessionLocal
+from app.core.db import SessionLocal, engine
 from app.core.seed import seed_prompts
 
 
@@ -18,6 +18,8 @@ def client():
         os.remove("test_prompts.db")
     with TestClient(app) as test_client:
         yield test_client
+    # SQLite keeps a pooled file handle on Windows until the engine is disposed.
+    engine.dispose()
     if os.path.exists("test_prompts.db"):
         os.remove("test_prompts.db")
 
@@ -325,3 +327,87 @@ def test_supplier_search_prioritizes_chinese_sources(client, monkeypatch):
     assert any("生产厂家" in query for query in payload["queries_used"])
     assert payload["results"][0]["url"].endswith(".cn/product")
     assert payload["results"][0]["country_hint"] == "likely"
+
+
+def test_supplier_search_keeps_multiple_echemi_cards(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_text",
+        lambda self, **kwargs: '"Aspirin" manufacturer India',
+    )
+
+    def fake_search(query, limit):
+        if query.startswith("site:echemi.com"):
+            return [
+                {
+                    "title": "Echemi Supplier One",
+                    "url": "https://www.echemi.com/shop-us111/index.html",
+                    "snippet": "Aspirin CAS 50-78-2 supplier",
+                },
+                {
+                    "title": "Echemi Supplier Two",
+                    "url": "https://www.echemi.com/shop-us222/index.html",
+                    "snippet": "Aspirin manufacturer",
+                },
+            ]
+        return []
+
+    monkeypatch.setattr("app.api.supplier_search.search_web", fake_search)
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "country": "India"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["search_strategy"] == "echemi_first"
+    assert payload["source_counts"]["echemi"] == 2
+    assert len(payload["results"]) == 2
+    assert all(result["source_kind"] == "echemi" for result in payload["results"])
+
+
+def test_supplier_search_uses_indian_registries(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_text",
+        lambda self, **kwargs: '"Aspirin" manufacturer India',
+    )
+    queries: list[str] = []
+
+    def fake_search(query, limit):
+        queries.append(query)
+        if "site:chemexcil.in" in query:
+            return [
+                {
+                    "title": "CHEMEXCIL member chemical manufacturer India",
+                    "url": "https://chemexcil.in/members",
+                    "snippet": "Indian chemical exporter and manufacturer",
+                }
+            ]
+        if query.startswith("site:echemi.com"):
+            return [
+                {
+                    "title": "Aspirin supplier on Echemi",
+                    "url": "https://www.echemi.com/shop-us333/index.html",
+                    "snippet": "Supplier information for CAS 50-78-2",
+                }
+            ]
+        return []
+
+    monkeypatch.setattr("app.api.supplier_search.search_web", fake_search)
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "country": "India"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert any("site:chemexcil.in" in query for query in queries)
+    assert any("site:cdsco.gov.in" in query for query in queries)
+    assert payload["results"][0]["source_kind"] == "india_registry"
+    assert {item["source_kind"] for item in payload["results"]} >= {
+        "echemi",
+        "india_registry",
+    }

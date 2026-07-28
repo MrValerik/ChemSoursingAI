@@ -7,6 +7,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test_admin.db")
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.db import engine
 from app.main import app
 
 
@@ -16,6 +17,7 @@ def client():
         os.remove("test_admin.db")
     with TestClient(app) as c:
         yield c
+    engine.dispose()
     if os.path.exists("test_admin.db"):
         os.remove("test_admin.db")
 

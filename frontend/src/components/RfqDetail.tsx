@@ -305,8 +305,8 @@ function VerificationTab({ rfq }: { rfq: RFQRead }) {
       <div className="panel">
         <h2>
           Верификация вещества{" "}
-          <span className="badge tone-neutral" title="Echemi — в разработке">
-            Echemi: демо
+          <span className="badge tone-neutral" title="Проверка химических данных по CAS">
+            PubChem
           </span>
         </h2>
         {v?.found ? (

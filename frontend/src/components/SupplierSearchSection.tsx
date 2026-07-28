@@ -45,6 +45,20 @@ const DOCUMENT_FIELDS = [
   { key: "tds_status", label: "TDS" },
 ] as const;
 
+const SOURCE_LABELS: Record<SupplierSearchResult["source_kind"], string> = {
+  echemi: "Echemi",
+  india_registry: "Официальный источник Индии",
+  india_web: "Индийский сайт",
+  web: "Открытый веб",
+};
+
+const sourceTone = (source: SupplierSearchResult["source_kind"]) => {
+  if (source === "echemi") return "tone-ok";
+  if (source === "india_registry") return "tone-ok";
+  if (source === "india_web") return "tone-warn";
+  return "tone-neutral";
+};
+
 const evidenceTone = (status: EvidenceStatus) => {
   if (status === "claimed") return "tone-warn";
   if (status === "contradicted") return "tone-danger";
@@ -55,7 +69,7 @@ export default function SupplierSearchSection() {
   const { user } = useAuth();
   const [cas, setCas] = useState("");
   const [name, setName] = useState("");
-  const [country, setCountry] = useState("China");
+  const [country, setCountry] = useState("Китай");
   const [instructions, setInstructions] = useState("");
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
   const [qualification, setQualification] = useState<SupplierQualificationResponse | null>(null);
@@ -132,14 +146,28 @@ export default function SupplierSearchSection() {
       <div className="requests-header">
         <div>
           <h1>Поиск поставщиков</h1>
-          <p className="note">Qwen формирует запрос, а найденные факты сохраняются со ссылками.</p>
+          <p className="note">
+            Сначала проверяются карточки Echemi, затем сайты и реестры выбранной страны.
+            Qwen формирует запрос и квалифицирует найденные свидетельства.
+          </p>
         </div>
       </div>
       <div className="panel">
         <div className="row">
           <div className="field"><label>CAS</label><input value={cas} onChange={(e) => setCas(e.target.value)} /></div>
           <div className="field" style={{ flex: 2 }}><label>Вещество</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div className="field"><label>Страна</label><input value={country} onChange={(e) => setCountry(e.target.value)} /></div>
+          <div className="field">
+            <label>Страна</label>
+            <input
+              list="supplier-country-options"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+            />
+            <datalist id="supplier-country-options">
+              <option value="Китай" />
+              <option value="Индия" />
+            </datalist>
+          </div>
         </div>
         <div className="field">
           <label>Дополнительный поисковый промпт</label>
@@ -158,7 +186,17 @@ export default function SupplierSearchSection() {
       {error && <p className="error">{error}</p>}
       {data && (
         <div className="panel">
-          <div className="note">Основной запрос: {data.query} · Qwen: {data.ai_used ? "да" : "fallback"}</div>
+          <div className="note">
+            Стратегия: Echemi в первую очередь · Qwen: {data.ai_used ? "да" : "fallback"}
+          </div>
+          <div className="note">Основной запрос: {data.query}</div>
+          <div className="qualification-evidence">
+            {Object.entries(data.source_counts).map(([source, count]) => (
+              <span className={`badge ${sourceTone(source as SupplierSearchResult["source_kind"])}`} key={source}>
+                {SOURCE_LABELS[source as SupplierSearchResult["source_kind"]]}: {count}
+              </span>
+            ))}
+          </div>
           {data.fallback_used && (
             <p className="note">
               Для полноты выполнено несколько запросов, включая локализованные по стране.
@@ -188,6 +226,9 @@ export default function SupplierSearchSection() {
                 <div style={{ flex: 1 }}>
                   <a href={result.url} target="_blank" rel="noreferrer">{result.title}</a>
                   <div>
+                    <span className={`badge ${sourceTone(result.source_kind)}`}>
+                      {SOURCE_LABELS[result.source_kind]}
+                    </span>
                     <span className={`badge ${result.country_hint === "likely" ? "tone-ok" : "tone-neutral"}`}>
                       {result.country_hint === "likely" ? "Есть признаки нужной страны" : "Страна требует проверки"}
                     </span>
@@ -208,6 +249,9 @@ export default function SupplierSearchSection() {
                         <h3>{result.company_name}</h3>
                         <span className={`badge ${result.supplier_type === "manufacturer" ? "tone-ok" : result.supplier_type === "distributor" ? "tone-warn" : "tone-neutral"}`}>
                           {TYPE_LABELS[result.supplier_type]}
+                        </span>
+                        <span className={`badge ${sourceTone(result.source_kind)}`}>
+                          {SOURCE_LABELS[result.source_kind]}
                         </span>
                       </div>
                       <div className="confidence">

@@ -273,11 +273,14 @@ export interface SupplierSearchResult {
   url: string;
   snippet: string;
   country_hint: "likely" | "possible" | "unknown";
+  source_kind: "echemi" | "india_registry" | "india_web" | "web";
 }
 
 export interface SupplierSearchResponse {
   query: string;
   queries_used: string[];
+  search_strategy: "echemi_first";
+  source_counts: Record<string, number>;
   ai_query: string | null;
   ai_used: boolean;
   fallback_used: boolean;

@@ -14,6 +14,15 @@ from app.connectors.web_search import search_web
 from app.core.db import get_db
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.models import PromptTemplate, User
+from app.services.supplier_sources import (
+    SourceKind,
+    build_search_queries,
+    is_china,
+    is_india,
+    minimum_query_count,
+    source_kind,
+    source_priority,
+)
 
 router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
 
@@ -31,6 +40,7 @@ class SupplierSearchResultInput(BaseModel):
     url: str = Field(..., min_length=8, max_length=4000)
     snippet: str = Field(default="", max_length=8000)
     country_hint: Literal["likely", "possible", "unknown"] = "unknown"
+    source_kind: SourceKind = "web"
 
     @field_validator("url")
     @classmethod
@@ -164,49 +174,30 @@ _QUALIFICATION_SCHEMA = {
 }
 
 
-def _fallback_query(data: SupplierSearchRequest) -> str:
-    country = f" {data.country}" if data.country else ""
-    return f'"{data.name}" "{data.cas}" manufacturer supplier{country} CoA'
-
-
-def _is_china(country: str | None) -> bool:
-    return (country or "").strip().casefold() in {
-        "china",
-        "китай",
-        "cn",
-        "prc",
-        "中国",
-    }
-
-
 def _search_queries(
     data: SupplierSearchRequest, ai_query: str | None
 ) -> list[str]:
-    """Строит независимые запросы: ИИ, общий и локализованные по стране."""
-    candidates = [ai_query, _fallback_query(data)]
-    if _is_china(data.country):
-        candidates.extend(
-            [
-                f'"{data.name}" "{data.cas}" (manufacturer OR factory) China',
-                f'"{data.cas}" (生产厂家 OR 工厂) 中国',
-                f'"{data.cas}" (manufacturer OR factory) site:.cn',
-            ]
-        )
-    elif data.country:
-        candidates.append(
-            f'"{data.name}" "{data.cas}" manufacturer factory "{data.country}"'
-        )
-
-    unique: list[str] = []
-    for query in candidates:
-        if query and query not in unique:
-            unique.append(query)
-    return unique
+    return build_search_queries(
+        cas=data.cas,
+        name=data.name,
+        country=data.country,
+        ai_query=ai_query,
+    )
 
 
 def _domain_key(url: str) -> str:
     hostname = (urlparse(url).hostname or "").lower()
     return hostname.removeprefix("www.") or url
+
+
+def _result_key(url: str) -> str:
+    """Keep multiple Echemi supplier/product pages while deduplicating other sites."""
+    parsed = urlparse(url)
+    domain = _domain_key(url)
+    if source_kind(url) == "echemi":
+        path = parsed.path.rstrip("/") or "/"
+        return f"{domain}{path}".casefold()
+    return domain
 
 
 def _country_score(result: dict, country: str | None) -> int:
@@ -215,7 +206,7 @@ def _country_score(result: dict, country: str | None) -> int:
         return 0
     domain = _domain_key(result["url"])
     text = f'{result.get("title", "")} {result.get("snippet", "")}'.casefold()
-    if _is_china(country):
+    if is_china(country):
         score = 3 if domain.endswith(".cn") else 0
         if any(marker in text for marker in ("china", "chinese", "中国")):
             score += 2
@@ -242,6 +233,30 @@ def _country_score(result: dict, country: str | None) -> int:
         ):
             score += 1
         return score
+    if is_india(country):
+        score = 3 if domain.endswith(".in") else 0
+        if any(marker in text for marker in ("india", "indian", "भारत")):
+            score += 2
+        if any(
+            place in text
+            for place in (
+                "gujarat",
+                "maharashtra",
+                "mumbai",
+                "ahmedabad",
+                "vadodara",
+                "hyderabad",
+                "telangana",
+                "pune",
+                "ankleshwar",
+                "vapi",
+                "delhi",
+                "bengaluru",
+                "chennai",
+            )
+        ):
+            score += 1
+        return score
     return 2 if country.casefold() in text else 0
 
 
@@ -257,17 +272,26 @@ def _rank_results(
     results: list[dict], country: str | None, limit: int
 ) -> list[dict]:
     """Оставляет лучшую страницу домена и поднимает признаки нужной страны."""
-    best_by_domain: dict[str, tuple[int, int, dict]] = {}
+    best_by_source: dict[str, tuple[int, int, int, dict]] = {}
     for position, result in enumerate(results):
-        score = _country_score(result, country)
-        key = _domain_key(result["url"])
-        previous = best_by_domain.get(key)
-        if previous is None or score > previous[0]:
-            best_by_domain[key] = (score, position, result)
-    ranked = sorted(best_by_domain.values(), key=lambda item: (-item[0], item[1]))
+        country_score = _country_score(result, country)
+        kind = source_kind(result["url"])
+        priority = source_priority(kind, country)
+        key = _result_key(result["url"])
+        previous = best_by_source.get(key)
+        if previous is None or (priority, country_score) > previous[:2]:
+            best_by_source[key] = (priority, country_score, position, result)
+    ranked = sorted(
+        best_by_source.values(),
+        key=lambda item: (-item[0], -item[1], item[2]),
+    )
     return [
-        {**result, "country_hint": _country_hint(score)}
-        for score, _, result in ranked[:limit]
+        {
+            **result,
+            "country_hint": _country_hint(country_score),
+            "source_kind": source_kind(result["url"]),
+        }
+        for _, country_score, _, result in ranked[:limit]
     ]
 
 
@@ -314,6 +338,7 @@ def supplier_search(
     raw_results: list[dict] = []
     search_errors: list[str] = []
     fetch_limit = min(data.limit * 2, 20)
+    required_queries = minimum_query_count(data.country)
     for query in planned_queries:
         attempted_queries.append(query)
         try:
@@ -325,7 +350,11 @@ def supplier_search(
         country_candidates = sum(
             item["country_hint"] == "likely" for item in current
         )
-        if len(current) >= data.limit and country_candidates >= data.limit:
+        if (
+            len(attempted_queries) >= required_queries
+            and len(current) >= data.limit
+            and country_candidates >= data.limit
+        ):
             break
 
     if not raw_results and search_errors:
@@ -334,17 +363,24 @@ def supplier_search(
             detail=f"Поисковый источник недоступен: {search_errors[-1]}",
         )
     results = _rank_results(raw_results, data.country, data.limit)
+    source_counts: dict[str, int] = {}
+    for result in results:
+        kind = result["source_kind"]
+        source_counts[kind] = source_counts.get(kind, 0) + 1
     fallback_used = len(attempted_queries) > 1
     return {
         "query": attempted_queries[0],
         "queries_used": attempted_queries,
+        "search_strategy": "echemi_first",
+        "source_counts": source_counts,
         "ai_query": ai_query,
         "ai_used": ai_used,
         "fallback_used": fallback_used,
         "results": results,
         "warning": (
-            "Результаты являются кандидатами. Статус производителя и документы "
-            "необходимо подтвердить по первичному источнику."
+            "Сначала проверяются карточки Echemi, затем региональные источники. "
+            "Результаты являются кандидатами: статус производителя, лицензии "
+            "и документы необходимо подтвердить по первичному источнику."
         ),
     }
 
@@ -398,6 +434,7 @@ def qualify_supplier_results(
                 # original in the API response, but bound the LLM context.
                 "snippet": result.snippet[:900],
                 "domain": _domain_key(result.url),
+                "source_kind": result.source_kind,
             }
             for index, result in enumerate(data.results)
         ],
