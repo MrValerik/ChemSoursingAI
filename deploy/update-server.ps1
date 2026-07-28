@@ -214,8 +214,17 @@ $sshTarget = "$SshUser@$externalIp"
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $sshReady = $false
 do {
-    & $ssh @sshArguments $sshTarget "true" 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "SilentlyContinue"
+        & $ssh @sshArguments $sshTarget "true" 2>$null
+        $sshExitCode = $LASTEXITCODE
+    } catch {
+        $sshExitCode = 1
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($sshExitCode -eq 0) {
         $sshReady = $true
         break
     }
