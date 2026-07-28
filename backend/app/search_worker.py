@@ -23,6 +23,7 @@ from app.api.supplier_search import (
     execute_supplier_search,
 )
 from app.core.db import SessionLocal, init_db
+from app.extraction.llm_client import LLMClient
 from app.models import SearchRun, User
 from app.services.search_trace import utc_now
 
@@ -90,6 +91,7 @@ def claim_next_job(db: Session) -> int | None:
         else "identifying"
     )
     run.error = None
+    run.completed_at = None
     db.commit()
     return run.id
 
@@ -178,6 +180,19 @@ def process_next_job(
     return run_id
 
 
+def process_ready_job(
+    *,
+    readiness_checker: Callable[[], tuple[bool, str | None]] | None = None,
+    processor: Callable[[], int | None] = process_next_job,
+) -> tuple[bool, int | None]:
+    """Process one job only after the local model reports readiness."""
+    check = readiness_checker or LLMClient().check_health
+    ready, _ = check()
+    if not ready:
+        return False, None
+    return True, processor()
+
+
 def _request_stop(*_: object) -> None:
     global _stop_requested
     _stop_requested = True
@@ -193,8 +208,20 @@ def main() -> None:
     if recovered:
         logger.warning("Marked %s interrupted search jobs as failed", recovered)
     logger.info("Supplier search worker started with one execution slot")
+    waiting_for_llm = False
     while not _stop_requested:
-        processed = process_next_job()
+        ready, processed = process_ready_job()
+        if not ready:
+            if not waiting_for_llm:
+                logger.info(
+                    "Local LLM is not ready; queued jobs remain untouched"
+                )
+            waiting_for_llm = True
+            sleep(5)
+            continue
+        if waiting_for_llm:
+            logger.info("Local LLM is ready; queue processing resumed")
+            waiting_for_llm = False
         if processed is None:
             sleep(2)
     logger.info("Supplier search worker stopped")

@@ -380,7 +380,7 @@ function SearchTracePanel({
 
       <div className="agent-pipeline">
         {PIPELINE_STEPS.map((step, index) => {
-          const stage = trace.agent_runs.find(
+          const stage = [...trace.agent_runs].reverse().find(
             (item) => item.agent_slug === step.slug,
           );
           const skipped =

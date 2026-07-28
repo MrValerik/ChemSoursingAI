@@ -10,7 +10,11 @@ from fastapi.testclient import TestClient
 from app.core.db import SessionLocal, engine
 from app.main import app
 from app.models import RFQ, RfqAiSetting, SearchRun, User
-from app.search_worker import process_next_job, recover_interrupted_jobs
+from app.search_worker import (
+    process_next_job,
+    process_ready_job,
+    recover_interrupted_jobs,
+)
 from app.services.search_trace import (
     create_search_run,
     finish_agent_run,
@@ -187,6 +191,45 @@ def test_search_jobs_are_queued_and_processed_fifo(client):
     assert second_trace["status"] == "queued"
     assert second_trace["queue_position"] == 1
     assert process_next_job(executor=successful_executor) == second["search_run_id"]
+
+
+def test_worker_leaves_queue_untouched_until_local_llm_is_ready(client):
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(
+        client, buyer, cas="50-78-2", name="Aspirin"
+    )
+    processor_called = False
+
+    def processor():
+        nonlocal processor_called
+        processor_called = True
+        return queued["search_run_id"]
+
+    ready, processed_id = process_ready_job(
+        readiness_checker=lambda: (False, "model is loading"),
+        processor=processor,
+    )
+
+    assert ready is False
+    assert processed_id is None
+    assert processor_called is False
+    trace = client.get(
+        f"/search-runs/{queued['search_run_id']}", headers=buyer
+    ).json()
+    assert trace["status"] == "queued"
+
+    ready, processed_id = process_ready_job(
+        readiness_checker=lambda: (True, None),
+        processor=processor,
+    )
+    assert ready is True
+    assert processed_id == queued["search_run_id"]
+    assert processor_called is True
+
+    with SessionLocal() as db:
+        run = db.get(SearchRun, queued["search_run_id"])
+        db.delete(run)
+        db.commit()
 
 
 def test_worker_automatically_continues_to_source_check_and_qualification(
