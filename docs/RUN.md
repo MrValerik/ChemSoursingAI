@@ -85,6 +85,30 @@ cd backend
 pytest
 ```
 
+На каждый pull request и push в `main` workflow `.github/workflows/ci.yml`
+автоматически выполняет:
+
+- полный набор backend-тестов;
+- production-сборку frontend;
+- проверку синтаксиса Linux deployment-скриптов;
+- `docker compose config`.
+
+Для командной работы в настройках GitHub рекомендуется защитить `main`:
+разрешить изменения только через pull request и сделать jobs `Backend tests`,
+`Frontend build` и `Deployment checks` обязательными. Шаблон PR находится в
+`.github/pull_request_template.md`.
+
+Production обновляется из чистого и отправленного `main` одной командой с
+Windows-машины разработчика:
+
+```powershell
+.\deploy\update-server.cmd
+```
+
+Скрипт запускает ВМ, создаёт backup PostgreSQL, применяет только новые миграции,
+пересобирает контейнеры и проверяет публичный health endpoint. Подробности и
+требования к доступам: `docs/YANDEX_VM.md`.
+
 ## Ключевые эндпоинты
 
 | Метод | Путь | Назначение |

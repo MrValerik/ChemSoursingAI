@@ -20,11 +20,18 @@ ChemSoursingAI/
 ├── ml/                       # резерв под отдельные ИИ-артефакты и eval
 ├── data/
 │   └── synthetic/            # синтетический корпус писем для отладки без боевых доступов
-├── deploy/                   # systemd и конфигурация ВМ
+├── .agents/skills/           # общие репозиторные workflows Codex для всей команды
+├── .github/workflows/        # обязательные CI-проверки GitHub Actions
+├── deploy/                   # systemd, миграции и автоматическое обновление ВМ
 ├── docs/                     # продуктовая, архитектурная и эксплуатационная документация
 ├── docker-compose.yml        # Postgres, Redis, backend и frontend
 └── AGENTS.md                 # постоянные цели и правила работы Codex
 ```
+
+Корневой `AGENTS.md`, `.agents/skills`, `.github/workflows` и `deploy/`
+коммитятся вместе с кодом. Это обеспечивает одинаковые правила и команды Codex
+у обоих разработчиков. Локальными остаются только секреты, SSH-ключи и профили
+внешних CLI.
 
 Общие правила интерфейса описаны в `docs/DESIGN_SYSTEM.md`. Реализация базовых
 полей и монохромных иконок находится в `frontend/src/components/ui.tsx`, а

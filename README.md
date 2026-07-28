@@ -205,12 +205,16 @@ OCR и долговременное хранилище файлов остают
 - [`docs/PRODUCT_REQUIREMENTS.md`](docs/PRODUCT_REQUIREMENTS.md) —
   консолидированные требования из официального ТЗ и встречи с заказчиком
 - [`AGENTS.md`](AGENTS.md) — постоянные правила работы с проектом через Codex
+- [`.agents/skills`](.agents/skills) — общие команды и workflows Codex для
+  разработчиков
+- [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — обязательные
+  backend, frontend и deployment-проверки
 - [`docs/STRUCTURE.md`](docs/STRUCTURE.md) — фактическая структура репозитория и
   целевые компоненты
 - [`docs/RUN.md`](docs/RUN.md) — запуск, тестирование и безопасное включение
   интеграций
 - [`docs/YANDEX_VM.md`](docs/YANDEX_VM.md) — запуск, остановка и проверка
-  облачной ВМ через Yandex Cloud CLI
+  облачной ВМ, а также автоматическое обновление через `$update`
 - `План_реализации_ChemSourceAI.docx` — исходный план реализации
 - `ТЗ_архитектура_ChemSourceAI.docx` — исходные требования к архитектуре
 

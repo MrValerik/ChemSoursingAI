@@ -1,0 +1,4 @@
+interface:
+  display_name: "Обновить сервер"
+  short_description: "Проверить и развернуть актуальный main"
+  default_prompt: "Используй $update, чтобы обновить production-сервер ChemSource AI."

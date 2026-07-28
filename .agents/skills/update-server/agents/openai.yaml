@@ -1,0 +1,4 @@
+interface:
+  display_name: "Обновить сервер"
+  short_description: "Безопасное обновление production-сервера"
+  default_prompt: "Используй $update-server, чтобы безопасно обновить production-сервер ChemSource AI."
