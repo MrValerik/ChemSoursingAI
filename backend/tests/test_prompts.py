@@ -638,6 +638,64 @@ def test_qualification_keeps_failed_page_as_visible_fallback(client, monkeypatch
     assert "50-78-2" in qualification_input["snippet"]
 
 
+def test_supplier_qualification_batches_five_candidates(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    batches: list[list[int]] = []
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.fetch_web_page",
+        lambda url: FetchedPage(
+            url=url,
+            final_url=url,
+            domain="manufacturer.example",
+            title="Official product page",
+            content_type="text/html",
+            http_status=200,
+            text="We manufacture Aspirin CAS 50-78-2 and provide CoA.",
+            content_hash="b" * 64,
+        ),
+    )
+
+    def qualification_batch(self, **kwargs):
+        payload = json.loads(kwargs["user_text"])
+        batches.append(
+            [source["result_index"] for source in payload["sources"]]
+        )
+        return {"results": []}
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json",
+        qualification_batch,
+    )
+    response = client.post(
+        "/supplier-search/qualify",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "country": "China",
+            "results": [
+                {
+                    "title": f"Candidate {index}",
+                    "url": f"https://manufacturer-{index}.example/aspirin",
+                    "snippet": "Aspirin manufacturer",
+                }
+                for index in range(5)
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert batches == [[0, 1], [2, 3], [4]]
+    assert len(response.json()["results"]) == 5
+    trace = client.get(
+        f"/search-runs/{response.json()['search_run_id']}", headers=buyer
+    ).json()
+    stage_output = trace["agent_runs"][-1]["output_payload"]
+    assert stage_output["batch_count"] == 3
+    assert len(stage_output["model_batches"]) == 3
+
+
 def test_supplier_search_prioritizes_chinese_sources(client, monkeypatch):
     buyer = _auth(client, "ivanov")
     _mock_search_agents(monkeypatch, '"Aspirin" "50-78-2" supplier')

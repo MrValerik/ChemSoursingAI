@@ -39,6 +39,8 @@ from app.services.supplier_scoring import score_supplier
 
 router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
 
+_QUALIFICATION_BATCH_SIZE = 2
+
 
 class SupplierSearchRequest(BaseModel):
     cas: str = Field(..., min_length=3, max_length=20)
@@ -1355,19 +1357,53 @@ def execute_supplier_qualification(
         max_tokens=1536,
     )
     db.commit()
+    raw_batches: list[dict] = []
+    raw_results: list[dict] = []
     try:
-        raw = llm.generate_json(
-            system_prompt=system_prompt,
-            user_text=json.dumps(source_data, ensure_ascii=False),
-            schema_name="supplier_qualification",
-            json_schema=_QUALIFICATION_SCHEMA,
-            max_tokens=1536,
-        )
+        for offset in range(0, len(fetched_sources), _QUALIFICATION_BATCH_SIZE):
+            batch_sources = fetched_sources[
+                offset : offset + _QUALIFICATION_BATCH_SIZE
+            ]
+            batch_payload = {
+                "chemical": source_data["chemical"],
+                "sources": batch_sources,
+                "batch_instruction": (
+                    "Верни по одной оценке для каждого источника этого пакета "
+                    "и сохрани исходный result_index."
+                ),
+            }
+            raw_batch = llm.generate_json(
+                system_prompt=system_prompt,
+                user_text=json.dumps(batch_payload, ensure_ascii=False),
+                schema_name="supplier_qualification",
+                json_schema=_QUALIFICATION_SCHEMA,
+                max_tokens=1536,
+            )
+            raw_batches.append(raw_batch)
+            batch_results = (
+                raw_batch.get("results")
+                if isinstance(raw_batch, dict)
+                else None
+            )
+            if isinstance(batch_results, list):
+                raw_results.extend(
+                    item for item in batch_results if isinstance(item, dict)
+                )
+            qualification_run.output_payload = {
+                "completed_batches": len(raw_batches),
+                "batch_count": (
+                    len(fetched_sources) + _QUALIFICATION_BATCH_SIZE - 1
+                )
+                // _QUALIFICATION_BATCH_SIZE,
+                "model_batches": raw_batches,
+            }
+            db.commit()
     except LLMUnavailableError as exc:
         error = f"Qwen недоступна: {exc}"
         finish_agent_run(
             qualification_run,
             qualification_clock,
+            output_payload=qualification_run.output_payload,
             error=error,
         )
         finish_search_run(search_run, error=error)
@@ -1376,6 +1412,7 @@ def execute_supplier_qualification(
             status_code=503,
             detail={"message": error, "search_run_id": search_run.id},
         ) from exc
+    raw = {"results": raw_results}
 
     qualifications: dict[int, SupplierQualification] = {}
     for item in raw.get("results", []) if isinstance(raw, dict) else []:
@@ -1493,6 +1530,8 @@ def execute_supplier_qualification(
         qualification_clock,
         output_payload={
             "model_output": raw,
+            "model_batches": raw_batches,
+            "batch_count": len(raw_batches),
             "qualified_results": combined_results,
             "validated_evidence_count": sum(
                 len(items) for items in validated_evidence.values()
