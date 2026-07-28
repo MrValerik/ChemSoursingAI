@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { useEffect, useMemo, useState } from "react";
+import { api, ApiError, userErrorMessage } from "../api/client";
 import type {
   CasEvidenceStatus,
   CountryEvidenceStatus,
@@ -438,10 +438,14 @@ function SearchTracePanel({
   trace,
   busy,
   onRefresh,
+  onRestart,
+  restartBusy,
 }: {
   trace: SearchRunTrace;
   busy: boolean;
   onRefresh: () => void;
+  onRestart: () => void;
+  restartBusy: boolean;
 }) {
   const hasRunningStage = trace.agent_runs.some(
     (stage) => stage.status !== "completed" && stage.status !== "failed",
@@ -467,13 +471,35 @@ function SearchTracePanel({
           <span className={`badge ${traceTone(trace.status)}`}>
             {SEARCH_STATUS_LABELS[trace.status] || trace.status}
           </span>
+          {trace.can_restart && (
+            <button
+              className="secondary"
+              disabled={restartBusy}
+              onClick={onRestart}
+              type="button"
+            >
+              <Icon name="refresh" size={16} />
+              {restartBusy ? "Перезапуск…" : "Перезапустить задачу"}
+            </button>
+          )}
           <button className="secondary" disabled={busy} onClick={onRefresh}>
             {busy ? "Обновление…" : "Обновить"}
           </button>
         </div>
       </div>
 
-      {trace.error && <div className="qualification-warning">{trace.error}</div>}
+      {trace.error && (
+        <div className="qualification-warning">
+          {userErrorMessage(trace.error)}
+        </div>
+      )}
+      {trace.is_stale && (
+        <div className="qualification-warning">
+          Задача не передавала прогресс более 30 минут. Её можно безопасно
+          перезапустить: текущая трассировка сохранится в истории, а новый
+          запуск продолжит поиск новых поставщиков.
+        </div>
+      )}
 
       <div className="agent-pipeline">
         {PIPELINE_STEPS.map((step, index) => {
@@ -553,11 +579,18 @@ function SearchTracePanel({
                     <span>Промпт: версия {stage.prompt_version}</span>
                   )}
                   {elapsedMs !== null && (
-                    <span>Время: {formatDuration(elapsedMs)}</span>
+                    <span>
+                      Время: {formatDuration(elapsedMs)}
+                      {state === "running" && elapsedMs >= 30 * 60 * 1000
+                        ? " · нет прогресса более 30 минут"
+                        : ""}
+                    </span>
                   )}
                 </div>
                 {stage.error && (
-                  <div className="qualification-warning">{stage.error}</div>
+                  <div className="qualification-warning">
+                    {userErrorMessage(stage.error)}
+                  </div>
                 )}
                 {stage.output_payload && (
                   <section className="stage-result">
@@ -630,7 +663,9 @@ function SearchTracePanel({
                     </p>
                   )}
                   {attempt.error && (
-                    <div className="qualification-warning">{attempt.error}</div>
+                    <div className="qualification-warning">
+                      {userErrorMessage(attempt.error)}
+                    </div>
                   )}
                   {attempt.results_payload?.map((result) => (
                     <div
@@ -670,7 +705,12 @@ function SearchTracePanel({
                     {source.final_url || source.url}
                   </a>
                   {source.error && (
-                    <div className="qualification-warning">{source.error}</div>
+                    <div className="qualification-warning">
+                      {userErrorMessage(
+                        source.error,
+                        "Источник не удалось проверить. Система продолжит поиск по другим источникам.",
+                      )}
+                    </div>
                   )}
                 </details>
               ))}
@@ -750,6 +790,7 @@ export default function SupplierSearchSection({
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [traceBusy, setTraceBusy] = useState(false);
+  const [restartBusy, setRestartBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [substanceRecord, setSubstanceRecord] = useState<SubstanceRecord | null>(null);
@@ -768,18 +809,22 @@ export default function SupplierSearchSection({
         const items = await api.listSearchRuns(50, rfq.id);
         if (!active) return;
         setRuns(items);
-        if (selectedRunId === null && items.length > 0) {
-          setSelectedRunId(items[0].id);
+        const selected = items.find((item) => item.id === selectedRunId);
+        const selectedCountry = selected ? runText(selected, "country") : "";
+        const latestForCountry = selectedCountry
+          ? items.find((item) => runText(item, "country") === selectedCountry)
+          : items[0];
+        const traceId = latestForCountry?.id ?? null;
+        if (traceId !== selectedRunId) {
+          setSelectedRunId(traceId);
         }
-        if (selectedRunId !== null) {
-          const currentTrace = await api.getSearchRun(selectedRunId);
+        if (traceId !== null) {
+          const currentTrace = await api.getSearchRun(traceId);
           if (!active) return;
           setTrace(currentTrace);
-          if (currentTrace.result_payload) {
-            setData(currentTrace.result_payload);
-          }
+          setData(currentTrace.result_payload);
           const restoredQualification = qualificationFromTrace(currentTrace);
-          if (restoredQualification) setQualification(restoredQualification);
+          setQualification(restoredQualification);
         }
       } catch {
         // A transient polling failure must not hide the form or current result.
@@ -860,8 +905,18 @@ export default function SupplierSearchSection({
   const activeCountry = trace
     ? runText(trace, "country")
     : selectedCountries[0] ?? "";
-  const candidateResults = data?.results ?? trace?.candidate_results ?? [];
-  const activeRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
+  const candidateResults = trace?.candidate_results ?? data?.results ?? [];
+  const countryRuns = useMemo(() => {
+    const seen = new Set<string>();
+    return runs.filter((run) => {
+      const country = runText(run, "country") || "Без страны";
+      if (seen.has(country)) return false;
+      seen.add(country);
+      return true;
+    });
+  }, [runs]);
+  const activeRun =
+    countryRuns.find((run) => run.id === selectedRunId) ?? countryRuns[0];
   const refreshTrace = async () => {
     const runId = selectedRunId ?? qualification?.search_run_id ?? data?.search_run_id;
     if (!runId) return;
@@ -873,6 +928,26 @@ export default function SupplierSearchSection({
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setTraceBusy(false);
+    }
+  };
+
+  const restartTrace = async () => {
+    if (!trace) return;
+    setRestartBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const job = await api.restartSearchRun(trace.id);
+      setSelectedRunId(job.search_run_id);
+      setTrace(await api.getSearchRun(job.search_run_id));
+      setRuns(await api.listSearchRuns(50, rfq.id));
+      setNotice(
+        "Задача перезапущена. Ранее найденные поставщики сохранены и исключены из нового поиска.",
+      );
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : String(caught));
+    } finally {
+      setRestartBusy(false);
     }
   };
 
@@ -951,10 +1026,9 @@ export default function SupplierSearchSection({
                   value={activeRun?.id ?? ""}
                   onChange={(event) => void openRun(Number(event.target.value))}
                 >
-                  {runs.map((run) => (
+                  {countryRuns.map((run) => (
                     <option key={run.id} value={run.id}>
-                      {runText(run, "country") || "Без страны"} —{" "}
-                      {SEARCH_STATUS_LABELS[run.status] || run.status}
+                      {runText(run, "country") || "Без страны"}
                     </option>
                   ))}
                 </Select>
@@ -978,6 +1052,12 @@ export default function SupplierSearchSection({
               </span>
               {activeRun.queue_position !== null && (
                 <span>Позиция в очереди: {activeRun.queue_position}</span>
+              )}
+              {trace && trace.merged_run_count > 1 && (
+                <span>
+                  Объединены уникальные результаты запусков:{" "}
+                  {trace.merged_run_count}
+                </span>
               )}
             </div>
           )
@@ -1211,8 +1291,9 @@ export default function SupplierSearchSection({
             </>
           ) : (
             <div className="qualification-warning">
-              Это результат старого запуска. Итоговый пакет не был сохранён,
-              поэтому кандидаты восстановлены из журнала поискового инструмента.
+              {trace && trace.merged_run_count > 1
+                ? "Новый запуск ещё выполняется. Ниже сохранены объединённые результаты предыдущих поисков по этой стране."
+                : "Это результат старого запуска. Итоговый пакет не был сохранён, поэтому кандидаты восстановлены из журнала поискового инструмента."}
             </div>
           )}
           {candidateResults.length === 0 && (
@@ -1447,6 +1528,8 @@ export default function SupplierSearchSection({
             trace={trace}
             busy={traceBusy}
             onRefresh={() => void refreshTrace()}
+            onRestart={() => void restartTrace()}
+            restartBusy={restartBusy}
           />
         </div>
       )}

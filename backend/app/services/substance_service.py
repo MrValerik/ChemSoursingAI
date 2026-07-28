@@ -6,13 +6,69 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.rfq import RFQ
-from app.models.substance import Substance
+from app.models.substance import Substance, SubstanceRevision
 from app.schemas.substance import SubstanceCreate, SubstanceDecision, SubstanceUpdate
 from app.services.cas import is_valid_cas, normalize_cas
 
 
 class SubstanceConflictError(ValueError):
     """Карточку нельзя создать или изменить из-за конфликта правил."""
+
+
+_AUDITED_FIELDS = (
+    "preferred_name",
+    "synonyms",
+    "excluded_names",
+    "notes",
+    "review_status",
+)
+
+
+def _snapshot(substance: Substance) -> dict:
+    return {
+        "cas": substance.cas,
+        "preferred_name": substance.preferred_name,
+        "synonyms": list(substance.synonyms or []),
+        "excluded_names": list(substance.excluded_names or []),
+        "notes": substance.notes,
+        "review_status": substance.review_status,
+    }
+
+
+def _changes(before: dict | None, after: dict) -> dict:
+    if before is None:
+        return {
+            field: {"before": None, "after": after.get(field)}
+            for field in _AUDITED_FIELDS
+            if after.get(field) not in (None, [], "")
+        }
+    return {
+        field: {"before": before.get(field), "after": after.get(field)}
+        for field in _AUDITED_FIELDS
+        if before.get(field) != after.get(field)
+    }
+
+
+def _record_revision(
+    db: Session,
+    substance: Substance,
+    *,
+    action: str,
+    actor_id: int,
+    before: dict | None = None,
+    source_rfq_id: int | None = None,
+) -> None:
+    after = _snapshot(substance)
+    db.add(
+        SubstanceRevision(
+            substance_id=substance.id,
+            action=action,
+            changes=_changes(before, after),
+            snapshot=after,
+            actor_id=actor_id,
+            source_rfq_id=source_rfq_id,
+        )
+    )
 
 
 def _merge_names(*groups: list[str]) -> list[str]:
@@ -57,6 +113,13 @@ def create_substance(
         reviewed_by_id=reviewer_id,
     )
     db.add(substance)
+    db.flush()
+    _record_revision(
+        db,
+        substance,
+        action="created",
+        actor_id=reviewer_id,
+    )
     db.commit()
     db.refresh(substance)
     return substance
@@ -69,6 +132,7 @@ def update_substance(
     *,
     reviewer_id: int,
 ) -> Substance:
+    before = _snapshot(substance)
     preferred_name = data.preferred_name or substance.preferred_name
     synonyms = (
         _merge_names([preferred_name], data.synonyms)
@@ -90,6 +154,13 @@ def update_substance(
         substance.notes = data.notes.strip() or None
     substance.review_status = "confirmed"
     substance.reviewed_by_id = reviewer_id
+    _record_revision(
+        db,
+        substance,
+        action="rules_updated",
+        actor_id=reviewer_id,
+        before=before,
+    )
     db.commit()
     db.refresh(substance)
     return substance
@@ -115,6 +186,7 @@ def apply_rfq_decision(
         db.add(substance)
         db.flush()
 
+    before = _snapshot(substance)
     existing_synonyms = list(substance.synonyms or [])
     existing_excluded = list(substance.excluded_names or [])
     if data.action == "confirm":
@@ -153,6 +225,18 @@ def apply_rfq_decision(
     substance.verification = data.verification or rfq.verification
     substance.reviewed_by_id = reviewer_id
     rfq.substance_id = substance.id
+    _record_revision(
+        db,
+        substance,
+        action=(
+            "identity_confirmed"
+            if data.action == "confirm"
+            else "identity_rejected"
+        ),
+        actor_id=reviewer_id,
+        before=before,
+        source_rfq_id=rfq.id,
+    )
     db.commit()
     db.refresh(substance)
     return substance

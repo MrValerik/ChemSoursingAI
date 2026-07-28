@@ -1,6 +1,7 @@
 """Persistent search traces are complete and respect project RBAC."""
 
 import os
+from datetime import timedelta
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_search_runs.db")
 
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 from app.core.db import SessionLocal, engine
 from app.main import app
 from app.models import RFQ, RfqAiSetting, SearchRun, User
+from app.api.supplier_search import SearchRunCancelled
 from app.search_worker import (
     process_next_job,
     process_ready_job,
@@ -22,6 +24,7 @@ from app.services.search_trace import (
     finish_search_run,
     start_agent_run,
     start_search_attempt,
+    utc_now,
 )
 
 
@@ -586,6 +589,7 @@ def test_buyer_cannot_enqueue_search_for_another_users_rfq(client):
     )
 
     assert response.status_code == 404
+    assert response.json()["detail"] == "Запрос не найден"
 
 
 def test_legacy_search_results_are_visible_without_result_payload(client):
@@ -673,3 +677,194 @@ def test_creating_request_can_start_search_for_each_selected_country(client):
         setting = db.get(RfqAiSetting, request["id"])
         assert setting is not None
         assert setting.additional_instructions == "Только производители с GMP"
+
+
+def test_stale_search_can_be_restarted_without_losing_its_trace(client):
+    buyer = _auth(client, "ivanov")
+    rfq = client.post(
+        "/rfq?verify=false",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+    ).json()
+    queued = client.post(
+        f"/supplier-search/jobs?rfq_id={rfq['id']}",
+        headers=buyer,
+        json={
+            "cas": rfq["cas"],
+            "name": rfq["name"],
+            "country": "Китай",
+        },
+    ).json()
+
+    with SessionLocal() as db:
+        run = db.get(SearchRun, queued["search_run_id"])
+        run.started_at = utc_now() - timedelta(minutes=31)
+        db.commit()
+
+    stale = client.get(
+        f"/search-runs/{queued['search_run_id']}", headers=buyer
+    ).json()
+    assert stale["is_stale"] is True
+    assert stale["can_restart"] is True
+
+    response = client.post(
+        f"/search-runs/{queued['search_run_id']}/restart",
+        headers=buyer,
+    )
+
+    assert response.status_code == 202
+    restarted_id = response.json()["search_run_id"]
+    assert restarted_id != queued["search_run_id"]
+    with SessionLocal() as db:
+        old_run = db.get(SearchRun, queued["search_run_id"])
+        restarted = db.get(SearchRun, restarted_id)
+        assert old_run.status == "cancelled"
+        assert old_run.completed_at is not None
+        assert restarted.status == "queued"
+        assert (
+            restarted.input_payload["restart_of_search_run_id"]
+            == queued["search_run_id"]
+        )
+
+
+def test_active_search_cannot_be_restarted_and_auditor_cannot_restart(client):
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(
+        client, buyer, cas="50-78-2", name="Active aspirin search"
+    )
+
+    active_response = client.post(
+        f"/search-runs/{queued['search_run_id']}/restart",
+        headers=buyer,
+    )
+    auditor_response = client.post(
+        f"/search-runs/{queued['search_run_id']}/restart",
+        headers=_auth(client, "auditor"),
+    )
+
+    assert active_response.status_code == 409
+    assert auditor_response.status_code == 403
+
+
+def test_repeated_country_search_excludes_and_merges_previous_suppliers(client):
+    buyer = _auth(client, "ivanov")
+    rfq = client.post(
+        "/rfq?verify=false",
+        headers=buyer,
+        json={"cas": "64-17-5", "name": "Ethanol", "incoterms": ["CIP"]},
+    ).json()
+    first = client.post(
+        f"/supplier-search/jobs?rfq_id={rfq['id']}",
+        headers=buyer,
+        json={
+            "cas": rfq["cas"],
+            "name": rfq["name"],
+            "country": "Индия",
+        },
+    ).json()
+    with SessionLocal() as db:
+        run = db.get(SearchRun, first["search_run_id"])
+        run.result_payload = {
+            "search_run_id": run.id,
+            "results": [
+                {
+                    "title": "Existing Supplier",
+                    "url": "https://existing.example/ethanol",
+                    "snippet": "Ethanol manufacturer",
+                    "country_hint": "likely",
+                }
+            ],
+        }
+        stage, clock = start_agent_run(
+            db,
+            search_run=run,
+            sequence=6,
+            agent_slug="supplier_qualification",
+            agent_name="Оценка поставщиков",
+            execution_type="deterministic",
+        )
+        finish_agent_run(
+            stage,
+            clock,
+            output_payload={
+                "qualified_results": [
+                    {
+                        "company_name": "Existing Chemicals Ltd",
+                        "url": "https://existing.example/ethanol",
+                        "supplier_type": "manufacturer",
+                    }
+                ]
+            },
+        )
+        finish_search_run(run)
+        db.commit()
+
+    second_response = client.post(
+        f"/supplier-search/jobs?rfq_id={rfq['id']}",
+        headers=buyer,
+        json={
+            "cas": rfq["cas"],
+            "name": rfq["name"],
+            "country": "Индия",
+        },
+    )
+    assert second_response.status_code == 202
+    second_id = second_response.json()["search_run_id"]
+    with SessionLocal() as db:
+        second = db.get(SearchRun, second_id)
+        assert second.input_payload["excluded_supplier_domains"] == [
+            "existing.example"
+        ]
+        assert "existing chemicals ltd" in second.input_payload[
+            "excluded_supplier_names"
+        ]
+        second.result_payload = {
+            "search_run_id": second.id,
+            "results": [
+                {
+                    "title": "Existing Supplier duplicate",
+                    "url": "https://existing.example/another-page",
+                    "snippet": "duplicate",
+                    "country_hint": "likely",
+                },
+                {
+                    "title": "New Supplier",
+                    "url": "https://new.example/ethanol",
+                    "snippet": "new result",
+                    "country_hint": "likely",
+                },
+            ],
+        }
+        finish_search_run(second)
+        db.commit()
+
+    merged = client.get(
+        f"/search-runs/{second_id}?merge_country=true",
+        headers=buyer,
+    ).json()
+    assert merged["merged_run_count"] == 2
+    assert {
+        item["url"].split("/")[2] for item in merged["candidate_results"]
+    } == {"existing.example", "new.example"}
+
+
+def test_worker_does_not_resurrect_a_cancelled_search(client):
+    buyer = _auth(client, "ivanov")
+    _enqueue_search(
+        client, buyer, cas="50-78-2", name="Cancellation race"
+    )
+
+    def cancelled_executor(data, db, user, *, search_run):
+        search_run.status = "cancelled"
+        search_run.error = "Перезапущено пользователем"
+        search_run.completed_at = utc_now()
+        db.commit()
+        raise SearchRunCancelled("cancelled during an external call")
+
+    processed_id = process_next_job(executor=cancelled_executor)
+
+    assert processed_id is not None
+    with SessionLocal() as db:
+        processed = db.get(SearchRun, processed_id)
+        assert processed.status == "cancelled"
+        assert processed.error == "Перезапущено пользователем"

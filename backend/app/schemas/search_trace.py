@@ -108,6 +108,8 @@ class SearchRunListItem(BaseModel):
     error: str | None
     queue_position: int | None = None
     result_count: int = 0
+    is_stale: bool = False
+    can_restart: bool = False
     summary: SearchRunSummary = Field(default_factory=SearchRunSummary)
 
 
@@ -119,3 +121,10 @@ class SearchRunTrace(SearchRunListItem):
     evidence_claims: list[EvidenceClaimRead]
     candidate_results: list[dict[str, Any]] = Field(default_factory=list)
     qualified_results: list[dict[str, Any]] = Field(default_factory=list)
+    merged_run_count: int = 1
+
+
+class SearchRunRestartRead(BaseModel):
+    search_run_id: int
+    status: str
+    queue_position: int

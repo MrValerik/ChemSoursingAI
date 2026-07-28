@@ -43,6 +43,24 @@ export interface SubstanceRecord {
   updated_at: string;
 }
 
+export interface SubstanceHistoryEntry {
+  id: number;
+  substance_id: number;
+  action: string;
+  changes: Record<
+    string,
+    {
+      before: unknown;
+      after: unknown;
+    }
+  >;
+  snapshot: Record<string, unknown>;
+  actor_id: number;
+  actor_name: string | null;
+  source_rfq_id: number | null;
+  created_at: string;
+}
+
 export interface RFQPreview {
   subject: string;
   body: string;
@@ -502,6 +520,8 @@ export interface SearchRunListItem {
   error: string | null;
   queue_position: number | null;
   result_count: number;
+  is_stale: boolean;
+  can_restart: boolean;
   summary: {
     planned_query_count: number;
     executed_query_count: number;
@@ -521,6 +541,7 @@ export interface SearchRunTrace extends SearchRunListItem {
   evidence_claims: EvidenceClaimRead[];
   candidate_results: SupplierSearchResult[];
   qualified_results: QualifiedSupplierResult[];
+  merged_run_count: number;
 }
 
 export interface SupplierSearchJob {

@@ -104,3 +104,17 @@ class SubstanceRead(BaseModel):
     request_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+class SubstanceHistoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    substance_id: int
+    action: str
+    changes: dict
+    snapshot: dict
+    actor_id: int
+    actor_name: str | None = None
+    source_rfq_id: int | None
+    created_at: datetime

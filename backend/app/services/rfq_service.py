@@ -6,13 +6,16 @@
 
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 from app.connectors.pubchem import PubChemConnector
 from app.models.enums import RFQStatus
 from app.models.rfq import RFQ
+from app.models.search_trace import SearchRun
 from app.schemas.rfq import RFQCreate
 from app.services.rfq_builder import RFQInput, build_rfq
+from app.services.search_trace import cancel_search_run, utc_now
 
 
 def create_rfq(
@@ -89,3 +92,37 @@ def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
         )
     )
     return result["subject"], result["body"]
+
+
+def archive_rfq(
+    db: Session,
+    rfq: RFQ,
+    *,
+    actor_id: int,
+) -> RFQ:
+    """Soft-delete a request and stop its active background searches."""
+    if rfq.deleted_at is not None:
+        return rfq
+
+    reason = "Поиск остановлен: связанный запрос удалён пользователем."
+    active_runs = list(
+        db.scalars(
+            select(SearchRun)
+            .where(
+                SearchRun.rfq_id == rfq.id,
+                SearchRun.status.not_in({"completed", "failed", "cancelled"}),
+            )
+            .options(
+                selectinload(SearchRun.agent_runs),
+                selectinload(SearchRun.search_attempts),
+                selectinload(SearchRun.source_documents),
+            )
+        ).all()
+    )
+    for search_run in active_runs:
+        cancel_search_run(search_run, reason=reason)
+
+    rfq.deleted_at = utc_now()
+    rfq.deleted_by_id = actor_id
+    db.commit()
+    return rfq

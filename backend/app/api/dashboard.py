@@ -39,7 +39,7 @@ def dashboard(
 ) -> dict:
     see_all = user.role in _SEE_ALL_ROLES
 
-    rfq_filter = []
+    rfq_filter = [RFQ.deleted_at.is_(None)]
     if not see_all:
         rfq_filter.append((RFQ.owner_id == user.id) | (RFQ.owner_id.is_(None)))
 
@@ -51,11 +51,14 @@ def dashboard(
     in_work = sum(by_status.get(s.value, 0) for s in _ACTIVE_STATUSES)
 
     # Открытые эскалации (ручной разбор).
-    esc_stmt = select(func.count(Escalation.id)).where(
-        Escalation.status != EscalationStatus.RESOLVED
+    esc_stmt = (
+        select(func.count(Escalation.id))
+        .join(RFQ, RFQ.id == Escalation.rfq_id)
+        .where(
+            Escalation.status != EscalationStatus.RESOLVED,
+            *rfq_filter,
+        )
     )
-    if not see_all:
-        esc_stmt = esc_stmt.join(RFQ, RFQ.id == Escalation.rfq_id).where(*rfq_filter)
     open_escalations = db.scalar(esc_stmt) or 0
 
     # Просрочки: активные запросы старше N дней.
@@ -99,7 +102,10 @@ def dashboard(
         workload_rows = db.execute(
             select(User.full_name, func.count(RFQ.id))
             .join(RFQ, RFQ.owner_id == User.id)
-            .where(RFQ.status.in_(_ACTIVE_STATUSES))
+            .where(
+                RFQ.status.in_(_ACTIVE_STATUSES),
+                RFQ.deleted_at.is_(None),
+            )
             .group_by(User.full_name)
             .order_by(func.count(RFQ.id).desc())
         ).all()

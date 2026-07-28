@@ -11,11 +11,12 @@ from app.core.db import get_db
 from app.models.enums import UserRole
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
-from app.models.substance import Substance
+from app.models.substance import Substance, SubstanceRevision
 from app.models.user import User
 from app.schemas.substance import (
     SubstanceCreate,
     SubstanceDecision,
+    SubstanceHistoryRead,
     SubstanceRead,
     SubstanceUpdate,
 )
@@ -149,8 +150,12 @@ def decide_rfq_identity(
     """Сохраняет подтверждение или опровержение вывода ИИ для будущих запросов."""
     _ensure_editor(user)
     rfq = db.get(RFQ, rfq_id)
-    if rfq is None or not _can_see_rfq(user, rfq):
-        raise HTTPException(status_code=404, detail="RFQ not found")
+    if (
+        rfq is None
+        or rfq.deleted_at is not None
+        or not _can_see_rfq(user, rfq)
+    ):
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     substance = apply_rfq_decision(db, rfq, data, reviewer_id=user.id)
     return _to_read(db, substance)
 
@@ -166,8 +171,35 @@ def get_substance(
         options=[joinedload(Substance.reviewed_by)],
     )
     if substance is None:
-        raise HTTPException(status_code=404, detail="Substance not found")
+        raise HTTPException(status_code=404, detail="Химическое вещество не найдено")
     return _to_read(db, substance)
+
+
+@router.get(
+    "/{substance_id}/history",
+    response_model=list[SubstanceHistoryRead],
+)
+def get_substance_history(
+    substance_id: int,
+    db: Session = Depends(get_db),
+) -> list[SubstanceHistoryRead]:
+    """Возвращает историю экспертных решений с авторами."""
+    if db.get(Substance, substance_id) is None:
+        raise HTTPException(status_code=404, detail="Химическое вещество не найдено")
+    revisions = list(
+        db.scalars(
+            select(SubstanceRevision)
+            .options(joinedload(SubstanceRevision.actor))
+            .where(SubstanceRevision.substance_id == substance_id)
+            .order_by(SubstanceRevision.created_at.desc(), SubstanceRevision.id.desc())
+        ).all()
+    )
+    result: list[SubstanceHistoryRead] = []
+    for revision in revisions:
+        item = SubstanceHistoryRead.model_validate(revision)
+        item.actor_name = revision.actor.full_name if revision.actor else None
+        result.append(item)
+    return result
 
 
 @router.patch("/{substance_id}", response_model=SubstanceRead)
@@ -180,6 +212,6 @@ def edit_substance(
     _ensure_editor(user)
     substance = db.get(Substance, substance_id)
     if substance is None:
-        raise HTTPException(status_code=404, detail="Substance not found")
+        raise HTTPException(status_code=404, detail="Химическое вещество не найдено")
     substance = update_substance(db, substance, data, reviewer_id=user.id)
     return _to_read(db, substance)

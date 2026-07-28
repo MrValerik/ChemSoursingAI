@@ -17,6 +17,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.supplier_search import (
+    SearchRunCancelled,
     SupplierQualificationRequest,
     SupplierSearchRequest,
     execute_supplier_qualification,
@@ -26,6 +27,10 @@ from app.core.db import SessionLocal, init_db
 from app.extraction.llm_client import LLMClient
 from app.models import SearchRun, User
 from app.services.search_trace import utc_now
+from app.services.supplier_search_continuation import (
+    country_runs,
+    supplier_exclusions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +125,40 @@ def process_next_job(
             db.commit()
             return run_id
         try:
-            request = SupplierSearchRequest.model_validate(run.input_payload)
+            payload = dict(run.input_payload or {})
+            country = payload.get("country")
+            if run.rfq_id is not None and isinstance(country, str):
+                prior_runs = country_runs(
+                    db,
+                    rfq_id=run.rfq_id,
+                    country=country,
+                    exclude_run_id=run.id,
+                )
+                prior_domains, prior_names = supplier_exclusions(prior_runs)
+                payload["excluded_supplier_domains"] = sorted(
+                    {
+                        *payload.get("excluded_supplier_domains", []),
+                        *prior_domains,
+                    }
+                )[:500]
+                payload["excluded_supplier_names"] = sorted(
+                    {
+                        *payload.get("excluded_supplier_names", []),
+                        *prior_names,
+                    }
+                )[:500]
+                payload["continuation"] = {
+                    "previous_run_ids": [item.id for item in prior_runs],
+                    "excluded_supplier_count": len(
+                        {
+                            *payload["excluded_supplier_domains"],
+                            *payload["excluded_supplier_names"],
+                        }
+                    ),
+                }
+                run.input_payload = payload
+                db.commit()
+            request = SupplierSearchRequest.model_validate(payload)
             persisted_result = (
                 run.result_payload
                 if run.status == "fetching_sources"
@@ -164,6 +202,7 @@ def process_next_job(
                     name=request.name,
                     country=request.country,
                     additional_instructions=request.additional_instructions,
+                    expert_notes=request.catalog_notes,
                     target_count=request.limit,
                     results=qualification_pool[:60],
                 )
@@ -180,12 +219,19 @@ def process_next_job(
         except Exception as exc:
             db.rollback()
             failed_run = db.get(SearchRun, run_id)
-            if failed_run is not None:
+            if (
+                failed_run is not None
+                and failed_run.status != "cancelled"
+                and not isinstance(exc, SearchRunCancelled)
+            ):
                 failed_run.status = "failed"
                 failed_run.error = _error_text(exc)
                 failed_run.completed_at = utc_now()
                 db.commit()
-            logger.exception("Queued supplier search %s failed", run_id)
+            if isinstance(exc, SearchRunCancelled):
+                logger.info("Queued supplier search %s was cancelled", run_id)
+            else:
+                logger.exception("Queued supplier search %s failed", run_id)
     return run_id
 
 

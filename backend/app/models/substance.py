@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, JSON, String, Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -35,3 +37,36 @@ class Substance(Base, TimestampMixin):
 
     reviewed_by: Mapped["User | None"] = relationship()
     rfqs: Mapped[list["RFQ"]] = relationship(back_populates="substance")
+    revisions: Mapped[list["SubstanceRevision"]] = relationship(
+        back_populates="substance",
+        cascade="all, delete-orphan",
+    )
+
+
+class SubstanceRevision(Base):
+    """Неизменяемая запись экспертного решения по карточке вещества."""
+
+    __tablename__ = "substance_revisions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    substance_id: Mapped[int] = mapped_column(
+        ForeignKey("substances.id", ondelete="CASCADE"),
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(String(40), index=True)
+    changes: Mapped[dict] = mapped_column(JSON, default=dict)
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    source_rfq_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rfqs.id", ondelete="SET NULL"),
+        index=True,
+        default=None,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    substance: Mapped["Substance"] = relationship(back_populates="revisions")
+    actor: Mapped["User"] = relationship()

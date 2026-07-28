@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, Integer, JSON, Numeric, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -57,7 +58,15 @@ class RFQ(Base, TimestampMixin):
     owner_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), index=True, default=None
     )
-    owner: Mapped["User | None"] = relationship()
+    owner: Mapped["User | None"] = relationship(foreign_keys=[owner_id])
+
+    # Мягкое удаление сохраняет историю поиска, переписку и котировки для аудита.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, index=True
+    )
+    deleted_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None, index=True
+    )
 
     quotations: Mapped[list["Quotation"]] = relationship(
         back_populates="rfq", cascade="all, delete-orphan"

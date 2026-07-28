@@ -30,8 +30,9 @@ def _to_read(esc: Escalation) -> EscalationRead:
 @router.get("/rfq/{rfq_id}/escalations", response_model=list[EscalationRead])
 def list_for_rfq(rfq_id: int, db: Session = Depends(get_db)) -> list[EscalationRead]:
     """Эскалации по конкретному RFQ."""
-    if db.get(RFQ, rfq_id) is None:
-        raise HTTPException(status_code=404, detail="RFQ not found")
+    rfq = db.get(RFQ, rfq_id)
+    if rfq is None or rfq.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     stmt = (
         select(Escalation)
         .options(joinedload(Escalation.rfq).joinedload(RFQ.owner))
@@ -49,11 +50,13 @@ def list_queue(
     """Очередь ручного разбора: закупщик — кейсы своих запросов, остальные — все."""
     stmt = (
         select(Escalation)
+        .join(RFQ, RFQ.id == Escalation.rfq_id)
         .options(joinedload(Escalation.rfq).joinedload(RFQ.owner))
+        .where(RFQ.deleted_at.is_(None))
         .order_by(Escalation.created_at.desc())
     )
     if user.role not in _SEE_ALL_ROLES:
-        stmt = stmt.join(RFQ, RFQ.id == Escalation.rfq_id).where(
+        stmt = stmt.where(
             (RFQ.owner_id == user.id) | (RFQ.owner_id.is_(None))
         )
     return [_to_read(e) for e in db.scalars(stmt).all()]
@@ -78,8 +81,8 @@ def update_escalation(
         escalation_id,
         options=[joinedload(Escalation.rfq).joinedload(RFQ.owner)],
     )
-    if esc is None:
-        raise HTTPException(status_code=404, detail="Escalation not found")
+    if esc is None or (esc.rfq is not None and esc.rfq.deleted_at is not None):
+        raise HTTPException(status_code=404, detail="Задача ручной проверки не найдена")
 
     if user.role == UserRole.BUYER:
         rfq = esc.rfq
@@ -137,8 +140,8 @@ def escalate_manually(
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
     rfq = db.get(RFQ, rfq_id)
-    if rfq is None:
-        raise HTTPException(status_code=404, detail="RFQ not found")
+    if rfq is None or rfq.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     esc = Escalation(
         rfq_id=rfq_id,
         reason=payload.reason,

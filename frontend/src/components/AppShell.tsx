@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import type { UserRole } from "../api/types";
-import { IconButton, Input } from "./ui";
+import { IconButton } from "./ui";
 
 export type SectionKey =
   | "dashboard"
@@ -80,28 +80,27 @@ export default function AppShell({
 
       <div className="shell-body">
         <header className="shell-topbar" ref={menuRef}>
-          <Input
-            className="topbar-search"
-            placeholder="Поиск: CAS / вещество / поставщик"
-            title="Глобальный поиск (в разработке)"
-          />
           <div className="topbar-right">
             <div className="topbar-menu">
               <IconButton
                 className="icon-btn"
                 icon="bell"
-                label="Уведомления"
-                title="Уведомления"
+                label="Центр уведомлений"
+                title="Завершение поиска, ответы поставщиков и задачи ручной проверки"
                 onClick={() => {
                   setNotifOpen((v) => !v);
                   setProfileOpen(false);
                 }}
               />
               {notifOpen && (
-                <div className="dropdown">
-                  <div className="dropdown-title">Уведомления</div>
+                <div className="dropdown notification-dropdown">
+                  <div className="dropdown-title">Центр уведомлений</div>
+                  <p className="notification-description">
+                    Здесь появятся завершённые поиски, ошибки ИИ-агентов, задачи
+                    ручной проверки, новые ответы поставщиков и котировки.
+                  </p>
                   <div className="dropdown-empty note">
-                    Нет новых уведомлений
+                    Новых событий нет
                   </div>
                 </div>
               )}

@@ -63,7 +63,7 @@ def _find_rfq(db: Session, message: IncomingEmail) -> RFQ | None:
     match = _RFQ_MARKER.search(message.subject)
     if match:
         rfq = db.get(RFQ, int(match.group(1)))
-        if rfq is not None:
+        if rfq is not None and rfq.deleted_at is None:
             return rfq
     for reference in [message.in_reply_to, *message.references]:
         if not reference:
@@ -72,7 +72,8 @@ def _find_rfq(db: Session, message: IncomingEmail) -> RFQ | None:
             select(Communication).where(Communication.external_id == reference)
         )
         if communication and communication.rfq_id:
-            return db.get(RFQ, communication.rfq_id)
+            rfq = db.get(RFQ, communication.rfq_id)
+            return rfq if rfq is not None and rfq.deleted_at is None else None
     return None
 
 

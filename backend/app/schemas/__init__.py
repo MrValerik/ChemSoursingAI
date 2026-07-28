@@ -2,6 +2,7 @@
 from app.schemas.substance import (
     SubstanceCreate,
     SubstanceDecision,
+    SubstanceHistoryRead,
     SubstanceRead,
     SubstanceUpdate,
 )
@@ -9,6 +10,7 @@ from app.schemas.substance import (
 __all__ = [
     "SubstanceCreate",
     "SubstanceDecision",
+    "SubstanceHistoryRead",
     "SubstanceRead",
     "SubstanceUpdate",
 ]

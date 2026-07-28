@@ -93,7 +93,7 @@ def _require_editor(user: User) -> None:
 
 def _require_rfq_access(user: User, rfq: RFQ) -> None:
     if user.role not in _SEE_ALL_ROLES and rfq.owner_id not in (None, user.id):
-        raise HTTPException(status_code=404, detail="RFQ not found")
+        raise HTTPException(status_code=404, detail="Запрос не найден")
 
 
 def _snapshot(db: Session, prompt: PromptTemplate, user: User) -> None:
@@ -145,7 +145,7 @@ def update_prompt(
     _require_editor(user)
     prompt = db.get(PromptTemplate, prompt_id)
     if prompt is None:
-        raise HTTPException(status_code=404, detail="Prompt not found")
+        raise HTTPException(status_code=404, detail="Настройка ИИ-агента не найдена")
     changes = data.model_dump(exclude_unset=True)
     if not changes:
         return prompt
@@ -166,7 +166,7 @@ def prompt_versions(
     _: User = Depends(get_current_user),
 ) -> list[PromptVersion]:
     if db.get(PromptTemplate, prompt_id) is None:
-        raise HTTPException(status_code=404, detail="Prompt not found")
+        raise HTTPException(status_code=404, detail="Настройка ИИ-агента не найдена")
     return list(
         db.scalars(
             select(PromptVersion)
@@ -192,7 +192,13 @@ def preview_prompt(
             additional_instructions=data.additional_instructions,
         )
     except LLMUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=f"Qwen недоступна: {exc}") from exc
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Локальная ИИ-модель недоступна. "
+                "Убедитесь, что сервис модели запущен, и повторите попытку"
+            ),
+        ) from exc
     return {"output": output, "prompt_id": prompt.id, "version": prompt.version}
 
 
@@ -203,8 +209,8 @@ def get_rfq_ai_settings(
     user: User = Depends(get_current_user),
 ) -> RfqAiSettingRead:
     rfq = db.get(RFQ, rfq_id)
-    if rfq is None:
-        raise HTTPException(status_code=404, detail="RFQ not found")
+    if rfq is None or rfq.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     _require_rfq_access(user, rfq)
     setting = db.get(RfqAiSetting, rfq_id)
     return RfqAiSettingRead(
@@ -224,8 +230,8 @@ def save_rfq_ai_settings(
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
     rfq = db.get(RFQ, rfq_id)
-    if rfq is None:
-        raise HTTPException(status_code=404, detail="RFQ not found")
+    if rfq is None or rfq.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     _require_rfq_access(user, rfq)
     if data.prompt_template_id is not None:
         prompt = db.get(PromptTemplate, data.prompt_template_id)

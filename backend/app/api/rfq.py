@@ -4,7 +4,7 @@
 руководитель/администратор/аудитор — все. Права проверяются на сервере.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, joinedload
@@ -22,19 +22,24 @@ from app.services.rfq_builder import (
     UnsupportedIncotermError,
     build_rfq,
 )
-from app.services.rfq_service import create_rfq, render_rfq_text
+from app.services.rfq_service import archive_rfq, create_rfq, render_rfq_text
 from app.services.search_trace import create_search_run
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
 # Роли, видящие все запросы (остальные — только свои).
 _SEE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN, UserRole.AUDITOR}
+_DELETE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN}
 
 
 def _can_see(user: User, rfq: RFQ) -> bool:
     if user.role in _SEE_ALL_ROLES:
         return True
     return rfq.owner_id is None or rfq.owner_id == user.id
+
+
+def _can_delete(user: User, rfq: RFQ) -> bool:
+    return user.role in _DELETE_ALL_ROLES or rfq.owner_id == user.id
 
 
 class RFQGenerateRequest(BaseModel):
@@ -131,6 +136,11 @@ def create(
                         if selected_substance
                         else []
                     ),
+                    "catalog_notes": (
+                        selected_substance.notes
+                        if selected_substance
+                        else None
+                    ),
                     "country": country,
                     "additional_instructions": (
                         data.additional_instructions.strip()
@@ -154,9 +164,29 @@ def get(
     user: User = Depends(get_current_user),
 ) -> RFQRead:
     rfq = db.get(RFQ, rfq_id, options=[joinedload(RFQ.owner)])
-    if rfq is None or not _can_see(user, rfq):
-        raise HTTPException(status_code=404, detail="RFQ not found")
+    if (
+        rfq is None
+        or rfq.deleted_at is not None
+        or not _can_see(user, rfq)
+    ):
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     return _to_read(rfq)
+
+
+@router.delete("/{rfq_id}", status_code=204, response_class=Response)
+def delete_rfq(
+    rfq_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Archive a request without destroying its audit history."""
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    rfq = db.get(RFQ, rfq_id)
+    if rfq is None or not _can_delete(user, rfq):
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+    archive_rfq(db, rfq, actor_id=user.id)
+    return Response(status_code=204)
 
 
 @router.get("", response_model=list[RFQListItem])
@@ -169,6 +199,7 @@ def list_rfqs(
     """Сводный список RFQ с числом котировок, полнотой и эскалациями."""
     stmt = (
         select(RFQ)
+        .where(RFQ.deleted_at.is_(None))
         .options(joinedload(RFQ.owner))
         .order_by(RFQ.created_at.desc())
         .limit(limit)

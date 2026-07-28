@@ -37,6 +37,11 @@ from app.services.search_trace import (
     utc_now,
 )
 from app.services.search_countries import normalize_search_country
+from app.services.supplier_search_continuation import (
+    country_runs,
+    result_is_excluded,
+    supplier_exclusions,
+)
 from app.services.supplier_registry import register_qualified_candidate
 from app.services.supplier_scoring import score_supplier
 from app.services.supplier_sources import (
@@ -54,6 +59,18 @@ router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
 _QUALIFICATION_BATCH_SIZE = 2
 
 
+class SearchRunCancelled(RuntimeError):
+    """Stop a worker that resumed after its run was cancelled."""
+
+
+def _raise_if_cancelled(db: Session, search_run: SearchRun) -> None:
+    db.refresh(search_run, attribute_names=["status"])
+    if search_run.status == "cancelled":
+        raise SearchRunCancelled(
+            f"Поисковая задача {search_run.id} была отменена пользователем"
+        )
+
+
 class SupplierSearchRequest(BaseModel):
     cas: str = Field(..., min_length=3, max_length=20)
     name: str = Field(..., min_length=2, max_length=255)
@@ -63,6 +80,13 @@ class SupplierSearchRequest(BaseModel):
     catalog_preferred_name: str | None = Field(default=None, max_length=255)
     known_synonyms: list[str] = Field(default_factory=list, max_length=50)
     excluded_names: list[str] = Field(default_factory=list, max_length=50)
+    catalog_notes: str | None = Field(default=None, max_length=4000)
+    excluded_supplier_domains: list[str] = Field(
+        default_factory=list, max_length=500
+    )
+    excluded_supplier_names: list[str] = Field(
+        default_factory=list, max_length=500
+    )
 
     @field_validator("country")
     @classmethod
@@ -120,6 +144,7 @@ class SupplierQualificationRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=255)
     country: str | None = Field(default=None, max_length=100)
     additional_instructions: str | None = Field(default=None, max_length=4000)
+    expert_notes: str | None = Field(default=None, max_length=4000)
     target_count: int | None = Field(default=None, ge=1, le=20)
     results: list[SupplierSearchResultInput] = Field(
         ..., min_length=1, max_length=60
@@ -411,7 +436,10 @@ def _search_planner_prompt(prompt: PromptTemplate) -> str:
         "обязан содержать CAS дословно. Используй только названия из "
         "переданного identity, не придумывай компании и URL. Покрой поиск "
         "производителя, продукта и документов; для Китая добавь китайский "
-        "запрос. Верни только объект по JSON-схеме."
+        "запрос. excluded_supplier_domains и excluded_supplier_names — уже "
+        "найденные поставщики: не планируй их повторный поиск и используй "
+        "другие формулировки для обнаружения новых компаний. Верни только "
+        "объект по JSON-схеме."
     )
 
 
@@ -879,12 +907,12 @@ def enqueue_supplier_search(
             UserRole.ADMIN,
             UserRole.AUDITOR,
         }
-        if rfq is None or (
+        if rfq is None or rfq.deleted_at is not None or (
             not can_see_all
             and rfq.owner_id is not None
             and rfq.owner_id != user.id
         ):
-            raise HTTPException(status_code=404, detail="RFQ not found")
+            raise HTTPException(status_code=404, detail="Запрос не найден")
         substance = (
             db.get(Substance, rfq.substance_id)
             if rfq.substance_id is not None
@@ -903,6 +931,7 @@ def enqueue_supplier_search(
                 "excluded_names": (
                     list(substance.excluded_names or []) if substance else []
                 ),
+                "catalog_notes": substance.notes if substance else None,
             }
         )
     normalized_cas = normalize_cas(data.cas)
@@ -911,7 +940,42 @@ def enqueue_supplier_search(
             status_code=422,
             detail="CAS не прошёл проверку формата и контрольной суммы",
         )
+    previous_run_ids: list[int] = []
+    if rfq_id is not None:
+        previous_runs = country_runs(
+            db,
+            rfq_id=rfq_id,
+            country=data.country,
+        )
+        prior_domains, prior_names = supplier_exclusions(previous_runs)
+        data = data.model_copy(
+            update={
+                "excluded_supplier_domains": sorted(
+                    {
+                        *data.excluded_supplier_domains,
+                        *prior_domains,
+                    }
+                )[:500],
+                "excluded_supplier_names": sorted(
+                    {
+                        *data.excluded_supplier_names,
+                        *prior_names,
+                    }
+                )[:500],
+            }
+        )
+        previous_run_ids = [run.id for run in previous_runs]
     payload = data.model_copy(update={"cas": normalized_cas}).model_dump()
+    if previous_run_ids:
+        payload["continuation"] = {
+            "previous_run_ids": previous_run_ids,
+            "excluded_supplier_count": len(
+                {
+                    *data.excluded_supplier_domains,
+                    *data.excluded_supplier_names,
+                }
+            ),
+        }
     search_run = create_search_run(
         db,
         owner_id=user.id,
@@ -979,6 +1043,7 @@ def execute_supplier_search(
     )
     db.commit()
     lookup = PubChemConnector().verify_cas(normalized_cas).as_dict()
+    _raise_if_cancelled(db, search_run)
     finish_agent_run(lookup_stage, lookup_clock, output_payload=lookup)
     db.commit()
     if not is_valid_cas(normalized_cas):
@@ -1011,6 +1076,7 @@ def execute_supplier_search(
             "preferred_name": data.catalog_preferred_name,
             "accepted_synonyms": data.known_synonyms,
             "excluded_names": data.excluded_names,
+            "specialist_comment": data.catalog_notes,
         },
     }
     if identity_prompt and lookup.get("found"):
@@ -1040,6 +1106,7 @@ def execute_supplier_search(
                 json_schema=_IDENTITY_SCHEMA,
                 max_tokens=512,
             )
+            _raise_if_cancelled(db, search_run)
             identity = _validated_identity(data, lookup, raw_identity)
             finish_agent_run(
                 identity_run,
@@ -1106,6 +1173,9 @@ def execute_supplier_search(
             "cas": normalized_cas,
             "country": data.country or "любая",
             "additional_instructions": data.additional_instructions,
+            "specialist_comment": data.catalog_notes,
+            "excluded_supplier_domains": data.excluded_supplier_domains,
+            "excluded_supplier_names": data.excluded_supplier_names,
         }
         planner_run, planner_clock = start_agent_run(
             db,
@@ -1132,6 +1202,7 @@ def execute_supplier_search(
                 json_schema=_SEARCH_PLAN_SCHEMA,
                 max_tokens=1024,
             )
+            _raise_if_cancelled(db, search_run)
             parsed_plan = SearchPlan.model_validate(generated)
             ai_items = parsed_plan.queries
             ai_used = bool(ai_items)
@@ -1194,6 +1265,8 @@ def execute_supplier_search(
             "queries": [item.model_dump() for item in planned_queries],
             "limit": data.limit,
             "country": data.country,
+            "excluded_supplier_domains": data.excluded_supplier_domains,
+            "excluded_supplier_names": data.excluded_supplier_names,
         },
     )
     db.commit()
@@ -1202,6 +1275,7 @@ def execute_supplier_search(
     executed_items: list[SearchPlanItem] = []
     raw_results: list[dict] = []
     search_errors: list[str] = []
+    excluded_duplicate_count = 0
     reserve_limit = min(max(data.limit * 3, data.limit + 5), 60)
     fetch_limit = min(reserve_limit * 2, 20)
     for plan_item in planned_queries:
@@ -1221,13 +1295,26 @@ def execute_supplier_search(
         db.commit()
         try:
             query_results = search_web(query, fetch_limit)
-            raw_results.extend(query_results)
+            _raise_if_cancelled(db, search_run)
+            fresh_results = [
+                result
+                for result in query_results
+                if not result_is_excluded(
+                    result,
+                    domains=data.excluded_supplier_domains,
+                    names=data.excluded_supplier_names,
+                )
+            ]
+            excluded_duplicate_count += len(query_results) - len(fresh_results)
+            raw_results.extend(fresh_results)
             finish_search_attempt(
                 attempt,
                 attempt_clock,
                 result_count=len(query_results),
                 results_payload=query_results,
             )
+        except SearchRunCancelled:
+            raise
         except Exception as exc:
             error = str(exc)
             search_errors.append(error)
@@ -1274,6 +1361,7 @@ def execute_supplier_search(
             "planner_fallback_reason": planner_error,
             "identity_fallback_reason": identity_error,
             "rejected_model_queries": rejected_queries,
+            "excluded_previous_supplier_count": excluded_duplicate_count,
         },
     )
     response_payload = {
@@ -1290,6 +1378,7 @@ def execute_supplier_search(
         "fallback_used": fallback_used or bool(identity_error) or rejected_queries > 0,
         "results": results,
         "reserve_results": reserve_results,
+        "excluded_previous_supplier_count": excluded_duplicate_count,
         "warning": (
             "Сначала проверяются карточки Echemi, затем региональные источники. "
             "Результаты являются кандидатами: статус производителя, лицензии "
@@ -1318,7 +1407,7 @@ def execute_supplier_qualification(
     if data.search_run_id is not None and (
         search_run is None or not _can_see_run(user, search_run)
     ):
-        raise HTTPException(status_code=404, detail="Search run not found")
+        raise HTTPException(status_code=404, detail="Запуск поиска не найден")
     if search_run is None:
         search_run = create_search_run(
             db,
@@ -1386,6 +1475,7 @@ def execute_supplier_qualification(
         source_index_by_id[source.id] = index
         try:
             page = fetch_web_page(result.url)
+            _raise_if_cancelled(db, search_run)
             source.final_url = page.final_url
             source.domain = page.domain
             source.title = page.title or result.title
@@ -1407,6 +1497,8 @@ def execute_supplier_qualification(
                     "page_text": page.text[:4000],
                 }
             )
+        except SearchRunCancelled:
+            raise
         except Exception as exc:
             # A failed page is an audit record, not a qualified candidate.
             # Continue with the next ranked result until the requested number
@@ -1448,6 +1540,7 @@ def execute_supplier_qualification(
             "cas": data.cas,
             "country": data.country,
             "user_requirements": data.additional_instructions,
+            "specialist_comment": data.expert_notes,
         },
         "sources": fetched_sources,
         "requested_supplier_count": requested_supplier_count,
@@ -1492,6 +1585,7 @@ def execute_supplier_qualification(
                 json_schema=_QUALIFICATION_SCHEMA,
                 max_tokens=1536,
             )
+            _raise_if_cancelled(db, search_run)
             raw_batches.append(raw_batch)
             batch_results = (
                 raw_batch.get("results")
@@ -1512,7 +1606,10 @@ def execute_supplier_qualification(
             }
             db.commit()
     except LLMUnavailableError as exc:
-        error = f"Qwen недоступна: {exc}"
+        error = (
+            "Локальная ИИ-модель недоступна. "
+            "Убедитесь, что сервис модели запущен, и повторите попытку"
+        )
         finish_agent_run(
             qualification_run,
             qualification_clock,

@@ -1,7 +1,9 @@
-"""Read-only API for user-visible supplier-search traces."""
+"""User-visible supplier-search traces and safe task restarts."""
+
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
@@ -9,14 +11,28 @@ from app.core.db import get_db
 from app.models import SearchRun, User
 from app.models.enums import UserRole
 from app.schemas.search_trace import (
+    EvidenceClaimRead,
     SearchRunListItem,
+    SearchRunRestartRead,
     SearchRunSummary,
     SearchRunTrace,
+    SourceDocumentRead,
+)
+from app.services.search_trace import cancel_search_run, create_search_run, utc_now
+from app.services.supplier_search_continuation import (
+    candidate_results as continuation_candidate_results,
+    country_runs,
+    merge_unique_results,
+    qualified_results as continuation_qualified_results,
+    run_country,
+    supplier_exclusions,
 )
 
 router = APIRouter(prefix="/search-runs", tags=["search-runs"])
 
 _SEE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN, UserRole.AUDITOR}
+_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+_STALE_AFTER = timedelta(minutes=30)
 
 
 def _can_see(user: User, search_run: SearchRun) -> bool:
@@ -31,18 +47,43 @@ def _stage_output(search_run: SearchRun, slug: str) -> dict:
 
 
 def _candidate_results(search_run: SearchRun) -> list[dict]:
-    persisted = (search_run.result_payload or {}).get("results")
-    if isinstance(persisted, list):
-        return persisted
-    legacy = _stage_output(search_run, "web_search").get("results")
-    return legacy if isinstance(legacy, list) else []
+    return continuation_candidate_results(search_run)
 
 
 def _qualified_results(search_run: SearchRun) -> list[dict]:
-    results = _stage_output(search_run, "supplier_qualification").get(
-        "qualified_results"
+    return continuation_qualified_results(search_run)
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _last_activity(search_run: SearchRun) -> datetime:
+    timestamps = [search_run.started_at]
+    for stage in search_run.agent_runs:
+        timestamps.extend(
+            value
+            for value in (stage.started_at, stage.completed_at)
+            if value is not None
+        )
+    for attempt in search_run.search_attempts:
+        timestamps.extend(
+            value
+            for value in (attempt.started_at, attempt.completed_at)
+            if value is not None
+        )
+    return max((_aware(value) for value in timestamps), default=utc_now())
+
+
+def _is_stale(search_run: SearchRun) -> bool:
+    return (
+        search_run.status not in _TERMINAL_STATUSES
+        and utc_now() - _last_activity(search_run) >= _STALE_AFTER
     )
-    return results if isinstance(results, list) else []
+
+
+def _can_restart(search_run: SearchRun) -> bool:
+    return search_run.status in {"failed", "cancelled"} or _is_stale(search_run)
 
 
 def _summary(search_run: SearchRun) -> SearchRunSummary:
@@ -107,6 +148,8 @@ def _list_item(
     item.queue_position = queue_position
     item.summary = _summary(search_run)
     item.result_count = item.summary.candidate_count
+    item.is_stale = _is_stale(search_run)
+    item.can_restart = _can_restart(search_run)
     return item
 
 
@@ -156,6 +199,7 @@ def list_search_runs(
 @router.get("/{search_run_id}", response_model=SearchRunTrace)
 def get_search_run(
     search_run_id: int,
+    merge_country: bool = Query(default=False),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SearchRunTrace:
@@ -171,7 +215,7 @@ def get_search_run(
         )
     )
     if search_run is None or not _can_see(user, search_run):
-        raise HTTPException(status_code=404, detail="Search run not found")
+        raise HTTPException(status_code=404, detail="Запуск поиска не найден")
     item = SearchRunTrace.model_validate(search_run)
     item.owner_name = search_run.owner.full_name if search_run.owner else None
     if search_run.status == "queued":
@@ -193,4 +237,153 @@ def get_search_run(
     item.result_count = item.summary.candidate_count
     item.candidate_results = _candidate_results(search_run)
     item.qualified_results = _qualified_results(search_run)
+    item.is_stale = _is_stale(search_run)
+    item.can_restart = _can_restart(search_run)
+    if merge_country and search_run.rfq_id is not None:
+        country = run_country(search_run)
+        if country:
+            related_runs = [
+                run
+                for run in country_runs(
+                    db,
+                    rfq_id=search_run.rfq_id,
+                    country=country,
+                )
+                if _can_see(user, run)
+            ]
+            if search_run.id not in {run.id for run in related_runs}:
+                related_runs.insert(0, search_run)
+            candidates, qualified = merge_unique_results(related_runs)
+            item.candidate_results = candidates
+            item.qualified_results = qualified
+            item.source_documents = [
+                SourceDocumentRead.model_validate(source)
+                for run in related_runs
+                for source in run.source_documents
+            ]
+            item.evidence_claims = [
+                EvidenceClaimRead.model_validate(claim)
+                for run in related_runs
+                for claim in run.evidence_claims
+            ]
+            item.merged_run_count = len(related_runs)
+            item.result_count = len(candidates)
+            item.summary.candidate_count = len(candidates)
+            item.summary.qualified_count = len(qualified)
+            item.summary.manufacturer_candidate_count = sum(
+                result.get("supplier_type") == "manufacturer"
+                for result in qualified
+            )
     return item
+
+
+@router.post(
+    "/{search_run_id}/restart",
+    response_model=SearchRunRestartRead,
+    status_code=202,
+)
+def restart_search_run(
+    search_run_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SearchRunRestartRead:
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    search_run = db.scalar(
+        select(SearchRun)
+        .where(SearchRun.id == search_run_id)
+        .options(
+            selectinload(SearchRun.owner),
+            selectinload(SearchRun.agent_runs),
+            selectinload(SearchRun.search_attempts),
+            selectinload(SearchRun.source_documents),
+            selectinload(SearchRun.evidence_claims),
+        )
+    )
+    if search_run is None or not _can_see(user, search_run):
+        raise HTTPException(status_code=404, detail="Запуск поиска не найден")
+    if not _can_restart(search_run):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Задача ещё выполняется и получает обновления. "
+                "Перезапуск станет доступен после 30 минут без прогресса."
+            ),
+        )
+
+    country = run_country(search_run)
+    related_runs: list[SearchRun] = []
+    if search_run.rfq_id is not None and country:
+        related_runs = country_runs(
+            db,
+            rfq_id=search_run.rfq_id,
+            country=country,
+            exclude_run_id=search_run.id,
+        )
+        active_newer = next(
+            (
+                run
+                for run in related_runs
+                if run.id > search_run.id
+                and run.status not in _TERMINAL_STATUSES
+            ),
+            None,
+        )
+        if active_newer is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Для этой страны уже есть более новая активная задача.",
+            )
+
+    payload = dict(search_run.input_payload or {})
+    prior_domains, prior_names = supplier_exclusions(
+        [search_run, *related_runs]
+    )
+    payload["excluded_supplier_domains"] = sorted(
+        {
+            *payload.get("excluded_supplier_domains", []),
+            *prior_domains,
+        }
+    )[:500]
+    payload["excluded_supplier_names"] = sorted(
+        {
+            *payload.get("excluded_supplier_names", []),
+            *prior_names,
+        }
+    )[:500]
+    payload["restart_of_search_run_id"] = search_run.id
+    payload["continuation"] = {
+        "previous_run_ids": [search_run.id, *[run.id for run in related_runs]],
+        "excluded_supplier_count": len(
+            {
+                *payload["excluded_supplier_domains"],
+                *payload["excluded_supplier_names"],
+            }
+        ),
+    }
+
+    cancel_search_run(
+        search_run,
+        reason="Выполнение остановлено: пользователь перезапустил задачу.",
+    )
+    restarted = create_search_run(
+        db,
+        owner_id=user.id,
+        rfq_id=search_run.rfq_id,
+        input_payload=payload,
+        mode="queued_search",
+        status="queued",
+    )
+    db.commit()
+    queue_position = db.scalar(
+        select(func.count(SearchRun.id)).where(
+            SearchRun.mode == "queued_search",
+            SearchRun.status == "queued",
+            SearchRun.id <= restarted.id,
+        )
+    )
+    return SearchRunRestartRead(
+        search_run_id=restarted.id,
+        status="queued",
+        queue_position=queue_position or 1,
+    )

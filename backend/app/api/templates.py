@@ -91,7 +91,7 @@ def update_template(
 ) -> Template:
     tpl = db.get(Template, template_id)
     if tpl is None:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="Шаблон не найден")
     changed = False
     if data.name is not None and data.name.strip() != tpl.name:
         tpl.name = data.name.strip()

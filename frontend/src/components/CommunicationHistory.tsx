@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, userErrorMessage } from "../api/client";
 import type { CommunicationRead, EmailSyncRead } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
@@ -92,7 +92,9 @@ export default function CommunicationHistory({
             <> · без связи с запросом: {syncResult.unmatched}</>
           )}
           {syncResult.errors.length > 0 && (
-            <div className="error">{syncResult.errors.join("; ")}</div>
+            <div className="error">
+              {syncResult.errors.map((item) => userErrorMessage(item)).join("; ")}
+            </div>
           )}
         </div>
       )}

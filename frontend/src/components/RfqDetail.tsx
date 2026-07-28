@@ -3,7 +3,7 @@
 // доступна на любом шаге.
 
 import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, userErrorMessage } from "../api/client";
 import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
@@ -472,7 +472,8 @@ function OverviewTab({ rfq }: { rfq: RFQRead }) {
           </dl>
         ) : (
           <p className="note">
-            Вещество не верифицировано{v?.error ? ` (${v.error})` : ""}. Проверка
+            Вещество не верифицировано
+            {v?.error ? ` (${userErrorMessage(v.error)})` : ""}. Проверка
             выполняется при создании запроса.
           </p>
         )}

@@ -20,10 +20,10 @@ _SEE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN, UserRole.AUDITOR}
 
 
 def _require_rfq_access(user: User, rfq: RFQ | None) -> RFQ:
-    if rfq is None:
-        raise HTTPException(status_code=404, detail="RFQ не найден")
+    if rfq is None or rfq.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     if user.role not in _SEE_ALL_ROLES and rfq.owner_id not in (None, user.id):
-        raise HTTPException(status_code=404, detail="RFQ не найден")
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     return rfq
 
 
@@ -59,8 +59,22 @@ def sync_email(
         )
     try:
         return sync_inbox(db, limit=limit).as_dict()
-    except (EmailConfigurationError, EmailDeliveryError) as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except EmailConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Синхронизация почты не настроена. "
+                "Обратитесь к администратору."
+            ),
+        ) from exc
+    except EmailDeliveryError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Не удалось синхронизировать почту. "
+                "Проверьте соединение с почтовым сервером и повторите попытку."
+            ),
+        ) from exc
 
 
 @router.post(
@@ -81,11 +95,28 @@ def send_draft(
     if get_settings().email_delivery_mode.strip().lower() != "live":
         raise HTTPException(
             status_code=409,
-            detail="Реальная отправка выключена: установите EMAIL_DELIVERY_MODE=live",
+            detail=(
+                "Отправка писем сейчас отключена в настройках сервера. "
+                "Обратитесь к администратору."
+            ),
         )
     try:
         return send_followup_draft(db, communication)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except (EmailConfigurationError, EmailDeliveryError) as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except EmailConfigurationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Отправка почты не настроена. "
+                "Обратитесь к администратору."
+            ),
+        ) from exc
+    except EmailDeliveryError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Не удалось отправить письмо. "
+                "Проверьте соединение с почтовым сервером и повторите попытку."
+            ),
+        ) from exc

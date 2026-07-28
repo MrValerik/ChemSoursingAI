@@ -1,5 +1,8 @@
 import {
   forwardRef,
+  useEffect,
+  useRef,
+  useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -36,7 +39,7 @@ export function Field({
   className,
   children,
 }: {
-  label: string;
+  label: ReactNode;
   hint?: string;
   error?: string | null;
   className?: string;
@@ -61,7 +64,9 @@ export type IconName =
   | "search"
   | "flask"
   | "edit"
-  | "save";
+  | "refresh"
+  | "save"
+  | "trash";
 
 export function Icon({
   name,
@@ -113,11 +118,28 @@ export function Icon({
         <path d="m13.5 6.5 4 4" />
       </>
     ),
+    refresh: (
+      <>
+        <path d="M20 7v5h-5" />
+        <path d="M4 17v-5h5" />
+        <path d="M18.4 9A7 7 0 0 0 6.2 6.5L4 9" />
+        <path d="M5.6 15A7 7 0 0 0 17.8 17.5L20 15" />
+      </>
+    ),
     save: (
       <>
         <path d="M5 4h12l2 2v14H5Z" />
         <path d="M8 4v6h8V4" />
         <path d="M8 20v-6h8v6" />
+      </>
+    ),
+    trash: (
+      <>
+        <path d="M4 7h16" />
+        <path d="M9 7V4h6v3" />
+        <path d="m6 7 1 14h10l1-14" />
+        <path d="M10 11v6" />
+        <path d="M14 11v6" />
       </>
     ),
   };
@@ -163,8 +185,96 @@ export function IconButton({
 export function HelpTip({ text }: { text: string }) {
   return (
     <span className="help-tip">
-      <IconButton icon="help" label={text} />
+      <button aria-label={text} type="button">
+        <Icon name="help" size={14} />
+      </button>
       <span role="tooltip">{text}</span>
     </span>
+  );
+}
+
+export interface MultiSelectOption {
+  value: string;
+  label: string;
+}
+
+export function MultiSelect({
+  label,
+  options,
+  values,
+  onChange,
+  className,
+}: {
+  label: string;
+  options: MultiSelectOption[];
+  values: string[];
+  onChange: (values: string[]) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  const summary =
+    values.length === 0
+      ? `${label}: все`
+      : values.length === 1
+        ? `${label}: ${options.find((option) => option.value === values[0])?.label ?? values[0]}`
+        : `${label}: выбрано ${values.length}`;
+
+  const toggle = (value: string) => {
+    onChange(
+      values.includes(value)
+        ? values.filter((item) => item !== value)
+        : [...values, value],
+    );
+  };
+
+  return (
+    <div className={classes("multi-select", className)} ref={rootRef}>
+      <button
+        aria-expanded={open}
+        className="multi-select-trigger"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{summary}</span>
+        <Icon name="chevron-down" size={15} />
+      </button>
+      {open && (
+        <div className="multi-select-menu">
+          <div className="multi-select-options">
+            {options.map((option) => (
+              <label key={option.value}>
+                <input
+                  checked={values.includes(option.value)}
+                  type="checkbox"
+                  onChange={() => toggle(option.value)}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+          {values.length > 0 && (
+            <button
+              className="multi-select-clear"
+              type="button"
+              onClick={() => onChange([])}
+            >
+              Сбросить выбор
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

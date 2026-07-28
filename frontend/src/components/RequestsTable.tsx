@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import type { RFQListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
+import { Icon, Input, MultiSelect } from "./ui";
 
 type QuickFilter = "all" | "attention" | "incomplete" | "review";
 type ScopeFilter = "mine" | "all";
@@ -30,12 +31,15 @@ export default function RequestsTable({
 
   const [rows, setRows] = useState<RFQListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<RFQListItem | null>(null);
 
   const [quick, setQuick] = useState<QuickFilter>("all");
   const [scope, setScope] = useState<ScopeFilter>("mine");
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [ownerFilter, setOwnerFilter] = useState<string>("");
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [ownerFilters, setOwnerFilters] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("id");
   const [sortAsc, setSortAsc] = useState(false);
@@ -64,8 +68,14 @@ export default function RequestsTable({
     if (quick === "incomplete")
       out = out.filter((r) => r.n_quotations > 0 && r.completeness_pct < 100);
     if (quick === "review") out = out.filter((r) => r.status === "escalated" || r.has_open_escalation);
-    if (statusFilter) out = out.filter((r) => r.status === statusFilter);
-    if (ownerFilter) out = out.filter((r) => r.owner_name === ownerFilter);
+    if (statusFilters.length > 0) {
+      out = out.filter((r) => statusFilters.includes(r.status));
+    }
+    if (ownerFilters.length > 0) {
+      out = out.filter(
+        (r) => r.owner_name !== null && ownerFilters.includes(r.owner_name),
+      );
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       out = out.filter(
@@ -82,7 +92,11 @@ export default function RequestsTable({
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
       return String(av).localeCompare(String(bv), "ru") * dir;
     });
-  }, [rows, scope, user, quick, statusFilter, ownerFilter, search, sortKey, sortAsc]);
+  }, [rows, scope, user, quick, statusFilters, ownerFilters, search, sortKey, sortAsc]);
+
+  const mineCount = user
+    ? rows.filter((row) => row.owner_id === user.id).length
+    : 0;
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) setSortAsc((v) => !v);
@@ -121,6 +135,28 @@ export default function RequestsTable({
   };
 
   const arrow = (key: SortKey) => (sortKey === key ? (sortAsc ? " ↑" : " ↓") : "");
+  const showDeleteAction = Boolean(user && user.role !== "auditor");
+
+  const canDelete = (request: RFQListItem) =>
+    user?.role === "head" ||
+    user?.role === "admin" ||
+    request.owner_id === user?.id;
+
+  const deleteRequest = async (request: RFQListItem) => {
+    setDeletingId(request.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.deleteRfq(request.id);
+      setRows((current) => current.filter((row) => row.id !== request.id));
+      setNotice(`Запрос №${request.id} удалён.`);
+      setPendingDelete(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="requests-page">
@@ -139,65 +175,72 @@ export default function RequestsTable({
           className={`tab ${scope === "mine" ? "active" : ""}`}
           onClick={() => setScope("mine")}
         >
-          Мои запросы
+          Мои запросы <span className="tab-count">{mineCount}</span>
         </button>
         {showOwner && (
           <button
             className={`tab ${scope === "all" ? "active" : ""}`}
             onClick={() => setScope("all")}
           >
-            Все запросы
+            Все запросы <span className="tab-count">{rows.length}</span>
           </button>
         )}
       </div>
 
-      <div className="requests-filters">
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="">Статус: все</option>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
+      <div className="requests-filter-panel">
+        <div className="requests-filters">
+          <MultiSelect
+            className="requests-status-filter"
+            label="Статус"
+            options={Object.entries(STATUS_LABELS).map(([value, label]) => ({
+              value,
+              label,
+            }))}
+            values={statusFilters}
+            onChange={setStatusFilters}
+          />
         {showOwner && (
-          <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
-            <option value="">Ответственный: все</option>
-            {owners.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
+            <MultiSelect
+              className="requests-owner-filter"
+              label="Ответственный"
+              options={owners.map((owner) => ({
+                value: owner,
+                label: owner,
+              }))}
+              values={ownerFilters}
+              onChange={setOwnerFilters}
+            />
         )}
-        <input
-          className="filter-search"
-          placeholder="Поиск: №, вещество, CAS…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
+          <Input
+            className="filter-search"
+            placeholder="Поиск по номеру, веществу или CAS"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
 
-      <div className="quick-chips">
-        {(
-          [
-            ["all", "Все"],
-            ["attention", "Требуют внимания"],
-            ["incomplete", "Неполные"],
-            ["review", "На ручном разборе"],
-          ] as [QuickFilter, string][]
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            className={`chip ${quick === key ? "active" : ""}`}
-            onClick={() => setQuick(key)}
-          >
-            {label}
-          </button>
-        ))}
+        <div className="quick-chips">
+          {(
+            [
+              ["all", "Все"],
+              ["attention", "Требуют внимания"],
+              ["incomplete", "Неполные"],
+              ["review", "На ручном разборе"],
+            ] as [QuickFilter, string][]
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              className={`chip ${quick === key ? "active" : ""}`}
+              onClick={() => setQuick(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && <p className="error">{error}</p>}
+      {notice && <p className="success">{notice}</p>}
       {loading && <p className="note">Загрузка…</p>}
       {!loading && filtered.length === 0 && !error && (
         <div className="panel">
@@ -228,6 +271,7 @@ export default function RequestsTable({
                     Ответственный{arrow("owner_name")}
                   </th>
                 )}
+                {showDeleteAction && <th className="request-actions-column">Действия</th>}
               </tr>
             </thead>
             <tbody>
@@ -265,10 +309,80 @@ export default function RequestsTable({
                     )}
                   </td>
                   {showOwner && <td>{r.owner_name ?? "—"}</td>}
+                  {showDeleteAction && (
+                    <td className="request-actions-column">
+                      {canDelete(r) && (
+                        <button
+                          aria-label={`Удалить запрос №${r.id}`}
+                          className="ui-icon-button request-delete-button"
+                          disabled={deletingId === r.id}
+                          title="Удалить запрос"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setPendingDelete(r);
+                          }}
+                        >
+                          <Icon name="trash" size={16} />
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {pendingDelete && (
+        <div
+          className="request-delete-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (deletingId === null) setPendingDelete(null);
+          }}
+        >
+          <section
+            aria-labelledby="request-delete-title"
+            aria-modal="true"
+            className="request-delete-dialog"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="request-delete-dialog-icon" aria-hidden="true">
+              <Icon name="trash" size={19} />
+            </div>
+            <div>
+              <h2 id="request-delete-title">Удалить запрос?</h2>
+              <p>
+                Запрос №{pendingDelete.id} «{pendingDelete.name}» исчезнет из
+                рабочих списков, а активный поиск будет остановлен.
+              </p>
+              <p className="note">
+                История поиска, коммуникации и котировки сохранятся для аудита.
+              </p>
+            </div>
+            <div className="request-delete-dialog-actions">
+              <button
+                className="secondary"
+                disabled={deletingId !== null}
+                type="button"
+                onClick={() => setPendingDelete(null)}
+              >
+                Отмена
+              </button>
+              <button
+                className="danger"
+                disabled={deletingId !== null}
+                type="button"
+                onClick={() => void deleteRequest(pendingDelete)}
+              >
+                {deletingId === pendingDelete.id
+                  ? "Удаление…"
+                  : "Удалить запрос"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </div>

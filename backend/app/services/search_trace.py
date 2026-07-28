@@ -138,3 +138,52 @@ def finish_search_run(
     search_run.error = error
     search_run.status = "failed" if error else "completed"
     search_run.completed_at = utc_now()
+
+
+def cancel_search_run(
+    search_run: SearchRun,
+    *,
+    reason: str,
+) -> None:
+    """Cancel a non-terminal run and close its running trace parts."""
+    terminal_statuses = {"completed", "failed", "cancelled"}
+    if search_run.status in terminal_statuses:
+        return
+
+    now = utc_now()
+    search_run.status = "cancelled"
+    search_run.error = reason
+    search_run.completed_at = now
+
+    for stage in search_run.agent_runs:
+        if stage.status != "running":
+            continue
+        stage.status = "failed"
+        stage.error = reason
+        stage.completed_at = now
+        started_at = stage.started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=now.tzinfo)
+        stage.latency_ms = max(
+            0,
+            round((now - started_at).total_seconds() * 1000),
+        )
+
+    for attempt in search_run.search_attempts:
+        if attempt.status != "running":
+            continue
+        attempt.status = "failed"
+        attempt.error = reason
+        attempt.completed_at = now
+        started_at = attempt.started_at
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=now.tzinfo)
+        attempt.latency_ms = max(
+            0,
+            round((now - started_at).total_seconds() * 1000),
+        )
+
+    for source in search_run.source_documents:
+        if source.status == "running":
+            source.status = "failed"
+            source.error = reason

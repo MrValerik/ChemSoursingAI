@@ -20,7 +20,7 @@ _SEE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN, UserRole.AUDITOR}
 
 def _require_rfq_access(user: User, rfq: RFQ) -> None:
     if user.role not in _SEE_ALL_ROLES and rfq.owner_id not in (None, user.id):
-        raise HTTPException(status_code=404, detail="RFQ not found")
+        raise HTTPException(status_code=404, detail="Запрос не найден")
 
 
 class ExtractRequest(BaseModel):
@@ -45,8 +45,8 @@ def extract_preview(
     saved_instructions = None
     if req.rfq_id is not None:
         rfq = db.get(RFQ, req.rfq_id)
-        if rfq is None:
-            raise HTTPException(status_code=404, detail="RFQ not found")
+        if rfq is None or rfq.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="Запрос не найден")
         _require_rfq_access(user, rfq)
         system_prompt, saved_instructions = get_rfq_prompt_context(db, req.rfq_id)
     result = extract_quote(
@@ -67,8 +67,8 @@ def extract_and_store(
 ):
     """Извлекает котировку из ответа и сохраняет её в RFQ (с контролем полноты)."""
     rfq = db.get(RFQ, rfq_id)
-    if rfq is None:
-        raise HTTPException(status_code=404, detail="RFQ not found")
+    if rfq is None or rfq.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     _require_rfq_access(user, rfq)
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")

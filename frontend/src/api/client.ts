@@ -27,10 +27,17 @@ import type {
   RFQRead,
   RfqAiSetting,
   SubstanceInfo,
+  SubstanceHistoryEntry,
   SubstanceRecord,
   SummaryRow,
   TokenResponse,
 } from "./types";
+import {
+  apiResponseErrorMessage,
+  userErrorMessage,
+} from "./errors";
+
+export { userErrorMessage } from "./errors";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "/api";
 const TOKEN_KEY = "chemsource_token";
@@ -42,6 +49,7 @@ export class ApiError extends Error {
     public searchRunId: number | null = null,
   ) {
     super(message);
+    this.name = "Ошибка";
   }
 }
 
@@ -59,33 +67,65 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const resp = await fetch(`${BASE}${path}`, { headers, ...options });
+  let resp: Response;
+  try {
+    resp = await fetch(`${BASE}${path}`, { headers, ...options });
+  } catch (error) {
+    throw new ApiError(
+      0,
+      userErrorMessage(
+        error,
+        "Не удалось связаться с сервером. Проверьте подключение и повторите попытку.",
+      ),
+    );
+  }
   if (!resp.ok) {
     if (resp.status === 401 && !path.startsWith("/auth/login")) {
       onUnauthorized?.();
     }
-    let detail = resp.statusText;
+    let detail: unknown = null;
     let searchRunId: number | null = null;
     try {
       const data = await resp.json();
       const errorDetail = (data as {
-        detail?: string | { message?: string; search_run_id?: number };
+        detail?: unknown;
       }).detail;
-      if (typeof errorDetail === "string") {
-        detail = errorDetail;
-      } else if (errorDetail) {
-        detail = errorDetail.message ?? detail;
-        searchRunId = errorDetail.search_run_id ?? null;
+      detail = errorDetail;
+      if (
+        errorDetail &&
+        typeof errorDetail === "object" &&
+        !Array.isArray(errorDetail)
+      ) {
+        const structuredDetail = errorDetail as {
+          message?: unknown;
+          search_run_id?: unknown;
+        };
+        detail = structuredDetail.message ?? errorDetail;
+        searchRunId =
+          typeof structuredDetail.search_run_id === "number"
+            ? structuredDetail.search_run_id
+            : null;
       }
     } catch {
-      /* тело не JSON — оставляем statusText */
+      detail = null;
     }
-    throw new ApiError(resp.status, detail, searchRunId);
+    throw new ApiError(
+      resp.status,
+      apiResponseErrorMessage(resp.status, detail, path),
+      searchRunId,
+    );
   }
   if (resp.status === 204) {
     return undefined as T;
   }
-  return (await resp.json()) as T;
+  try {
+    return (await resp.json()) as T;
+  } catch {
+    throw new ApiError(
+      502,
+      "Сервер вернул некорректный ответ. Обновите страницу и повторите попытку.",
+    );
+  }
 }
 
 export interface RFQCreatePayload {
@@ -149,6 +189,9 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  listSubstanceHistory: (id: number) =>
+    request<SubstanceHistoryEntry[]>(`/substances/${id}/history`),
+
   decideSubstanceIdentity: (
     rfqId: number,
     payload: {
@@ -187,6 +230,9 @@ export const api = {
   getRfq: (id: number) => request<RFQRead>(`/rfq/${id}`),
 
   listRfqs: () => request<RFQListItem[]>(`/rfq`),
+
+  deleteRfq: (id: number) =>
+    request<void>(`/rfq/${id}`, { method: "DELETE" }),
 
   extractQuote: (
     text: string,
@@ -401,8 +447,15 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  getSearchRun: (id: number) =>
-    request<SearchRunTrace>(`/search-runs/${id}`),
+  getSearchRun: (id: number, mergeCountry = true) =>
+    request<SearchRunTrace>(
+      `/search-runs/${id}${mergeCountry ? "?merge_country=true" : ""}`,
+    ),
+
+  restartSearchRun: (id: number) =>
+    request<SupplierSearchJob>(`/search-runs/${id}/restart`, {
+      method: "POST",
+    }),
 
   createPrompt: (payload: {
     kind: string;

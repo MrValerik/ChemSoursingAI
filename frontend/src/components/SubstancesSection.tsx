@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api/client";
-import type { SubstanceRecord } from "../api/types";
+import type { SubstanceHistoryEntry, SubstanceRecord } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { Field, Icon, Input, Textarea } from "./ui";
+import { Field, HelpTip, Icon, Input, Textarea } from "./ui";
 
 const REVIEW_LABELS: Record<string, string> = {
   confirmed: "Подтверждено специалистом",
@@ -16,11 +16,103 @@ const REVIEW_TONES: Record<string, string> = {
   unreviewed: "tone-neutral",
 };
 
-const splitNames = (value: string) =>
-  value
-    .split(/[\n,;]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+const HISTORY_LABELS: Record<string, string> = {
+  created: "Карточка создана и подтверждена",
+  rules_updated: "Экспертные правила обновлены",
+  identity_confirmed: "Идентификация ИИ подтверждена",
+  identity_rejected: "Предложение ИИ отклонено",
+};
+
+const CHANGE_LABELS: Record<string, string> = {
+  preferred_name: "Предпочтительное наименование",
+  synonyms: "Допустимые синонимы",
+  excluded_names: "Исключённые названия",
+  notes: "Комментарий специалиста",
+  review_status: "Статус проверки",
+};
+
+const formatHistoryValue = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return "не задано";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "нет";
+  if (value === "confirmed") return "подтверждено специалистом";
+  if (value === "needs_review") return "требует уточнения";
+  if (value === "unreviewed") return "не проверено";
+  return String(value);
+};
+
+function TagEditor({
+  label,
+  hint,
+  placeholder,
+  values,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  placeholder: string;
+  values: string[];
+  disabled: boolean;
+  onChange: (values: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const add = () => {
+    const value = draft.trim();
+    if (!value) return;
+    if (!values.some((item) => item.toLocaleLowerCase() === value.toLocaleLowerCase())) {
+      onChange([...values, value]);
+    }
+    setDraft("");
+  };
+
+  return (
+    <div className="ui-field substance-tag-field">
+      <span className="ui-field-label">{label}</span>
+      <div className="tag-editor-control">
+        <Input
+          disabled={disabled}
+          placeholder={placeholder}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button
+          className="secondary"
+          disabled={disabled || !draft.trim()}
+          type="button"
+          onClick={add}
+        >
+          Добавить
+        </button>
+      </div>
+      {values.length > 0 && (
+        <div className="substance-name-tags">
+          {values.map((value) => (
+            <span className="substance-name-tag" key={value.toLocaleLowerCase()}>
+              {value}
+              {!disabled && (
+                <button
+                  aria-label={`Удалить ${value}`}
+                  type="button"
+                  onClick={() => onChange(values.filter((item) => item !== value))}
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+      <span className="ui-field-hint">{hint}</span>
+    </div>
+  );
+}
 
 export default function SubstancesSection({
   focusId,
@@ -41,9 +133,12 @@ export default function SubstancesSection({
   const [creating, setCreating] = useState(false);
   const [preferredName, setPreferredName] = useState("");
   const [cas, setCas] = useState("");
-  const [synonyms, setSynonyms] = useState("");
-  const [excludedNames, setExcludedNames] = useState("");
+  const [synonyms, setSynonyms] = useState<string[]>([]);
+  const [excludedNames, setExcludedNames] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
+  const [history, setHistory] = useState<SubstanceHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -77,10 +172,41 @@ export default function SubstancesSection({
     if (!selected || creating) return;
     setPreferredName(selected.preferred_name);
     setCas(selected.cas);
-    setSynonyms(selected.synonyms.join("\n"));
-    setExcludedNames(selected.excluded_names.join("\n"));
+    setSynonyms(
+      selected.synonyms.filter(
+        (name) => name.toLocaleLowerCase() !== selected.preferred_name.toLocaleLowerCase(),
+      ),
+    );
+    setExcludedNames(selected.excluded_names);
     setNotes(selected.notes ?? "");
   }, [selected, creating]);
+
+  useEffect(() => {
+    if (selectedId === null || creating) {
+      setHistory([]);
+      setHistoryError(null);
+      return;
+    }
+    let active = true;
+    setHistoryLoading(true);
+    api
+      .listSubstanceHistory(selectedId)
+      .then((data) => {
+        if (!active) return;
+        setHistory(data);
+        setHistoryError(null);
+      })
+      .catch((caught) => {
+        if (!active) return;
+        setHistoryError(caught instanceof ApiError ? caught.message : String(caught));
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedId, creating]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("ru");
@@ -98,8 +224,8 @@ export default function SubstancesSection({
     setSelectedId(null);
     setPreferredName("");
     setCas("");
-    setSynonyms("");
-    setExcludedNames("");
+    setSynonyms([]);
+    setExcludedNames([]);
     setNotes("");
     setError(null);
     setNotice(null);
@@ -114,20 +240,24 @@ export default function SubstancesSection({
         ? await api.createSubstance({
             cas: cas.trim(),
             preferred_name: preferredName.trim(),
-            synonyms: splitNames(synonyms),
-            excluded_names: splitNames(excludedNames),
+            synonyms,
+            excluded_names: excludedNames,
             notes: notes.trim() || null,
           })
         : await api.updateSubstance(selected!.id, {
             preferred_name: preferredName.trim(),
-            synonyms: splitNames(synonyms),
-            excluded_names: splitNames(excludedNames),
+            synonyms,
+            excluded_names: excludedNames,
             notes: notes.trim() || null,
           });
       setCreating(false);
       setSelectedId(saved.id);
       setNotice("Правила идентификации сохранены и будут применяться в новых поисках.");
-      await load();
+      const [, updatedHistory] = await Promise.all([
+        load(),
+        api.listSubstanceHistory(saved.id),
+      ]);
+      setHistory(updatedHistory);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));
     } finally {
@@ -236,36 +366,92 @@ export default function SubstancesSection({
                   />
                 </Field>
               </div>
-              <Field
+              <TagEditor
+                disabled={!canEdit}
+                hint="ИИ-агенты используют эти названия как допустимые варианты того же вещества."
                 label="Допустимые синонимы"
-                hint="По одному названию в строке. ИИ использует их как эквивалентные варианты."
-              >
-                <Textarea
-                  disabled={!canEdit}
-                  rows={6}
-                  value={synonyms}
-                  onChange={(event) => setSynonyms(event.target.value)}
-                />
-              </Field>
-              <Field
+                placeholder="Например, Acetylsalicylic acid"
+                values={synonyms}
+                onChange={setSynonyms}
+              />
+              <TagEditor
+                disabled={!canEdit}
+                hint="ИИ-агенты исключают эти названия из вариантов идентификации и поиска."
                 label="Исключённые названия"
-                hint="Эти варианты не будут считаться эквивалентными веществу."
+                placeholder="Название другого вещества или ошибочный вариант"
+                values={excludedNames}
+                onChange={setExcludedNames}
+              />
+              <Field
+                label={
+                  <span className="field-label-with-help">
+                    Комментарий специалиста
+                    <HelpTip text="Укажите особенности грейда, назначения, состава, неоднозначные торговые названия или обязательные ограничения. Комментарий передаётся ИИ-агентам при идентификации, планировании поиска и проверке поставщиков для будущих запросов по этой карточке." />
+                  </span>
+                }
+                hint="Это постоянное экспертное правило для последующих поисков по веществу."
               >
-                <Textarea
-                  disabled={!canEdit}
-                  rows={4}
-                  value={excludedNames}
-                  onChange={(event) => setExcludedNames(event.target.value)}
-                />
-              </Field>
-              <Field label="Комментарий специалиста">
                 <Textarea
                   disabled={!canEdit}
                   rows={3}
+                  placeholder="Например: искать только фармацевтический USP-грейд; не считать технический продукт эквивалентом"
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
                 />
               </Field>
+              {!creating && selected && (
+                <section className="substance-history">
+                  <div className="heading-with-help">
+                    <h3>История изменений</h3>
+                    <HelpTip text="История показывает каждое экспертное подтверждение и изменение правил: кто принял решение, когда и какие значения поменялись." />
+                  </div>
+                  {historyLoading && <p className="note">Загрузка истории…</p>}
+                  {historyError && (
+                    <p className="error">Не удалось загрузить историю: {historyError}</p>
+                  )}
+                  {!historyLoading && !historyError && history.length === 0 && (
+                    <p className="note">
+                      История начнёт формироваться после следующего экспертного решения.
+                    </p>
+                  )}
+                  <div className="substance-history-list">
+                    {history.map((entry) => (
+                      <article className="substance-history-entry" key={entry.id}>
+                        <div className="substance-history-entry-header">
+                          <strong>{HISTORY_LABELS[entry.action] ?? entry.action}</strong>
+                          <time dateTime={entry.created_at}>
+                            {new Date(entry.created_at).toLocaleString("ru-RU", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
+                          </time>
+                        </div>
+                        <div className="substance-history-meta">
+                          <span>
+                            Подтвердил: {entry.actor_name ?? `пользователь #${entry.actor_id}`}
+                          </span>
+                          {entry.source_rfq_id !== null && (
+                            <span>Основание: запрос #{entry.source_rfq_id}</span>
+                          )}
+                        </div>
+                        {Object.keys(entry.changes).length > 0 && (
+                          <ul>
+                            {Object.entries(entry.changes).map(([field, change]) => (
+                              <li key={field}>
+                                <span>{CHANGE_LABELS[field] ?? field}</span>
+                                <strong>
+                                  {formatHistoryValue(change.before)} →{" "}
+                                  {formatHistoryValue(change.after)}
+                                </strong>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
               {error && <p className="error">Ошибка: {error}</p>}
               {notice && <p className="success">{notice}</p>}
               {canEdit && (

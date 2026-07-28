@@ -164,12 +164,12 @@ def add_supplier(
             UserRole.ADMIN,
             UserRole.AUDITOR,
         }
-        if rfq is None or (
+        if rfq is None or rfq.deleted_at is not None or (
             not can_see_all
             and rfq.owner_id is not None
             and rfq.owner_id != user.id
         ):
-            raise HTTPException(status_code=404, detail="RFQ not found")
+            raise HTTPException(status_code=404, detail="Запрос не найден")
     search_run: SearchRun | None = None
     if search_run_id is not None:
         search_run = db.get(SearchRun, search_run_id)
@@ -245,8 +245,8 @@ def add_supplier(
 
 def _get_rfq(db: Session, rfq_id: int) -> RFQ:
     rfq = db.get(RFQ, rfq_id)
-    if rfq is None:
-        raise HTTPException(status_code=404, detail="RFQ not found")
+    if rfq is None or rfq.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
     return rfq
 
 
@@ -290,7 +290,7 @@ def select_recipients(
             continue
         if db.get(Supplier, item.supplier_id) is None:
             raise HTTPException(
-                status_code=404, detail=f"Supplier {item.supplier_id} not found"
+                status_code=404, detail=f"Поставщик {item.supplier_id} не найден"
             )
         db.add(
             RfqRecipient(
@@ -398,7 +398,7 @@ def remove_recipient(
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
     rec = db.get(RfqRecipient, recipient_id)
     if rec is None or rec.rfq_id != rfq_id:
-        raise HTTPException(status_code=404, detail="Recipient not found")
+        raise HTTPException(status_code=404, detail="Получатель не найден")
     if rec.status != DispatchStatus.QUEUED:
         raise HTTPException(status_code=422, detail="Уже отправлено — отмена недоступна")
     db.delete(rec)

@@ -67,6 +67,14 @@ def test_confirmed_identity_is_saved_and_reused_by_new_request(client):
     assert substance["preferred_name"] == "Ацетилсалициловая кислота"
     assert substance["synonyms"].count("Aspirin") == 1
     assert substance["request_count"] >= 1
+    history = client.get(
+        f"/substances/{substance['id']}/history",
+        headers=buyer,
+    )
+    assert history.status_code == 200
+    assert history.json()[0]["action"] == "identity_confirmed"
+    assert history.json()[0]["actor_name"]
+    assert history.json()[0]["source_rfq_id"] == rfq["id"]
 
     linked = client.get(f"/rfq/{rfq['id']}", headers=buyer).json()
     assert linked["substance_id"] == substance["id"]
@@ -97,6 +105,9 @@ def test_confirmed_identity_is_saved_and_reused_by_new_request(client):
     assert payload["catalog_preferred_name"] == "Ацетилсалициловая кислота"
     assert "Aspirin" in payload["known_synonyms"]
     assert payload["excluded_names"] == []
+    assert payload["catalog_notes"] == (
+        "Русское и английское названия считаем эквивалентными."
+    )
 
 
 def test_rejected_suggestion_is_excluded_from_future_search_rules(client):
@@ -145,6 +156,20 @@ def test_catalog_rules_can_be_edited_and_auditor_is_read_only(client):
     assert edited.status_code == 200
     assert "Aminoacetic acid" in edited.json()["synonyms"]
     assert edited.json()["reviewed_by_name"]
+    history = client.get(
+        f"/substances/{substance_id}/history",
+        headers=buyer,
+    )
+    assert history.status_code == 200
+    entries = history.json()
+    assert [entry["action"] for entry in entries[:2]] == [
+        "rules_updated",
+        "created",
+    ]
+    assert entries[0]["changes"]["notes"]["after"] == (
+        "Использовать карточку для фармацевтического грейда."
+    )
+    assert all(entry["actor_name"] for entry in entries)
 
     auditor = _auth(client, "auditor")
     forbidden = client.patch(
@@ -154,3 +179,10 @@ def test_catalog_rules_can_be_edited_and_auditor_is_read_only(client):
     )
     assert forbidden.status_code == 403
     assert client.get("/substances", headers=auditor).status_code == 200
+    assert (
+        client.get(
+            f"/substances/{substance_id}/history",
+            headers=auditor,
+        ).status_code
+        == 200
+    )

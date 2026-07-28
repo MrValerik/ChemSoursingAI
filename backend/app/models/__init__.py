@@ -16,7 +16,7 @@ from app.models.search_trace import (
     SearchRun,
     SourceDocument,
 )
-from app.models.substance import Substance
+from app.models.substance import Substance, SubstanceRevision
 from app.models.supplier import Supplier
 from app.models.template import Template
 from app.models.user import User
@@ -42,4 +42,5 @@ __all__ = [
     "SourceDocument",
     "EvidenceClaim",
     "Substance",
+    "SubstanceRevision",
 ]

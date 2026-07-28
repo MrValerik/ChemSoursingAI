@@ -138,3 +138,91 @@ button.ui-icon-button:focus-visible {
 .input-with-icon > input {
   padding-left: 36px;
 }
+
+.multi-select {
+  position: relative;
+  width: 220px;
+  flex: 0 0 220px;
+}
+
+button.multi-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--control-height);
+  gap: 10px;
+  padding: 8px 10px 8px 11px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  color: var(--text);
+  text-align: left;
+}
+
+button.multi-select-trigger:hover,
+button.multi-select-trigger:focus-visible {
+  border-color: var(--control-border-hover);
+  background: #fff;
+}
+
+.multi-select-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-select-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 60;
+  width: max(100%, 260px);
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+}
+
+.multi-select-options {
+  display: grid;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.multi-select-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.multi-select-options label:hover {
+  background: #f8fafc;
+}
+
+.multi-select-options input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+button.multi-select-clear {
+  width: 100%;
+  margin-top: 5px;
+  padding: 7px 8px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 5px 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+button.multi-select-clear:hover {
+  background: #f8fafc;
+  color: var(--text);
+}
