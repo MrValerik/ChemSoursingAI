@@ -1,7 +1,7 @@
 """Эндпоинты поставщиков и рассылки RFQ (разделы 9–10 UI/UX-плана).
 
-Email работает в безопасном demo-режиме либо реально через SMTP после явного
-включения EMAIL_DELIVERY_MODE=live. WhatsApp пока остаётся демонстрационным.
+Email и WhatsApp работают в безопасном demo-режиме либо реально после явного
+включения администратором.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,7 +14,11 @@ from app.connectors.email import (
     EmailConnector,
     EmailDeliveryError,
 )
-from app.core.config import get_settings
+from app.connectors.whatsapp import (
+    WhatsAppConfigurationError,
+    WhatsAppConnector,
+    WhatsAppDeliveryError,
+)
 from app.core.db import get_db
 from app.models import (
     Communication,
@@ -42,6 +46,10 @@ from app.schemas.supplier import (
     SupplierRequestLink,
 )
 from app.services.search_trace import utc_now
+from app.services.integration_settings import (
+    effective_email_settings,
+    effective_whatsapp_settings,
+)
 from app.services.rfq_service import render_rfq_text
 
 router = APIRouter(tags=["suppliers"], dependencies=[Depends(get_current_user)])
@@ -322,17 +330,64 @@ def dispatch(
     ).all()
     if not queued:
         raise HTTPException(status_code=422, detail="Нет получателей в очереди")
-    settings = get_settings()
-    live_email = settings.email_delivery_mode.strip().lower() == "live"
-    connector = EmailConnector(settings) if live_email else None
+    email_settings, email_enabled, _ = effective_email_settings(db)
+    whatsapp_settings, whatsapp_enabled, _ = effective_whatsapp_settings(db)
+    live_email = (
+        email_enabled and email_settings.email_delivery_mode == "live"
+    )
+    email_connector = EmailConnector(email_settings) if live_email else None
+    whatsapp_connector = (
+        WhatsAppConnector(whatsapp_settings) if whatsapp_enabled else None
+    )
     subject, body = render_rfq_text(rfq)
     subject = f"[RFQ-{rfq.id}] {subject}"
     sent_any = False
 
     for recipient in queued:
-        if recipient.channel != Channel.EMAIL:
+        if recipient.channel == Channel.WHATSAPP:
+            if whatsapp_connector is None:
+                recipient.status = DispatchStatus.SENT
+                recipient.note = "отправлено (демо; WhatsApp выключен)"
+                sent_any = True
+                continue
+            manager = next(
+                (item for item in recipient.supplier.managers if item.whatsapp),
+                None,
+            )
+            if manager is None:
+                recipient.status = DispatchStatus.ERROR
+                recipient.note = "у поставщика отсутствует WhatsApp"
+                continue
+            try:
+                message_id = whatsapp_connector.send_text(
+                    to_number=manager.whatsapp,
+                    body=body,
+                )
+            except (
+                WhatsAppConfigurationError,
+                WhatsAppDeliveryError,
+            ) as exc:
+                recipient.status = DispatchStatus.ERROR
+                recipient.note = str(exc)[:255]
+                continue
             recipient.status = DispatchStatus.SENT
-            recipient.note = "отправлен шаблон (демо: WhatsApp не подключён)"
+            recipient.note = "WhatsApp Cloud API: отправлено"
+            db.add(
+                Communication(
+                    rfq_id=rfq.id,
+                    manager_id=manager.id,
+                    direction=CommDirection.OUTBOUND,
+                    channel=Channel.WHATSAPP,
+                    subject=None,
+                    body=body,
+                    from_address=whatsapp_settings.whatsapp_phone_id,
+                    to_address=manager.whatsapp,
+                    status="sent",
+                    thread_id=message_id,
+                    external_id=message_id,
+                    attachments=None,
+                )
+            )
             sent_any = True
             continue
         if not live_email:
@@ -348,9 +403,9 @@ def dispatch(
             recipient.status = DispatchStatus.ERROR
             recipient.note = "у поставщика отсутствует Email"
             continue
-        assert connector is not None
+        assert email_connector is not None
         try:
-            message_id = connector.send(
+            message_id = email_connector.send(
                 to_address=manager.email,
                 subject=subject,
                 body=body,
@@ -370,7 +425,7 @@ def dispatch(
                 channel=Channel.EMAIL,
                 subject=subject,
                 body=body,
-                from_address=settings.email_from,
+                from_address=email_settings.email_from,
                 to_address=manager.email,
                 status="sent",
                 thread_id=message_id,

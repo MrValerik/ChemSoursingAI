@@ -5,6 +5,7 @@ import type {
   ChannelStatus,
   CommunicationRead,
   DashboardData,
+  EmailIntegration,
   EmailSyncRead,
   EscalationRead,
   PriceHistoryItem,
@@ -18,8 +19,11 @@ import type {
   SupplierSearchResponse,
   SearchRunTrace,
   TemplateRead,
+  IntegrationConnectionResult,
+  CommunicationTestRun,
   UserAdminRead,
   UserRead,
+  WhatsAppIntegration,
   ExtractedQuote,
   QuotationRead,
   RFQListItem,
@@ -380,6 +384,81 @@ export const api = {
     }),
 
   channelsStatus: () => request<ChannelStatus[]>(`/settings/channels`),
+
+  getEmailIntegration: () =>
+    request<EmailIntegration>(`/settings/integrations/email`),
+
+  updateEmailIntegration: (payload: {
+    enabled: boolean;
+    delivery_mode: "demo" | "live";
+    email_from: string;
+    email_from_name: string;
+    email_timeout_s: number;
+    auto_followup_mode: "off" | "draft" | "send";
+    smtp_host: string;
+    smtp_port: number;
+    smtp_user: string;
+    smtp_password?: string | null;
+    smtp_use_ssl: boolean;
+    smtp_starttls: boolean;
+    imap_host: string;
+    imap_port: number;
+    imap_user: string;
+    imap_password?: string | null;
+    imap_use_ssl: boolean;
+    imap_folder: string;
+    clear_secrets?: boolean;
+  }) =>
+    request<EmailIntegration>(`/settings/integrations/email`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  checkEmailIntegration: () =>
+    request<IntegrationConnectionResult>(`/settings/integrations/email/check`, {
+      method: "POST",
+    }),
+
+  getWhatsAppIntegration: () =>
+    request<WhatsAppIntegration>(`/settings/integrations/whatsapp`),
+
+  updateWhatsAppIntegration: (payload: {
+    enabled: boolean;
+    phone_id: string;
+    access_token?: string | null;
+    api_base_url: string;
+    api_version: string;
+    timeout_s: number;
+    clear_token?: boolean;
+  }) =>
+    request<WhatsAppIntegration>(`/settings/integrations/whatsapp`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  checkWhatsAppIntegration: () =>
+    request<IntegrationConnectionResult>(
+      `/settings/integrations/whatsapp/check`,
+      { method: "POST" },
+    ),
+
+  listCommunicationTests: (limit = 30) =>
+    request<CommunicationTestRun[]>(`/communication-testing?limit=${limit}`),
+
+  runCommunicationTest: (payload: {
+    channel: "email" | "whatsapp";
+    recipient: string;
+    customer_message: string;
+    reply_language: "ru" | "en" | "zh";
+    additional_instructions: string;
+    delivery_mode: "preview" | "send";
+    subject: string;
+    confirm_external_send: boolean;
+  }) =>
+    request<CommunicationTestRun>(`/communication-testing`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   dashboard: () => request<DashboardData>(`/dashboard`),
 

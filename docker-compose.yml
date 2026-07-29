@@ -31,6 +31,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-chemsource}:${POSTGRES_PASSWORD:-change_me}@db:5432/${POSTGRES_DB:-chemsource}
       REDIS_URL: redis://redis:6379/0
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-dev-secret-change-in-prod}
+      INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-}
       # llama-server работает на хосте ВМ как отдельная systemd-служба.
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
       LLM_MODEL: ${LLM_MODEL:-Qwen_Qwen3.5-27B-Q4_K_M}
@@ -54,6 +55,11 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_USE_SSL: ${SMTP_USE_SSL:-true}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
+      WHATSAPP_PHONE_ID: ${WHATSAPP_PHONE_ID:-}
+      WHATSAPP_API_BASE_URL: ${WHATSAPP_API_BASE_URL:-https://graph.facebook.com}
+      WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-v23.0}
+      WHATSAPP_TIMEOUT_S: ${WHATSAPP_TIMEOUT_S:-30}
     depends_on:
       db:
         condition: service_healthy
@@ -75,6 +81,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-chemsource}:${POSTGRES_PASSWORD:-change_me}@db:5432/${POSTGRES_DB:-chemsource}
       REDIS_URL: redis://redis:6379/0
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-dev-secret-change-in-prod}
+      INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:8000/v1}
       LLM_MODEL: ${LLM_MODEL:-Qwen_Qwen3.5-27B-Q4_K_M}
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}

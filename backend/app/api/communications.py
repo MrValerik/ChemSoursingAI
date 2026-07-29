@@ -5,8 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.connectors.email import EmailConfigurationError, EmailDeliveryError
-from app.core.config import get_settings
+from app.connectors.email import (
+    EmailConfigurationError,
+    EmailConnector,
+    EmailDeliveryError,
+)
 from app.core.db import get_db
 from app.models.communication import Communication
 from app.models.enums import UserRole
@@ -14,6 +17,7 @@ from app.models.rfq import RFQ
 from app.models.user import User
 from app.schemas.communication import CommunicationRead, EmailSyncRead
 from app.services.email_workflow import send_followup_draft, sync_inbox
+from app.services.integration_settings import effective_email_settings
 
 router = APIRouter(tags=["communications"])
 _SEE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN, UserRole.AUDITOR}
@@ -57,8 +61,18 @@ def sync_email(
             status_code=403,
             detail="Синхронизация общего почтового ящика доступна руководителю и администратору",
         )
+    email_settings, enabled, _ = effective_email_settings(db)
+    if not enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="Email-канал отключён администратором",
+        )
     try:
-        return sync_inbox(db, limit=limit).as_dict()
+        return sync_inbox(
+            db,
+            connector=EmailConnector(email_settings),
+            limit=limit,
+        ).as_dict()
     except EmailConfigurationError as exc:
         raise HTTPException(
             status_code=503,
@@ -92,7 +106,8 @@ def send_draft(
     if communication is None or communication.rfq_id is None:
         raise HTTPException(status_code=404, detail="Черновик не найден")
     _require_rfq_access(user, db.get(RFQ, communication.rfq_id))
-    if get_settings().email_delivery_mode.strip().lower() != "live":
+    email_settings, enabled, _ = effective_email_settings(db)
+    if not enabled or email_settings.email_delivery_mode != "live":
         raise HTTPException(
             status_code=409,
             detail=(

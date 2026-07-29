@@ -295,6 +295,70 @@ export interface ChannelStatus {
   details: Record<string, string | null> | null;
 }
 
+export interface EmailIntegration {
+  channel: "email";
+  enabled: boolean;
+  configured: boolean;
+  source: "database" | "environment";
+  delivery_mode: "demo" | "live";
+  email_from: string;
+  email_from_name: string;
+  email_timeout_s: number;
+  auto_followup_mode: "off" | "draft" | "send";
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string;
+  smtp_password_set: boolean;
+  smtp_use_ssl: boolean;
+  smtp_starttls: boolean;
+  imap_host: string;
+  imap_port: number;
+  imap_user: string;
+  imap_password_set: boolean;
+  imap_use_ssl: boolean;
+  imap_folder: string;
+}
+
+export interface WhatsAppIntegration {
+  channel: "whatsapp";
+  enabled: boolean;
+  configured: boolean;
+  source: "database" | "environment";
+  phone_id: string;
+  token_set: boolean;
+  api_base_url: string;
+  api_version: string;
+  timeout_s: number;
+}
+
+export interface IntegrationConnectionResult {
+  channel: "email" | "whatsapp";
+  ok: boolean;
+  message: string;
+  details: Record<string, string | boolean | null>;
+}
+
+export interface CommunicationTestRun {
+  id: number;
+  channel: "email" | "whatsapp";
+  recipient_masked: string;
+  customer_message: string;
+  additional_instructions: string | null;
+  generated_reply: string | null;
+  model: string | null;
+  reply_language: "ru" | "en" | "zh";
+  delivery_mode: "preview" | "send";
+  status:
+    | "generating"
+    | "previewed"
+    | "sent"
+    | "llm_error"
+    | "delivery_error";
+  provider_message_id: string | null;
+  error: string | null;
+  created_at: string;
+}
+
 export type PromptKind =
   | "extraction"
   | "rfq_generation"

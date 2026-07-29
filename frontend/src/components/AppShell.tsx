@@ -14,6 +14,7 @@ export type SectionKey =
   | "review"
   | "templates"
   | "prompts"
+  | "communication-testing"
   | "settings";
 
 interface NavItem {
@@ -31,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "review", label: "Ручной разбор", roles: ["buyer", "head", "auditor"] },
   { key: "templates", label: "Шаблоны", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "prompts", label: "ИИ-промпты", roles: ["buyer", "head", "admin", "auditor"] },
+  { key: "communication-testing", label: "Тестирование общения", roles: ["admin"] },
   { key: "settings", label: "Настройки", roles: ["admin"] },
 ];
 

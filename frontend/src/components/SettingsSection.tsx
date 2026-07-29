@@ -3,13 +3,13 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { ChannelStatus, UserAdminRead } from "../api/types";
+import type { UserAdminRead } from "../api/types";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
+import IntegrationSettingsPanel from "./IntegrationSettingsPanel";
 
 export default function SettingsSection() {
   const { user: me } = useAuth();
   const [users, setUsers] = useState<UserAdminRead[]>([]);
-  const [channels, setChannels] = useState<ChannelStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -21,9 +21,8 @@ export default function SettingsSection() {
 
   const load = async () => {
     try {
-      const [u, c] = await Promise.all([api.listUsers(), api.channelsStatus()]);
+      const u = await api.listUsers();
       setUsers(u);
-      setChannels(c);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -194,35 +193,7 @@ export default function SettingsSection() {
         </table>
       </div>
 
-      <div className="panel">
-        <h2>Каналы</h2>
-        <table className="summary">
-          <thead>
-            <tr>
-              <th>Канал</th>
-              <th>Состояние</th>
-            </tr>
-          </thead>
-          <tbody>
-            {channels.map((c) => (
-              <tr key={c.channel}>
-                <td>{c.title}</td>
-                <td>
-                  <span className={`badge ${c.configured ? "tone-ok" : "tone-warn"}`}>
-                    {c.configured ? "настроен" : "не настроен"}
-                  </span>{" "}
-                  <span className="note">{c.status}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="note" style={{ marginTop: 8 }}>
-          Параметры задаются в .env на сервере. Email-соединение проверяется
-          при отправке или синхронизации; журнал доступа (152-ФЗ) остаётся
-          отдельным этапом.
-        </p>
-      </div>
+      <IntegrationSettingsPanel />
     </div>
   );
 }

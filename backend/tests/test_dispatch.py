@@ -173,7 +173,10 @@ def test_live_smtp_dispatch_creates_communication(client, monkeypatch):
         email_delivery_mode="live",
         email_from="buyer@example.com",
     )
-    monkeypatch.setattr("app.api.suppliers.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "app.api.suppliers.effective_email_settings",
+        lambda db: (settings, True, "environment"),
+    )
     monkeypatch.setattr(
         "app.api.suppliers.EmailConnector.send",
         lambda self, **kwargs: "<rfq-live@example.com>",
@@ -241,11 +244,15 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
         lambda *args, **kwargs: "Please provide MOQ and CoA.",
     )
     monkeypatch.setattr(
-        "app.services.email_workflow.get_settings",
-        lambda: SimpleNamespace(
-            auto_followup_mode="draft",
-            email_delivery_mode="demo",
-            email_from="buyer@example.com",
+        "app.services.email_workflow.effective_email_settings",
+        lambda db: (
+            SimpleNamespace(
+                auto_followup_mode="draft",
+                email_delivery_mode="demo",
+                email_from="buyer@example.com",
+            ),
+            False,
+            "environment",
         ),
     )
     connector = FakeConnector()

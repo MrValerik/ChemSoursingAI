@@ -62,6 +62,63 @@ body {
   font: inherit;
   background: #fff;
 }
+
+.integration-settings {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 14px 0;
+}
+
+.settings-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 12px 0;
+}
+
+.settings-checks label {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.communication-test-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 16px;
+}
+
+.generated-message {
+  background: #f7f8fa;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  line-height: 1.55;
+  min-height: 180px;
+  padding: 16px;
+  white-space: pre-wrap;
+}
+
+.external-action-warning {
+  background: #fff7e8;
+  border: 1px solid #e8c47a;
+  border-radius: 7px;
+  color: #704c00;
+  margin: 12px 0;
+  padding: 10px 12px;
+}
+
+@media (max-width: 900px) {
+  .settings-grid,
+  .communication-test-layout {
+    grid-template-columns: 1fr;
+  }
+}
 .field textarea { resize: vertical; min-height: 64px; }
 
 .row { display: flex; gap: 12px; }

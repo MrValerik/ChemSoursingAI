@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # --- Аутентификация ---
     auth_secret_key: str = Field(default="dev-secret-change-in-prod")
     access_token_expire_minutes: int = Field(default=480)
+    # Отдельный ключ шифрования для паролей и токенов, сохранённых через UI.
+    # Если пуст, используется AUTH_SECRET_KEY; в production задайте отдельное
+    # случайное значение и храните его только в окружении.
+    integration_encryption_key: str = Field(default="")
 
     # --- Очередь ---
     redis_url: str = Field(default="redis://localhost:6379/0")
@@ -70,6 +74,9 @@ class Settings(BaseSettings):
     # --- WhatsApp Cloud API — этап интеграций ---
     whatsapp_token: str = Field(default="")
     whatsapp_phone_id: str = Field(default="")
+    whatsapp_api_base_url: str = Field(default="https://graph.facebook.com")
+    whatsapp_api_version: str = Field(default="v23.0")
+    whatsapp_timeout_s: int = Field(default=30)
 
     # --- PubChem ---
     pubchem_base_url: str = Field(

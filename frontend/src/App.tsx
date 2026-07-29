@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import AppShell, { type SectionKey } from "./components/AppShell";
 import ActivityReporter from "./components/ActivityReporter";
+import CommunicationTesting from "./components/CommunicationTesting";
 import Dashboard from "./components/Dashboard";
 import Login from "./components/Login";
 import ReviewQueue from "./components/ReviewQueue";
@@ -58,6 +59,7 @@ function Sections() {
       {section === "review" && <ReviewQueue onOpenRfq={openRfq} />}
       {section === "templates" && <TemplatesSection />}
       {section === "prompts" && <PromptStudio />}
+      {section === "communication-testing" && <CommunicationTesting />}
       {section === "settings" && <SettingsSection />}
     </AppShell>
   );

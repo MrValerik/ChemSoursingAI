@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.api import (
     auth,
+    communication_testing,
     communications,
     dashboard,
     escalations,
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(prompts.router)
     app.include_router(prompts.rfq_router)
     app.include_router(auth.router)
+    app.include_router(communication_testing.router)
     app.include_router(communications.router)
     app.include_router(substances.router)
     app.include_router(supplier_search.router)

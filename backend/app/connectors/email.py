@@ -1,8 +1,4 @@
-"""Безопасный SMTP/IMAP-коннектор для корпоративной почты.
-
-Модуль использует только стандартную библиотеку Python. Учётные данные
-берутся из окружения и никогда не записываются в БД или журнал приложения.
-"""
+"""Безопасный SMTP/IMAP-коннектор для корпоративной почты."""
 
 from __future__ import annotations
 
@@ -204,6 +200,45 @@ class EmailConnector:
             raise EmailDeliveryError(f"Не удалось отправить Email: {exc}") from exc
         return message_id
 
+    def check_connections(self) -> dict[str, bool]:
+        """Проверяет SMTP и IMAP аутентификацией без отправки письма."""
+        if not self.smtp_configured or not self.imap_configured:
+            raise EmailConfigurationError(
+                "Email не настроен: заполните SMTP, IMAP и адрес отправителя"
+            )
+        smtp = self._smtp_client()
+        try:
+            smtp.login(self.settings.smtp_user, self.settings.smtp_password)
+            smtp.noop()
+        except (OSError, smtplib.SMTPException) as exc:
+            raise EmailDeliveryError(
+                "SMTP не подтвердил подключение или учётные данные"
+            ) from exc
+        finally:
+            try:
+                smtp.quit()
+            except (OSError, smtplib.SMTPException):
+                pass
+
+        imap = self._imap_client()
+        try:
+            imap.login(self.settings.imap_user, self.settings.imap_password)
+            status, _ = imap.select(self.settings.imap_folder, readonly=True)
+            if status != "OK":
+                raise EmailDeliveryError(
+                    f"IMAP не открыл папку {self.settings.imap_folder!r}"
+                )
+        except (OSError, imaplib.IMAP4.error) as exc:
+            raise EmailDeliveryError(
+                "IMAP не подтвердил подключение или учётные данные"
+            ) from exc
+        finally:
+            try:
+                imap.logout()
+            except (OSError, imaplib.IMAP4.error):
+                pass
+        return {"smtp": True, "imap": True}
+
     def fetch_unseen(self, limit: int = 20) -> list[IncomingEmail]:
         if not self.imap_configured:
             raise EmailConfigurationError("IMAP не настроен: заполните IMAP_*")
@@ -283,3 +318,27 @@ class EmailConnector:
             )
         except (OSError, imaplib.IMAP4.error) as exc:
             raise EmailDeliveryError(f"Не удалось подключиться к IMAP: {exc}") from exc
+
+    def _smtp_client(self):
+        s = self.settings
+        try:
+            context = ssl.create_default_context()
+            if s.smtp_use_ssl:
+                return smtplib.SMTP_SSL(
+                    s.smtp_host,
+                    s.smtp_port,
+                    timeout=s.email_timeout_s,
+                    context=context,
+                )
+            client = smtplib.SMTP(
+                s.smtp_host, s.smtp_port, timeout=s.email_timeout_s
+            )
+            client.ehlo()
+            if s.smtp_starttls:
+                client.starttls(context=context)
+                client.ehlo()
+            return client
+        except (OSError, smtplib.SMTPException) as exc:
+            raise EmailDeliveryError(
+                "Не удалось подключиться к SMTP"
+            ) from exc

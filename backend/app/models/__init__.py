@@ -3,6 +3,7 @@
 from app.models.base import Base
 from app.models.communication import Communication
 from app.models.escalation import Escalation
+from app.models.integration import CommunicationTestRun, IntegrationSetting
 from app.models.manager import Manager
 from app.models.prompt import PromptTemplate, PromptVersion, RfqAiSetting
 from app.models.quotation import Quotation
@@ -36,6 +37,8 @@ __all__ = [
     "RfqRecipient",
     "Communication",
     "Escalation",
+    "IntegrationSetting",
+    "CommunicationTestRun",
     "SearchRun",
     "AgentRun",
     "SearchAttempt",

@@ -56,5 +56,5 @@ ChemSoursingAI/
 - объектное хранилище и антивирусная обработка вложений;
 - OCR/vision-конвейер;
 - pgvector/RAG и golden-датасет реальных писем;
-- коннекторы WhatsApp, WeChat и Echemi;
+- входящий webhook WhatsApp, коннекторы WeChat и Echemi;
 - Kubernetes и полный стек метрик/трейсов.

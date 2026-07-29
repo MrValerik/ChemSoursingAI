@@ -14,7 +14,6 @@ from app.connectors.email import (
     EmailDeliveryError,
     IncomingEmail,
 )
-from app.core.config import get_settings
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.extraction.pipeline import extract_quote
 from app.models.communication import Communication
@@ -23,6 +22,7 @@ from app.models.manager import Manager
 from app.models.rfq import RFQ
 from app.schemas.quotation import QuotationCreate
 from app.services.completeness import evaluate_completeness
+from app.services.integration_settings import effective_email_settings
 from app.services.prompt_service import get_rfq_prompt_context
 from app.services.quotation_service import create_quotation
 
@@ -146,7 +146,8 @@ def _create_followup(
     missing: list[str],
     connector: EmailConnector,
 ) -> str | None:
-    mode = get_settings().auto_followup_mode.strip().lower()
+    runtime = getattr(connector, "settings", None) or effective_email_settings(db)[0]
+    mode = runtime.auto_followup_mode.strip().lower()
     if mode == "off" or not missing:
         return None
     body = _render_followup(db, rfq, missing)
@@ -157,10 +158,7 @@ def _create_followup(
     )
     status = "draft"
     external_id = None
-    if (
-        mode == "send"
-        and get_settings().email_delivery_mode.strip().lower() == "live"
-    ):
+    if mode == "send" and runtime.email_delivery_mode == "live":
         try:
             external_id = connector.send(
                 to_address=incoming.from_address,
@@ -181,7 +179,7 @@ def _create_followup(
             channel=Channel.EMAIL,
             subject=subject,
             body=body,
-            from_address=get_settings().email_from or None,
+            from_address=runtime.email_from or None,
             to_address=incoming.from_address,
             status=status,
             # Для ручной отправки черновика отвечаем именно на входящее письмо.
@@ -201,7 +199,7 @@ def sync_inbox(
     limit: int = 20,
 ) -> EmailSyncSummary:
     """Загружает новые письма и создаёт котировки один раз по Message-ID."""
-    email = connector or EmailConnector()
+    email = connector or EmailConnector(effective_email_settings(db)[0])
     messages = email.fetch_unseen(limit=limit)
     summary = EmailSyncSummary(fetched=len(messages))
     seen_uids: list[str] = []
@@ -323,7 +321,7 @@ def send_followup_draft(
         raise ValueError("Отправить можно только исходящий Email-черновик")
     if not communication.to_address:
         raise ValueError("У черновика отсутствует адрес получателя")
-    email = connector or EmailConnector()
+    email = connector or EmailConnector(effective_email_settings(db)[0])
     external_id = email.send(
         to_address=communication.to_address,
         subject=communication.subject or "RFQ follow-up",
@@ -333,7 +331,7 @@ def send_followup_draft(
     )
     communication.external_id = external_id
     communication.status = "sent"
-    communication.from_address = get_settings().email_from or None
+    communication.from_address = email.settings.email_from or None
     db.commit()
     db.refresh(communication)
     return communication

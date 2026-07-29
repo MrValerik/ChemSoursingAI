@@ -71,7 +71,7 @@ function fieldLabel(issue: ValidationIssue): string {
   const field = [...(issue.loc ?? [])]
     .reverse()
     .find((part): part is string => typeof part === "string" && part !== "body");
-  return field ? (FIELD_LABELS[field] ?? field.replaceAll("_", " ")) : "Данные";
+  return field ? (FIELD_LABELS[field] ?? field.split("_").join(" ")) : "Данные";
 }
 
 function validationReason(issue: ValidationIssue): string {
