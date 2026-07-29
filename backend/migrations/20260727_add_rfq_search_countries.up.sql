@@ -1,1 +1,1 @@
-ALTER TABLE rfqs ADD COLUMN search_countries JSONB;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS search_countries JSONB;

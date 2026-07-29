@@ -1,4 +1,4 @@
-CREATE TABLE substances (
+CREATE TABLE IF NOT EXISTS substances (
     id SERIAL PRIMARY KEY,
     cas VARCHAR(20) NOT NULL UNIQUE,
     preferred_name VARCHAR(255) NOT NULL,
@@ -12,14 +12,14 @@ CREATE TABLE substances (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX ix_substances_cas ON substances (cas);
-CREATE INDEX ix_substances_review_status ON substances (review_status);
-CREATE INDEX ix_substances_reviewed_by_id ON substances (reviewed_by_id);
+CREATE INDEX IF NOT EXISTS ix_substances_cas ON substances (cas);
+CREATE INDEX IF NOT EXISTS ix_substances_review_status ON substances (review_status);
+CREATE INDEX IF NOT EXISTS ix_substances_reviewed_by_id ON substances (reviewed_by_id);
 
 ALTER TABLE rfqs
-    ADD COLUMN substance_id INTEGER REFERENCES substances(id) ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS substance_id INTEGER REFERENCES substances(id) ON DELETE SET NULL;
 
-CREATE INDEX ix_rfqs_substance_id ON rfqs (substance_id);
+CREATE INDEX IF NOT EXISTS ix_rfqs_substance_id ON rfqs (substance_id);
 
 INSERT INTO substances (
     cas,
