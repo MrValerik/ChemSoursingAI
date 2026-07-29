@@ -120,6 +120,8 @@ ChemSource AI - on-premise рабочее место специалиста по
   кодировки, порты и файловые блокировки;
 - `$update` - безопасное развёртывание актуального `origin/main` на
   production-ВМ с backup, миграциями и health-check;
+- `$update-repository` - безопасный fast-forward локального `main` до
+  `origin/main` без push и запуска ВМ;
 - `$start-server` - запуск production-ВМ без обновления кода;
 - `$stop-server` - штатная остановка production-ВМ.
 
@@ -187,6 +189,9 @@ npm --prefix .\frontend run build
 - Для запуска без развёртывания используйте `$start-server` и
   `.\deploy\start-server.cmd`; для остановки — `$stop-server` и
   `.\deploy\stop-server.cmd`.
+- Для отдельного обновления локального репозитория используйте
+  `$update-repository` и `.\deploy\update-repository.cmd`. Команда не разрешает
+  push, rebase, stash или автоматическое разрешение расхождений веток.
 - Команда `$update` или явный запрос «обнови сервер» разрешает скрипту
   автоматически синхронизировать и отправить чистую локальную ветку `main` в
   `origin/main`. При конфликте автоматический rebase должен быть отменён, ВМ

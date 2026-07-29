@@ -1,0 +1,4 @@
+interface:
+  display_name: "Обновить репозиторий"
+  short_description: "Безопасно получить актуальный origin/main"
+  default_prompt: "Используй $update-repository, чтобы безопасно обновить локальный репозиторий ChemSource AI."
