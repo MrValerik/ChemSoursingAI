@@ -52,6 +52,12 @@ def candidate_results(search_run: SearchRun) -> list[dict]:
 
 def qualified_results(search_run: SearchRun) -> list[dict]:
     for stage in reversed(search_run.agent_runs):
+        if stage.agent_slug != "supplier_verifier":
+            continue
+        results = (stage.output_payload or {}).get("qualified_results")
+        if isinstance(results, list):
+            return [item for item in results if isinstance(item, dict)]
+    for stage in reversed(search_run.agent_runs):
         if stage.agent_slug != "supplier_qualification":
             continue
         results = (stage.output_payload or {}).get("qualified_results")

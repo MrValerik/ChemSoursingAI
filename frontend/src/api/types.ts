@@ -450,6 +450,26 @@ export type EvidenceStatus = "claimed" | "not_found" | "contradicted";
 export type QualifiedSupplierType = "manufacturer" | "distributor" | "unknown";
 export type CasEvidenceStatus = "confirmed" | "mentioned" | "not_found" | "mismatch";
 export type CountryEvidenceStatus = "claimed" | "likely" | "not_found" | "mismatch";
+export type SupplierVerificationStatus =
+  | "confirmed"
+  | "needs_review"
+  | "rejected"
+  | "unavailable";
+
+export interface SupplierVerificationResult {
+  status: SupplierVerificationStatus;
+  model_status: "confirmed" | "needs_review" | "rejected" | null;
+  substance_match: "exact" | "probable" | "analogue" | "mismatch" | "unknown";
+  supplier_role: "manufacturer" | "distributor" | "unverified";
+  recommended_action: "shortlist" | "manual_review" | "reject";
+  confidence: number;
+  reason: string;
+  gate_reason: string;
+  supporting_claim_ids: number[];
+  contradictory_claim_ids: number[];
+  invalid_claim_ids: number[];
+  missing_evidence: string[];
+}
 
 export interface QualifiedSupplierResult extends SupplierSearchResult {
   result_index: number;
@@ -479,6 +499,7 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
   red_flags: string[];
   missing_evidence: string[];
   evidence: QualifiedEvidence[];
+  verification?: SupplierVerificationResult;
 }
 
 export interface QualifiedEvidence {
@@ -496,6 +517,8 @@ export interface SupplierQualificationResponse {
   results: QualifiedSupplierResult[];
   prompt_id: number | null;
   prompt_version: number | null;
+  verification_prompt_id?: number | null;
+  verification_prompt_version?: number | null;
   registry_links?: Array<{ result_index: number; supplier_id: number }>;
   requested_supplier_count?: number;
   verified_source_count?: number;

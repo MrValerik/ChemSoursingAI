@@ -11,6 +11,7 @@ import type {
   SupplierQualificationResponse,
   SupplierSearchResponse,
   SupplierSearchResult,
+  SupplierVerificationStatus,
   SubstanceRecord,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -40,6 +41,20 @@ const EVIDENCE_LABELS: Record<EvidenceStatus, string> = {
   claimed: "заявлено",
   not_found: "не найдено",
   contradicted: "есть противоречие",
+};
+
+const VERIFICATION_LABELS: Record<SupplierVerificationStatus, string> = {
+  confirmed: "Аудитор подтвердил",
+  needs_review: "Нужна ручная проверка",
+  rejected: "Аудитор отклонил",
+  unavailable: "Аудитор недоступен",
+};
+
+const verificationTone = (status: SupplierVerificationStatus) => {
+  if (status === "confirmed") return "tone-ok";
+  if (status === "rejected") return "tone-danger";
+  if (status === "needs_review") return "tone-warn";
+  return "tone-neutral";
 };
 
 const DOCUMENT_FIELDS = [
@@ -147,7 +162,24 @@ const shortlistExplanation = (
     `балл не ниже 70 (${result.confidence >= 70 ? "выполнено" : `сейчас ${result.confidence}`});`,
     `тип «Производитель» (${result.supplier_type === "manufacturer" ? "выполнено" : "не подтверждено"});`,
     `подтверждение вещества (${hasIdentity ? "есть" : "нет"});`,
-    `подтверждение собственного производства (${hasManufacturerRole ? "есть" : "нет"}).`,
+    `подтверждение собственного производства (${hasManufacturerRole ? "есть" : "нет"});`,
+    `решение независимого аудитора (${result.verification?.status === "confirmed" ? "подтверждено" : "не подтверждено"}).`,
+  ].join(" ");
+};
+
+const verificationExplanation = (
+  result: SupplierQualificationResponse["results"][number],
+) => {
+  if (!result.verification) {
+    return (
+      "Для этого сохранённого результата независимая проверка не выполнялась. " +
+      "Кандидат требует ручной проверки."
+    );
+  }
+  return [
+    result.verification.reason,
+    result.verification.gate_reason,
+    `Уверенность аудитора: ${result.verification.confidence}%.`,
   ].join(" ");
 };
 
@@ -167,6 +199,7 @@ const SEARCH_STATUS_LABELS: Record<string, string> = {
   search_completed: "Кандидаты найдены",
   fetching_sources: "Загрузка первичных страниц",
   qualifying: "Квалификация поставщиков",
+  verifying: "Независимая проверка",
   completed: "Завершено",
   failed: "Ошибка",
   cancelled: "Отменено",
@@ -204,6 +237,11 @@ const PIPELINE_STEPS = [
     slug: "supplier_qualification",
     title: "Оценка поставщиков",
     description: "Проверяет роль компании, страну, CAS, документы и возможные риски.",
+  },
+  {
+    slug: "supplier_verifier",
+    title: "Независимый аудит",
+    description: "Повторно сверяет вещество и роль производителя перед коротким списком.",
   },
 ] as const;
 
@@ -394,10 +432,16 @@ const qualificationFromTrace = (
   trace: SearchRunTrace,
 ): SupplierQualificationResponse | null => {
   if (trace.qualified_results.length === 0) return null;
-  const stage = [...trace.agent_runs]
+  const qualificationStage = [...trace.agent_runs]
     .reverse()
     .find((item) => item.agent_slug === "supplier_qualification");
-  const output = stage?.output_payload ?? {};
+  const verificationStage = [...trace.agent_runs]
+    .reverse()
+    .find((item) => item.agent_slug === "supplier_verifier");
+  const output =
+    verificationStage?.output_payload ??
+    qualificationStage?.output_payload ??
+    {};
   const registryLinks = Array.isArray(output.registry_links)
     ? output.registry_links.filter(
         (item): item is { result_index: number; supplier_id: number } =>
@@ -410,8 +454,10 @@ const qualificationFromTrace = (
   return {
     search_run_id: trace.id,
     results: trace.qualified_results,
-    prompt_id: stage?.prompt_id ?? null,
-    prompt_version: stage?.prompt_version ?? null,
+    prompt_id: qualificationStage?.prompt_id ?? null,
+    prompt_version: qualificationStage?.prompt_version ?? null,
+    verification_prompt_id: verificationStage?.prompt_id ?? null,
+    verification_prompt_version: verificationStage?.prompt_version ?? null,
     registry_links: registryLinks,
     requested_supplier_count:
       typeof output.requested_supplier_count === "number"
@@ -1380,6 +1426,17 @@ export default function SupplierSearchSection({
                             : "Не включён в короткий список"
                         }
                         explanation={shortlistExplanation(result)}
+                      />
+                      <EvidenceBadge
+                        className={verificationTone(
+                          result.verification?.status ?? "unavailable",
+                        )}
+                        label={
+                          VERIFICATION_LABELS[
+                            result.verification?.status ?? "unavailable"
+                          ]
+                        }
+                        explanation={verificationExplanation(result)}
                       />
                       <EvidenceBadge
                         className={
