@@ -1,0 +1,4 @@
+interface:
+  display_name: "Запустить сервер"
+  short_description: "Включить ВМ и дождаться запуска сайта"
+  default_prompt: "Используй $start-server, чтобы запустить production-сервер ChemSource AI."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Остановить сервер"
+  short_description: "Безопасно выключить production-ВМ"
+  default_prompt: "Используй $stop-server, чтобы остановить production-сервер ChemSource AI."

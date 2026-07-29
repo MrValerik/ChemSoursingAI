@@ -8,12 +8,17 @@ param(
 
     [switch]$OpenSite,
 
+    [switch]$NonInteractive,
+
     [ValidateRange(30, 1800)]
     [int]$TimeoutSeconds = 600
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+if ($NonInteractive) {
+    $ConfirmPreference = "None"
+}
 
 function Resolve-YcExecutable {
     $command = Get-Command "yc" -CommandType Application -ErrorAction SilentlyContinue
