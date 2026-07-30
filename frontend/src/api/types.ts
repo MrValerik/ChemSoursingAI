@@ -533,6 +533,7 @@ export interface AgentRunRead {
   agent_slug: string;
   agent_name: string;
   execution_type: "llm" | "tool" | "deterministic" | string;
+  contract_version: string;
   status: string;
   prompt_id: number | null;
   prompt_version: number | null;
@@ -596,6 +597,8 @@ export interface EvidenceClaimRead {
 
 export interface SearchRunListItem {
   id: number;
+  correlation_id: string;
+  graph_version: string;
   owner_id: number;
   rfq_id: number | null;
   owner_name: string | null;
@@ -633,6 +636,7 @@ export interface SearchRunTrace extends SearchRunListItem {
 
 export interface SupplierSearchJob {
   search_run_id: number;
+  correlation_id: string;
   status: "queued";
   queue_position: number;
 }

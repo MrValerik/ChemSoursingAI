@@ -125,6 +125,7 @@ class SearchPlan(BaseModel):
 
 class SupplierSearchJobRead(BaseModel):
     search_run_id: int
+    correlation_id: str
     status: Literal["queued"]
     queue_position: int
 
@@ -1032,6 +1033,7 @@ def enqueue_supplier_search(
     )
     return SupplierSearchJobRead(
         search_run_id=search_run.id,
+        correlation_id=search_run.correlation_id,
         status="queued",
         queue_position=queue_position or 1,
     )

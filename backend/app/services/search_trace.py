@@ -8,6 +8,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.search_contracts import (
+    AGENT_CONTRACT_VERSIONS,
+    SUPPLIER_SEARCH_GRAPH_VERSION,
+)
 from app.models import AgentRun, PromptTemplate, SearchAttempt, SearchRun
 
 
@@ -23,12 +27,14 @@ def create_search_run(
     rfq_id: int | None = None,
     mode: str = "expert",
     status: str = "running",
+    graph_version: str = SUPPLIER_SEARCH_GRAPH_VERSION,
 ) -> SearchRun:
     run = SearchRun(
         owner_id=owner_id,
         rfq_id=rfq_id,
         status=status,
         mode=mode,
+        graph_version=graph_version,
         input_payload=input_payload,
         started_at=utc_now(),
     )
@@ -45,6 +51,7 @@ def start_agent_run(
     agent_slug: str,
     agent_name: str,
     execution_type: str,
+    contract_version: str | None = None,
     input_payload: dict[str, Any] | None = None,
     prompt: PromptTemplate | None = None,
     effective_system_prompt: str | None = None,
@@ -52,12 +59,20 @@ def start_agent_run(
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> tuple[AgentRun, float]:
+    resolved_contract_version = contract_version or AGENT_CONTRACT_VERSIONS.get(
+        agent_slug
+    )
+    if resolved_contract_version is None:
+        raise ValueError(
+            f"Неизвестна версия контракта этапа {agent_slug!r}"
+        )
     agent_run = AgentRun(
         search_run_id=search_run.id,
         sequence=sequence,
         agent_slug=agent_slug,
         agent_name=agent_name,
         execution_type=execution_type,
+        contract_version=resolved_contract_version,
         status="running",
         prompt_id=prompt.id if prompt else None,
         prompt_version=prompt.version if prompt else None,

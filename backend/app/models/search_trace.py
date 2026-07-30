@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.search_contracts import (
+    DEFAULT_AGENT_CONTRACT_VERSION,
+    SUPPLIER_SEARCH_GRAPH_VERSION,
+)
 from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
@@ -22,6 +27,15 @@ class SearchRun(Base, TimestampMixin):
     __tablename__ = "search_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    correlation_id: Mapped[str] = mapped_column(
+        String(36),
+        default=lambda: str(uuid4()),
+        unique=True,
+        index=True,
+    )
+    graph_version: Mapped[str] = mapped_column(
+        String(64), default=SUPPLIER_SEARCH_GRAPH_VERSION
+    )
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     rfq_id: Mapped[int | None] = mapped_column(
         ForeignKey("rfqs.id", ondelete="SET NULL"), index=True, default=None
@@ -75,6 +89,9 @@ class AgentRun(Base, TimestampMixin):
     agent_slug: Mapped[str] = mapped_column(String(64), index=True)
     agent_name: Mapped[str] = mapped_column(String(255))
     execution_type: Mapped[str] = mapped_column(String(32), default="llm")
+    contract_version: Mapped[str] = mapped_column(
+        String(64), default=DEFAULT_AGENT_CONTRACT_VERSION
+    )
     status: Mapped[str] = mapped_column(String(32), default="running", index=True)
 
     prompt_id: Mapped[int | None] = mapped_column(

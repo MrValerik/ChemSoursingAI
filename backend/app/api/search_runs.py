@@ -384,6 +384,7 @@ def restart_search_run(
     )
     return SearchRunRestartRead(
         search_run_id=restarted.id,
+        correlation_id=restarted.correlation_id,
         status="queued",
         queue_position=queue_position or 1,
     )

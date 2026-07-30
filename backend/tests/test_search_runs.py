@@ -2,6 +2,7 @@
 
 import os
 from datetime import timedelta
+from uuid import UUID
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_search_runs.db")
 
@@ -98,7 +99,10 @@ def test_owner_and_privileged_roles_can_read_full_trace(client):
         assert response.status_code == 200
         trace = response.json()
         assert trace["status"] == "completed"
+        UUID(trace["correlation_id"])
+        assert trace["graph_version"] == "supplier-search.v1"
         assert trace["owner_name"]
+        assert trace["agent_runs"][0]["contract_version"] == "v1"
         assert trace["agent_runs"][0]["effective_system_prompt"]
         assert trace["agent_runs"][0]["output_payload"]["queries"]
         assert trace["search_attempts"][0]["connector"] == "duckduckgo_html"
@@ -151,7 +155,40 @@ def _enqueue_search(
         json={"cas": cas, "name": name, "country": "China"},
     )
     assert response.status_code == 202
-    return response.json()
+    payload = response.json()
+    UUID(payload["correlation_id"])
+    return payload
+
+
+def test_unknown_agent_contract_requires_an_explicit_version(client):
+    with SessionLocal() as db:
+        owner = db.query(User).filter(User.username == "ivanov").one()
+        run = create_search_run(
+            db,
+            owner_id=owner.id,
+            input_payload={"cas": "50-78-2", "name": "Aspirin"},
+        )
+
+        with pytest.raises(ValueError, match="Неизвестна версия контракта"):
+            start_agent_run(
+                db,
+                search_run=run,
+                sequence=1,
+                agent_slug="future_agent",
+                agent_name="Новый агент",
+                execution_type="llm",
+            )
+
+        stage, _ = start_agent_run(
+            db,
+            search_run=run,
+            sequence=1,
+            agent_slug="future_agent",
+            agent_name="Новый агент",
+            execution_type="llm",
+            contract_version="future-agent.v1",
+        )
+        assert stage.contract_version == "future-agent.v1"
 
 
 def test_search_jobs_are_queued_and_processed_fifo(client):
@@ -162,6 +199,7 @@ def test_search_jobs_are_queued_and_processed_fifo(client):
     second = _enqueue_search(
         client, buyer, cas="64-17-5", name="Ethanol"
     )
+    assert first["correlation_id"] != second["correlation_id"]
     assert first["status"] == "queued"
     assert first["queue_position"] == 1
     assert second["queue_position"] == 2
@@ -169,6 +207,10 @@ def test_search_jobs_are_queued_and_processed_fifo(client):
     listed = {
         item["id"]: item for item in client.get("/search-runs", headers=buyer).json()
     }
+    assert (
+        listed[first["search_run_id"]]["correlation_id"]
+        == first["correlation_id"]
+    )
     assert listed[first["search_run_id"]]["queue_position"] == 1
     assert listed[second["search_run_id"]]["queue_position"] == 2
 
@@ -713,14 +755,19 @@ def test_stale_search_can_be_restarted_without_losing_its_trace(client):
     )
 
     assert response.status_code == 202
-    restarted_id = response.json()["search_run_id"]
+    restarted_payload = response.json()
+    restarted_id = restarted_payload["search_run_id"]
     assert restarted_id != queued["search_run_id"]
+    UUID(restarted_payload["correlation_id"])
+    assert restarted_payload["correlation_id"] != queued["correlation_id"]
     with SessionLocal() as db:
         old_run = db.get(SearchRun, queued["search_run_id"])
         restarted = db.get(SearchRun, restarted_id)
         assert old_run.status == "cancelled"
         assert old_run.completed_at is not None
         assert restarted.status == "queued"
+        assert restarted.correlation_id == restarted_payload["correlation_id"]
+        assert restarted.graph_version == "supplier-search.v1"
         assert (
             restarted.input_payload["restart_of_search_run_id"]
             == queued["search_run_id"]

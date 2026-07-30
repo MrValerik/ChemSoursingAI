@@ -16,6 +16,7 @@ class AgentRunRead(BaseModel):
     agent_slug: str
     agent_name: str
     execution_type: str
+    contract_version: str
     status: str
     prompt_id: int | None
     prompt_version: int | None
@@ -97,6 +98,8 @@ class SearchRunListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    correlation_id: str
+    graph_version: str
     owner_id: int
     rfq_id: int | None
     owner_name: str | None = None
@@ -126,5 +129,6 @@ class SearchRunTrace(SearchRunListItem):
 
 class SearchRunRestartRead(BaseModel):
     search_run_id: int
+    correlation_id: str
     status: str
     queue_position: int

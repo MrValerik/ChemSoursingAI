@@ -221,6 +221,8 @@ OCR и долговременное хранилище файлов остают
   backend, frontend и deployment-проверки
 - [`docs/STRUCTURE.md`](docs/STRUCTURE.md) — фактическая структура репозитория и
   целевые компоненты
+- [`docs/AI_QUALITY_ROADMAP.md`](docs/AI_QUALITY_ROADMAP.md) — план
+  воспроизводимости, replay, eval, budgets и наблюдаемости ИИ-конвейера
 - [`docs/RUN.md`](docs/RUN.md) — запуск, тестирование и безопасное включение
   интеграций
 - [`docs/YANDEX_VM.md`](docs/YANDEX_VM.md) — запуск, остановка и проверка

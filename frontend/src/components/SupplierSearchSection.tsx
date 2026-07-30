@@ -624,6 +624,7 @@ function SearchTracePanel({
                   {stage.prompt_version !== null && (
                     <span>Промпт: версия {stage.prompt_version}</span>
                   )}
+                  <span>Контракт: {stage.contract_version}</span>
                   {elapsedMs !== null && (
                     <span>
                       Время: {formatDuration(elapsedMs)}
@@ -686,6 +687,10 @@ function SearchTracePanel({
           </span>
         </summary>
         <div className="technical-accordion-body">
+          <div className="agent-trace-meta">
+            <span>Correlation ID: {trace.correlation_id}</span>
+            <span>Граф: {trace.graph_version}</span>
+          </div>
           <section>
             <h3>Источники и параметры поисковых запросов</h3>
             {trace.search_attempts.length === 0 && (
