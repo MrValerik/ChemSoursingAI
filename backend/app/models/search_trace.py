@@ -101,6 +101,18 @@ class AgentRun(Base, TimestampMixin):
     effective_system_prompt: Mapped[str | None] = mapped_column(Text, default=None)
     input_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     output_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    raw_output_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, default=None
+    )
+    parsed_output_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, default=None
+    )
+    validation_output_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, default=None
+    )
+    policy_output_payload: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, default=None
+    )
 
     model: Mapped[str | None] = mapped_column(String(255), default=None)
     temperature: Mapped[float | None] = mapped_column(default=None)

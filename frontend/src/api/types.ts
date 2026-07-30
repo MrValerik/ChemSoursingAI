@@ -540,6 +540,10 @@ export interface AgentRunRead {
   effective_system_prompt: string | null;
   input_payload: Record<string, unknown> | null;
   output_payload: Record<string, unknown> | null;
+  raw_output_payload: Record<string, unknown> | null;
+  parsed_output_payload: Record<string, unknown> | null;
+  validation_output_payload: Record<string, unknown> | null;
+  policy_output_payload: Record<string, unknown> | null;
   model: string | null;
   temperature: number | null;
   max_tokens: number | null;

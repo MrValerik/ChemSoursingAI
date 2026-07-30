@@ -93,9 +93,17 @@ def finish_agent_run(
     started_clock: float,
     *,
     output_payload: dict[str, Any] | None = None,
+    raw_output_payload: dict[str, Any] | None = None,
+    parsed_output_payload: dict[str, Any] | None = None,
+    validation_output_payload: dict[str, Any] | None = None,
+    policy_output_payload: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> None:
     agent_run.output_payload = output_payload
+    agent_run.raw_output_payload = raw_output_payload
+    agent_run.parsed_output_payload = parsed_output_payload
+    agent_run.validation_output_payload = validation_output_payload
+    agent_run.policy_output_payload = policy_output_payload
     agent_run.error = error
     agent_run.status = "failed" if error else "completed"
     agent_run.completed_at = utc_now()

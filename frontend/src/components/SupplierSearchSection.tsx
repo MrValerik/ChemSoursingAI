@@ -666,9 +666,41 @@ function SearchTracePanel({
                 )}
                 {stage.output_payload && (
                   <details className="trace-subdetails">
-                    <summary>Технические данные результата</summary>
+                    <summary>Совместимый итоговый результат</summary>
                     <div className="trace-block">
                       <pre>{formatJson(stage.output_payload)}</pre>
+                    </div>
+                  </details>
+                )}
+                {stage.raw_output_payload && (
+                  <details className="trace-subdetails">
+                    <summary>Сырой ответ модели</summary>
+                    <div className="trace-block">
+                      <pre>{formatJson(stage.raw_output_payload)}</pre>
+                    </div>
+                  </details>
+                )}
+                {stage.parsed_output_payload && (
+                  <details className="trace-subdetails">
+                    <summary>Результат typed parsing</summary>
+                    <div className="trace-block">
+                      <pre>{formatJson(stage.parsed_output_payload)}</pre>
+                    </div>
+                  </details>
+                )}
+                {stage.validation_output_payload && (
+                  <details className="trace-subdetails">
+                    <summary>Результат валидаторов</summary>
+                    <div className="trace-block">
+                      <pre>{formatJson(stage.validation_output_payload)}</pre>
+                    </div>
+                  </details>
+                )}
+                {stage.policy_output_payload && (
+                  <details className="trace-subdetails">
+                    <summary>Итог policy gate</summary>
+                    <div className="trace-block">
+                      <pre>{formatJson(stage.policy_output_payload)}</pre>
                     </div>
                   </details>
                 )}

@@ -185,6 +185,11 @@ Windows-машины разработчика:
 поисковых запусков и используются для сопоставления логов, будущих
 OpenTelemetry spans и воспроизводимых replay-запусков.
 
+Для LLM-этапов техническая трассировка отдельно возвращает
+`raw_output_payload`, `parsed_output_payload`, `validation_output_payload` и
+`policy_output_payload`. Совместимый `output_payload` пока сохраняется для
+существующего интерфейса, но не используется как единственный источник аудита.
+
 ## Переменные окружения
 
 См. `.env.example`. Ключевые: `DATABASE_URL`, `REDIS_URL`, `LLM_BASE_URL`,

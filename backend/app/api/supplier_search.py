@@ -659,7 +659,7 @@ def _fallback_identity(
 
 def _validated_identity(
     data: SupplierSearchRequest, lookup: dict, raw: dict
-) -> SubstanceIdentity:
+) -> tuple[SubstanceIdentity, SubstanceIdentity, bool]:
     """Accept only names that were present in the immutable lookup payload."""
     fallback = _fallback_identity(data, lookup)
     excluded = {
@@ -697,19 +697,23 @@ def _validated_identity(
         }:
             search_names.append(accepted)
     if not search_names:
-        return fallback
-    return parsed.model_copy(
-        update={
-            "status": (
-                "conflict"
-                if parsed.input_name_matches is False
-                else "verified"
-                if parsed.input_name_matches is True
-                else "unverified"
-            ),
-            "canonical_name": canonical or fallback.canonical_name,
-            "search_names": search_names,
-        }
+        return fallback, parsed, True
+    return (
+        parsed.model_copy(
+            update={
+                "status": (
+                    "conflict"
+                    if parsed.input_name_matches is False
+                    else "verified"
+                    if parsed.input_name_matches is True
+                    else "unverified"
+                ),
+                "canonical_name": canonical or fallback.canonical_name,
+                "search_names": search_names,
+            }
+        ),
+        parsed,
+        False,
     )
 
 
@@ -1138,6 +1142,7 @@ def execute_supplier_search(
             max_tokens=512,
         )
         db.commit()
+        raw_identity: dict | None = None
         try:
             raw_identity = llm.generate_json(
                 system_prompt=identity_system_prompt,
@@ -1147,13 +1152,27 @@ def execute_supplier_search(
                 max_tokens=512,
             )
             _raise_if_cancelled(db, search_run)
-            identity = _validated_identity(data, lookup, raw_identity)
+            identity, parsed_identity, identity_fallback_used = _validated_identity(
+                data, lookup, raw_identity
+            )
             finish_agent_run(
                 identity_run,
                 identity_clock,
                 output_payload={
                     "identity": identity.model_dump(),
                     "raw": raw_identity,
+                },
+                raw_output_payload=raw_identity,
+                parsed_output_payload={
+                    "identity": parsed_identity.model_dump()
+                },
+                validation_output_payload={
+                    "normalized_identity": identity.model_dump(),
+                    "accepted": not identity_fallback_used,
+                },
+                policy_output_payload={
+                    "identity": identity.model_dump(),
+                    "fallback_used": identity_fallback_used,
                 },
             )
         except (LLMUnavailableError, ValidationError) as exc:
@@ -1164,6 +1183,15 @@ def execute_supplier_search(
                 output_payload={
                     "identity": identity.model_dump(),
                     "fallback_reason": identity_error,
+                },
+                raw_output_payload=raw_identity,
+                validation_output_payload={
+                    "accepted": False,
+                    "error": identity_error,
+                },
+                policy_output_payload={
+                    "identity": identity.model_dump(),
+                    "fallback_used": True,
                 },
             )
         db.commit()
@@ -1188,6 +1216,14 @@ def execute_supplier_search(
             output_payload={
                 "identity": identity.model_dump(),
                 "fallback_reason": identity_error,
+            },
+            validation_output_payload={
+                "accepted": False,
+                "error": identity_error,
+            },
+            policy_output_payload={
+                "identity": identity.model_dump(),
+                "fallback_used": True,
             },
         )
         db.commit()
@@ -1254,6 +1290,10 @@ def execute_supplier_search(
                     "queries": [item.model_dump() for item in ai_items],
                     "accepted": ai_used,
                 },
+                raw_output_payload=generated,
+                parsed_output_payload={
+                    "queries": [item.model_dump() for item in ai_items]
+                },
             )
         except (LLMUnavailableError, ValidationError) as exc:
             planner_error = str(exc)
@@ -1264,6 +1304,10 @@ def execute_supplier_search(
                     "queries": [],
                     "accepted": False,
                     "fallback_reason": planner_error,
+                },
+                validation_output_payload={
+                    "accepted": False,
+                    "error": planner_error,
                 },
             )
         db.commit()
@@ -1285,6 +1329,10 @@ def execute_supplier_search(
                 "accepted": False,
                 "fallback_reason": "Активный промпт поиска не найден",
             },
+            validation_output_payload={
+                "accepted": False,
+                "error": "Активный промпт поиска не найден",
+            },
         )
         db.commit()
 
@@ -1292,6 +1340,17 @@ def execute_supplier_search(
     planned_queries, rejected_queries = _merge_search_plans(
         data, ai_items, fallback_items
     )
+    planner_run.validation_output_payload = {
+        "accepted_queries": [item.model_dump() for item in planned_queries],
+        "rejected_query_count": rejected_queries,
+        "fallback_query_count": len(fallback_items),
+    }
+    planner_run.policy_output_payload = {
+        "queries": [item.model_dump() for item in planned_queries],
+        "ai_used": ai_used,
+        "fallback_used": not ai_used,
+        "deterministic_coverage_added": bool(fallback_items),
+    }
     search_run.status = "searching"
     db.commit()
     search_stage, search_clock = start_agent_run(
@@ -1614,6 +1673,7 @@ def execute_supplier_qualification(
     db.commit()
     raw_batches: list[dict] = []
     raw_results: list[dict] = []
+    raw_items: list[tuple[dict, set[int]]] = []
     try:
         for offset in range(0, len(fetched_sources), _QUALIFICATION_BATCH_SIZE):
             batch_sources = fetched_sources[
@@ -1642,9 +1702,14 @@ def execute_supplier_qualification(
                 else None
             )
             if isinstance(batch_results, list):
-                raw_results.extend(
-                    item for item in batch_results if isinstance(item, dict)
-                )
+                allowed_indexes = {
+                    int(item["result_index"]) for item in batch_sources
+                }
+                for item in batch_results:
+                    if not isinstance(item, dict):
+                        continue
+                    raw_results.append(item)
+                    raw_items.append((item, allowed_indexes))
             qualification_run.output_payload = {
                 "completed_batches": len(raw_batches),
                 "batch_count": (
@@ -1663,6 +1728,15 @@ def execute_supplier_qualification(
             qualification_run,
             qualification_clock,
             output_payload=qualification_run.output_payload,
+            raw_output_payload={"model_batches": raw_batches},
+            validation_output_payload={
+                "accepted": False,
+                "error": error,
+            },
+            policy_output_payload={
+                "status": "failed",
+                "shortlist_allowed": False,
+            },
             error=error,
         )
         finish_search_run(search_run, error=error)
@@ -1674,13 +1748,30 @@ def execute_supplier_qualification(
     raw = {"results": raw_results}
 
     qualifications: dict[int, SupplierQualification] = {}
-    for item in raw.get("results", []) if isinstance(raw, dict) else []:
+    rejected_qualifications: list[dict] = []
+    for item, allowed_indexes in raw_items:
         try:
             parsed = SupplierQualification.model_validate(item)
-        except ValidationError:
+        except ValidationError as exc:
+            rejected_qualifications.append(
+                {
+                    "result_index": item.get("result_index"),
+                    "rejection_reason": str(exc)[:1200],
+                }
+            )
             continue
-        if parsed.result_index < len(data.results):
-            qualifications.setdefault(parsed.result_index, parsed)
+        if parsed.result_index not in allowed_indexes:
+            rejected_qualifications.append(
+                {
+                    "result_index": parsed.result_index,
+                    "rejection_reason": (
+                        "result_index не относится к текущему пакету "
+                        "квалифицируемых источников"
+                    ),
+                }
+            )
+            continue
+        qualifications.setdefault(parsed.result_index, parsed)
 
     validated_evidence: dict[int, list[dict]] = {}
     rejected_evidence: list[dict] = []
@@ -1809,10 +1900,36 @@ def execute_supplier_qualification(
                 len(items) for items in validated_evidence.values()
             ),
             "rejected_evidence": rejected_evidence,
+            "rejected_qualifications": rejected_qualifications,
             "requested_supplier_count": requested_supplier_count,
             "verified_source_count": len(fetched_sources),
             "replacement_candidates_used": replacement_candidates_used,
             "source_shortfall": source_shortfall,
+        },
+        raw_output_payload={"model_batches": raw_batches},
+        parsed_output_payload={
+            "results": [
+                qualification.model_dump()
+                for _, qualification in sorted(qualifications.items())
+            ]
+        },
+        validation_output_payload={
+            "accepted_evidence": [
+                {
+                    "result_index": result_index,
+                    "claims": evidence_items,
+                }
+                for result_index, evidence_items in sorted(
+                    validated_evidence.items()
+                )
+            ],
+            "rejected_evidence": rejected_evidence,
+            "rejected_qualifications": rejected_qualifications,
+        },
+        policy_output_payload={
+            "qualified_results": combined_results,
+            "source_shortfall": source_shortfall,
+            "shortfall_error": shortfall_error,
         },
     )
     db.commit()
@@ -1976,6 +2093,22 @@ def execute_supplier_qualification(
             )
 
     if verification_run is not None:
+        claim_reference_validation = [
+            {
+                "result_index": result["result_index"],
+                "status": (result.get("verification") or {}).get("status"),
+                "supporting_claim_ids": (
+                    result.get("verification") or {}
+                ).get("supporting_claim_ids", []),
+                "contradictory_claim_ids": (
+                    result.get("verification") or {}
+                ).get("contradictory_claim_ids", []),
+                "invalid_claim_ids": (
+                    result.get("verification") or {}
+                ).get("invalid_claim_ids", []),
+            }
+            for result in final_results
+        ]
         finish_agent_run(
             verification_run,
             verification_clock,
@@ -1990,6 +2123,27 @@ def execute_supplier_qualification(
                 "verified_source_count": len(fetched_sources),
                 "replacement_candidates_used": replacement_candidates_used,
                 "source_shortfall": source_shortfall,
+            },
+            raw_output_payload={
+                "model_batches": verification_raw_batches,
+            },
+            parsed_output_payload={
+                "results": [
+                    verification.model_dump()
+                    for _, verification in sorted(verifications.items())
+                ]
+            },
+            validation_output_payload={
+                "schema_rejections": rejected_verifications,
+                "claim_reference_validation": claim_reference_validation,
+            },
+            policy_output_payload={
+                "qualified_results": final_results,
+                "registry_links": registry_links,
+                "shortlist_count": sum(
+                    bool(result.get("shortlist_eligible"))
+                    for result in final_results
+                ),
             },
             error=verification_error,
         )

@@ -83,6 +83,10 @@ def _build_completed_trace() -> int:
             agent,
             agent_clock,
             output_payload={"queries": [attempt.query]},
+            raw_output_payload={"results": [{"query": attempt.query}]},
+            parsed_output_payload={"queries": [attempt.query]},
+            validation_output_payload={"accepted": True},
+            policy_output_payload={"queries": [attempt.query]},
         )
         finish_search_run(run)
         db.commit()
@@ -105,6 +109,12 @@ def test_owner_and_privileged_roles_can_read_full_trace(client):
         assert trace["agent_runs"][0]["contract_version"] == "v1"
         assert trace["agent_runs"][0]["effective_system_prompt"]
         assert trace["agent_runs"][0]["output_payload"]["queries"]
+        assert trace["agent_runs"][0]["raw_output_payload"]["results"]
+        assert trace["agent_runs"][0]["parsed_output_payload"]["queries"]
+        assert trace["agent_runs"][0]["validation_output_payload"] == {
+            "accepted": True
+        }
+        assert trace["agent_runs"][0]["policy_output_payload"]["queries"]
         assert trace["search_attempts"][0]["connector"] == "duckduckgo_html"
         assert trace["search_attempts"][0]["result_count"] == 3
         assert trace["search_attempts"][0]["results_payload"] is None

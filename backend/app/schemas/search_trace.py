@@ -23,6 +23,10 @@ class AgentRunRead(BaseModel):
     effective_system_prompt: str | None
     input_payload: dict[str, Any] | None
     output_payload: dict[str, Any] | None
+    raw_output_payload: dict[str, Any] | None
+    parsed_output_payload: dict[str, Any] | None
+    validation_output_payload: dict[str, Any] | None
+    policy_output_payload: dict[str, Any] | None
     model: str | None
     temperature: float | None
     max_tokens: int | None

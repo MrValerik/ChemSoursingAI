@@ -638,6 +638,18 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
         qualification_stage["output_payload"]["qualified_results"][0]["url"]
         == source_url
     )
+    assert qualification_stage["raw_output_payload"]["model_batches"]
+    assert qualification_stage["parsed_output_payload"]["results"][0][
+        "company_name"
+    ] == "Example Chemical"
+    assert len(
+        qualification_stage["validation_output_payload"][
+            "accepted_evidence"
+        ][0]["claims"]
+    ) == 4
+    assert qualification_stage["policy_output_payload"][
+        "qualified_results"
+    ][0]["shortlist_eligible"] is True
     verification_stage = trace["agent_runs"][-1]
     assert (
         verification_stage["prompt_version"]
@@ -650,6 +662,16 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
         ]["status"]
         == "confirmed"
     )
+    assert verification_stage["raw_output_payload"]["model_batches"]
+    assert verification_stage["parsed_output_payload"]["results"][0][
+        "verification_status"
+    ] == "confirmed"
+    assert verification_stage["validation_output_payload"][
+        "claim_reference_validation"
+    ][0]["invalid_claim_ids"] == []
+    assert verification_stage["policy_output_payload"][
+        "shortlist_count"
+    ] == 1
     assert trace["source_documents"][0]["status"] == "completed"
     assert trace["source_documents"][0]["content_hash"] == "a" * 64
     assert "We manufacture" in trace["source_documents"][0]["text_content"]
@@ -765,6 +787,88 @@ def test_supplier_verifier_unavailable_blocks_shortlist_without_losing_results(
     assert verifier_stage["output_payload"]["qualified_results"][0][
         "shortlist_eligible"
     ] is False
+    assert verifier_stage["raw_output_payload"]["model_batches"] == []
+    assert verifier_stage["parsed_output_payload"]["results"] == []
+    assert verifier_stage["policy_output_payload"]["shortlist_count"] == 0
+
+
+def test_malformed_qualification_is_preserved_and_rejected_safely(
+    client, monkeypatch
+):
+    buyer = _auth(client, "ivanov")
+
+    def malformed_response(self, **kwargs):
+        if kwargs["schema_name"] == "supplier_verification":
+            return {"results": []}
+        return {
+            "results": [
+                {
+                    "result_index": 0,
+                    "company_name": "",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json",
+        malformed_response,
+    )
+    monkeypatch.setattr(
+        "app.api.supplier_search.fetch_web_page",
+        lambda url: FetchedPage(
+            url=url,
+            final_url=url,
+            domain="malformed.example",
+            title="Aspirin product",
+            content_type="text/html",
+            http_status=200,
+            text="Aspirin CAS 50-78-2.",
+            content_hash="9" * 64,
+        ),
+    )
+
+    response = client.post(
+        "/supplier-search/qualify",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "country": "China",
+            "results": [
+                {
+                    "title": "Malformed Chemical",
+                    "url": "https://malformed.example/aspirin",
+                    "snippet": "Aspirin candidate",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["supplier_type"] == "unknown"
+    assert result["shortlist_eligible"] is False
+    trace = client.get(
+        f"/search-runs/{response.json()['search_run_id']}",
+        headers=buyer,
+    ).json()
+    qualification_stage = next(
+        stage
+        for stage in trace["agent_runs"]
+        if stage["agent_slug"] == "supplier_qualification"
+    )
+    assert qualification_stage["raw_output_payload"]["model_batches"][0][
+        "results"
+    ][0]["company_name"] == ""
+    assert qualification_stage["parsed_output_payload"]["results"] == []
+    assert len(
+        qualification_stage["validation_output_payload"][
+            "rejected_qualifications"
+        ]
+    ) == 1
+    assert qualification_stage["policy_output_payload"][
+        "qualified_results"
+    ][0]["shortlist_eligible"] is False
 
 
 def test_qualified_candidate_is_registered_idempotently(client):
