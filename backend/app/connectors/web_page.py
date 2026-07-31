@@ -13,10 +13,45 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from app.connectors.web_politeness import robots_verdict, wait_for_domain_slot
+
 MAX_PAGE_BYTES = 1_000_000
 MAX_PAGE_TEXT = 200_000
 MAX_REDIRECTS = 3
 _ALLOWED_CONTENT_TYPES = {"text/html", "application/xhtml+xml", "text/plain"}
+
+# Запрос только с User-Agent отсекается защитой сайтов: реальный браузер шлёт
+# полтора десятка заголовков. Проверено на store.usp.org — 403 против 200.
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9,ru;q=0.8,zh-CN;q=0.7",
+    "Accept-Encoding": "gzip, deflate",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+# Медленный сайт поставщика успевает установить соединение, но долго отдаёт
+# тело: единый таймаут смешивал эти случаи.
+DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=25.0, write=10.0, pool=5.0)
+
+# Повтор только для временных сетевых ошибок и только один раз: логический
+# отказ (403, 404) повтором не исправить.
+_RETRIABLE_ERRORS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.RemoteProtocolError,
+)
 
 
 class PageFetchError(RuntimeError):
@@ -33,6 +68,9 @@ class FetchedPage:
     http_status: int
     text: str
     content_hash: str
+    # Крупная страница обрезается, а не отбрасывается: для оценки поставщика
+    # хватает начала документа.
+    truncated: bool = False
 
 
 class _TextExtractor(HTMLParser):
@@ -122,20 +160,20 @@ def validate_public_url(
     return parsed.hostname.casefold()
 
 
-def fetch_web_page(
+def _fetch_once(
     url: str,
     *,
-    max_bytes: int = MAX_PAGE_BYTES,
-    resolver: Callable = socket.getaddrinfo,
-    transport: httpx.BaseTransport | None = None,
+    max_bytes: int,
+    resolver: Callable,
+    transport: httpx.BaseTransport | None,
 ) -> FetchedPage:
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; ChemSourceAI/1.0)"}
     current_url = url
     with httpx.Client(
-        timeout=20,
+        timeout=DEFAULT_TIMEOUT,
         follow_redirects=False,
-        headers=headers,
+        headers=BROWSER_HEADERS,
         transport=transport,
+        http2=transport is None,
     ) as client:
         for redirect_index in range(MAX_REDIRECTS + 1):
             domain = validate_public_url(current_url, resolver=resolver)
@@ -160,18 +198,19 @@ def fetch_web_page(
                     raise PageFetchError(
                         f"Неподдерживаемый тип источника: {content_type or 'не указан'}"
                     )
-                declared_size = response.headers.get("content-length")
-                if declared_size and int(declared_size) > max_bytes:
-                    raise PageFetchError("Страница превышает допустимый размер")
 
                 chunks: list[bytes] = []
                 total = 0
+                truncated = False
                 for chunk in response.iter_bytes():
-                    total += len(chunk)
-                    if total > max_bytes:
-                        raise PageFetchError("Страница превышает допустимый размер")
                     chunks.append(chunk)
-                raw = b"".join(chunks)
+                    total += len(chunk)
+                    if total >= max_bytes:
+                        # Каталоги поставщиков бывают многомегабайтными;
+                        # для оценки достаточно начала страницы.
+                        truncated = True
+                        break
+                raw = b"".join(chunks)[:max_bytes]
                 encoding = response.encoding or "utf-8"
                 content = raw.decode(encoding, errors="replace")
                 title, text = extract_page_text(content, content_type)
@@ -186,5 +225,35 @@ def fetch_web_page(
                     http_status=response.status_code,
                     text=text,
                     content_hash=hashlib.sha256(raw).hexdigest(),
+                    truncated=truncated,
                 )
     raise PageFetchError("Источник не удалось загрузить")
+
+
+def fetch_web_page(
+    url: str,
+    *,
+    max_bytes: int = MAX_PAGE_BYTES,
+    resolver: Callable = socket.getaddrinfo,
+    transport: httpx.BaseTransport | None = None,
+    respect_robots: bool = True,
+) -> FetchedPage:
+    """Загружает страницу с браузерными заголовками и одним повтором.
+
+    Повтор выполняется только для временных сетевых ошибок: логический отказ
+    сервера (403, 404) повтором не исправить, а лишняя попытка тратит бюджет
+    этапа и нагружает чужой сайт.
+    """
+    if respect_robots and transport is None:
+        allowed, crawl_delay = robots_verdict(url, BROWSER_HEADERS["User-Agent"])
+        if not allowed:
+            raise PageFetchError("Robots.txt сайта запрещает загрузку страницы")
+        wait_for_domain_slot(url, crawl_delay)
+    try:
+        return _fetch_once(
+            url, max_bytes=max_bytes, resolver=resolver, transport=transport
+        )
+    except _RETRIABLE_ERRORS:
+        return _fetch_once(
+            url, max_bytes=max_bytes, resolver=resolver, transport=transport
+        )

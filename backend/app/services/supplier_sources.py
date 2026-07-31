@@ -16,6 +16,81 @@ _INDIA_REGISTRY_DOMAINS = (
 )
 
 
+# Домены, которые не являются искомыми производителями: дистрибьюторы
+# реактивов, продавцы фармакопейных стандартов, энциклопедии и маркетплейсы
+# общего назначения. Их страницы либо закрыты защитой от ботов, либо всё равно
+# отбраковываются на квалификации как посредники, поэтому загружать их — тратить
+# бюджет этапа и место в короткой выдаче.
+NON_MANUFACTURER_DOMAINS = (
+    # Дистрибьюторы реактивов и лабораторных химикатов.
+    "sigmaaldrich.com",
+    "merckmillipore.com",
+    "merckgroup.com",
+    "thermofisher.com",
+    "fishersci.com",
+    "fishersci.co.uk",
+    "vwr.com",
+    "avantorsciences.com",
+    "tcichemicals.com",
+    "alfa.com",
+    "acros.com",
+    "carlroth.com",
+    "honeywell.com",
+    "spectrumchemical.com",
+    "caymanchem.com",
+    "santacruzbio.com",
+    "abcam.com",
+    "bocsci.com",
+    # Продавцы фармакопейных стандартов.
+    "usp.org",
+    "edqm.eu",
+    "nist.gov",
+    "lgcstandards.com",
+    # Справочники, энциклопедии и базы данных.
+    "wikipedia.org",
+    "pubchem.ncbi.nlm.nih.gov",
+    "chemspider.com",
+    "drugbank.com",
+    "cas.org",
+    "commonchemistry.cas.org",
+    "guidechem.com",
+    "chemicalbook.com",
+    "chemnet.com",
+    "lookchem.com",
+    "molbase.com",
+    "chemblink.com",
+    "chemeo.com",
+    # Маркетплейсы общего назначения и агрегаторы объявлений.
+    "alibaba.com",
+    "aliexpress.com",
+    "made-in-china.com",
+    "indiamart.com",
+    "tradeindia.com",
+    "exportersindia.com",
+    "ec21.com",
+    "tradekey.com",
+    "amazon.com",
+    "ebay.com",
+    # Соцсети и агрегаторы вакансий/компаний.
+    "linkedin.com",
+    "facebook.com",
+    "youtube.com",
+    "crunchbase.com",
+    "bloomberg.com",
+    "zoominfo.com",
+)
+
+
+def is_non_manufacturer_domain(url: str) -> bool:
+    """Домен заведомо не является производителем искомого вещества."""
+    hostname = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    if not hostname:
+        return False
+    return any(
+        _host_matches(hostname, domain) for domain in NON_MANUFACTURER_DOMAINS
+    )
+
+
 def is_china(country: str | None) -> bool:
     return (country or "").strip().casefold() in {
         "china",

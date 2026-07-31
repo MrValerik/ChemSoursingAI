@@ -68,6 +68,7 @@ from app.services.supplier_sources import (
     build_search_queries,
     is_china,
     is_india,
+    is_non_manufacturer_domain,
     minimum_query_count,
     source_kind,
     source_priority,
@@ -913,6 +914,10 @@ def _rank_results(
     """Оставляет лучшую страницу домена и поднимает признаки нужной страны."""
     best_by_source: dict[str, tuple[int, int, int, dict]] = {}
     for position, result in enumerate(results):
+        if is_non_manufacturer_domain(result["url"]):
+            # Дистрибьюторы, справочники и маркетплейсы всё равно не пройдут
+            # квалификацию: не тратим на них бюджет загрузки страниц.
+            continue
         country_score = _country_score(result, country)
         kind = source_kind(result["url"])
         priority = source_priority(kind, country)
