@@ -13,11 +13,14 @@ from app.models.enums import UserRole
 from app.schemas.search_trace import (
     EvidenceClaimRead,
     SearchRunListItem,
+    SearchRunReplayRead,
+    SearchRunReplayRequest,
     SearchRunRestartRead,
     SearchRunSummary,
     SearchRunTrace,
     SourceDocumentRead,
 )
+from app.services.search_replay import SearchReplayError, replay_supplier_validator
 from app.services.search_trace import cancel_search_run, create_search_run, utc_now
 from app.services.supplier_search_continuation import (
     candidate_results as continuation_candidate_results,
@@ -275,6 +278,54 @@ def get_search_run(
                 for result in qualified
             )
     return item
+
+
+@router.post(
+    "/{search_run_id}/replay",
+    response_model=SearchRunReplayRead,
+    status_code=201,
+)
+def replay_search_run(
+    search_run_id: int,
+    data: SearchRunReplayRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SearchRunReplayRead:
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(
+            status_code=403,
+            detail="Аудитор может только просматривать сохранённые запуски.",
+        )
+    search_run = db.scalar(
+        select(SearchRun)
+        .where(SearchRun.id == search_run_id)
+        .options(selectinload(SearchRun.agent_runs))
+    )
+    if search_run is None or not _can_see(user, search_run):
+        raise HTTPException(
+            status_code=404,
+            detail="Запуск поиска не найден.",
+        )
+    try:
+        if data.mode == "validator":
+            replay = replay_supplier_validator(
+                db,
+                source_run=search_run,
+                owner_id=user.id,
+            )
+        else:  # pragma: no cover - guarded by the typed API contract
+            raise SearchReplayError("Неподдерживаемый режим replay.")
+    except SearchReplayError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    return SearchRunReplayRead(
+        search_run_id=replay.id,
+        correlation_id=replay.correlation_id,
+        parent_search_run_id=search_run.id,
+        replay_mode="validator",
+        status=replay.status,
+    )
 
 
 @router.post(

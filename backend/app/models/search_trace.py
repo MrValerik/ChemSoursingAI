@@ -40,6 +40,14 @@ class SearchRun(Base, TimestampMixin):
     rfq_id: Mapped[int | None] = mapped_column(
         ForeignKey("rfqs.id", ondelete="SET NULL"), index=True, default=None
     )
+    parent_search_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("search_runs.id", ondelete="SET NULL"),
+        index=True,
+        default=None,
+    )
+    replay_mode: Mapped[str | None] = mapped_column(
+        String(32), index=True, default=None
+    )
     status: Mapped[str] = mapped_column(String(32), default="running", index=True)
     mode: Mapped[str] = mapped_column(String(32), default="expert")
     input_payload: Mapped[dict[str, Any]] = mapped_column(JSON)

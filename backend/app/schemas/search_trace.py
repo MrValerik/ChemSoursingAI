@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -106,6 +106,8 @@ class SearchRunListItem(BaseModel):
     graph_version: str
     owner_id: int
     rfq_id: int | None
+    parent_search_run_id: int | None
+    replay_mode: str | None
     owner_name: str | None = None
     status: str
     mode: str
@@ -136,3 +138,15 @@ class SearchRunRestartRead(BaseModel):
     correlation_id: str
     status: str
     queue_position: int
+
+
+class SearchRunReplayRequest(BaseModel):
+    mode: Literal["validator"] = "validator"
+
+
+class SearchRunReplayRead(BaseModel):
+    search_run_id: int
+    correlation_id: str
+    parent_search_run_id: int
+    replay_mode: Literal["validator"]
+    status: str

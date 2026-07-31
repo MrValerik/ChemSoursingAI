@@ -605,6 +605,8 @@ export interface SearchRunListItem {
   graph_version: string;
   owner_id: number;
   rfq_id: number | null;
+  parent_search_run_id: number | null;
+  replay_mode: string | null;
   owner_name: string | null;
   status: string;
   mode: string;
@@ -643,6 +645,14 @@ export interface SupplierSearchJob {
   correlation_id: string;
   status: "queued";
   queue_position: number;
+}
+
+export interface SearchRunReplay {
+  search_run_id: number;
+  correlation_id: string;
+  parent_search_run_id: number;
+  replay_mode: "validator";
+  status: string;
 }
 
 export interface DashboardOverdue {

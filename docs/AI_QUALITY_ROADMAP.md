@@ -10,7 +10,8 @@
 
 - [x] Этап 1: Execution Manifest, `correlation_id` и версии контрактов.
 - [x] Этап 2: раздельные raw, parsed, validation и policy-артефакты.
-- [ ] Этап 3: replay без изменения исходного запуска.
+- [ ] Этап 3: replay без изменения исходного запуска (`validator` для
+  `supplier_verifier` готов; полные validator/model/live режимы впереди).
 - [ ] Этап 4: версионированный supplier eval.
 - [ ] Этап 5: retry policy, бюджеты и стабильные reason codes.
 - [ ] Этап 6: OpenTelemetry без утечки коммерческих данных.

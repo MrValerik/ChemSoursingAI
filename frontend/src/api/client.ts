@@ -12,6 +12,7 @@ import type {
   PromptRead,
   PromptVersionRead,
   RecipientRead,
+  SearchRunReplay,
   SearchRunListItem,
   SupplierRead,
   SupplierQualificationResponse,
@@ -534,6 +535,12 @@ export const api = {
   restartSearchRun: (id: number) =>
     request<SupplierSearchJob>(`/search-runs/${id}/restart`, {
       method: "POST",
+    }),
+
+  replaySearchRunValidators: (id: number) =>
+    request<SearchRunReplay>(`/search-runs/${id}/replay`, {
+      method: "POST",
+      body: JSON.stringify({ mode: "validator" }),
     }),
 
   createPrompt: (payload: {

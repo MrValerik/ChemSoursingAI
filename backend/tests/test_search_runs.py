@@ -93,6 +93,127 @@ def _build_completed_trace() -> int:
         return run.id
 
 
+def _build_replayable_trace() -> tuple[int, str]:
+    with SessionLocal() as db:
+        owner = db.query(User).filter(User.username == "ivanov").one()
+        run = create_search_run(
+            db,
+            owner_id=owner.id,
+            input_payload={
+                "cas": "50-78-2",
+                "name": "Aspirin",
+                "country": "China",
+            },
+        )
+        base_result = {
+            "result_index": 0,
+            "title": "Example Chemical",
+            "url": "https://example.test/aspirin",
+            "snippet": "Aspirin manufacturer",
+            "company_name": "Example Chemical",
+            "supplier_type": "manufacturer",
+            "cas_status": "confirmed",
+            "country_status": "claimed",
+            "confidence": 85,
+            "shortlist_eligible": True,
+            "red_flags": [],
+            "missing_evidence": [],
+            "evidence": [
+                {
+                    "id": 101,
+                    "source_document_id": 11,
+                    "claim_type": "chemical_identity",
+                    "claim_value": "CAS 50-78-2",
+                    "support_status": "supports",
+                    "quote": "Aspirin CAS 50-78-2",
+                    "quote_verified": True,
+                },
+                {
+                    "id": 102,
+                    "source_document_id": 11,
+                    "claim_type": "manufacturer_role",
+                    "claim_value": "manufacturer",
+                    "support_status": "supports",
+                    "quote": "We manufacture aspirin",
+                    "quote_verified": True,
+                },
+            ],
+        }
+        qualification, qualification_clock = start_agent_run(
+            db,
+            search_run=run,
+            sequence=1,
+            agent_slug="supplier_qualification",
+            agent_name="Квалификация поставщика",
+            execution_type="llm",
+            input_payload={"chemical": {"cas": "50-78-2"}},
+        )
+        accepted_evidence = [
+            {
+                "result_index": 0,
+                "claims": base_result["evidence"],
+            }
+        ]
+        finish_agent_run(
+            qualification,
+            qualification_clock,
+            output_payload={"qualified_results": [base_result]},
+            raw_output_payload={"model_batches": []},
+            parsed_output_payload={"results": []},
+            validation_output_payload={
+                "accepted_evidence": accepted_evidence,
+                "rejected_evidence": [],
+            },
+            policy_output_payload={"qualified_results": [base_result]},
+        )
+        verification, verification_clock = start_agent_run(
+            db,
+            search_run=run,
+            sequence=2,
+            agent_slug="supplier_verifier",
+            agent_name="Независимая проверка поставщика",
+            execution_type="llm",
+            input_payload={"candidates": [{"result_index": 0}]},
+        )
+        raw_verification = {
+            "results": [
+                {
+                    "result_index": 0,
+                    "substance_match": "exact",
+                    "supplier_role": "manufacturer",
+                    "verification_status": "confirmed",
+                    "recommended_action": "shortlist",
+                    "confidence": 90,
+                    "reason": "Identity and manufacturing are supported.",
+                    "supporting_claim_ids": [101, 102],
+                    "contradictory_claim_ids": [],
+                    "missing_evidence": [],
+                }
+            ]
+        }
+        finish_agent_run(
+            verification,
+            verification_clock,
+            output_payload={"qualified_results": [base_result]},
+            raw_output_payload={"model_batches": [raw_verification]},
+            parsed_output_payload=raw_verification,
+            validation_output_payload={"schema_rejections": []},
+            policy_output_payload={"qualified_results": [base_result]},
+        )
+        run.result_payload = {
+            "results": [
+                {
+                    "title": base_result["title"],
+                    "url": base_result["url"],
+                    "snippet": base_result["snippet"],
+                }
+            ]
+        }
+        finish_search_run(run)
+        db.commit()
+        return run.id, run.correlation_id
+
+
 def test_owner_and_privileged_roles_can_read_full_trace(client):
     run_id = _build_completed_trace()
 
@@ -150,6 +271,80 @@ def test_buyer_cannot_read_another_users_trace(client):
 
 def test_search_run_requires_authentication(client):
     assert client.get("/search-runs").status_code == 401
+
+
+def test_validator_replay_is_isolated_and_uses_no_network_or_llm(
+    client, monkeypatch
+):
+    run_id, original_correlation_id = _build_replayable_trace()
+    buyer = _auth(client, "ivanov")
+    original_before = client.get(
+        f"/search-runs/{run_id}",
+        headers=buyer,
+    ).json()
+
+    def unexpected_call(*args, **kwargs):
+        raise AssertionError("validator replay must not call external services")
+
+    monkeypatch.setattr(
+        "app.extraction.llm_client.LLMClient.generate_json",
+        unexpected_call,
+    )
+    monkeypatch.setattr(
+        "app.connectors.web_page.fetch_web_page",
+        unexpected_call,
+    )
+    response = client.post(
+        f"/search-runs/{run_id}/replay",
+        headers=buyer,
+        json={"mode": "validator"},
+    )
+
+    assert response.status_code == 201
+    replay = response.json()
+    assert replay["search_run_id"] != run_id
+    assert replay["correlation_id"] != original_correlation_id
+    assert replay["parent_search_run_id"] == run_id
+    assert replay["replay_mode"] == "validator"
+    assert replay["status"] == "completed"
+
+    trace = client.get(
+        f"/search-runs/{replay['search_run_id']}",
+        headers=buyer,
+    ).json()
+    assert trace["parent_search_run_id"] == run_id
+    assert trace["replay_mode"] == "validator"
+    assert trace["search_attempts"] == []
+    assert trace["source_documents"] == []
+    assert len(trace["agent_runs"]) == 1
+    stage = trace["agent_runs"][0]
+    assert stage["execution_type"] == "validator_replay"
+    assert stage["raw_output_payload"]["model_batches"]
+    assert stage["parsed_output_payload"]["results"][0][
+        "verification_status"
+    ] == "confirmed"
+    assert stage["validation_output_payload"]["schema_rejections"] == []
+    assert stage["policy_output_payload"]["shortlist_count"] == 1
+    assert trace["qualified_results"][0]["shortlist_eligible"] is True
+
+    original_after = client.get(
+        f"/search-runs/{run_id}",
+        headers=buyer,
+    ).json()
+    assert original_after["correlation_id"] == original_correlation_id
+    assert original_after["agent_runs"] == original_before["agent_runs"]
+    assert original_after["parent_search_run_id"] is None
+    assert original_after["replay_mode"] is None
+
+
+def test_validator_replay_rejects_run_without_auditor_artifacts(client):
+    run_id = _build_completed_trace()
+    response = client.post(
+        f"/search-runs/{run_id}/replay",
+        headers=_auth(client, "ivanov"),
+        json={"mode": "validator"},
+    )
+    assert response.status_code == 409
 
 
 def _enqueue_search(
