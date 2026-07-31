@@ -482,15 +482,11 @@ const qualificationFromTrace = (
 
 function SearchTracePanel({
   trace,
-  busy,
-  onRefresh,
   onRestart,
   onResume,
   restartBusy,
 }: {
   trace: SearchRunTrace;
-  busy: boolean;
-  onRefresh: () => void;
   onRestart: () => void;
   onResume: () => void;
   restartBusy: boolean;
@@ -542,9 +538,6 @@ function SearchTracePanel({
               {restartBusy ? "Перезапуск…" : "Перезапустить задачу"}
             </button>
           )}
-          <button className="secondary" disabled={busy} onClick={onRefresh}>
-            {busy ? "Обновление…" : "Обновить"}
-          </button>
         </div>
       </div>
 
@@ -623,6 +616,7 @@ function SearchTracePanel({
             <details
               className={`agent-pipeline-step ${state}`}
               key={`${step.slug}-${stage.id}`}
+              open={state === "failed" || undefined}
             >
               <summary>{content}</summary>
               <div className="agent-step-details">
@@ -649,8 +643,36 @@ function SearchTracePanel({
                   )}
                 </div>
                 {stage.error && (
-                  <div className="qualification-warning">
-                    {userErrorMessage(stage.error)}
+                  <div className="qualification-warning stage-error-block">
+                    <span>{userErrorMessage(stage.error)}</span>
+                    {state === "failed" && trace.can_resume && (
+                      <button
+                        className="secondary stage-error-action"
+                        disabled={restartBusy}
+                        onClick={onResume}
+                        type="button"
+                        title="Повторить проверку страниц, оценку и аудит: найденные кандидаты сохраняются, веб-поиск не выполняется заново."
+                      >
+                        <Icon name="refresh" size={14} />
+                        {restartBusy
+                          ? "Перезапуск…"
+                          : "Перезапустить с этого шага"}
+                      </button>
+                    )}
+                    {state === "failed" &&
+                      !trace.can_resume &&
+                      trace.can_restart && (
+                        <button
+                          className="secondary stage-error-action"
+                          disabled={restartBusy}
+                          onClick={onRestart}
+                          type="button"
+                          title="Поиск не успел сохранить результаты, поэтому задача перезапускается целиком. Ранее найденные поставщики исключаются из повторного поиска."
+                        >
+                          <Icon name="refresh" size={14} />
+                          {restartBusy ? "Перезапуск…" : "Перезапустить задачу"}
+                        </button>
+                      )}
                   </div>
                 )}
                 {stage.events && stage.events.length > 0 && (
@@ -906,8 +928,11 @@ export default function SupplierSearchSection({
   const [runs, setRuns] = useState<SearchRunListItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [traceBusy, setTraceBusy] = useState(false);
   const [restartBusy, setRestartBusy] = useState(false);
+  // Показывает загрузку только при явном переключении запуска: сама
+  // трассировка обновляется опросом каждые три секунды без действий
+  // пользователя.
+  const [traceBusy, setTraceBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [substanceRecord, setSubstanceRecord] = useState<SubstanceRecord | null>(null);
@@ -1034,20 +1059,6 @@ export default function SupplierSearchSection({
   }, [runs]);
   const activeRun =
     countryRuns.find((run) => run.id === selectedRunId) ?? countryRuns[0];
-  const refreshTrace = async () => {
-    const runId = selectedRunId ?? qualification?.search_run_id ?? data?.search_run_id;
-    if (!runId) return;
-    setTraceBusy(true);
-    setError(null);
-    try {
-      setTrace(await api.getSearchRun(runId));
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setTraceBusy(false);
-    }
-  };
-
   const restartTrace = async () => {
     if (!trace) return;
     setRestartBusy(true);
@@ -1174,7 +1185,7 @@ export default function SupplierSearchSection({
                 {traceBusy && (
                   <span className="current-search-refresh">
                     <span className="loading-spinner" aria-hidden="true" />
-                    Обновление
+                    Загрузка
                   </span>
                 )}
               </div>
@@ -1676,8 +1687,6 @@ export default function SupplierSearchSection({
         <div className="panel">
           <SearchTracePanel
             trace={trace}
-            busy={traceBusy}
-            onRefresh={() => void refreshTrace()}
             onRestart={() => void restartTrace()}
             onResume={() => void resumeTrace()}
             restartBusy={restartBusy}

@@ -630,6 +630,37 @@ button.danger:hover {
 .stages li.current::before { border-color: var(--brand); background: #dbeafe; }
 .stages li.error { color: var(--err); font-weight: 600; }
 .stages li.error::before { border-color: var(--err); background: #fee2e2; }
+.stage-jump {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted currentColor;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.stage-jump:hover,
+.stage-jump:focus-visible {
+  background: transparent;
+  color: var(--err);
+  text-decoration-style: solid;
+}
+
+.stage-error-block {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stage-error-action {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+}
 
 .tabs {
   display: flex;

@@ -36,6 +36,15 @@ const TABS: { key: TabKey; label: string }[] = [
 
 // Статус → пройденные этапы конвейера (раздел 7: «Этапы»).
 const STAGES = ["Проверка вещества", "Поиск", "Отбор", "Общение", "Ответы", "Сравнение"];
+// Куда ведёт клик по проблемному этапу: вкладка с местом ошибки.
+const STAGE_TABS: TabKey[] = [
+  "supplier_search",
+  "supplier_search",
+  "suppliers",
+  "dispatch",
+  "replies",
+  "summary",
+];
 const STAGE_BY_STATUS: Record<string, number> = {
   draft: 0,
   verified: 1,
@@ -385,14 +394,26 @@ export default function RfqDetail({
 
           <h2 style={{ marginTop: 16 }}>Этапы</h2>
           <ol className="stages">
-            {STAGES.map((s, i) => (
-              <li
-                key={s}
-                className={stageClass(i)}
-              >
-                {s}
-              </li>
-            ))}
+            {STAGES.map((s, i) => {
+              const stateClass = stageClass(i);
+              const needsAttention = stateClass === "error";
+              return (
+                <li key={s} className={stateClass}>
+                  {needsAttention ? (
+                    <button
+                      className="stage-jump"
+                      onClick={() => setTab(STAGE_TABS[i])}
+                      title="Перейти к месту ошибки"
+                      type="button"
+                    >
+                      {s}
+                    </button>
+                  ) : (
+                    s
+                  )}
+                </li>
+              );
+            })}
           </ol>
           {rfq.status === "escalated" && (
             <p className="note esc-note">Запрос передан в ручной разбор.</p>
