@@ -83,6 +83,14 @@ class Settings(BaseSettings):
         default="https://pubchem.ncbi.nlm.nih.gov/rest/pug"
     )
 
+    # --- Бюджеты одного этапа поиска поставщиков ---
+    # Исчерпание бюджета завершает этап безопасным частичным результатом
+    # со stop reason в трассировке, а не ошибкой.
+    search_max_queries: int = Field(default=12)
+    search_max_page_fetches: int = Field(default=30)
+    search_max_llm_calls: int = Field(default=40)
+    search_max_runtime_s: int = Field(default=2700)
+
     @property
     def sqlalchemy_dsn(self) -> str:
         """Готовый DSN для SQLAlchemy. database_url перекрывает поля POSTGRES_*."""

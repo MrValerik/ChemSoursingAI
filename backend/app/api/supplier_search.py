@@ -31,6 +31,14 @@ from app.schemas.supplier_verification import (
     SupplierVerification,
 )
 from app.services.cas import is_valid_cas, normalize_cas
+from app.services.search_budget import (
+    STOP_BATCHES_COMPLETED,
+    STOP_CANDIDATES_EXHAUSTED,
+    STOP_COVERAGE_SUFFICIENT,
+    STOP_PLAN_EXHAUSTED,
+    STOP_TARGET_REACHED,
+    SearchBudget,
+)
 from app.services.search_trace import (
     create_search_run,
     finish_agent_run,
@@ -1074,6 +1082,7 @@ def execute_supplier_search(
     search_run.error = None
     search_run.completed_at = None
     db.commit()
+    budget = SearchBudget.from_settings()
 
     normalized_cas = normalize_cas(data.cas)
     lookup_stage, lookup_clock = start_agent_run(
@@ -1144,6 +1153,11 @@ def execute_supplier_search(
         db.commit()
         raw_identity: dict | None = None
         try:
+            budget_refusal = budget.refuse_llm_call()
+            if budget_refusal is not None:
+                raise LLMUnavailableError(
+                    f"Бюджет LLM-вызовов исчерпан ({budget_refusal})"
+                )
             raw_identity = llm.generate_json(
                 system_prompt=identity_system_prompt,
                 user_text=json.dumps(identity_input, ensure_ascii=False),
@@ -1271,6 +1285,11 @@ def execute_supplier_search(
         )
         db.commit()
         try:
+            budget_refusal = budget.refuse_llm_call()
+            if budget_refusal is not None:
+                raise LLMUnavailableError(
+                    f"Бюджет LLM-вызовов исчерпан ({budget_refusal})"
+                )
             generated = llm.generate_json(
                 system_prompt=base_system_prompt,
                 user_text=json.dumps(planner_input, ensure_ascii=False),
@@ -1377,7 +1396,12 @@ def execute_supplier_search(
     excluded_duplicate_count = 0
     reserve_limit = min(max(data.limit * 3, data.limit + 5), 60)
     fetch_limit = min(reserve_limit * 2, 20)
+    search_stop_reason: str | None = None
     for plan_item in planned_queries:
+        budget_refusal = budget.refuse_query()
+        if budget_refusal is not None:
+            search_stop_reason = budget_refusal
+            break
         query = plan_item.query
         attempted_queries.append(query)
         executed_items.append(plan_item)
@@ -1429,7 +1453,10 @@ def execute_supplier_search(
             ranked_results=current,
             limit=reserve_limit,
         ):
+            search_stop_reason = STOP_COVERAGE_SUFFICIENT
             break
+    else:
+        search_stop_reason = STOP_PLAN_EXHAUSTED
 
     if not raw_results and search_errors:
         error = f"Поисковый источник недоступен: {search_errors[-1]}"
@@ -1461,6 +1488,8 @@ def execute_supplier_search(
             "identity_fallback_reason": identity_error,
             "rejected_model_queries": rejected_queries,
             "excluded_previous_supplier_count": excluded_duplicate_count,
+            "stop_reason": search_stop_reason,
+            "budget": budget.snapshot(),
         },
     )
     response_payload = {
@@ -1478,6 +1507,8 @@ def execute_supplier_search(
         "results": results,
         "reserve_results": reserve_results,
         "excluded_previous_supplier_count": excluded_duplicate_count,
+        "stop_reason": search_stop_reason,
+        "budget": budget.snapshot(),
         "warning": (
             "Сначала проверяются карточки Echemi, затем региональные источники. "
             "Результаты являются кандидатами: статус производителя, лицензии "
@@ -1541,6 +1572,7 @@ def execute_supplier_qualification(
     # Keep this assignment close to the call: the same effective prompt is
     # persisted below and shown verbatim in the search trace.
     system_prompt = _qualification_system_prompt(prompt)
+    budget = SearchBudget.from_settings()
     search_run.status = "fetching_sources"
     db.commit()
     fetch_run, fetch_clock = start_agent_run(
@@ -1565,8 +1597,14 @@ def execute_supplier_qualification(
         data.target_count or len(data.results),
         len(data.results),
     )
+    fetch_stop_reason: str | None = None
     for index, result in enumerate(data.results):
         if len(fetched_sources) >= requested_supplier_count:
+            fetch_stop_reason = STOP_TARGET_REACHED
+            break
+        budget_refusal = budget.refuse_page_fetch()
+        if budget_refusal is not None:
+            fetch_stop_reason = budget_refusal
             break
         source = SourceDocument(
             search_run_id=search_run.id,
@@ -1626,6 +1664,8 @@ def execute_supplier_qualification(
         )
         db.commit()
 
+    if fetch_stop_reason is None:
+        fetch_stop_reason = STOP_CANDIDATES_EXHAUSTED
     replacement_candidates_used = max(
         0, len(fetch_summary) - requested_supplier_count
     )
@@ -1639,6 +1679,8 @@ def execute_supplier_qualification(
             "verified_source_count": len(fetched_sources),
             "replacement_candidates_used": replacement_candidates_used,
             "source_shortfall": source_shortfall,
+            "stop_reason": fetch_stop_reason,
+            "budget": budget.snapshot(),
         },
     )
     db.commit()
@@ -1674,8 +1716,15 @@ def execute_supplier_qualification(
     raw_batches: list[dict] = []
     raw_results: list[dict] = []
     raw_items: list[tuple[dict, set[int]]] = []
+    qualification_stop_reason: str | None = None
     try:
         for offset in range(0, len(fetched_sources), _QUALIFICATION_BATCH_SIZE):
+            budget_refusal = budget.refuse_llm_call()
+            if budget_refusal is not None:
+                # Unqualified sources stay visible as manual-review entries:
+                # budget exhaustion is a safe partial result, not an error.
+                qualification_stop_reason = budget_refusal
+                break
             batch_sources = fetched_sources[
                 offset : offset + _QUALIFICATION_BATCH_SIZE
             ]
@@ -1719,6 +1768,8 @@ def execute_supplier_qualification(
                 "model_batches": raw_batches,
             }
             db.commit()
+        else:
+            qualification_stop_reason = STOP_BATCHES_COMPLETED
     except LLMUnavailableError as exc:
         error = (
             "Локальная ИИ-модель недоступна. "
@@ -1895,6 +1946,8 @@ def execute_supplier_qualification(
             "model_output": raw,
             "model_batches": raw_batches,
             "batch_count": len(raw_batches),
+            "stop_reason": qualification_stop_reason,
+            "budget": budget.snapshot(),
             "qualified_results": combined_results,
             "validated_evidence_count": sum(
                 len(items) for items in validated_evidence.values()
@@ -1937,6 +1990,7 @@ def execute_supplier_qualification(
     verification_run: AgentRun | None = None
     verification_clock = 0.0
     verification_error: str | None = None
+    verification_stop_reason: str | None = None
     verification_raw_batches: list[dict] = []
     verification_raw_results: list[dict] = []
     verification_items: list[tuple[dict, set[int]]] = []
@@ -1994,6 +2048,12 @@ def execute_supplier_qualification(
             for offset in range(
                 0, len(verification_candidates), _VERIFICATION_BATCH_SIZE
             ):
+                budget_refusal = budget.refuse_llm_call()
+                if budget_refusal is not None:
+                    # Candidates without an auditor decision fall back to
+                    # manual review through the veto gate below.
+                    verification_stop_reason = budget_refusal
+                    break
                 batch_candidates = verification_candidates[
                     offset : offset + _VERIFICATION_BATCH_SIZE
                 ]
@@ -2037,6 +2097,8 @@ def execute_supplier_qualification(
                     "model_batches": verification_raw_batches,
                 }
                 db.commit()
+            else:
+                verification_stop_reason = STOP_BATCHES_COMPLETED
         except LLMUnavailableError as exc:
             verification_error = (
                 "Независимая проверка недоступна: "
@@ -2067,12 +2129,18 @@ def execute_supplier_qualification(
                 continue
             verifications.setdefault(parsed.result_index, parsed)
 
+    unverified_reason = verification_error
+    if verification_stop_reason not in (None, STOP_BATCHES_COMPLETED):
+        unverified_reason = (
+            "Независимая проверка остановлена бюджетом запуска "
+            f"({verification_stop_reason}); кандидат ожидает ручной проверки."
+        )
     final_results = [
         apply_supplier_verification(
             result,
             verifications.get(int(result["result_index"])),
             validated_evidence.get(int(result["result_index"]), []),
-            unavailable_reason=verification_error,
+            unavailable_reason=unverified_reason,
         )
         for result in combined_results
     ]
@@ -2116,6 +2184,8 @@ def execute_supplier_qualification(
                 "model_output": {"results": verification_raw_results},
                 "model_batches": verification_raw_batches,
                 "batch_count": len(verification_raw_batches),
+                "stop_reason": verification_stop_reason,
+                "budget": budget.snapshot(),
                 "qualified_results": final_results,
                 "rejected_verifications": rejected_verifications,
                 "registry_links": registry_links,
@@ -2165,6 +2235,7 @@ def execute_supplier_qualification(
         "verified_source_count": len(fetched_sources),
         "replacement_candidates_used": replacement_candidates_used,
         "source_shortfall": source_shortfall,
+        "budget": budget.snapshot(),
         "warning": (
             "Квалификация предварительная и основана на сохранённых первичных "
             "страницах. Недоступные сайты не учитываются: система автоматически "

@@ -15,7 +15,9 @@
 - [ ] Этап 4: версионированный supplier eval (безопасностный eval
   детерминированного decision-слоя `supplier_decision_eval.v1` готов и входит
   в pytest; eval LLM-этапов на сохранённых документах впереди).
-- [ ] Этап 5: retry policy, бюджеты и стабильные reason codes.
+- [ ] Этап 5: retry policy, бюджеты и стабильные reason codes (бюджеты
+  запросов/страниц/LLM-вызовов/времени со stop reasons готовы; retry policy,
+  schema-repair и идемпотентные ключи внешних операций впереди).
 - [ ] Этап 6: OpenTelemetry без утечки коммерческих данных.
 - [ ] Этап 7: shadow/canary и калибровка качества.
 

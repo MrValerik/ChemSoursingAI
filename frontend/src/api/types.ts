@@ -443,7 +443,21 @@ export interface SupplierSearchResponse {
   fallback_used: boolean;
   results: SupplierSearchResult[];
   reserve_results?: SupplierSearchResult[];
+  stop_reason?: string | null;
+  budget?: SearchBudgetSnapshot;
   warning: string;
+}
+
+export interface SearchBudgetSnapshot {
+  max_queries: number;
+  queries_used: number;
+  max_page_fetches: number;
+  page_fetches_used: number;
+  max_llm_calls: number;
+  llm_calls_used: number;
+  max_runtime_s: number;
+  elapsed_s: number;
+  stop_reason: string | null;
 }
 
 export type EvidenceStatus = "claimed" | "not_found" | "contradicted";
@@ -524,6 +538,7 @@ export interface SupplierQualificationResponse {
   verified_source_count?: number;
   replacement_candidates_used?: number;
   source_shortfall?: number;
+  budget?: SearchBudgetSnapshot;
   warning: string;
 }
 
