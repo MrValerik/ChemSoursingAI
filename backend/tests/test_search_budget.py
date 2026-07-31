@@ -261,3 +261,23 @@ def test_agent_event_log_is_recorded_for_each_stage(client, _fresh_settings):
         for event in stage["events"] or []:
             assert event["at"]
             assert event["kind"] in {"action", "info", "warning", "error"}
+
+
+def test_page_text_budget_shrinks_with_a_small_model_context(_fresh_settings):
+    from app.api.supplier_search import _PAGE_TEXT_HARD_LIMIT, _page_text_budget
+
+    monkeypatch = _fresh_settings
+    monkeypatch.setenv("LLM_CONTEXT_TOKENS", "12288")
+    get_settings.cache_clear()
+    assert _page_text_budget() == _PAGE_TEXT_HARD_LIMIT
+
+    monkeypatch.setenv("LLM_CONTEXT_TOKENS", "4096")
+    get_settings.cache_clear()
+    small = _page_text_budget()
+    assert 0 < small < _PAGE_TEXT_HARD_LIMIT
+
+    # Даже при абсурдно маленьком контексте бюджет остаётся положительным,
+    # чтобы этап отдал меньше текста, а не упал.
+    monkeypatch.setenv("LLM_CONTEXT_TOKENS", "512")
+    get_settings.cache_clear()
+    assert _page_text_budget() > 0

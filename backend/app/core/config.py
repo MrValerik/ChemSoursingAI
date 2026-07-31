@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="Qwen_Qwen3.5-27B-Q4_K_M")
     llm_api_key: str = Field(default="not-needed-for-local")
     llm_timeout_s: int = Field(default=600)
+    # Размер контекста llama-server (--ctx-size). Backend сам ужимает
+    # передаваемые страницы под этот бюджет, поэтому запрос не может
+    # превысить контекст модели даже при неверной настройке сервиса.
+    llm_context_tokens: int = Field(default=12288)
 
     # --- Email-коннектор (IMAP/SMTP) ---
     # demo сохраняет безопасное поведение без внешней отправки; live включает SMTP.

@@ -1,7 +1,11 @@
 import httpx
 import pytest
 
-from app.extraction.llm_client import LLMClient, LLMUnavailableError
+from app.extraction.llm_client import (
+    LLMClient,
+    LLMContextOverflowError,
+    LLMUnavailableError,
+)
 
 
 class _Response:
@@ -203,3 +207,63 @@ def test_second_malformed_json_fails(monkeypatch):
     with pytest.raises(LLMUnavailableError):
         _json_call(client)
     assert len(calls) == 2
+
+
+def _overflow_response():
+    request = httpx.Request("POST", "http://llama.test/v1")
+    return httpx.Response(
+        400,
+        request=request,
+        text=(
+            '{"error":{"message":"request (4130 tokens) exceeds the '
+            'available context size (4096 tokens), try increasing it",'
+            '"type":"exceed_context_size_error"}}'
+        ),
+    )
+
+
+class _OverflowClient:
+    calls = 0
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        return None
+
+    def post(self, url: str, *, json: dict, headers: dict):
+        type(self).calls += 1
+        response = _overflow_response()
+
+        class Wrapper:
+            status_code = 400
+
+            def raise_for_status(self):
+                raise httpx.HTTPStatusError(
+                    "400", request=response.request, response=response
+                )
+
+            def json(self):
+                return response.json()
+
+        return Wrapper()
+
+
+def test_context_overflow_reports_real_reason_and_is_not_retried(monkeypatch):
+    _OverflowClient.calls = 0
+    monkeypatch.setattr(
+        "app.extraction.llm_client.httpx.Client", _OverflowClient
+    )
+    client = _make_client()
+
+    with pytest.raises(LLMContextOverflowError) as caught:
+        _json_call(client)
+
+    message = str(caught.value)
+    assert "4130" in message and "4096" in message
+    assert "контекст" in message
+    # Повтор не помог бы: запрос нужно сократить или увеличить контекст.
+    assert _OverflowClient.calls == 1

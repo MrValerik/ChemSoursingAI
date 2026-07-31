@@ -13,8 +13,13 @@ from app.api.deps import get_current_user
 from app.connectors.pubchem import PubChemConnector
 from app.connectors.web_page import fetch_web_page
 from app.connectors.web_search import search_web
+from app.core.config import get_settings
 from app.core.db import get_db
-from app.extraction.llm_client import LLMClient, LLMUnavailableError
+from app.extraction.llm_client import (
+    LLMClient,
+    LLMContextOverflowError,
+    LLMUnavailableError,
+)
 from app.models import (
     AgentRun,
     EvidenceClaim,
@@ -72,6 +77,26 @@ router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
 
 _QUALIFICATION_BATCH_SIZE = 2
 _VERIFICATION_BATCH_SIZE = 2
+# Максимум текста первичной страницы, который вообще имеет смысл передавать.
+_PAGE_TEXT_HARD_LIMIT = 4000
+
+
+def _page_text_budget(
+    *, batch_size: int = _QUALIFICATION_BATCH_SIZE, output_tokens: int = 1536
+) -> int:
+    """Сколько символов страницы помещается в контекст модели.
+
+    Переполнение контекста llama-server возвращает как ошибку запроса, а не
+    как недоступность модели, поэтому объём страниц ужимается заранее. При
+    маленьком контексте этап отдаёт меньше текста, но не падает.
+    """
+    # Запас на системный промпт, служебные поля запроса и разметку JSON.
+    overhead_tokens = 1200
+    available = get_settings().llm_context_tokens - output_tokens - overhead_tokens
+    per_source_tokens = max(300, available // max(1, batch_size))
+    # Осторожная оценка для смешанного текста ru/en/zh: около двух символов
+    # на токен. Заниженный коэффициент безопаснее завышенного.
+    return min(_PAGE_TEXT_HARD_LIMIT, per_source_tokens * 2)
 
 
 class SearchRunCancelled(RuntimeError):
@@ -1686,6 +1711,7 @@ def execute_supplier_qualification(
         len(data.results),
     )
     fetch_stop_reason: str | None = None
+    page_text_limit = _page_text_budget()
     for index, result in enumerate(data.results):
         if len(fetched_sources) >= requested_supplier_count:
             fetch_stop_reason = STOP_TARGET_REACHED
@@ -1740,7 +1766,7 @@ def execute_supplier_qualification(
                     "domain": source.domain,
                     "source_kind": result.source_kind,
                     "fetch_status": "completed",
-                    "page_text": page.text[:4000],
+                    "page_text": page.text[:page_text_limit],
                 }
             )
             log_agent_event(
@@ -1846,10 +1872,19 @@ def execute_supplier_qualification(
             batch_sources = fetched_sources[
                 offset : offset + _QUALIFICATION_BATCH_SIZE
             ]
+            total_batches = (
+                len(fetched_sources) + _QUALIFICATION_BATCH_SIZE - 1
+            ) // _QUALIFICATION_BATCH_SIZE
+            companies = ", ".join(
+                source.get("domain") or source.get("title") or "источник"
+                for source in batch_sources
+            )
             log_agent_event(
                 qualification_run,
-                f"Пакет {offset // _QUALIFICATION_BATCH_SIZE + 1}: "
-                f"передаю модели {len(batch_sources)} источника(ов)",
+                f"Часть {offset // _QUALIFICATION_BATCH_SIZE + 1} из "
+                f"{total_batches}: читаю страницы ({companies}) и определяю, "
+                "производитель это или посредник, тот ли CAS, та ли страна, "
+                "есть ли GMP, ISO, CoA и TDS — каждый вывод с дословной цитатой",
             )
             db.commit()
             batch_payload = {
@@ -1908,8 +1943,13 @@ def execute_supplier_qualification(
             qualification_stop_reason = STOP_BATCHES_COMPLETED
     except LLMUnavailableError as exc:
         error = (
-            "Локальная ИИ-модель недоступна. "
-            "Убедитесь, что сервис модели запущен, и повторите попытку"
+            f"{exc}. Уменьшите объём проверяемых страниц или увеличьте "
+            "--ctx-size у службы модели"
+            if isinstance(exc, LLMContextOverflowError)
+            else (
+                "Локальная ИИ-модель недоступна. "
+                "Убедитесь, что сервис модели запущен, и повторите попытку"
+            )
         )
         qualification_llm_attempts.extend(llm.last_attempts)
         finish_agent_run(
@@ -2210,11 +2250,19 @@ def execute_supplier_qualification(
                 batch_candidates = verification_candidates[
                     offset : offset + _VERIFICATION_BATCH_SIZE
                 ]
+                total_batches = (
+                    len(verification_candidates) + _VERIFICATION_BATCH_SIZE - 1
+                ) // _VERIFICATION_BATCH_SIZE
+                names = ", ".join(
+                    str(candidate.get("title") or "кандидат")[:40]
+                    for candidate in batch_candidates
+                )
                 log_agent_event(
                     verification_run,
-                    f"Пакет {offset // _VERIFICATION_BATCH_SIZE + 1}: "
-                    f"независимо проверяю {len(batch_candidates)} "
-                    "кандидата(ов) по первичным страницам",
+                    f"Часть {offset // _VERIFICATION_BATCH_SIZE + 1} из "
+                    f"{total_batches}: заново перепроверяю ({names}) — "
+                    "второй агент не видит выводов первого и решает сам: "
+                    "подтвердить, отклонить или отправить на ручную проверку",
                 )
                 db.commit()
                 raw_batch = llm.generate_json(
@@ -2269,7 +2317,7 @@ def execute_supplier_qualification(
                 verification_stop_reason = STOP_BATCHES_COMPLETED
         except LLMUnavailableError as exc:
             verification_error = (
-                "Независимая проверка недоступна: "
+                "Независимая проверка не выполнена: "
                 f"{str(exc) or 'локальная ИИ-модель не ответила'}"
             )
             verification_llm_attempts.extend(llm.last_attempts)

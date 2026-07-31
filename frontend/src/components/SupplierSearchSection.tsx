@@ -485,11 +485,13 @@ function SearchTracePanel({
   onRestart,
   onResume,
   restartBusy,
+  isAdmin,
 }: {
   trace: SearchRunTrace;
   onRestart: () => void;
   onResume: () => void;
   restartBusy: boolean;
+  isAdmin: boolean;
 }) {
   const hasRunningStage = trace.agent_runs.some(
     (stage) => stage.status !== "completed" && stage.status !== "failed",
@@ -583,6 +585,11 @@ function SearchTracePanel({
                   : state === "skipped"
                     ? "Пропущено: кандидаты не найдены"
                     : "Ожидает запуска";
+          // Пока шаг идёт, показываем последнее действие агента вместо общего
+          // описания: пользователю важно видеть, чем он занят прямо сейчас.
+          const lastEvent = stage?.events?.length
+            ? stage.events[stage.events.length - 1]
+            : null;
           const content = (
             <>
               <span className={`pipeline-marker ${state}`}>
@@ -590,7 +597,18 @@ function SearchTracePanel({
               </span>
               <span className="pipeline-copy">
                 <strong>{step.title}</strong>
-                <small>{step.description}</small>
+                {state === "running" && lastEvent ? (
+                  <small className="pipeline-activity">
+                    {lastEvent.message}
+                    <span className="thinking-dots" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  </small>
+                ) : (
+                  <small>{step.description}</small>
+                )}
               </span>
               <span className={`pipeline-status ${state}`}>
                 {state === "running" && (
@@ -621,18 +639,6 @@ function SearchTracePanel({
               <summary>{content}</summary>
               <div className="agent-step-details">
                 <div className="agent-trace-meta">
-                  <span>
-                    Исполнитель:{" "}
-                    {stage.execution_type === "llm"
-                      ? "ИИ-агент"
-                      : stage.execution_type === "tool"
-                        ? "поисковый инструмент"
-                        : "резервный алгоритм"}
-                  </span>
-                  {stage.prompt_version !== null && (
-                    <span>Промпт: версия {stage.prompt_version}</span>
-                  )}
-                  <span>Контракт: {stage.contract_version}</span>
                   {elapsedMs !== null && (
                     <span>
                       Время: {formatDuration(elapsedMs)}
@@ -704,68 +710,13 @@ function SearchTracePanel({
                     />
                   </section>
                 )}
-                {stage.effective_system_prompt && (
-                  <details className="trace-subdetails">
-                    <summary>Промпт ИИ-агента</summary>
-                    <div className="trace-block">
-                      <pre>{stage.effective_system_prompt}</pre>
-                    </div>
-                  </details>
-                )}
-                {stage.input_payload && (
-                  <details className="trace-subdetails">
-                    <summary>Входные данные</summary>
-                    <div className="trace-block">
-                      <pre>{formatJson(stage.input_payload)}</pre>
-                    </div>
-                  </details>
-                )}
-                {stage.output_payload && (
-                  <details className="trace-subdetails">
-                    <summary>Совместимый итоговый результат</summary>
-                    <div className="trace-block">
-                      <pre>{formatJson(stage.output_payload)}</pre>
-                    </div>
-                  </details>
-                )}
-                {stage.raw_output_payload && (
-                  <details className="trace-subdetails">
-                    <summary>Сырой ответ модели</summary>
-                    <div className="trace-block">
-                      <pre>{formatJson(stage.raw_output_payload)}</pre>
-                    </div>
-                  </details>
-                )}
-                {stage.parsed_output_payload && (
-                  <details className="trace-subdetails">
-                    <summary>Результат typed parsing</summary>
-                    <div className="trace-block">
-                      <pre>{formatJson(stage.parsed_output_payload)}</pre>
-                    </div>
-                  </details>
-                )}
-                {stage.validation_output_payload && (
-                  <details className="trace-subdetails">
-                    <summary>Результат валидаторов</summary>
-                    <div className="trace-block">
-                      <pre>{formatJson(stage.validation_output_payload)}</pre>
-                    </div>
-                  </details>
-                )}
-                {stage.policy_output_payload && (
-                  <details className="trace-subdetails">
-                    <summary>Итог policy gate</summary>
-                    <div className="trace-block">
-                      <pre>{formatJson(stage.policy_output_payload)}</pre>
-                    </div>
-                  </details>
-                )}
               </div>
             </details>
           );
         })}
       </div>
 
+      {isAdmin && (
       <details className="technical-accordion">
         <summary>
           Технические детали
@@ -779,6 +730,85 @@ function SearchTracePanel({
             <span>Correlation ID: {trace.correlation_id}</span>
             <span>Граф: {trace.graph_version}</span>
           </div>
+          <section>
+            <h3>Этапы: промпты, входные данные и артефакты решений</h3>
+            {trace.agent_runs.map((stage) => (
+              <details className="trace-subdetails" key={`tech-${stage.id}`}>
+                <summary>
+                  {stage.sequence}. {stage.agent_name}
+                  <span className="trace-subdetails-meta">
+                    {stage.execution_type === "llm"
+                      ? "ИИ-агент"
+                      : stage.execution_type === "tool"
+                        ? "поисковый инструмент"
+                        : "резервный алгоритм"}
+                    {stage.prompt_version !== null
+                      ? ` · промпт в. ${stage.prompt_version}`
+                      : ""}
+                    {` · контракт ${stage.contract_version}`}
+                  </span>
+                </summary>
+                <div className="trace-subdetails-body">
+                  {stage.effective_system_prompt && (
+                    <details className="trace-subdetails">
+                      <summary>Промпт ИИ-агента</summary>
+                      <div className="trace-block">
+                        <pre>{stage.effective_system_prompt}</pre>
+                      </div>
+                    </details>
+                  )}
+                  {stage.input_payload && (
+                    <details className="trace-subdetails">
+                      <summary>Входные данные</summary>
+                      <div className="trace-block">
+                        <pre>{formatJson(stage.input_payload)}</pre>
+                      </div>
+                    </details>
+                  )}
+                  {stage.output_payload && (
+                    <details className="trace-subdetails">
+                      <summary>Совместимый итоговый результат</summary>
+                      <div className="trace-block">
+                        <pre>{formatJson(stage.output_payload)}</pre>
+                      </div>
+                    </details>
+                  )}
+                  {stage.raw_output_payload && (
+                    <details className="trace-subdetails">
+                      <summary>Сырой ответ модели</summary>
+                      <div className="trace-block">
+                        <pre>{formatJson(stage.raw_output_payload)}</pre>
+                      </div>
+                    </details>
+                  )}
+                  {stage.parsed_output_payload && (
+                    <details className="trace-subdetails">
+                      <summary>Результат typed parsing</summary>
+                      <div className="trace-block">
+                        <pre>{formatJson(stage.parsed_output_payload)}</pre>
+                      </div>
+                    </details>
+                  )}
+                  {stage.validation_output_payload && (
+                    <details className="trace-subdetails">
+                      <summary>Результат валидаторов</summary>
+                      <div className="trace-block">
+                        <pre>{formatJson(stage.validation_output_payload)}</pre>
+                      </div>
+                    </details>
+                  )}
+                  {stage.policy_output_payload && (
+                    <details className="trace-subdetails">
+                      <summary>Итог policy gate</summary>
+                      <div className="trace-block">
+                        <pre>{formatJson(stage.policy_output_payload)}</pre>
+                      </div>
+                    </details>
+                  )}
+                </div>
+              </details>
+            ))}
+          </section>
           <section>
             <h3>Источники и параметры поисковых запросов</h3>
             {trace.search_attempts.length === 0 && (
@@ -901,6 +931,7 @@ function SearchTracePanel({
           </section>
         </div>
       </details>
+      )}
     </section>
   );
 }
@@ -1690,6 +1721,7 @@ export default function SupplierSearchSection({
             onRestart={() => void restartTrace()}
             onResume={() => void resumeTrace()}
             restartBusy={restartBusy}
+            isAdmin={user?.role === "admin"}
           />
         </div>
       )}

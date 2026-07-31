@@ -9,6 +9,7 @@ QUOTE_JSON_SCHEMA; при недоступности модели бросаем
 from __future__ import annotations
 
 import json
+import re
 
 import httpx
 
@@ -27,7 +28,34 @@ class LLMUnavailableError(RuntimeError):
     """Модель недоступна (нет соединения/таймаут/ошибка сервера)."""
 
 
+class LLMContextOverflowError(LLMUnavailableError):
+    """Запрос длиннее контекста модели.
+
+    Наследуется от :class:`LLMUnavailableError`, чтобы существующие обработчики
+    продолжали безопасно завершать этап, но позволяет показать пользователю
+    настоящую причину вместо «модель не запущена».
+    """
+
+
 _TRANSIENT_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+
+
+def _context_overflow_message(exc: httpx.HTTPStatusError) -> str | None:
+    """Извлекает понятную причину, если сервер отверг слишком длинный запрос."""
+    try:
+        body = exc.response.text
+    except Exception:  # pragma: no cover - тело ответа уже недоступно
+        return None
+    if "context size" not in body and "context window" not in body:
+        return None
+    match = re.search(r"request \((\d+) tokens\)", body)
+    limit = re.search(r"context size \((\d+) tokens\)", body)
+    if match and limit:
+        return (
+            f"Запрос к модели ({match.group(1)} токенов) не помещается в её "
+            f"контекст ({limit.group(1)} токенов)"
+        )
+    return "Запрос к модели не помещается в её контекст"
 
 
 def _transient_reason(exc: Exception) -> str | None:
@@ -272,6 +300,13 @@ class LLMClient:
                     ]
             except httpx.HTTPError as exc:
                 attempt_record["error"] = str(exc)[:500]
+                if isinstance(exc, httpx.HTTPStatusError):
+                    overflow = _context_overflow_message(exc)
+                    if overflow is not None:
+                        # Повтор не поможет: запрос нужно сократить или
+                        # увеличить --ctx-size у llama-server.
+                        attempt_record["error"] = overflow
+                        raise LLMContextOverflowError(overflow) from exc
                 reason = _transient_reason(exc)
                 if reason is None or transient_retry_used:
                     raise LLMUnavailableError(
