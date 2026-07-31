@@ -27,6 +27,26 @@ class LLMUnavailableError(RuntimeError):
     """Модель недоступна (нет соединения/таймаут/ошибка сервера)."""
 
 
+_TRANSIENT_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+
+
+def _transient_reason(exc: Exception) -> str | None:
+    """Стабильный retry_reason, если ошибку можно повторить один раз.
+
+    Логические ошибки (4xx кроме 408/425/429) не повторяются: повтор не
+    изменит результат, а лишний вызов занимает единственный слот GPU.
+    """
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.HTTPStatusError):
+        if exc.response.status_code in _TRANSIENT_STATUS_CODES:
+            return f"http_{exc.response.status_code}"
+        return None
+    if isinstance(exc, httpx.TransportError):
+        return "connection_error"
+    return None
+
+
 class LLMClient:
     def __init__(
         self,
@@ -40,6 +60,8 @@ class LLMClient:
         self.model = model or s.llm_model
         self.api_key = api_key or s.llm_api_key
         self.timeout_s = timeout_s if timeout_s is not None else s.llm_timeout_s
+        # Журнал попыток последнего вызова generate_json для трассировки.
+        self.last_attempts: list[dict] = []
 
     def check_health(self, timeout_s: float = 3.0) -> tuple[bool, str | None]:
         """Быстро проверяет OpenAI-совместимый API без запуска генерации.
@@ -192,7 +214,13 @@ class LLMClient:
         json_schema: dict,
         max_tokens: int = 768,
     ) -> dict:
-        """Возвращает проверяемый JSON для служебных сценариев приложения."""
+        """Возвращает проверяемый JSON для служебных сценариев приложения.
+
+        Повторяется только временная ошибка сети/сервера и не более одного
+        раза; malformed JSON получает не более одного schema-repair вызова.
+        Каждая попытка записывается в ``self.last_attempts`` с
+        ``attempt_number``, ``kind`` и ``retry_reason`` для трассировки.
+        """
         messages = [
             {
                 "role": "system",
@@ -202,39 +230,83 @@ class LLMClient:
             },
             {"role": "user", "content": user_text},
         ]
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0,
-            "max_tokens": max_tokens,
-            "chat_template_kwargs": {"enable_thinking": False},
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": schema_name,
-                    "schema": json_schema,
-                    "strict": True,
-                },
-            },
-        }
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        try:
-            with httpx.Client(timeout=self.timeout_s) as client:
-                response = client.post(
-                    f"{self.base_url}/chat/completions",
-                    json=payload,
-                    headers=headers,
-                )
-                response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
+        self.last_attempts = []
+        transient_retry_used = False
+        schema_repair_used = False
+        attempt_kind = "initial"
+        retry_reason: str | None = None
+        while True:
+            attempt_record = {
+                "attempt_number": len(self.last_attempts) + 1,
+                "kind": attempt_kind,
+                "retry_reason": retry_reason,
+                "error": None,
+            }
+            self.last_attempts.append(attempt_record)
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0,
+                "max_tokens": max_tokens,
+                "chat_template_kwargs": {"enable_thinking": False},
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema_name,
+                        "schema": json_schema,
+                        "strict": True,
+                    },
+                },
+            }
+            try:
+                with httpx.Client(timeout=self.timeout_s) as client:
+                    response = client.post(
+                        f"{self.base_url}/chat/completions",
+                        json=payload,
+                        headers=headers,
+                    )
+                    response.raise_for_status()
+                    content = response.json()["choices"][0]["message"][
+                        "content"
+                    ]
+            except httpx.HTTPError as exc:
+                attempt_record["error"] = str(exc)[:500]
+                reason = _transient_reason(exc)
+                if reason is None or transient_retry_used:
+                    raise LLMUnavailableError(
+                        f"некорректный структурированный ответ LLM: {exc}"
+                    ) from exc
+                transient_retry_used = True
+                attempt_kind = "transient_retry"
+                retry_reason = reason
+                continue
+            except (KeyError, IndexError, TypeError) as exc:
+                attempt_record["error"] = str(exc)[:500]
+                raise LLMUnavailableError(
+                    f"некорректный структурированный ответ LLM: {exc}"
+                ) from exc
+            try:
                 return json.loads(content)
-        except (
-            httpx.HTTPError,
-            KeyError,
-            IndexError,
-            json.JSONDecodeError,
-            TypeError,
-        ) as exc:
-            raise LLMUnavailableError(
-                f"некорректный структурированный ответ LLM: {exc}"
-            ) from exc
+            except json.JSONDecodeError as exc:
+                attempt_record["error"] = f"invalid_json: {exc}"[:500]
+                if schema_repair_used:
+                    raise LLMUnavailableError(
+                        f"некорректный структурированный ответ LLM: {exc}"
+                    ) from exc
+                schema_repair_used = True
+                attempt_kind = "schema_repair"
+                retry_reason = "invalid_json"
+                messages = [
+                    *messages,
+                    {"role": "assistant", "content": str(content)[:4000]},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Предыдущий ответ не является корректным JSON по "
+                            "схеме. Верни только валидный JSON-объект по той "
+                            "же схеме без пояснений."
+                        ),
+                    },
+                ]
+                continue

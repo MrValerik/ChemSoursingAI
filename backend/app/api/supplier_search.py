@@ -1717,6 +1717,7 @@ def execute_supplier_qualification(
     raw_results: list[dict] = []
     raw_items: list[tuple[dict, set[int]]] = []
     qualification_stop_reason: str | None = None
+    qualification_llm_attempts: list[dict] = []
     try:
         for offset in range(0, len(fetched_sources), _QUALIFICATION_BATCH_SIZE):
             budget_refusal = budget.refuse_llm_call()
@@ -1745,6 +1746,7 @@ def execute_supplier_qualification(
             )
             _raise_if_cancelled(db, search_run)
             raw_batches.append(raw_batch)
+            qualification_llm_attempts.extend(llm.last_attempts)
             batch_results = (
                 raw_batch.get("results")
                 if isinstance(raw_batch, dict)
@@ -1775,6 +1777,7 @@ def execute_supplier_qualification(
             "Локальная ИИ-модель недоступна. "
             "Убедитесь, что сервис модели запущен, и повторите попытку"
         )
+        qualification_llm_attempts.extend(llm.last_attempts)
         finish_agent_run(
             qualification_run,
             qualification_clock,
@@ -1783,6 +1786,7 @@ def execute_supplier_qualification(
             validation_output_payload={
                 "accepted": False,
                 "error": error,
+                "llm_attempts": qualification_llm_attempts,
             },
             policy_output_payload={
                 "status": "failed",
@@ -1948,6 +1952,7 @@ def execute_supplier_qualification(
             "batch_count": len(raw_batches),
             "stop_reason": qualification_stop_reason,
             "budget": budget.snapshot(),
+            "llm_attempts": qualification_llm_attempts,
             "qualified_results": combined_results,
             "validated_evidence_count": sum(
                 len(items) for items in validated_evidence.values()
@@ -1991,6 +1996,7 @@ def execute_supplier_qualification(
     verification_clock = 0.0
     verification_error: str | None = None
     verification_stop_reason: str | None = None
+    verification_llm_attempts: list[dict] = []
     verification_raw_batches: list[dict] = []
     verification_raw_results: list[dict] = []
     verification_items: list[tuple[dict, set[int]]] = []
@@ -2072,6 +2078,7 @@ def execute_supplier_qualification(
                 )
                 _raise_if_cancelled(db, search_run)
                 verification_raw_batches.append(raw_batch)
+                verification_llm_attempts.extend(llm.last_attempts)
                 batch_results = (
                     raw_batch.get("results")
                     if isinstance(raw_batch, dict)
@@ -2104,6 +2111,7 @@ def execute_supplier_qualification(
                 "Независимая проверка недоступна: "
                 f"{str(exc) or 'локальная ИИ-модель не ответила'}"
             )
+            verification_llm_attempts.extend(llm.last_attempts)
 
         for item, allowed_indexes in verification_items:
             try:
@@ -2186,6 +2194,7 @@ def execute_supplier_qualification(
                 "batch_count": len(verification_raw_batches),
                 "stop_reason": verification_stop_reason,
                 "budget": budget.snapshot(),
+                "llm_attempts": verification_llm_attempts,
                 "qualified_results": final_results,
                 "rejected_verifications": rejected_verifications,
                 "registry_links": registry_links,
