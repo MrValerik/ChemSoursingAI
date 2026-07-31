@@ -108,6 +108,10 @@ def parse_email(raw: bytes, uid: str) -> IncomingEmail:
                 "filename": _decode_header(filename),
                 "content_type": part.get_content_type(),
                 "size": len(payload),
+                # Содержимое нужно, чтобы сохранить паспорт качества и прочитать
+                # его. Оно не попадает в JSON коммуникации: слой workflow
+                # заменяет его ссылкой на сохранённый документ.
+                "content": payload,
             }
         )
     return IncomingEmail(

@@ -87,6 +87,14 @@ class Settings(BaseSettings):
         default="https://pubchem.ncbi.nlm.nih.gov/rest/pug"
     )
 
+    # --- Документы поставщиков (CoA/TDS/паспорт качества) ---
+    # Файлы сохраняются в контуре заказчика: путь монтируется как том Docker.
+    attachment_storage_dir: str = Field(default="/app/data/attachments")
+    attachment_max_size_mb: int = Field(default=25)
+    # Текстовый слой короче порога означает скан: такой файл уходит на OCR
+    # или ручную проверку, но не считается пустым документом.
+    document_min_text_chars: int = Field(default=200)
+
     # --- Бюджеты одного этапа поиска поставщиков ---
     # Исчерпание бюджета завершает этап безопасным частичным результатом
     # со stop reason в трассировке, а не ошибкой.

@@ -8,3 +8,5 @@ httpx==0.27.2
 PyJWT==2.9.0
 python-dotenv==1.0.1
 cryptography==46.0.3
+# Текстовый слой PDF (CoA/TDS). Чистый Python, без системных зависимостей.
+pypdf==5.1.0

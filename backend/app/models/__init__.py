@@ -2,6 +2,7 @@
 
 from app.models.base import Base
 from app.models.communication import Communication
+from app.models.document import SupplierDocument
 from app.models.escalation import Escalation
 from app.models.integration import CommunicationTestRun, IntegrationSetting
 from app.models.manager import Manager
@@ -36,6 +37,7 @@ __all__ = [
     "Quotation",
     "RfqRecipient",
     "Communication",
+    "SupplierDocument",
     "Escalation",
     "IntegrationSetting",
     "CommunicationTestRun",

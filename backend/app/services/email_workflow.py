@@ -22,6 +22,7 @@ from app.models.manager import Manager
 from app.models.rfq import RFQ
 from app.schemas.quotation import QuotationCreate
 from app.services.completeness import evaluate_completeness
+from app.services.document_intake import store_incoming_attachments
 from app.services.integration_settings import effective_email_settings
 from app.services.prompt_service import get_rfq_prompt_context
 from app.services.quotation_service import create_quotation
@@ -232,11 +233,20 @@ def sync_inbox(
                 status="received",
                 thread_id=message.in_reply_to or message.message_id,
                 external_id=message.message_id,
-                attachments=message.attachments or None,
+                attachments=None,
             )
             db.add(inbound)
             rfq.status = RFQStatus.COLLECTING
             db.flush()
+            inbound.attachments = (
+                store_incoming_attachments(
+                    db,
+                    rfq_id=rfq.id,
+                    communication_id=inbound.id,
+                    attachments=message.attachments,
+                )
+                or None
+            )
 
             system_prompt, instructions = get_rfq_prompt_context(
                 db, rfq.id, kind="extraction"

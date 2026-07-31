@@ -38,6 +38,8 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
+      ATTACHMENT_STORAGE_DIR: ${ATTACHMENT_STORAGE_DIR:-/app/data/attachments}
+      ATTACHMENT_MAX_SIZE_MB: ${ATTACHMENT_MAX_SIZE_MB:-25}
       # Email по умолчанию работает в demo и не выполняет внешнюю отправку.
       EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-demo}
       EMAIL_FROM: ${EMAIL_FROM:-}
@@ -61,6 +63,8 @@ services:
       WHATSAPP_API_BASE_URL: ${WHATSAPP_API_BASE_URL:-https://graph.facebook.com}
       WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-v23.0}
       WHATSAPP_TIMEOUT_S: ${WHATSAPP_TIMEOUT_S:-30}
+    volumes:
+      - ./data/attachments:/app/data/attachments
     depends_on:
       db:
         condition: service_healthy
@@ -88,6 +92,10 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
+      ATTACHMENT_STORAGE_DIR: ${ATTACHMENT_STORAGE_DIR:-/app/data/attachments}
+      ATTACHMENT_MAX_SIZE_MB: ${ATTACHMENT_MAX_SIZE_MB:-25}
+    volumes:
+      - ./data/attachments:/app/data/attachments
     depends_on:
       db:
         condition: service_healthy

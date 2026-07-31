@@ -28,11 +28,14 @@ def test_parse_email_extracts_safe_text_and_attachments():
     assert parsed.subject == "Re: [RFQ-42] Аспирин"
     assert "USD 12/kg" in parsed.text
     assert parsed.in_reply_to == "<request-42@example.com>"
+    # Содержимое доходит до слоя workflow: без него паспорт качества нельзя
+    # сохранить и прочитать. В JSON коммуникации оно уже не попадает.
     assert parsed.attachments == [
         {
             "filename": "CoA.pdf",
             "content_type": "application/pdf",
             "size": 8,
+            "content": b"test-pdf",
         }
     ]
 
