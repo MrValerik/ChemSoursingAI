@@ -224,3 +224,185 @@ def test_repeated_delivery_does_not_duplicate_the_file():
 
 
 assert Base is not None
+
+
+def _verification(**overrides):
+    from app.schemas.document_verification import DocumentVerification
+
+    payload = {
+        "document_kind": "coa",
+        "substance_match": "exact",
+        "verification_status": "confirmed",
+        "recommended_action": "accept",
+        "confidence": 92,
+        "reason": "Документ относится к запрошенному веществу и партии.",
+        "claims": [
+            {
+                "claim_type": "chemical_identity",
+                "claim_value": "CAS 50-78-2",
+                "quote": "CAS No.: 50-78-2",
+            },
+            {
+                "claim_type": "batch",
+                "claim_value": "A-20240517",
+                "quote": "Batch No.: A-20240517",
+            },
+        ],
+        "missing_fields": [],
+        "red_flags": [],
+    }
+    payload.update(overrides)
+    return DocumentVerification.model_validate(payload)
+
+
+_DOCUMENT_TEXT = "\n".join(_COA_LINES)
+
+
+def test_passport_with_matching_cas_and_batch_is_confirmed():
+    from app.services.document_verification import apply_document_verification
+
+    result = apply_document_verification(
+        verification=_verification(),
+        document_text=_DOCUMENT_TEXT,
+        expected_cas="50-78-2",
+        expected_name="Aspirin",
+    )
+    assert result["status"] == "confirmed"
+    assert result["cas_in_document"] == ["50-78-2"]
+    assert {claim["claim_type"] for claim in result["accepted_claims"]} == {
+        "chemical_identity",
+        "batch",
+    }
+    assert result["rejected_claims"] == []
+
+
+def test_document_for_another_substance_is_rejected():
+    from app.services.document_verification import apply_document_verification
+
+    # Паспорт на салициловую кислоту вместо аспирина.
+    other = _DOCUMENT_TEXT.replace("50-78-2", "69-72-7")
+    result = apply_document_verification(
+        verification=_verification(
+            claims=[
+                {
+                    "claim_type": "chemical_identity",
+                    "claim_value": "CAS 69-72-7",
+                    "quote": "CAS No.: 69-72-7",
+                },
+                {
+                    "claim_type": "batch",
+                    "claim_value": "A-20240517",
+                    "quote": "Batch No.: A-20240517",
+                },
+            ]
+        ),
+        document_text=other,
+        expected_cas="50-78-2",
+    )
+    assert result["status"] == "rejected"
+    assert result["cas_in_document"] == ["69-72-7"]
+    assert any("другой CAS" in flag for flag in result["red_flags"])
+
+
+def test_invented_quote_is_not_accepted_as_evidence():
+    from app.services.document_verification import apply_document_verification
+
+    result = apply_document_verification(
+        verification=_verification(
+            claims=[
+                {
+                    "claim_type": "chemical_identity",
+                    "claim_value": "CAS 50-78-2",
+                    "quote": "CAS No.: 50-78-2",
+                },
+                {
+                    "claim_type": "batch",
+                    "claim_value": "A-20240517",
+                    "quote": "Batch No.: TOTALLY-MADE-UP",
+                },
+            ]
+        ),
+        document_text=_DOCUMENT_TEXT,
+        expected_cas="50-78-2",
+    )
+    assert result["status"] == "needs_review"
+    assert len(result["rejected_claims"]) == 1
+    assert result["rejected_claims"][0]["quote_verified"] is False
+
+
+def test_unavailable_agent_blocks_acceptance():
+    from app.services.document_verification import apply_document_verification
+
+    result = apply_document_verification(
+        verification=None,
+        document_text=_DOCUMENT_TEXT,
+        expected_cas="50-78-2",
+        unavailable_reason="Локальная ИИ-модель недоступна",
+    )
+    assert result["status"] == "unavailable"
+    assert result["recommended_action"] == "manual_review"
+
+
+def test_scan_without_text_is_not_verified_by_the_agent():
+    from app.extraction.llm_client import LLMClient
+    from app.services.document_agent import verify_document
+
+    with SessionLocal() as db:
+        document = store_document(
+            db, payload=_pdf_bytes([]), filename="scan-only.pdf", rfq_id=None
+        ).document
+        apply_extraction(document)
+        db.commit()
+
+        class ForbiddenClient(LLMClient):
+            def generate_json(self, **kwargs):
+                raise AssertionError("модель не должна вызываться без текста")
+
+        result = verify_document(
+            db, document, expected_cas="50-78-2", llm=ForbiddenClient()
+        )
+        assert result["status"] == "unavailable"
+        assert "текст" in result["reason"].lower()
+
+
+def test_agent_result_is_gated_before_it_is_stored():
+    from app.extraction.llm_client import LLMClient
+    from app.services.document_agent import verify_document
+
+    payload = _pdf_bytes([*_COA_LINES, "Batch No.: GATE-1"])
+    with SessionLocal() as db:
+        document = store_document(
+            db, payload=payload, filename="CoA_gate.pdf", rfq_id=None
+        ).document
+        apply_extraction(document)
+        db.commit()
+
+        class OverconfidentClient(LLMClient):
+            def generate_json(self, **kwargs):
+                # Модель уверенно подтверждает, ссылаясь на несуществующую цитату.
+                return {
+                    "document_kind": "coa",
+                    "substance_match": "exact",
+                    "verification_status": "confirmed",
+                    "recommended_action": "accept",
+                    "confidence": 99,
+                    "reason": "Всё в порядке.",
+                    "claims": [
+                        {
+                            "claim_type": "chemical_identity",
+                            "claim_value": "CAS 50-78-2",
+                            "quote": "Этой строки в документе нет",
+                        }
+                    ],
+                    "missing_fields": [],
+                    "red_flags": [],
+                }
+
+        result = verify_document(
+            db, document, expected_cas="50-78-2", llm=OverconfidentClient()
+        )
+        db.commit()
+
+        assert result["status"] == "needs_review"
+        assert document.verification["status"] == "needs_review"
+        assert result["rejected_claims"]
