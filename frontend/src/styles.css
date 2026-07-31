@@ -595,25 +595,14 @@ button.danger:hover {
 .param-value {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
   min-width: 0;
 }
 .param-value {
   flex-wrap: wrap;
 }
-.param-value > span:first-child {
+.param-value .term-help {
   overflow-wrap: anywhere;
-}
-.param-label .help-tip > button,
-.param-value .help-tip > button,
-.parameters-heading .help-tip > button {
-  width: 18px;
-  height: 18px;
-}
-.param-label .help-tip > span[role="tooltip"],
-.param-value .help-tip > span[role="tooltip"] {
-  right: auto;
-  left: 0;
 }
 
 .stages { list-style: none; margin: 0; padding: 0; }
@@ -1270,6 +1259,101 @@ button.danger:hover {
 .help-tip:hover > span[role="tooltip"],
 .help-tip:focus-within > span[role="tooltip"] {
   display: block;
+}
+
+.term-help {
+  position: relative;
+  display: inline;
+  cursor: help;
+}
+
+.term-help-label {
+  text-decoration: underline dotted var(--muted);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.term-help:hover .term-help-label,
+.term-help:focus-visible .term-help-label {
+  text-decoration-color: var(--text);
+}
+
+.term-help > span[role="tooltip"] {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  display: none;
+  width: min(320px, 70vw);
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: #0f172a;
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+}
+
+.term-help:hover > span[role="tooltip"],
+.term-help:focus-within > span[role="tooltip"] {
+  display: block;
+}
+
+.toast {
+  position: fixed;
+  top: 68px;
+  right: 16px;
+  z-index: 90;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: min(380px, calc(100vw - 32px));
+  padding: 12px 12px 12px 14px;
+  border: 1px solid #bbf7d0;
+  border-left: 3px solid var(--ok);
+  border-radius: var(--radius);
+  background: #f0fdf4;
+  color: var(--text);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+  animation: toast-slide-in 0.25s ease-out;
+}
+
+.toast-message {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.toast-close {
+  display: grid;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+}
+
+.toast-close:hover {
+  background: transparent;
+  color: var(--text);
+}
+
+@keyframes toast-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 .search-overview-header,

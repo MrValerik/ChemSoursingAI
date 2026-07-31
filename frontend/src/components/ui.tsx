@@ -193,6 +193,53 @@ export function HelpTip({ text }: { text: string }) {
   );
 }
 
+export function Term({
+  label,
+  help,
+}: {
+  label: ReactNode;
+  help: string;
+}) {
+  // Подсказка по наведению на само слово: без иконок, которые ломают
+  // выравнивание при длинных значениях.
+  return (
+    <span className="term-help" tabIndex={0}>
+      <span className="term-help-label">{label}</span>
+      <span role="tooltip">{help}</span>
+    </span>
+  );
+}
+
+export function Toast({
+  message,
+  onClose,
+  duration = 5000,
+}: {
+  message: string;
+  onClose: () => void;
+  duration?: number;
+}) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const timer = window.setTimeout(() => onCloseRef.current(), duration);
+    return () => window.clearTimeout(timer);
+  }, [message, duration]);
+  return (
+    <div className="toast" role="status">
+      <span className="toast-message">{message}</span>
+      <button
+        aria-label="Закрыть уведомление"
+        className="toast-close"
+        onClick={onClose}
+        type="button"
+      >
+        <Icon name="close" size={14} />
+      </button>
+    </div>
+  );
+}
+
 export interface MultiSelectOption {
   value: string;
   label: string;

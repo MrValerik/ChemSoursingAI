@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import type { RFQListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
-import { Icon, Input, MultiSelect } from "./ui";
+import { Icon, Input, MultiSelect, Toast } from "./ui";
 
 type QuickFilter = "all" | "attention" | "incomplete" | "review";
 type ScopeFilter = "mine" | "all";
@@ -240,7 +240,7 @@ export default function RequestsTable({
       </div>
 
       {error && <p className="error">{error}</p>}
-      {notice && <p className="success">{notice}</p>}
+      {notice && <Toast message={notice} onClose={() => setNotice(null)} />}
       {loading && <p className="note">Загрузка…</p>}
       {!loading && filtered.length === 0 && !error && (
         <div className="panel">

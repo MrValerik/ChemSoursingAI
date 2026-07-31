@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { SubstanceHistoryEntry, SubstanceRecord } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { Field, HelpTip, Icon, Input, Textarea } from "./ui";
+import { Field, HelpTip, Icon, Input, Textarea, Toast } from "./ui";
 
 const REVIEW_LABELS: Record<string, string> = {
   confirmed: "Подтверждено специалистом",
@@ -453,7 +453,9 @@ export default function SubstancesSection({
                 </section>
               )}
               {error && <p className="error">Ошибка: {error}</p>}
-              {notice && <p className="success">{notice}</p>}
+              {notice && (
+                <Toast message={notice} onClose={() => setNotice(null)} />
+              )}
               {canEdit && (
                 <div className="actions">
                   <button

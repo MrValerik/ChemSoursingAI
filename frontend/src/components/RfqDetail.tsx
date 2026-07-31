@@ -13,7 +13,7 @@ import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
 import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
-import { HelpTip } from "./ui";
+import { Term } from "./ui";
 
 type TabKey =
   | "overview"
@@ -262,84 +262,103 @@ export default function RfqDetail({
 
       <div className="detail-layout">
         <aside className="detail-params panel">
-          <div className="heading-with-help parameters-heading">
-            <h2>Параметры</h2>
-            <HelpTip text="Основные условия закупочного запроса. Значки рядом с названиями и значениями объясняют термин и его значение для текущего запроса." />
-          </div>
+          <h2>
+            <Term
+              label="Параметры"
+              help="Основные условия закупочного запроса. Подсказки открываются при наведении на подчёркнутые термины и значения."
+            />
+          </h2>
           <dl className="params-list">
             <dt className="param-label">
-              CAS
-              <HelpTip text="CAS Registry Number — уникальный числовой идентификатор химического вещества. Он помогает отличать вещества с похожими названиями." />
+              <Term
+                label="CAS"
+                help="CAS Registry Number — уникальный числовой идентификатор химического вещества. Он помогает отличать вещества с похожими названиями."
+              />
             </dt>
             <dd className="param-value">
-              <span>{rfq.cas}</span>
-              {rfq.verified ? (
-                <span className="badge tone-ok">проверен</span>
-              ) : (
-                <span className="badge tone-neutral">не проверен</span>
-              )}
-              <HelpTip
-                text={
+              <Term
+                label={rfq.cas}
+                help={
                   rfq.verified
                     ? `CAS ${rfq.cas} прошёл автоматическую проверку. Перед закупочным решением всё равно сравните его со спецификацией и CoA.`
                     : `CAS ${rfq.cas} ещё не подтверждён справочником или решением специалиста. Результаты поиска следует считать предварительными.`
                 }
               />
+              {rfq.verified ? (
+                <span className="badge tone-ok">проверен</span>
+              ) : (
+                <span className="badge tone-neutral">не проверен</span>
+              )}
             </dd>
             {rfq.purity && (
               <>
                 <dt className="param-label">
-                  Чистота
-                  <HelpTip text="Требуемая степень чистоты, фармакопейный стандарт или промышленный грейд вещества." />
+                  <Term
+                    label="Чистота"
+                    help="Требуемая степень чистоты, фармакопейный стандарт или промышленный грейд вещества."
+                  />
                 </dt>
                 <dd className="param-value">
-                  <span>{rfq.purity}</span>
-                  <HelpTip text={purityHelp(rfq.purity)} />
+                  <Term label={rfq.purity} help={purityHelp(rfq.purity)} />
                 </dd>
               </>
             )}
             {rfq.volume && (
               <>
                 <dt className="param-label">
-                  Объём
-                  <HelpTip text="Количество вещества, которое планируется запросить у поставщиков." />
+                  <Term
+                    label="Объём"
+                    help="Количество вещества, которое планируется запросить у поставщиков."
+                  />
                 </dt>
                 <dd className="param-value">
-                  <span>{rfq.volume}</span>
-                  <HelpTip text={`Для этого запроса требуется ${rfq.volume}. Поставщик должен отдельно подтвердить MOQ и доступный объём.`} />
+                  <Term
+                    label={rfq.volume}
+                    help={`Для этого запроса требуется ${rfq.volume}. Поставщик должен отдельно подтвердить MOQ и доступный объём.`}
+                  />
                 </dd>
               </>
             )}
             {rfq.target_price != null && (
               <>
                 <dt className="param-label">
-                  Ориентир
-                  <HelpTip text="Внутренний ценовой ориентир для сравнения предложений. Он не является заказом или обещанием поставщику." />
+                  <Term
+                    label="Ориентир"
+                    help="Внутренний ценовой ориентир для сравнения предложений. Он не является заказом или обещанием поставщику."
+                  />
                 </dt>
                 <dd className="param-value">
-                  <span>
-                    {rfq.target_price} {rfq.currency}
-                  </span>
-                  <HelpTip text={`Ценовой ориентир запроса: ${rfq.target_price} ${rfq.currency}. Для сравнения нужно учитывать единицу цены и базис поставки.`} />
+                  <Term
+                    label={`${rfq.target_price} ${rfq.currency}`}
+                    help={`Ценовой ориентир запроса: ${rfq.target_price} ${rfq.currency}. Для сравнения нужно учитывать единицу цены и базис поставки.`}
+                  />
                 </dd>
               </>
             )}
             <dt className="param-label">
-              Базисы
-              <HelpTip text="Incoterms определяют распределение расходов, обязанностей и рисков между продавцом и покупателем." />
+              <Term
+                label="Базисы"
+                help="Incoterms определяют распределение расходов, обязанностей и рисков между продавцом и покупателем."
+              />
             </dt>
             <dd className="param-value">
-              <span>{incoterms.join(", ") || "—"}</span>
-              <HelpTip text={incotermsExplanation} />
+              <Term
+                label={incoterms.join(", ") || "—"}
+                help={incotermsExplanation}
+              />
             </dd>
             <dt className="param-label">
-              Страны поиска
-              <HelpTip text="Страны, в которых запускался автоматический поиск поставщиков для этого запроса." />
+              <Term
+                label="Страны поиска"
+                help="Страны, в которых запускался автоматический поиск поставщиков для этого запроса."
+              />
             </dt>
             <dd className="param-value">
-              <span>{actualSearchCountries.join(", ") || "поиск не запускался"}</span>
-              <HelpTip
-                text={
+              <Term
+                label={
+                  actualSearchCountries.join(", ") || "поиск не запускался"
+                }
+                help={
                   actualSearchCountries.length > 0
                     ? `Фактически созданы запуски поиска: ${actualSearchCountries.join(", ")}. Повторно добавленная страна появляется здесь после постановки задачи в очередь.`
                     : "Для запроса пока нет ни одного запуска поиска."
@@ -349,12 +368,16 @@ export default function RfqDetail({
             {rfq.owner_name && (
               <>
                 <dt className="param-label">
-                  Ответственный
-                  <HelpTip text="Сотрудник, отвечающий за ведение запроса и проверку результатов." />
+                  <Term
+                    label="Ответственный"
+                    help="Сотрудник, отвечающий за ведение запроса и проверку результатов."
+                  />
                 </dt>
                 <dd className="param-value">
-                  <span>{rfq.owner_name}</span>
-                  <HelpTip text={`${rfq.owner_name} назначен ответственным за этот закупочный запрос.`} />
+                  <Term
+                    label={rfq.owner_name}
+                    help={`${rfq.owner_name} назначен ответственным за этот закупочный запрос.`}
+                  />
                 </dd>
               </>
             )}

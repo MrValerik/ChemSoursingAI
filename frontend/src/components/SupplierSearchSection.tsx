@@ -15,7 +15,7 @@ import type {
   SubstanceRecord,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { HelpTip, Icon, Input, Select, Textarea } from "./ui";
+import { HelpTip, Icon, Input, Select, Textarea, Toast } from "./ui";
 
 const TYPE_LABELS: Record<QualifiedSupplierType, string> = {
   manufacturer: "Производитель",
@@ -1283,7 +1283,7 @@ export default function SupplierSearchSection({
         )}
       </div>
 
-      {notice && <p className="success">{notice}</p>}
+      {notice && <Toast message={notice} onClose={() => setNotice(null)} />}
       {error && <p className="error">{error}</p>}
       {(data || candidateResults.length > 0) && (
         <div className="panel">
