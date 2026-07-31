@@ -27,6 +27,7 @@ class AgentRunRead(BaseModel):
     parsed_output_payload: dict[str, Any] | None
     validation_output_payload: dict[str, Any] | None
     policy_output_payload: dict[str, Any] | None
+    events: list[dict[str, Any]] | None
     model: str | None
     temperature: float | None
     max_tokens: int | None

@@ -639,6 +639,26 @@ function SearchTracePanel({
                     {userErrorMessage(stage.error)}
                   </div>
                 )}
+                {stage.events && stage.events.length > 0 && (
+                  <section className="agent-event-log">
+                    <h3>Журнал агента</h3>
+                    <ol className="agent-event-list">
+                      {stage.events.map((event, eventIndex) => (
+                        <li
+                          className={`agent-event ${event.kind}`}
+                          key={`${stage.id}-event-${eventIndex}`}
+                        >
+                          <span className="agent-event-time">
+                            {new Date(event.at).toLocaleTimeString("ru-RU")}
+                          </span>
+                          <span className="agent-event-message">
+                            {event.message}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                )}
                 {stage.output_payload && (
                   <section className="stage-result">
                     <h3>Результат этапа</h3>

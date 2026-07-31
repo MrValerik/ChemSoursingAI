@@ -88,6 +88,29 @@ def start_agent_run(
     return agent_run, monotonic()
 
 
+def log_agent_event(
+    agent_run: AgentRun,
+    message: str,
+    *,
+    kind: str = "action",
+    data: dict[str, Any] | None = None,
+) -> None:
+    """Append a user-readable activity entry to the stage's live log.
+
+    The JSON column is reassigned (not mutated) so SQLAlchemy tracks the
+    change; the caller's next commit makes the entry visible to the polling
+    UI while the stage is still running.
+    """
+    entry: dict[str, Any] = {
+        "at": utc_now().isoformat(),
+        "kind": kind,
+        "message": message,
+    }
+    if data:
+        entry["data"] = data
+    agent_run.events = [*(agent_run.events or []), entry]
+
+
 def finish_agent_run(
     agent_run: AgentRun,
     started_clock: float,

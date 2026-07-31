@@ -121,6 +121,9 @@ class AgentRun(Base, TimestampMixin):
     policy_output_payload: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, default=None
     )
+    events: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON, default=None
+    )
 
     model: Mapped[str | None] = mapped_column(String(255), default=None)
     temperature: Mapped[float | None] = mapped_column(default=None)

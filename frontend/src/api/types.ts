@@ -559,6 +559,7 @@ export interface AgentRunRead {
   parsed_output_payload: Record<string, unknown> | null;
   validation_output_payload: Record<string, unknown> | null;
   policy_output_payload: Record<string, unknown> | null;
+  events: AgentEvent[] | null;
   model: string | null;
   temperature: number | null;
   max_tokens: number | null;
@@ -566,6 +567,13 @@ export interface AgentRunRead {
   completed_at: string | null;
   latency_ms: number | null;
   error: string | null;
+}
+
+export interface AgentEvent {
+  at: string;
+  kind: "action" | "info" | "warning" | "error" | string;
+  message: string;
+  data?: Record<string, unknown>;
 }
 
 export interface SearchAttemptRead {

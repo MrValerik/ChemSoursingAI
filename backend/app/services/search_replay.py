@@ -14,6 +14,7 @@ from app.services.search_trace import (
     create_search_run,
     finish_agent_run,
     finish_search_run,
+    log_agent_event,
     start_agent_run,
 )
 from app.services.supplier_verification import apply_supplier_verification
@@ -173,6 +174,18 @@ def replay_supplier_validator(
             "accepted_evidence": deepcopy(accepted_groups),
         },
         contract_version=verification_stage.contract_version,
+    )
+    log_agent_event(
+        stage,
+        "Replay: применяю текущий typed-контракт и veto gate к сохранённому "
+        f"ответу аудитора запуска №{source_run.id}",
+    )
+    log_agent_event(
+        stage,
+        f"Пересчитано кандидатов: {len(final_results)}, "
+        f"в коротком списке: "
+        f"{sum(bool(result.get('shortlist_eligible')) for result in final_results)}, "
+        f"отклонено схемой: {len(schema_rejections)}",
     )
     finish_agent_run(
         stage,

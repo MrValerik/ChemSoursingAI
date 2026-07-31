@@ -1731,6 +1731,58 @@ button.danger:hover {
   border-top: 1px solid var(--border);
 }
 
+.agent-event-log {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.agent-event-log h3 {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.agent-event-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #f8fafc;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.agent-event {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.agent-event + .agent-event {
+  border-top: 1px dashed var(--border);
+}
+
+.agent-event-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.agent-event.warning .agent-event-message {
+  color: var(--warn);
+}
+
+.agent-event.error .agent-event-message {
+  color: var(--err);
+}
+
 .stage-result {
   display: grid;
   gap: 9px;

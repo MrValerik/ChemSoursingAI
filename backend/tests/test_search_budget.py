@@ -212,3 +212,52 @@ def test_llm_budget_falls_back_to_deterministic_plan(
     assert payload["fallback_used"] is True
     assert payload["results"]
     assert payload["budget"]["llm_calls_used"] == 0
+
+
+def test_agent_event_log_is_recorded_for_each_stage(client, _fresh_settings):
+    monkeypatch = _fresh_settings
+    _mock_search_agents(monkeypatch)
+    monkeypatch.setattr(
+        "app.api.supplier_search.search_web",
+        lambda query, limit: [
+            {
+                "title": "Example Chemical Manufacturer",
+                "url": "https://manufacturer.example/products/aspirin",
+                "snippet": "Official product page",
+            }
+        ],
+    )
+    response = client.post(
+        "/supplier-search",
+        headers=_auth(client, "ivanov"),
+        json={"cas": "50-78-2", "name": "Аспирин", "country": "Китай"},
+    )
+    assert response.status_code == 200
+
+    trace = client.get(
+        f"/search-runs/{response.json()['search_run_id']}",
+        headers=_auth(client, "ivanov"),
+    ).json()
+    events_by_slug = {
+        stage["agent_slug"]: stage["events"] or []
+        for stage in trace["agent_runs"]
+    }
+    assert any(
+        "PubChem подтвердил" in event["message"]
+        for event in events_by_slug["substance_lookup"]
+    )
+    assert any(
+        "каноническое имя" in event["message"]
+        for event in events_by_slug["substance_identity"]
+    )
+    assert any(
+        "Итоговый план" in event["message"]
+        for event in events_by_slug["search_planner"]
+    )
+    web_messages = [e["message"] for e in events_by_slug["web_search"]]
+    assert any(m.startswith("Ищу:") for m in web_messages)
+    assert any("отобрано" in m for m in web_messages)
+    for stage in trace["agent_runs"]:
+        for event in stage["events"] or []:
+            assert event["at"]
+            assert event["kind"] in {"action", "info", "warning", "error"}

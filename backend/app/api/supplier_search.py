@@ -44,6 +44,7 @@ from app.services.search_trace import (
     finish_agent_run,
     finish_search_attempt,
     finish_search_run,
+    log_agent_event,
     start_agent_run,
     start_search_attempt,
     utc_now,
@@ -1094,9 +1095,23 @@ def execute_supplier_search(
         execution_type="tool",
         input_payload={"cas": normalized_cas},
     )
+    log_agent_event(lookup_stage, f"Запрашиваю PubChem по CAS {normalized_cas}")
     db.commit()
     lookup = PubChemConnector().verify_cas(normalized_cas).as_dict()
     _raise_if_cancelled(db, search_run)
+    if lookup.get("found"):
+        log_agent_event(
+            lookup_stage,
+            "PubChem подтвердил вещество: "
+            f"{lookup.get('iupac_name') or normalized_cas}",
+        )
+    else:
+        log_agent_event(
+            lookup_stage,
+            "PubChem не подтвердил CAS: "
+            f"{lookup.get('error') or 'вещество не найдено'}",
+            kind="warning",
+        )
     finish_agent_run(lookup_stage, lookup_clock, output_payload=lookup)
     db.commit()
     if not is_valid_cas(normalized_cas):
@@ -1150,6 +1165,11 @@ def execute_supplier_search(
             temperature=0,
             max_tokens=512,
         )
+        log_agent_event(
+            identity_run,
+            "Передаю данные PubChem и экспертные правила ИИ-агенту "
+            "идентичности вещества",
+        )
         db.commit()
         raw_identity: dict | None = None
         try:
@@ -1169,6 +1189,19 @@ def execute_supplier_search(
             identity, parsed_identity, identity_fallback_used = _validated_identity(
                 data, lookup, raw_identity
             )
+            if identity_fallback_used:
+                log_agent_event(
+                    identity_run,
+                    "Ответ агента не прошёл детерминированную проверку; "
+                    "использую резервные названия",
+                    kind="warning",
+                )
+            else:
+                log_agent_event(
+                    identity_run,
+                    f"Принято каноническое имя «{identity.canonical_name}», "
+                    f"поисковых названий: {len(identity.search_names)}",
+                )
             finish_agent_run(
                 identity_run,
                 identity_clock,
@@ -1191,6 +1224,12 @@ def execute_supplier_search(
             )
         except (LLMUnavailableError, ValidationError) as exc:
             identity_error = str(exc)
+            log_agent_event(
+                identity_run,
+                "ИИ-агент недоступен или вернул некорректный ответ; "
+                f"использую резервные названия ({identity_error[:160]})",
+                kind="warning",
+            )
             finish_agent_run(
                 identity_run,
                 identity_clock,
@@ -1283,6 +1322,11 @@ def execute_supplier_search(
             temperature=0,
             max_tokens=1024,
         )
+        log_agent_event(
+            planner_run,
+            "Прошу ИИ-планировщик составить поисковые запросы "
+            f"для страны: {data.country or 'любая'}",
+        )
         db.commit()
         try:
             budget_refusal = budget.refuse_llm_call()
@@ -1301,6 +1345,10 @@ def execute_supplier_search(
             parsed_plan = SearchPlan.model_validate(generated)
             ai_items = parsed_plan.queries
             ai_used = bool(ai_items)
+            log_agent_event(
+                planner_run,
+                f"Планировщик предложил запросов: {len(ai_items)}",
+            )
             finish_agent_run(
                 planner_run,
                 planner_clock,
@@ -1316,6 +1364,12 @@ def execute_supplier_search(
             )
         except (LLMUnavailableError, ValidationError) as exc:
             planner_error = str(exc)
+            log_agent_event(
+                planner_run,
+                "План от ИИ не получен; строю детерминированный план "
+                f"({planner_error[:160]})",
+                kind="warning",
+            )
             finish_agent_run(
                 planner_run,
                 planner_clock,
@@ -1359,6 +1413,12 @@ def execute_supplier_search(
     planned_queries, rejected_queries = _merge_search_plans(
         data, ai_items, fallback_items
     )
+    log_agent_event(
+        planner_run,
+        f"Итоговый план: {len(planned_queries)} запросов "
+        f"(от ИИ: {len(ai_items)}, детерминированных: {len(fallback_items)}, "
+        f"отклонено: {rejected_queries})",
+    )
     planner_run.validation_output_payload = {
         "accepted_queries": [item.model_dump() for item in planned_queries],
         "rejected_query_count": rejected_queries,
@@ -1401,10 +1461,17 @@ def execute_supplier_search(
         budget_refusal = budget.refuse_query()
         if budget_refusal is not None:
             search_stop_reason = budget_refusal
+            log_agent_event(
+                search_stage,
+                "Останавливаю поиск: исчерпан бюджет "
+                f"({budget.queries_used} из {budget.max_queries} запросов)",
+                kind="warning",
+            )
             break
         query = plan_item.query
         attempted_queries.append(query)
         executed_items.append(plan_item)
+        log_agent_event(search_stage, f"Ищу: «{query}»")
         attempt, attempt_clock = start_search_attempt(
             db,
             search_run=search_run,
@@ -1436,12 +1503,22 @@ def execute_supplier_search(
                 result_count=len(query_results),
                 results_payload=query_results,
             )
+            log_agent_event(
+                search_stage,
+                f"Получено {len(query_results)} результатов, "
+                f"новых после исключений: {len(fresh_results)}",
+            )
         except SearchRunCancelled:
             raise
         except Exception as exc:
             error = str(exc)
             search_errors.append(error)
             finish_search_attempt(attempt, attempt_clock, error=error)
+            log_agent_event(
+                search_stage,
+                f"Запрос завершился ошибкой: {error[:160]}",
+                kind="error",
+            )
             db.commit()
             continue
         db.commit()
@@ -1454,9 +1531,15 @@ def execute_supplier_search(
             limit=reserve_limit,
         ):
             search_stop_reason = STOP_COVERAGE_SUFFICIENT
+            log_agent_event(
+                search_stage,
+                "Покрытие достаточно: обязательные источники проверены, "
+                f"собрано кандидатов: {len(current)} — завершаю поиск досрочно",
+            )
             break
     else:
         search_stop_reason = STOP_PLAN_EXHAUSTED
+        log_agent_event(search_stage, "План запросов исчерпан полностью")
 
     if not raw_results and search_errors:
         error = f"Поисковый источник недоступен: {search_errors[-1]}"
@@ -1470,6 +1553,11 @@ def execute_supplier_search(
     ranked_pool = _rank_results(raw_results, data.country, reserve_limit)
     results = ranked_pool[: data.limit]
     reserve_results = ranked_pool[data.limit :]
+    log_agent_event(
+        search_stage,
+        f"После удаления дублей отобрано {len(results)} кандидатов "
+        f"и {len(reserve_results)} резервных",
+    )
     source_counts: dict[str, int] = {}
     for result in results:
         kind = result["source_kind"]
@@ -1601,11 +1689,23 @@ def execute_supplier_qualification(
     for index, result in enumerate(data.results):
         if len(fetched_sources) >= requested_supplier_count:
             fetch_stop_reason = STOP_TARGET_REACHED
+            log_agent_event(
+                fetch_run,
+                "Целевое число доступных первичных страниц достигнуто: "
+                f"{len(fetched_sources)}",
+            )
             break
         budget_refusal = budget.refuse_page_fetch()
         if budget_refusal is not None:
             fetch_stop_reason = budget_refusal
+            log_agent_event(
+                fetch_run,
+                "Останавливаю загрузку: исчерпан бюджет страниц "
+                f"({budget.page_fetches_used} из {budget.max_page_fetches})",
+                kind="warning",
+            )
             break
+        log_agent_event(fetch_run, f"Открываю {_domain_key(result.url)}")
         source = SourceDocument(
             search_run_id=search_run.id,
             agent_run_id=fetch_run.id,
@@ -1643,6 +1743,11 @@ def execute_supplier_qualification(
                     "page_text": page.text[:4000],
                 }
             )
+            log_agent_event(
+                fetch_run,
+                f"Страница {source.domain} сохранена: "
+                f"{len(page.text or '')} символов текста",
+            )
         except SearchRunCancelled:
             raise
         except Exception as exc:
@@ -1651,6 +1756,12 @@ def execute_supplier_qualification(
             # of successfully opened primary sources has been reached.
             source.status = "failed"
             source.error = str(exc)
+            log_agent_event(
+                fetch_run,
+                f"Не удалось открыть {source.domain or result.url}: "
+                f"{str(exc)[:120]} — беру следующего кандидата",
+                kind="warning",
+            )
         fetch_summary.append(
             {
                 "source_document_id": source.id,
@@ -1725,10 +1836,22 @@ def execute_supplier_qualification(
                 # Unqualified sources stay visible as manual-review entries:
                 # budget exhaustion is a safe partial result, not an error.
                 qualification_stop_reason = budget_refusal
+                log_agent_event(
+                    qualification_run,
+                    "Останавливаю оценку: исчерпан бюджет LLM-вызовов; "
+                    "неоценённые источники уходят на ручную проверку",
+                    kind="warning",
+                )
                 break
             batch_sources = fetched_sources[
                 offset : offset + _QUALIFICATION_BATCH_SIZE
             ]
+            log_agent_event(
+                qualification_run,
+                f"Пакет {offset // _QUALIFICATION_BATCH_SIZE + 1}: "
+                f"передаю модели {len(batch_sources)} источника(ов)",
+            )
+            db.commit()
             batch_payload = {
                 "chemical": source_data["chemical"],
                 "sources": batch_sources,
@@ -1747,6 +1870,13 @@ def execute_supplier_qualification(
             _raise_if_cancelled(db, search_run)
             raw_batches.append(raw_batch)
             qualification_llm_attempts.extend(llm.last_attempts)
+            for retried in llm.last_attempts[1:]:
+                log_agent_event(
+                    qualification_run,
+                    "Повтор LLM-вызова "
+                    f"({retried['kind']}: {retried['retry_reason']})",
+                    kind="warning",
+                )
             batch_results = (
                 raw_batch.get("results")
                 if isinstance(raw_batch, dict)
@@ -1761,6 +1891,10 @@ def execute_supplier_qualification(
                         continue
                     raw_results.append(item)
                     raw_items.append((item, allowed_indexes))
+                log_agent_event(
+                    qualification_run,
+                    f"Получено оценок в пакете: {len(batch_results)}",
+                )
             qualification_run.output_payload = {
                 "completed_batches": len(raw_batches),
                 "batch_count": (
@@ -1879,6 +2013,13 @@ def execute_supplier_qualification(
                 }
             )
 
+    log_agent_event(
+        qualification_run,
+        "Детерминированная проверка цитат: принято "
+        f"{sum(len(items) for items in validated_evidence.values())}, "
+        f"отклонено {len(rejected_evidence)}; "
+        f"отклонено оценок целиком: {len(rejected_qualifications)}",
+    )
     combined_results: list[dict] = []
     fetched_indexes = {
         int(source["result_index"]) for source in fetched_sources
@@ -2059,10 +2200,23 @@ def execute_supplier_qualification(
                     # Candidates without an auditor decision fall back to
                     # manual review through the veto gate below.
                     verification_stop_reason = budget_refusal
+                    log_agent_event(
+                        verification_run,
+                        "Останавливаю аудит: исчерпан бюджет LLM-вызовов; "
+                        "непроверенные кандидаты уходят на ручную проверку",
+                        kind="warning",
+                    )
                     break
                 batch_candidates = verification_candidates[
                     offset : offset + _VERIFICATION_BATCH_SIZE
                 ]
+                log_agent_event(
+                    verification_run,
+                    f"Пакет {offset // _VERIFICATION_BATCH_SIZE + 1}: "
+                    f"независимо проверяю {len(batch_candidates)} "
+                    "кандидата(ов) по первичным страницам",
+                )
+                db.commit()
                 raw_batch = llm.generate_json(
                     system_prompt=verification_system_prompt,
                     user_text=json.dumps(
@@ -2079,6 +2233,13 @@ def execute_supplier_qualification(
                 _raise_if_cancelled(db, search_run)
                 verification_raw_batches.append(raw_batch)
                 verification_llm_attempts.extend(llm.last_attempts)
+                for retried in llm.last_attempts[1:]:
+                    log_agent_event(
+                        verification_run,
+                        "Повтор LLM-вызова "
+                        f"({retried['kind']}: {retried['retry_reason']})",
+                        kind="warning",
+                    )
                 batch_results = (
                     raw_batch.get("results")
                     if isinstance(raw_batch, dict)
@@ -2112,6 +2273,12 @@ def execute_supplier_qualification(
                 f"{str(exc) or 'локальная ИИ-модель не ответила'}"
             )
             verification_llm_attempts.extend(llm.last_attempts)
+            log_agent_event(
+                verification_run,
+                "Модель аудитора недоступна; кандидаты остаются "
+                "заблокированными до ручной проверки",
+                kind="error",
+            )
 
         for item, allowed_indexes in verification_items:
             try:
@@ -2169,6 +2336,16 @@ def execute_supplier_qualification(
             )
 
     if verification_run is not None:
+        verdicts = [
+            (result.get("verification") or {}).get("status")
+            for result in final_results
+        ]
+        log_agent_event(
+            verification_run,
+            f"Итог аудита: подтверждено {verdicts.count('confirmed')}, "
+            f"отклонено {verdicts.count('rejected')}, на ручную проверку "
+            f"{len(verdicts) - verdicts.count('confirmed') - verdicts.count('rejected')}",
+        )
         claim_reference_validation = [
             {
                 "result_index": result["result_index"],
