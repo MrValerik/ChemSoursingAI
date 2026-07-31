@@ -150,15 +150,13 @@ def test_stored_pdf_is_extracted_to_text():
 
 
 def test_scan_without_text_layer_is_marked_for_ocr():
-    # PDF без текста: страница есть, извлекать нечего.
-    payload = _pdf_bytes([])
-    with SessionLocal() as db:
-        document = store_document(
-            db, payload=payload, filename="scan.pdf", rfq_id=None
-        ).document
-        result = extract_document_text(document)
-        assert result.status == "needs_ocr"
-        assert "текстового слоя" in (result.error or "")
+    # PDF без текста: страница есть, извлекать нечего. OCR отключён, чтобы
+    # проверить именно определение отсутствующего текстового слоя.
+    from app.services.document_text import extract_pdf_text
+
+    result = extract_pdf_text(_pdf_bytes([]))
+    assert result.status == "needs_ocr"
+    assert "текстового слоя" in (result.error or "")
 
 
 def test_oversized_and_unsupported_files_are_rejected():
@@ -406,3 +404,66 @@ def test_agent_result_is_gated_before_it_is_stored():
         assert result["status"] == "needs_review"
         assert document.verification["status"] == "needs_review"
         assert result["rejected_claims"]
+
+
+def test_scan_falls_back_to_ocr_when_it_is_available(monkeypatch):
+    from app.services import document_text as text_service
+
+    recognized = "\n".join(_COA_LINES)
+
+    def fake_ocr_pdf(payload):
+        from app.services.document_ocr import OcrResult
+
+        return OcrResult(text=recognized, page_count=1)
+
+    monkeypatch.setattr("app.services.document_ocr.ocr_pdf", fake_ocr_pdf)
+    monkeypatch.setenv("OCR_ENABLED", "true")
+    get_settings.cache_clear()
+
+    with SessionLocal() as db:
+        document = store_document(
+            db, payload=_pdf_bytes([]), filename="scan-ocr.pdf", rfq_id=None
+        ).document
+        result = text_service.extract_document_text(document)
+
+    get_settings.cache_clear()
+    # Отдельный статус: текст получен распознаванием и менее надёжен, чем
+    # текстовый слой PDF.
+    assert result.status == "ocr_extracted"
+    assert "50-78-2" in result.text
+
+
+def test_scan_stays_manual_when_ocr_is_disabled(monkeypatch):
+    from app.services import document_text as text_service
+
+    monkeypatch.setenv("OCR_ENABLED", "false")
+    get_settings.cache_clear()
+    with SessionLocal() as db:
+        document = store_document(
+            db, payload=_pdf_bytes([]), filename="scan-off.pdf", rfq_id=None
+        ).document
+        result = text_service.extract_document_text(document)
+    get_settings.cache_clear()
+    assert result.status == "needs_ocr"
+
+
+def test_unavailable_ocr_reports_the_real_reason(monkeypatch):
+    from app.services import document_text as text_service
+    from app.services.document_ocr import OcrResult
+
+    monkeypatch.setenv("OCR_ENABLED", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        "app.services.document_ocr.ocr_pdf",
+        lambda payload: OcrResult(
+            text=None, page_count=None, error="Tesseract недоступен: not found"
+        ),
+    )
+    with SessionLocal() as db:
+        document = store_document(
+            db, payload=_pdf_bytes([]), filename="scan-broken.pdf", rfq_id=None
+        ).document
+        result = text_service.extract_document_text(document)
+    get_settings.cache_clear()
+    assert result.status == "needs_ocr"
+    assert "Tesseract" in (result.error or "")

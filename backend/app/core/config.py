@@ -94,6 +94,12 @@ class Settings(BaseSettings):
     # Текстовый слой короче порога означает скан: такой файл уходит на OCR
     # или ручную проверку, но не считается пустым документом.
     document_min_text_chars: int = Field(default=200)
+    # OCR работает на CPU и заметно медленнее чтения текстового слоя, поэтому
+    # ограничен числом страниц. Отключение оставляет скан на ручной проверке.
+    ocr_enabled: bool = Field(default=True)
+    ocr_languages: str = Field(default="rus+eng")
+    ocr_max_pages: int = Field(default=5)
+    ocr_dpi: int = Field(default=200)
 
     # --- Бюджеты одного этапа поиска поставщиков ---
     # Исчерпание бюджета завершает этап безопасным частичным результатом

@@ -88,6 +88,30 @@ def extract_pdf_text(payload: bytes) -> ExtractedText:
     return ExtractedText(status="extracted", text=text, page_count=page_count)
 
 
+def _ocr_fallback(payload: bytes, content_type: str, base: ExtractedText):
+    """Пробует распознать скан, если текстового слоя нет."""
+    if not get_settings().ocr_enabled:
+        return base
+    from app.services.document_ocr import ocr_image, ocr_pdf
+
+    result = ocr_pdf(payload) if content_type == PDF else ocr_image(payload)
+    if not result.text:
+        # Причина недоступности OCR важнее общей формулировки «нет текста».
+        return ExtractedText(
+            status="needs_ocr",
+            text=base.text,
+            page_count=base.page_count or result.page_count,
+            error=result.error or base.error,
+        )
+    # Отдельный статус: текст получен распознаванием и менее надёжен.
+    return ExtractedText(
+        status="ocr_extracted",
+        text=_normalize(result.text),
+        page_count=base.page_count or result.page_count,
+        error=None,
+    )
+
+
 def extract_document_text(document: SupplierDocument) -> ExtractedText:
     """Возвращает текст документа по его типу."""
     try:
@@ -98,7 +122,10 @@ def extract_document_text(document: SupplierDocument) -> ExtractedText:
         )
 
     if document.content_type == PDF:
-        return extract_pdf_text(payload)
+        result = extract_pdf_text(payload)
+        if result.status == "needs_ocr":
+            return _ocr_fallback(payload, PDF, result)
+        return result
     if document.content_type == PLAIN_TEXT:
         text = _normalize(payload.decode("utf-8", errors="replace"))
         if not text:
@@ -108,9 +135,13 @@ def extract_document_text(document: SupplierDocument) -> ExtractedText:
             )
         return ExtractedText(status="extracted", text=text, page_count=None)
     if document.content_type.startswith("image/"):
-        return ExtractedText(
-            status="needs_ocr", text=None, page_count=None,
-            error="Изображение требует OCR",
+        return _ocr_fallback(
+            payload,
+            document.content_type,
+            ExtractedText(
+                status="needs_ocr", text=None, page_count=None,
+                error="Изображение требует OCR",
+            ),
         )
     return ExtractedText(
         status="unsupported", text=None, page_count=None,

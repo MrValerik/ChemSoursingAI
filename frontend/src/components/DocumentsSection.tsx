@@ -14,6 +14,7 @@ const KIND_LABELS: Record<string, string> = {
 const TEXT_STATUS_LABELS: Record<string, string> = {
   stored: "Текст ещё не извлечён",
   extracted: "Текст извлечён",
+  ocr_extracted: "Текст распознан (OCR)",
   needs_ocr: "Скан без текстового слоя",
   unsupported: "Формат не поддерживается",
   failed: "Не удалось прочитать",
@@ -137,7 +138,9 @@ export default function DocumentsSection({ rfqId }: { rfqId: number }) {
                     <Icon name="save" size={14} />
                     Скачать
                   </a>
-                  {!readOnly && document.text_status === "extracted" && (
+                  {!readOnly &&
+                    (document.text_status === "extracted" ||
+                      document.text_status === "ocr_extracted") && (
                     <button
                       className="secondary"
                       disabled={busyId === document.id}
@@ -154,7 +157,8 @@ export default function DocumentsSection({ rfqId }: { rfqId: number }) {
                 </div>
               </div>
 
-              {document.text_status !== "extracted" && (
+              {document.text_status !== "extracted" &&
+                document.text_status !== "ocr_extracted" && (
                 <p className="qualification-warning">
                   {TEXT_STATUS_LABELS[document.text_status] ??
                     document.text_status}

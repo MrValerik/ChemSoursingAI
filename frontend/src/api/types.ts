@@ -734,7 +734,13 @@ export interface SupplierDocumentRead {
   size_bytes: number;
   sha256: string;
   kind: string;
-  text_status: "stored" | "extracted" | "needs_ocr" | "unsupported" | "failed";
+  text_status:
+    | "stored"
+    | "extracted"
+    | "ocr_extracted"
+    | "needs_ocr"
+    | "unsupported"
+    | "failed";
   page_count: number | null;
   extraction_error: string | null;
   extracted_at: string | null;

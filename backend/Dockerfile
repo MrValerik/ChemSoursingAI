@@ -9,6 +9,17 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# OCR сканов паспортов качества: Tesseract с русским, английским и упрощённым
+# китайским, poppler для растеризации PDF. Ставится до зависимостей Python,
+# чтобы слой кэшировался и не пересобирался при правках кода.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        poppler-utils \
+        tesseract-ocr \
+        tesseract-ocr-rus \
+        tesseract-ocr-chi-sim \
+    && rm -rf /var/lib/apt/lists/*
+
 # Сначала зависимости — кэш слоёв Docker не инвалидируется при правках кода.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

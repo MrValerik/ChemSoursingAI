@@ -40,6 +40,9 @@ services:
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
       ATTACHMENT_STORAGE_DIR: ${ATTACHMENT_STORAGE_DIR:-/app/data/attachments}
       ATTACHMENT_MAX_SIZE_MB: ${ATTACHMENT_MAX_SIZE_MB:-25}
+      OCR_ENABLED: ${OCR_ENABLED:-true}
+      OCR_LANGUAGES: ${OCR_LANGUAGES:-rus+eng}
+      OCR_MAX_PAGES: ${OCR_MAX_PAGES:-5}
       # Email по умолчанию работает в demo и не выполняет внешнюю отправку.
       EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-demo}
       EMAIL_FROM: ${EMAIL_FROM:-}
@@ -94,6 +97,9 @@ services:
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
       ATTACHMENT_STORAGE_DIR: ${ATTACHMENT_STORAGE_DIR:-/app/data/attachments}
       ATTACHMENT_MAX_SIZE_MB: ${ATTACHMENT_MAX_SIZE_MB:-25}
+      OCR_ENABLED: ${OCR_ENABLED:-true}
+      OCR_LANGUAGES: ${OCR_LANGUAGES:-rus+eng}
+      OCR_MAX_PAGES: ${OCR_MAX_PAGES:-5}
     volumes:
       - ./data/attachments:/app/data/attachments
     depends_on:
