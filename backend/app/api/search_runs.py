@@ -89,6 +89,18 @@ def _can_restart(search_run: SearchRun) -> bool:
     return search_run.status in {"failed", "cancelled"} or _is_stale(search_run)
 
 
+def _can_resume(search_run: SearchRun) -> bool:
+    """A failed queued job with saved search results can redo only
+    fetching/qualification/verification without repeating the web search."""
+    return (
+        search_run.mode == "queued_search"
+        and search_run.status == "failed"
+        and search_run.rfq_id is not None
+        and isinstance(search_run.result_payload, dict)
+        and bool(search_run.result_payload.get("results"))
+    )
+
+
 def _summary(search_run: SearchRun) -> SearchRunSummary:
     search_stage = next(
         (
@@ -153,6 +165,7 @@ def _list_item(
     item.result_count = item.summary.candidate_count
     item.is_stale = _is_stale(search_run)
     item.can_restart = _can_restart(search_run)
+    item.can_resume = _can_resume(search_run)
     return item
 
 
@@ -242,6 +255,7 @@ def get_search_run(
     item.qualified_results = _qualified_results(search_run)
     item.is_stale = _is_stale(search_run)
     item.can_restart = _can_restart(search_run)
+    item.can_resume = _can_resume(search_run)
     if merge_country and search_run.rfq_id is not None:
         country = run_country(search_run)
         if country:
@@ -325,6 +339,83 @@ def replay_search_run(
         parent_search_run_id=search_run.id,
         replay_mode="validator",
         status=replay.status,
+    )
+
+
+@router.post(
+    "/{search_run_id}/resume",
+    response_model=SearchRunRestartRead,
+    status_code=202,
+)
+def resume_search_run(
+    search_run_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SearchRunRestartRead:
+    """Redo only fetching/qualification/verification for a failed job.
+
+    The saved web-search results are reused, so found candidates are kept
+    and the search phase is not repeated. The same run returns to the
+    worker queue; new stages are appended to the existing trace.
+    """
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    search_run = db.scalar(
+        select(SearchRun).where(SearchRun.id == search_run_id)
+    )
+    if search_run is None or not _can_see(user, search_run):
+        raise HTTPException(status_code=404, detail="Запуск поиска не найден")
+    if not _can_resume(search_run):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Продолжение доступно только для ошибочной задачи из очереди "
+                "с сохранёнными результатами поиска. Если поиск не успел "
+                "завершиться, используйте полный перезапуск."
+            ),
+        )
+
+    country = run_country(search_run)
+    if search_run.rfq_id is not None and country:
+        active_newer = next(
+            (
+                run
+                for run in country_runs(
+                    db,
+                    rfq_id=search_run.rfq_id,
+                    country=country,
+                    exclude_run_id=search_run.id,
+                )
+                if run.id > search_run.id
+                and run.status not in _TERMINAL_STATUSES
+            ),
+            None,
+        )
+        if active_newer is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Для этой страны уже есть более новая активная задача.",
+            )
+
+    payload = dict(search_run.input_payload or {})
+    payload["resume_count"] = int(payload.get("resume_count") or 0) + 1
+    search_run.input_payload = payload
+    search_run.status = "search_completed"
+    search_run.error = None
+    search_run.completed_at = None
+    db.commit()
+    queue_position = db.scalar(
+        select(func.count(SearchRun.id)).where(
+            SearchRun.mode == "queued_search",
+            SearchRun.status.in_(["queued", "search_completed"]),
+            SearchRun.id <= search_run.id,
+        )
+    )
+    return SearchRunRestartRead(
+        search_run_id=search_run.id,
+        correlation_id=search_run.correlation_id,
+        status="search_completed",
+        queue_position=queue_position or 1,
     )
 
 

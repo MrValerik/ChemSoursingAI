@@ -1120,3 +1120,141 @@ def test_worker_does_not_resurrect_a_cancelled_search(client):
         processed = db.get(SearchRun, processed_id)
         assert processed.status == "cancelled"
         assert processed.error == "Перезапущено пользователем"
+
+
+def _cancel_other_queued_runs(run_id: int) -> None:
+    """Изолирует worker-тест от задач, оставшихся в очереди другими тестами."""
+    with SessionLocal() as db:
+        others = db.query(SearchRun).filter(
+            SearchRun.mode == "queued_search",
+            SearchRun.id != run_id,
+            SearchRun.status.in_(["queued", "search_completed"]),
+        )
+        for other in others:
+            other.status = "cancelled"
+        db.commit()
+
+
+def _fail_run_with_saved_results(run_id: int, *, with_results: bool = True) -> None:
+    with SessionLocal() as db:
+        run = db.get(SearchRun, run_id)
+        assert run is not None
+        rfq = RFQ(
+            cas="50-78-2",
+            name="Resume after failure",
+            owner_id=run.owner_id,
+        )
+        db.add(rfq)
+        db.flush()
+        run.rfq_id = rfq.id
+        run.status = "failed"
+        run.error = "Локальная ИИ-модель недоступна."
+        run.completed_at = utc_now()
+        if with_results:
+            run.result_payload = {
+                "search_run_id": run.id,
+                "query": '"50-78-2" manufacturer',
+                "queries_used": ['"50-78-2" manufacturer'],
+                "results": [
+                    {
+                        "title": "Aspirin manufacturer",
+                        "url": "https://manufacturer.example/aspirin",
+                        "snippet": "We manufacture Aspirin CAS 50-78-2.",
+                        "country_hint": "likely",
+                    }
+                ],
+            }
+        db.commit()
+
+
+def test_resume_returns_failed_run_to_queue_without_new_run(client):
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(client, buyer, cas="50-78-2", name="Aspirin")
+    run_id = queued["search_run_id"]
+    _fail_run_with_saved_results(run_id)
+
+    listed = client.get("/search-runs", headers=buyer).json()
+    listed_run = next(item for item in listed if item["id"] == run_id)
+    assert listed_run["can_resume"] is True
+
+    response = client.post(f"/search-runs/{run_id}/resume", headers=buyer)
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["search_run_id"] == run_id
+    assert payload["correlation_id"] == queued["correlation_id"]
+    assert payload["status"] == "search_completed"
+
+    trace = client.get(f"/search-runs/{run_id}", headers=buyer).json()
+    assert trace["status"] == "search_completed"
+    assert trace["error"] is None
+    assert trace["input_payload"]["resume_count"] == 1
+
+
+def test_resume_requires_saved_search_results(client):
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(client, buyer, cas="50-78-2", name="Aspirin")
+    run_id = queued["search_run_id"]
+    _fail_run_with_saved_results(run_id, with_results=False)
+
+    response = client.post(f"/search-runs/{run_id}/resume", headers=buyer)
+    assert response.status_code == 409
+
+    listed = client.get("/search-runs", headers=buyer).json()
+    listed_run = next(item for item in listed if item["id"] == run_id)
+    assert listed_run["can_resume"] is False
+    assert listed_run["can_restart"] is True
+
+
+def test_worker_requeues_job_when_llm_is_unavailable(client, monkeypatch):
+    from fastapi import HTTPException
+
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(client, buyer, cas="50-78-2", name="Aspirin")
+    run_id = queued["search_run_id"]
+    _cancel_other_queued_runs(run_id)
+
+    def llm_down(*args, **kwargs):
+        raise HTTPException(
+            status_code=503,
+            detail={"message": "Локальная ИИ-модель недоступна."},
+        )
+
+    monkeypatch.setattr(
+        "app.search_worker.execute_supplier_search", llm_down
+    )
+
+    # Три временных сбоя возвращают задачу в очередь без статуса ошибки.
+    for attempt in (1, 2, 3):
+        assert process_next_job() == run_id
+        with SessionLocal() as db:
+            run = db.get(SearchRun, run_id)
+            assert run.status == "queued"
+            assert run.error is None
+            assert run.input_payload["llm_auto_retry_count"] == attempt
+            assert "недоступна" in run.input_payload["last_llm_outage"]
+
+    # Исчерпание лимита повторов делает ошибку постоянной.
+    assert process_next_job() == run_id
+    with SessionLocal() as db:
+        run = db.get(SearchRun, run_id)
+        assert run.status == "failed"
+        assert run.input_payload["llm_auto_retry_count"] == 3
+
+
+def test_worker_logic_error_is_not_requeued(client, monkeypatch):
+    buyer = _auth(client, "ivanov")
+    queued = _enqueue_search(client, buyer, cas="50-78-2", name="Aspirin")
+    run_id = queued["search_run_id"]
+    _cancel_other_queued_runs(run_id)
+
+    def broken_executor(*args, **kwargs):
+        raise ValueError("логическая ошибка конвейера")
+
+    monkeypatch.setattr(
+        "app.search_worker.execute_supplier_search", broken_executor
+    )
+    assert process_next_job() == run_id
+    with SessionLocal() as db:
+        run = db.get(SearchRun, run_id)
+        assert run.status == "failed"
+        assert "llm_auto_retry_count" not in (run.input_payload or {})

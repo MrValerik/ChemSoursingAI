@@ -120,6 +120,7 @@ class SearchRunListItem(BaseModel):
     result_count: int = 0
     is_stale: bool = False
     can_restart: bool = False
+    can_resume: bool = False
     summary: SearchRunSummary = Field(default_factory=SearchRunSummary)
 
 

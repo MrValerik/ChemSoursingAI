@@ -485,12 +485,14 @@ function SearchTracePanel({
   busy,
   onRefresh,
   onRestart,
+  onResume,
   restartBusy,
 }: {
   trace: SearchRunTrace;
   busy: boolean;
   onRefresh: () => void;
   onRestart: () => void;
+  onResume: () => void;
   restartBusy: boolean;
 }) {
   const hasRunningStage = trace.agent_runs.some(
@@ -517,6 +519,18 @@ function SearchTracePanel({
           <span className={`badge ${traceTone(trace.status)}`}>
             {SEARCH_STATUS_LABELS[trace.status] || trace.status}
           </span>
+          {trace.can_resume && (
+            <button
+              className="secondary"
+              disabled={restartBusy}
+              onClick={onResume}
+              type="button"
+              title="Повторить только проверку страниц, оценку и аудит: найденные кандидаты сохраняются, веб-поиск не выполняется заново."
+            >
+              <Icon name="refresh" size={16} />
+              {restartBusy ? "Продолжение…" : "Продолжить с проверки"}
+            </button>
+          )}
           {trace.can_restart && (
             <button
               className="secondary"
@@ -1046,6 +1060,28 @@ export default function SupplierSearchSection({
       setRuns(await api.listSearchRuns(50, rfq.id));
       setNotice(
         "Задача перезапущена. Ранее найденные поставщики сохранены и исключены из нового поиска.",
+      );
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : String(caught));
+    } finally {
+      setRestartBusy(false);
+    }
+  };
+
+  const resumeTrace = async () => {
+    if (!trace) return;
+    setRestartBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const job = await api.resumeSearchRun(trace.id);
+      setSelectedRunId(job.search_run_id);
+      setTrace(await api.getSearchRun(job.search_run_id));
+      setRuns(await api.listSearchRuns(50, rfq.id));
+      setNotice(
+        "Задача продолжена с шага проверки: найденные кандидаты сохранены, " +
+          "веб-поиск повторяться не будет. Worker подхватит задачу, как " +
+          "только локальная ИИ-модель будет готова.",
       );
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));
@@ -1643,6 +1679,7 @@ export default function SupplierSearchSection({
             busy={traceBusy}
             onRefresh={() => void refreshTrace()}
             onRestart={() => void restartTrace()}
+            onResume={() => void resumeTrace()}
             restartBusy={restartBusy}
           />
         </div>

@@ -24,7 +24,7 @@ from app.api.supplier_search import (
     execute_supplier_search,
 )
 from app.core.db import SessionLocal, init_db
-from app.extraction.llm_client import LLMClient
+from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.models import SearchRun, User
 from app.services.search_trace import utc_now
 from app.services.supplier_search_continuation import (
@@ -35,6 +35,7 @@ from app.services.supplier_search_continuation import (
 logger = logging.getLogger(__name__)
 
 _TERMINAL_STATUSES = {"search_completed", "completed", "failed", "cancelled"}
+_MAX_LLM_AUTO_RETRIES = 3
 _stop_requested = False
 
 
@@ -45,6 +46,44 @@ def _error_text(exc: Exception) -> str:
             return str(detail.get("message") or detail)
         return str(detail)
     return str(exc)
+
+
+def _is_llm_unavailable_error(exc: Exception) -> bool:
+    if isinstance(exc, LLMUnavailableError):
+        return True
+    return isinstance(exc, HTTPException) and exc.status_code == 503
+
+
+def requeue_after_llm_outage(
+    db: Session, run: SearchRun, exc: Exception
+) -> bool:
+    """Return a job to the queue instead of failing on a transient LLM outage.
+
+    The worker refuses to claim jobs until the local model reports healthy,
+    so the requeued job simply waits for the model to come back. A bounded
+    retry counter keeps a persistent outage from looping forever. Saved
+    search results let the job resume from fetching/qualification without
+    repeating the web search.
+    """
+    if not _is_llm_unavailable_error(exc):
+        return False
+    payload = dict(run.input_payload or {})
+    retries = int(payload.get("llm_auto_retry_count") or 0)
+    if retries >= _MAX_LLM_AUTO_RETRIES:
+        return False
+    has_search_results = (
+        run.rfq_id is not None
+        and isinstance(run.result_payload, dict)
+        and bool(run.result_payload.get("results"))
+    )
+    payload["llm_auto_retry_count"] = retries + 1
+    payload["last_llm_outage"] = _error_text(exc)[:500]
+    run.input_payload = payload
+    run.status = "search_completed" if has_search_results else "queued"
+    run.error = None
+    run.completed_at = None
+    db.commit()
+    return True
 
 
 def recover_interrupted_jobs(db: Session) -> int:
@@ -224,6 +263,15 @@ def process_next_job(
                 and failed_run.status != "cancelled"
                 and not isinstance(exc, SearchRunCancelled)
             ):
+                if requeue_after_llm_outage(db, failed_run, exc):
+                    logger.warning(
+                        "Queued supplier search %s hit an LLM outage; "
+                        "returned to the queue (retry %s of %s)",
+                        run_id,
+                        failed_run.input_payload.get("llm_auto_retry_count"),
+                        _MAX_LLM_AUTO_RETRIES,
+                    )
+                    return run_id
                 failed_run.status = "failed"
                 failed_run.error = _error_text(exc)
                 failed_run.completed_at = utc_now()

@@ -641,6 +641,7 @@ export interface SearchRunListItem {
   result_count: number;
   is_stale: boolean;
   can_restart: boolean;
+  can_resume: boolean;
   summary: {
     planned_query_count: number;
     executed_query_count: number;

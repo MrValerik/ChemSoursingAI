@@ -537,6 +537,11 @@ export const api = {
       method: "POST",
     }),
 
+  resumeSearchRun: (id: number) =>
+    request<SupplierSearchJob>(`/search-runs/${id}/resume`, {
+      method: "POST",
+    }),
+
   replaySearchRunValidators: (id: number) =>
     request<SearchRunReplay>(`/search-runs/${id}/replay`, {
       method: "POST",
