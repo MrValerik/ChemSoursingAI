@@ -65,6 +65,9 @@ bash "$PROJECT_DIR/deploy/apply-migrations.sh" "$PROJECT_DIR"
 
 sudo systemctl reset-failed chemsource.service || true
 sudo systemctl start chemsource.service
+# Re-assert boot autostart on every deployment: a VM started manually from
+# the Yandex Cloud console must bring up Qwen and the Compose stack itself.
+sudo systemctl enable docker.service qwen.service chemsource.service || true
 
 wait_for_url() {
   local url="$1"

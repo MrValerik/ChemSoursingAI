@@ -10,6 +10,10 @@ param(
 
     [switch]$NonInteractive,
 
+    # Deployment starts the VM before rolling out new code, so it verifies
+    # health itself and skips the boot health wait here.
+    [switch]$SkipSiteHealthCheck,
+
     [ValidateRange(30, 1800)]
     [int]$TimeoutSeconds = 600
 )
@@ -140,6 +144,58 @@ function Wait-InstanceStatus {
     throw "VM did not reach $DesiredStatus within $TimeoutSeconds seconds."
 }
 
+function Test-HttpOk {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 8
+        return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Wait-SiteReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExternalIp
+    )
+
+    $healthUrl = "http://$ExternalIp/api/health"
+    Write-Host ""
+    Write-Host "VM is RUNNING. Waiting for the site itself to become ready..."
+    Write-Host "(The Docker stack and the local Qwen model need a few minutes after boot.)"
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        if (Test-HttpOk -Url $healthUrl) {
+            Write-Host "Site is ready: http://$ExternalIp"
+            if (Test-HttpOk -Url "http://$ExternalIp/api/health/llm") {
+                Write-Host "Local LLM: ready."
+            }
+            else {
+                Write-Warning (
+                    "The site is up, but the local LLM is still loading. " +
+                    "Supplier search jobs stay queued until it is ready."
+                )
+            }
+            return $true
+        }
+        Start-Sleep -Seconds 10
+    } while ((Get-Date) -lt $deadline)
+
+    Write-Warning "The VM is RUNNING, but $healthUrl did not answer within $TimeoutSeconds seconds."
+    Write-Warning "The application stack did not start. Check on the VM via SSH:"
+    Write-Warning "  systemctl is-active docker qwen.service chemsource.service"
+    Write-Warning "  sudo systemctl enable --now qwen.service chemsource.service"
+    Write-Warning "  docker compose ps"
+    Write-Warning "If services are missing, run: sudo bash deploy/install-vm-services.sh"
+    return $false
+}
+
 $instance = Get-Instance
 
 switch ($Action) {
@@ -161,14 +217,28 @@ switch ($Action) {
             Show-Instance -Instance $instance
         }
 
-        if ($OpenSite -and $instance.status -eq "RUNNING") {
+        $siteReady = $true
+        if ($instance.status -eq "RUNNING" -and -not $SkipSiteHealthCheck) {
+            $externalIp = Get-ExternalIp -Instance $instance
+            if ($externalIp) {
+                $siteReady = Wait-SiteReady -ExternalIp $externalIp
+            }
+            else {
+                Write-Warning "The VM has no public IP address."
+                $siteReady = $false
+            }
+        }
+
+        if ($OpenSite -and $instance.status -eq "RUNNING" -and $siteReady) {
             $externalIp = Get-ExternalIp -Instance $instance
             if ($externalIp) {
                 Start-Process "http://$externalIp"
             }
-            else {
-                Write-Warning "The VM has no public IP address."
-            }
+        }
+
+        if (-not $siteReady) {
+            # A running VM with a dead site must not look like a success.
+            exit 1
         }
     }
 

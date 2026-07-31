@@ -187,7 +187,10 @@ if (-not $published) {
 }
 
 $vmScript = Join-Path $PSScriptRoot "yc-vm.ps1"
-& $vmScript start -InstanceId $InstanceId -TimeoutSeconds $TimeoutSeconds -Confirm:$false
+# Deployment rolls out new code right after boot and verifies health itself,
+# so the generic boot health wait is skipped here.
+& $vmScript start -InstanceId $InstanceId -TimeoutSeconds $TimeoutSeconds `
+    -SkipSiteHealthCheck -Confirm:$false
 if (-not $?) {
     throw "Не удалось запустить ВМ."
 }
