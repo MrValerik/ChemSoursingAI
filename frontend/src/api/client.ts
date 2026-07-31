@@ -13,6 +13,8 @@ import type {
   PromptVersionRead,
   RecipientRead,
   SearchRunReplay,
+  SupplierDocumentDetail,
+  SupplierDocumentRead,
   SearchRunListItem,
   SupplierRead,
   SupplierQualificationResponse,
@@ -535,6 +537,17 @@ export const api = {
   restartSearchRun: (id: number) =>
     request<SupplierSearchJob>(`/search-runs/${id}/restart`, {
       method: "POST",
+    }),
+
+  listRfqDocuments: (rfqId: number) =>
+    request<SupplierDocumentRead[]>(`/rfq/${rfqId}/documents`),
+
+  documentFileUrl: (id: number) => `${BASE}/documents/${id}/file`,
+
+  verifyDocument: (id: number) =>
+    request<SupplierDocumentDetail>(`/documents/${id}/verify`, {
+      method: "POST",
+      body: JSON.stringify({}),
     }),
 
   resumeSearchRun: (id: number) =>

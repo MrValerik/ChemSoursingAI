@@ -8,6 +8,7 @@ import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types"
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
 import CommunicationHistory from "./CommunicationHistory";
+import DocumentsSection from "./DocumentsSection";
 import ExtractReplies from "./ExtractReplies";
 import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
@@ -455,10 +456,13 @@ export default function RfqDetail({
           )}
 
           {tab === "replies" && (
-            <ExtractReplies
-              rfqId={rfq.id}
-              onStored={() => setRefreshKey((k) => k + 1)}
-            />
+            <>
+              <ExtractReplies
+                rfqId={rfq.id}
+                onStored={() => setRefreshKey((k) => k + 1)}
+              />
+              <DocumentsSection rfqId={rfq.id} />
+            </>
           )}
 
           {tab === "summary" && <Summary rfqId={rfq.id} refreshKey={refreshKey} />}

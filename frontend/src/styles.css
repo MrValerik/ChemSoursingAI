@@ -1846,6 +1846,112 @@ button.danger:hover {
   border-top: 1px solid var(--border);
 }
 
+.document-list {
+  display: grid;
+  gap: 12px;
+}
+
+.document-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.document-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.document-card-head small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.document-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.button-like {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.button-like:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.document-verification {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.document-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.document-facts dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.document-facts dd {
+  margin: 0;
+}
+
+.document-claims {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.document-claims blockquote {
+  margin: 3px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.document-claims.rejected small {
+  display: block;
+  color: var(--err);
+  font-size: 12px;
+}
+
+.document-flags {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--err);
+  font-size: 12.5px;
+}
+
 .pipeline-activity {
   color: var(--primary);
 }

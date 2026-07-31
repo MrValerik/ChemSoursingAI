@@ -697,3 +697,51 @@ export interface DashboardData {
   overdue: DashboardOverdue[];
   workload?: { owner: string; count: number }[];
 }
+
+export interface DocumentClaimRead {
+  claim_type: string;
+  claim_value: string;
+  quote: string;
+  quote_verified?: boolean;
+  rejection_reason?: string;
+}
+
+export interface DocumentVerificationResult {
+  status: "confirmed" | "needs_review" | "rejected" | "unavailable";
+  model_status: string | null;
+  document_kind: string | null;
+  substance_match: string;
+  recommended_action: string;
+  confidence: number;
+  reason: string;
+  gate_reason: string;
+  accepted_claims: DocumentClaimRead[];
+  rejected_claims: DocumentClaimRead[];
+  missing_fields: string[];
+  red_flags: string[];
+  cas_in_document: string[];
+  expected_cas: string | null;
+  expected_name?: string | null;
+}
+
+export interface SupplierDocumentRead {
+  id: number;
+  rfq_id: number | null;
+  communication_id: number | null;
+  supplier_id: number | null;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  kind: string;
+  text_status: "stored" | "extracted" | "needs_ocr" | "unsupported" | "failed";
+  page_count: number | null;
+  extraction_error: string | null;
+  extracted_at: string | null;
+  verification: DocumentVerificationResult | null;
+  created_at: string;
+}
+
+export interface SupplierDocumentDetail extends SupplierDocumentRead {
+  text_content: string | null;
+}
