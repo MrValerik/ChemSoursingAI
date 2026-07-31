@@ -194,6 +194,88 @@ def _apply_light_migrations() -> None:
                     "ON search_runs (rfq_id)"
                 )
             )
+            if "correlation_id" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs "
+                        "ADD COLUMN correlation_id VARCHAR(36)"
+                    )
+                )
+                # Тот же детерминированный legacy-формат, что в SQL-миграции
+                # 20260729_add_search_execution_manifest.
+                pad_expr = (
+                    "LPAD(id::text, 12, '0')"
+                    if engine.dialect.name == "postgresql"
+                    else "SUBSTR('000000000000' || id, -12)"
+                )
+                conn.execute(
+                    text(
+                        "UPDATE search_runs SET correlation_id = "
+                        f"'00000000-0000-0000-0000-' || {pad_expr} "
+                        "WHERE correlation_id IS NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS "
+                        "ix_search_runs_correlation_id "
+                        "ON search_runs (correlation_id)"
+                    )
+                )
+            if "graph_version" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs ADD COLUMN graph_version "
+                        "VARCHAR(64) NOT NULL DEFAULT 'supplier-search.v1'"
+                    )
+                )
+            if "parent_search_run_id" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs "
+                        "ADD COLUMN parent_search_run_id INTEGER "
+                        "REFERENCES search_runs(id) ON DELETE SET NULL"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "ix_search_runs_parent_search_run_id "
+                        "ON search_runs (parent_search_run_id)"
+                    )
+                )
+            if "replay_mode" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs "
+                        "ADD COLUMN replay_mode VARCHAR(32)"
+                    )
+                )
+    if "agent_runs" in tables:
+        cols = {c["name"] for c in inspector.get_columns("agent_runs")}
+        json_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+        with engine.begin() as conn:
+            if "contract_version" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_runs ADD COLUMN contract_version "
+                        "VARCHAR(64) NOT NULL DEFAULT 'v1'"
+                    )
+                )
+            for column in (
+                "raw_output_payload",
+                "parsed_output_payload",
+                "validation_output_payload",
+                "policy_output_payload",
+                "events",
+            ):
+                if column not in cols:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE agent_runs ADD COLUMN {column} "
+                            f"{json_type}"
+                        )
+                    )
 
 
 def get_db() -> Iterator[Session]:
