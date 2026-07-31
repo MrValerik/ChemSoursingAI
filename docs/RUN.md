@@ -101,6 +101,20 @@ cd backend
 pytest
 ```
 
+Безопасностный eval decision-слоя поиска поставщиков входит в pytest
+(`tests/test_supplier_eval.py`) и дополнительно доступен как отдельная
+команда с метриками и кодом возврата для release gate:
+
+```bash
+cd backend
+python scripts/run_supplier_eval.py --version v1
+```
+
+Код `2` означает новый ложный допуск на safety-примере и блокирует релиз;
+`--full-report` печатает разбор каждого примера. Датасет версионирован:
+`app/eval/datasets/supplier_decision_eval.v1.json`; изменение примеров — это
+новая версия файла, а не правка старой.
+
 На каждый pull request и push в `main` workflow `.github/workflows/ci.yml`
 автоматически выполняет:
 
