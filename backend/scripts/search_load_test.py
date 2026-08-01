@@ -243,10 +243,14 @@ def _probe_llm_once(
 
 
 def read_server_state(base_url: str, api_key: str) -> dict:
-    """Снимает /slots и /metrics llama-server (нужен запуск с --metrics).
+    """Снимает /slots и /metrics llama-server.
 
-    Отсутствие эндпоинтов не является ошибкой прогона: сервер мог быть
-    запущен без --metrics, тогда просто нечего показать.
+    Оба эндпоинта включаются отдельно: `--metrics` для /metrics и `--slots`
+    для /slots. Одного `--metrics` недостаточно — проверено на стенде, где
+    занятость слотов осталась нулевой при включённых метриках.
+
+    Отсутствие эндпоинтов не является ошибкой прогона: пропускная способность
+    и задержки измеряются по самим запросам, а не по телеметрии сервера.
     """
     root = base_url.rstrip("/").removesuffix("/v1")
     headers = {"Authorization": f"Bearer {api_key}"}
