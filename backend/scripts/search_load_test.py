@@ -86,6 +86,11 @@ class StepResult:
     server_state: dict = field(default_factory=dict)
 
     @property
+    def mean_prompt_tokens(self) -> float:
+        """Фактическая длина промпта по usage: оценка по символам неточна."""
+        return self.prompt_tokens / self.successes if self.successes else 0.0
+
+    @property
     def prompt_tokens_per_s(self) -> float:
         return self.prompt_tokens / self.wall_s if self.wall_s else 0.0
 
@@ -124,6 +129,7 @@ class StepResult:
             f"профиль={self.profile:<7} параллельность={self.concurrency:>3} "
             f"успешно={self.successes:>3} отказов={self.failures:>3} "
             f"p50={self.p50_s:7.2f}с p95={self.p95_s:7.2f}с "
+            f"промпт={self.mean_prompt_tokens:6.0f} т "
             f"prefill={self.prompt_tokens_per_s:8.1f} т/с "
             f"генерация={self.completion_tokens_per_s:7.1f} т/с "
             f"запросов/час={self.requests_per_hour:8.1f} "
@@ -143,6 +149,31 @@ _PROBE_SCHEMA = {
 }
 
 
+# Обрывки текста, похожие на первичные страницы поставщиков: смесь языков,
+# цифр и单位, как в каталогах и спецификациях. Повторяющийся одиночный символ
+# для этой цели не годится — он токенизируется в разы плотнее реального
+# текста, и замер занижал бы длину промпта в несколько раз.
+_FILLER_WORDS = (
+    "Shandong Hongyuan Chemical Co Ltd manufacturer CAS 50-78-2 purity 99.5% "
+    "USP grade acetylsalicylic acid white crystalline powder 25 kg drum FOB "
+    "Qingdao MOQ 500 kg GMP ISO9001 certificate of analysis available upon "
+    "request 生产厂家 阿司匹林 原料药 出口 欧盟 认证 品质保证 поставка со склада "
+    "в Москве сертификат анализа паспорт качества таможенное оформление "
+    "molecular formula C9H8O4 molecular weight 180.16 storage in a cool dry "
+    "place away from direct sunlight shelf life 36 months packaging 25kg "
+)
+# Средняя длина токена в такой смеси заметно меньше двух символов, поэтому
+# точная длина промпта не вычисляется, а берётся из usage ответа модели.
+_CHARS_PER_TOKEN_ESTIMATE = 3.2
+
+
+def _filler_text(target_tokens: int) -> str:
+    """Текст примерно на target_tokens токенов, похожий на реальные страницы."""
+    needed_chars = int(target_tokens * _CHARS_PER_TOKEN_ESTIMATE)
+    repeats = needed_chars // len(_FILLER_WORDS) + 1
+    return (_FILLER_WORDS * repeats)[:needed_chars]
+
+
 @dataclass(frozen=True)
 class Profile:
     """Форма запроса к модели.
@@ -160,8 +191,7 @@ class Profile:
     structured: bool
 
     def payload(self, model: str) -> dict:
-        # Осторожная оценка backend: около двух символов на токен.
-        filler = "x" * (self.prompt_tokens * 2)
+        filler = _filler_text(self.prompt_tokens)
         payload = {
             "model": model,
             "messages": [
