@@ -60,6 +60,19 @@ class SearchRun(Base, TimestampMixin):
     )
     error: Mapped[str | None] = mapped_column(Text, default=None)
 
+    # Аренда исполнения. Пока она жива, задача принадлежит одному worker, и
+    # чужой процесс не имеет права ни выполнять её, ни признавать прерванной.
+    lease_owner: Mapped[str | None] = mapped_column(
+        String(128), default=None, index=True
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, index=True
+    )
+    # Fencing token: растёт при каждой выдаче аренды. Запись результата
+    # разрешена только владельцу актуального поколения, поэтому ожившая
+    # задача старого worker не перезапишет результат нового.
+    lease_generation: Mapped[int] = mapped_column(Integer, default=0)
+
     owner: Mapped["User"] = relationship()
     rfq: Mapped["RFQ | None"] = relationship(back_populates="search_runs")
     agent_runs: Mapped[list["AgentRun"]] = relationship(

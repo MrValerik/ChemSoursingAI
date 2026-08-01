@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     search_max_llm_calls: int = Field(default=40)
     search_max_runtime_s: int = Field(default=2700)
 
+    # --- Аренда задач очереди поиска ---
+    # TTL должен с запасом перекрывать интервал heartbeat: одна пропущенная
+    # отправка не должна отдавать живую задачу другому worker.
+    search_lease_ttl_s: int = Field(default=120)
+    search_lease_heartbeat_s: int = Field(default=30)
+
     @property
     def sqlalchemy_dsn(self) -> str:
         """Готовый DSN для SQLAlchemy. database_url перекрывает поля POSTGRES_*."""

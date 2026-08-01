@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import signal
 from collections.abc import Callable
-from time import sleep
+from time import monotonic, sleep
 
 from fastapi import HTTPException
 from sqlalchemy import and_, or_, select
@@ -24,8 +24,22 @@ from app.api.supplier_search import (
     execute_supplier_search,
 )
 from app.core.db import SessionLocal, init_db
-from app.extraction.llm_client import LLMClient, LLMUnavailableError
+from app.extraction.llm_client import (
+    LLMClient,
+    LLMContextOverflowError,
+    LLMUnavailableError,
+)
 from app.models import SearchRun, User
+from app.services.search_lease import (
+    LeaseHeartbeat,
+    LeaseLost,
+    grant_lease,
+    holds_lease,
+    lease_is_recoverable,
+    release_lease,
+    require_lease,
+    worker_identity,
+)
 from app.services.search_trace import utc_now
 from app.services.supplier_search_continuation import (
     country_runs,
@@ -37,6 +51,18 @@ logger = logging.getLogger(__name__)
 _TERMINAL_STATUSES = {"search_completed", "completed", "failed", "cancelled"}
 _MAX_LLM_AUTO_RETRIES = 3
 _stop_requested = False
+# Как часто worker обходит очередь в поисках задач с истёкшей арендой.
+_LEASE_SWEEP_INTERVAL_S = 60.0
+# Идентификатор процесса-worker. Один на процесс: по нему задача узнаёт
+# своего владельца, а перезапустившийся worker — собственные брошенные задачи.
+_WORKER_ID: str | None = None
+
+
+def _worker_id() -> str:
+    global _WORKER_ID
+    if _WORKER_ID is None:
+        _WORKER_ID = worker_identity()
+    return _WORKER_ID
 
 
 def _error_text(exc: Exception) -> str:
@@ -48,7 +74,30 @@ def _error_text(exc: Exception) -> str:
     return str(exc)
 
 
+def _has_context_overflow(exc: BaseException) -> bool:
+    """Ищет переполнение контекста в цепочке исключений.
+
+    Этап квалификации отдаёт наружу HTTPException 503, сохраняя исходную
+    ошибку через ``raise ... from``, поэтому проверки по типу верхнего
+    исключения недостаточно.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, LLMContextOverflowError):
+            return True
+        seen.add(id(current))
+        current = current.__cause__
+    return False
+
+
 def _is_llm_unavailable_error(exc: Exception) -> bool:
+    if _has_context_overflow(exc):
+        # Запрос не помещается в контекст модели — это детерминированная
+        # ошибка конфигурации. Повтор не изменит результат, но каждый занимает
+        # слот модели. Тот же принцип уже действует уровнем ниже, в
+        # LLMClient._transient_reason.
+        return False
     if isinstance(exc, LLMUnavailableError):
         return True
     return isinstance(exc, HTTPException) and exc.status_code == 503
@@ -82,20 +131,32 @@ def requeue_after_llm_outage(
     run.status = "search_completed" if has_search_results else "queued"
     run.error = None
     run.completed_at = None
+    # Задача снова свободна: аренду нужно снять сразу, иначе очередь ждала бы
+    # её истечения, хотя исполнителя у задачи уже нет.
+    release_lease(run)
     db.commit()
     return True
 
 
-def recover_interrupted_jobs(db: Session) -> int:
-    """Fail jobs abandoned during an earlier worker/process shutdown."""
-    interrupted = list(
-        db.scalars(
+def recover_interrupted_jobs(db: Session, owner: str | None = None) -> int:
+    """Fail jobs abandoned during an earlier worker/process shutdown.
+
+    Чужая живая аренда не трогается: с несколькими репликами незавершённая
+    задача может выполняться прямо сейчас другим процессом. Брошенной она
+    становится, когда аренда истекла, отсутствует или принадлежала этому же
+    worker до перезапуска.
+    """
+    owner = owner or _worker_id()
+    interrupted = [
+        run
+        for run in db.scalars(
             select(SearchRun).where(
                 SearchRun.mode == "queued_search",
                 SearchRun.status.not_in({"queued", *_TERMINAL_STATUSES}),
             )
         ).all()
-    )
+        if lease_is_recoverable(run, owner)
+    ]
     for run in interrupted:
         run.status = "failed"
         run.error = (
@@ -103,11 +164,15 @@ def recover_interrupted_jobs(db: Session) -> int:
             "Создайте повторный поиск."
         )
         run.completed_at = utc_now()
+        release_lease(run)
     db.commit()
     return len(interrupted)
 
 
-def claim_next_job(db: Session) -> int | None:
+def claim_next_job(db: Session, owner: str | None = None) -> tuple[int, int] | None:
+    """Забирает задачу и выдаёт аренду. Возвращает (id задачи, поколение)."""
+    owner = owner or _worker_id()
+    now = utc_now()
     stmt = (
         select(SearchRun)
         .where(
@@ -118,6 +183,12 @@ def claim_next_job(db: Session) -> int | None:
                     SearchRun.status == "search_completed",
                     SearchRun.rfq_id.is_not(None),
                 ),
+            ),
+            # Задача с живой арендой уже выполняется другим worker.
+            or_(
+                SearchRun.lease_expires_at.is_(None),
+                SearchRun.lease_expires_at < now,
+                SearchRun.lease_owner == owner,
             ),
         )
         .order_by(SearchRun.created_at, SearchRun.id)
@@ -136,8 +207,9 @@ def claim_next_job(db: Session) -> int | None:
     )
     run.error = None
     run.completed_at = None
+    generation = grant_lease(run, owner)
     db.commit()
-    return run.id
+    return run.id, generation
 
 
 def process_next_job(
@@ -147,11 +219,51 @@ def process_next_job(
     qualifier: Callable[..., dict] | None = None,
 ) -> int | None:
     """Execute search and its automatic qualification as one queued job."""
+    owner = _worker_id()
     with session_factory() as db:
-        run_id = claim_next_job(db)
-    if run_id is None:
+        claimed = claim_next_job(db, owner)
+    if claimed is None:
         return None
+    run_id, generation = claimed
 
+    with LeaseHeartbeat(
+        session_factory=session_factory,
+        run_id=run_id,
+        owner=owner,
+        generation=generation,
+    ):
+        return _execute_claimed_job(
+            session_factory=session_factory,
+            run_id=run_id,
+            owner=owner,
+            generation=generation,
+            executor=executor,
+            qualifier=qualifier,
+        )
+
+
+def _require_current_lease(
+    db: Session, run: SearchRun, owner: str, generation: int
+) -> None:
+    """Fencing-проверка перед записью: аренда всё ещё наша?
+
+    Значения аренды в сессии могли устареть, поэтому перечитываем их из БД.
+    Автоматический flush у сессии выключен, так что незаписанные изменения
+    результата при этом в базу не попадут.
+    """
+    db.refresh(run, attribute_names=["lease_owner", "lease_generation"])
+    require_lease(run, owner, generation)
+
+
+def _execute_claimed_job(
+    *,
+    session_factory: sessionmaker[Session],
+    run_id: int,
+    owner: str,
+    generation: int,
+    executor: Callable[..., dict] | None,
+    qualifier: Callable[..., dict] | None,
+) -> int | None:
     with session_factory() as db:
         run = db.get(SearchRun, run_id)
         if run is None:
@@ -215,6 +327,7 @@ def process_next_job(
                     user,
                     search_run=run,
                 )
+            _require_current_lease(db, run, owner, generation)
             run.result_payload = result
             db.commit()
 
@@ -254,10 +367,32 @@ def process_next_job(
                 run.completed_at = utc_now()
             elif run.status not in _TERMINAL_STATUSES:
                 run.status = "search_completed"
+            _require_current_lease(db, run, owner, generation)
+            if run.status in _TERMINAL_STATUSES:
+                release_lease(run)
             db.commit()
+        except LeaseLost:
+            # Задачу перевыдали другому worker, пока этот выполнял этап.
+            # Ни результат, ни статус писать нельзя: это чужая работа.
+            db.rollback()
+            logger.warning(
+                "Queued supplier search %s lost its lease and was left to "
+                "its current owner",
+                run_id,
+            )
+            return run_id
         except Exception as exc:
             db.rollback()
             failed_run = db.get(SearchRun, run_id)
+            if failed_run is not None and not holds_lease(
+                failed_run, owner, generation
+            ):
+                logger.warning(
+                    "Queued supplier search %s failed after its lease was "
+                    "reassigned; leaving the state to its current owner",
+                    run_id,
+                )
+                return run_id
             if (
                 failed_run is not None
                 and failed_run.status != "cancelled"
@@ -275,6 +410,7 @@ def process_next_job(
                 failed_run.status = "failed"
                 failed_run.error = _error_text(exc)
                 failed_run.completed_at = utc_now()
+                release_lease(failed_run)
                 db.commit()
             if isinstance(exc, SearchRunCancelled):
                 logger.info("Queued supplier search %s was cancelled", run_id)
@@ -296,6 +432,20 @@ def process_ready_job(
     return True, processor()
 
 
+def sweep_expired_leases(
+    session_factory: sessionmaker[Session] = SessionLocal,
+) -> int:
+    """Периодически подбирает задачи, чья аренда истекла.
+
+    Только стартового восстановления недостаточно: задача становится
+    брошенной не в момент падения своего worker, а когда истечёт её аренда,
+    то есть уже после старта остальных процессов. Без регулярного обхода
+    такой запуск остался бы в промежуточном статусе навсегда.
+    """
+    with session_factory() as db:
+        return recover_interrupted_jobs(db)
+
+
 def _request_stop(*_: object) -> None:
     global _stop_requested
     _stop_requested = True
@@ -306,13 +456,21 @@ def main() -> None:
     init_db()
     signal.signal(signal.SIGTERM, _request_stop)
     signal.signal(signal.SIGINT, _request_stop)
-    with SessionLocal() as db:
-        recovered = recover_interrupted_jobs(db)
+    recovered = sweep_expired_leases()
     if recovered:
         logger.warning("Marked %s interrupted search jobs as failed", recovered)
     logger.info("Supplier search worker started with one execution slot")
     waiting_for_llm = False
+    next_sweep_at = monotonic() + _LEASE_SWEEP_INTERVAL_S
     while not _stop_requested:
+        if monotonic() >= next_sweep_at:
+            abandoned = sweep_expired_leases()
+            if abandoned:
+                logger.warning(
+                    "Marked %s search jobs with an expired lease as failed",
+                    abandoned,
+                )
+            next_sweep_at = monotonic() + _LEASE_SWEEP_INTERVAL_S
         ready, processed = process_ready_job()
         if not ready:
             if not waiting_for_llm:

@@ -229,6 +229,29 @@ def _apply_light_migrations() -> None:
                         "VARCHAR(64) NOT NULL DEFAULT 'supplier-search.v1'"
                     )
                 )
+            # Аренда задач очереди; в проде это делает миграция
+            # 20260801_add_search_run_lease.
+            if "lease_owner" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs "
+                        "ADD COLUMN lease_owner VARCHAR(128)"
+                    )
+                )
+            if "lease_expires_at" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs "
+                        "ADD COLUMN lease_expires_at TIMESTAMP"
+                    )
+                )
+            if "lease_generation" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE search_runs ADD COLUMN lease_generation "
+                        "INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
             if "parent_search_run_id" not in cols:
                 conn.execute(
                     text(
