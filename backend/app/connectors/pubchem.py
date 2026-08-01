@@ -10,11 +10,22 @@ Echemi в продукте остаётся заглушкой в UI под бу
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import sleep
 
 import httpx
 
 from app.core.config import get_settings
 from app.services.cas import is_valid_cas, normalize_cas
+from app.services.domain_rate_limit import (
+    defer_domain,
+    reserve_slot,
+    retry_after_seconds,
+)
+
+# 404 у PubChem означает «вещество не найдено» и троттлингом не является.
+_THROTTLED_STATUSES = {429, 503}
+# Пауза, когда сервис ограничил нас, но Retry-After не прислал.
+_THROTTLED_BACKOFF_S = 10.0
 
 
 @dataclass
@@ -85,9 +96,26 @@ class PubChemConnector:
 
     # --- внутренние запросы ---
 
+    def _get(self, client: httpx.Client, url: str) -> httpx.Response:
+        """Запрос с соблюдением общего лимита PubChem.
+
+        PubChem просит не превышать пять запросов в секунду на организацию и
+        сам применяет динамический троттлинг, отвечая 503. Лимит считается по
+        исходящему IP, поэтому пауза общая для всех worker-процессов: каждый
+        поиск обращается сюда трижды.
+        """
+        wait = reserve_slot(url)
+        if wait > 0:
+            sleep(wait)
+        response = client.get(url)
+        if response.status_code in _THROTTLED_STATUSES:
+            delay = retry_after_seconds(response.headers.get("Retry-After"))
+            defer_domain(url, delay or _THROTTLED_BACKOFF_S)
+        return response
+
     def _fetch_cid(self, client: httpx.Client, cas: str) -> int | None:
         url = f"{self.base_url}/compound/name/{cas}/cids/JSON"
-        resp = client.get(url)
+        resp = self._get(client, url)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -97,14 +125,14 @@ class PubChemConnector:
     def _fetch_properties(self, client: httpx.Client, cid: int) -> dict:
         props = "IUPACName,MolecularFormula,MolecularWeight"
         url = f"{self.base_url}/compound/cid/{cid}/property/{props}/JSON"
-        resp = client.get(url)
+        resp = self._get(client, url)
         resp.raise_for_status()
         table = resp.json().get("PropertyTable", {}).get("Properties", [{}])
         return table[0] if table else {}
 
     def _fetch_synonyms(self, client: httpx.Client, cid: int) -> list[str]:
         url = f"{self.base_url}/compound/cid/{cid}/synonyms/JSON"
-        resp = client.get(url)
+        resp = self._get(client, url)
         if resp.status_code != 200:
             return []
         info = resp.json().get("InformationList", {}).get("Information", [{}])

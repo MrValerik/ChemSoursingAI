@@ -14,13 +14,17 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 
+from app.services.domain_rate_limit import (
+    interval_for,
+    reserve_slot,
+    reset_state as reset_domain_slots,
+)
+
 _ROBOTS_TIMEOUT = httpx.Timeout(connect=4.0, read=6.0, write=4.0, pool=4.0)
 _ROBOTS_CACHE_TTL_S = 3600.0
-_DEFAULT_DELAY_S = 1.0
 
 _lock = threading.Lock()
 _robots_cache: dict[str, tuple[float, RobotFileParser | None, float | None]] = {}
-_last_request_at: dict[str, float] = {}
 
 
 def _origin(url: str) -> tuple[str, str]:
@@ -78,26 +82,27 @@ def robots_verdict(url: str, user_agent: str) -> tuple[bool, float | None]:
 
 
 def wait_for_domain_slot(url: str, delay_s: float | None = None) -> None:
-    """Выдерживает паузу между запросами к одному домену."""
+    """Выдерживает паузу между запросами к одному домену.
+
+    Очередь к домену общая для всех процессов: лимиты внешних сервисов
+    действуют на домен и исходящий IP, поэтому пауза, соблюдаемая каждым
+    worker по отдельности, кратно превышалась бы при нескольких репликах.
+    Если общее хранилище недоступно, слот выдаётся в памяти процесса — это
+    прежнее поведение, и оно лучше, чем остановка поиска.
+    """
     _, host = _origin(url)
     if not host:
         return
-    wait_for = delay_s if delay_s is not None else _DEFAULT_DELAY_S
+    wait_for = delay_s if delay_s is not None else interval_for(host)
     # Слишком большой crawl-delay заблокировал бы этап целиком.
     wait_for = max(0.0, min(wait_for, 10.0))
-    while True:
-        with _lock:
-            last = _last_request_at.get(host)
-            now = time.monotonic()
-            if last is None or now - last >= wait_for:
-                _last_request_at[host] = now
-                return
-            remaining = wait_for - (now - last)
-        time.sleep(remaining)
+    wait = reserve_slot(url, wait_for)
+    if wait > 0:
+        time.sleep(wait)
 
 
 def reset_politeness_state() -> None:
     """Сбрасывает кэш robots.txt и историю пауз (используется в тестах)."""
     with _lock:
         _robots_cache.clear()
-        _last_request_at.clear()
+    reset_domain_slots()
