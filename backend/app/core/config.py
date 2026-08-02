@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     search_max_llm_calls: int = Field(default=40)
     search_max_runtime_s: int = Field(default=2700)
 
+    # --- Источник поисковой выдачи ---
+    # HTML-выдача DuckDuckGo не имеет квоты и SLA: под нагрузкой она отдаёт
+    # антибот-страницу вместо результатов. Для промышленной работы источник
+    # переключается на поисковый API с квотой — это настройка, а не правка кода.
+    search_provider: str = Field(default="duckduckgo_html")
+
     # --- Аренда задач очереди поиска ---
     # TTL должен с запасом перекрывать интервал heartbeat: одна пропущенная
     # отправка не должна отдавать живую задачу другому worker.

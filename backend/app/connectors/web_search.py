@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
 
+from app.core.config import get_settings
 from app.services.domain_rate_limit import (
     defer_domain,
     reserve_slot,
@@ -98,33 +99,76 @@ def looks_blocked(page: str, parsed_count: int) -> bool:
     return not any(marker in lowered for marker in _EMPTY_RESULT_MARKERS)
 
 
-def search_web(query: str, limit: int = 8) -> list[dict]:
-    """Запрашивает выдачу, соблюдая общую для всех процессов паузу.
+class UnknownSearchProvider(RuntimeError):
+    """В настройках указан источник выдачи, которого нет в коде."""
 
-    Это единственный внешний адрес, к которому обращается каждый поиск и
-    каждый запрос его плана — до двенадцати обращений за один запуск. Лимит
-    поисковика действует на исходящий IP, поэтому пауза здесь обязана быть
-    общей для всех worker-процессов, а не отдельной у каждого.
+
+class DuckDuckGoHtmlProvider:
+    """HTML-выдача DuckDuckGo: работает без ключа, но не имеет квоты и SLA.
+
+    Замер на стенде показал, почему это не промышленный источник: под
+    нагрузкой двух worker-процессов 37 запросов из 48 вернулись пустыми, а
+    те же запросы позже отдавали по восемь результатов. Провайдер оставлен
+    как значение по умолчанию для разработки и как запасной вариант.
     """
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; ChemSourceAI/1.0)"}
-    wait = reserve_slot(_SEARCH_URL)
-    if wait > 0:
-        sleep(wait)
-    with httpx.Client(timeout=20, follow_redirects=True, headers=headers) as client:
-        response = client.get(_SEARCH_URL, params={"q": query})
-        if response.status_code in _THROTTLED_STATUSES:
-            # Сервис сам сказал, когда к нему возвращаться. Отметка видна
-            # всем процессам, иначе соседний worker продолжит стучаться.
-            delay = retry_after_seconds(response.headers.get("Retry-After"))
-            defer_domain(_SEARCH_URL, delay or _THROTTLED_BACKOFF_S)
-        response.raise_for_status()
-    results = parse_search_results(response.text, limit)
-    if looks_blocked(response.text, len(results)):
-        # Отодвигаем домен: продолжать долбить заблокировавший нас источник
-        # бессмысленно, а соседние процессы должны узнать об этом тоже.
-        defer_domain(_SEARCH_URL, _THROTTLED_BACKOFF_S)
-        raise SearchSourceBlocked(
-            "Поисковая выдача вернула страницу без результатов и без "
-            "сообщения о пустом ответе — вероятно, доступ ограничен"
+
+    name = "duckduckgo_html"
+
+    def search(self, query: str, limit: int = 8) -> list[dict]:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; ChemSourceAI/1.0)"}
+        # Пауза общая для всех процессов: лимит поисковика действует на
+        # исходящий IP, а не на отдельный worker.
+        wait = reserve_slot(_SEARCH_URL)
+        if wait > 0:
+            sleep(wait)
+        with httpx.Client(
+            timeout=20, follow_redirects=True, headers=headers
+        ) as client:
+            response = client.get(_SEARCH_URL, params={"q": query})
+            if response.status_code in _THROTTLED_STATUSES:
+                # Сервис сам сказал, когда к нему возвращаться. Отметка видна
+                # всем процессам, иначе соседний worker продолжит стучаться.
+                delay = retry_after_seconds(response.headers.get("Retry-After"))
+                defer_domain(_SEARCH_URL, delay or _THROTTLED_BACKOFF_S)
+            response.raise_for_status()
+        results = parse_search_results(response.text, limit)
+        if looks_blocked(response.text, len(results)):
+            # Продолжать долбить заблокировавший нас источник бессмысленно, а
+            # соседние процессы должны узнать об этом тоже.
+            defer_domain(_SEARCH_URL, _THROTTLED_BACKOFF_S)
+            raise SearchSourceBlocked(
+                "Поисковая выдача вернула страницу без результатов и без "
+                "сообщения о пустом ответе — вероятно, доступ ограничен"
+            )
+        return results
+
+
+_PROVIDERS: dict[str, type] = {
+    DuckDuckGoHtmlProvider.name: DuckDuckGoHtmlProvider,
+}
+
+
+def available_providers() -> tuple[str, ...]:
+    return tuple(sorted(_PROVIDERS))
+
+
+def get_search_provider(name: str | None = None):
+    """Возвращает источник выдачи, выбранный конфигурацией.
+
+    Источник — это настройка, а не код: смена поисковика не должна затрагивать
+    конвейер. Имя провайдера попадает в трассировку запуска, поэтому по
+    сохранённому поиску видно, чем именно он выполнялся.
+    """
+    key = (name or get_settings().search_provider).strip()
+    factory = _PROVIDERS.get(key)
+    if factory is None:
+        raise UnknownSearchProvider(
+            f"Неизвестный источник выдачи {key!r}; доступны: "
+            + ", ".join(available_providers())
         )
-    return results
+    return factory()
+
+
+def search_web(query: str, limit: int = 8) -> list[dict]:
+    """Ищет через источник, заданный настройками."""
+    return get_search_provider().search(query, limit)

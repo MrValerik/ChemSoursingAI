@@ -5,7 +5,11 @@ import pytest
 
 from app.connectors import web_search
 from app.connectors.web_search import (
+    DuckDuckGoHtmlProvider,
     SearchSourceBlocked,
+    UnknownSearchProvider,
+    available_providers,
+    get_search_provider,
     looks_blocked,
     parse_search_results,
     search_web,
@@ -114,3 +118,40 @@ def test_search_web_raises_on_a_silently_blocked_response(monkeypatch):
     with pytest.raises(SearchSourceBlocked):
         search_web("urea 57-13-6 manufacturer China")
     assert deferred, "заблокировавший источник должен быть отложен для всех процессов"
+
+
+def test_default_provider_is_the_keyless_html_search():
+    provider = get_search_provider()
+    assert provider.name == "duckduckgo_html"
+    assert "duckduckgo_html" in available_providers()
+
+
+def test_provider_is_selected_by_configuration():
+    provider = get_search_provider("duckduckgo_html")
+    assert isinstance(provider, DuckDuckGoHtmlProvider)
+
+
+def test_unknown_provider_fails_loudly_and_lists_the_available_ones():
+    """Опечатка в настройке не должна тихо откатываться на прежний источник."""
+    with pytest.raises(UnknownSearchProvider) as excinfo:
+        get_search_provider("yandex_search")
+    assert "duckduckgo_html" in str(excinfo.value)
+
+
+def test_search_web_delegates_to_the_configured_provider(monkeypatch):
+    """Смена источника — это настройка: конвейер её не замечает."""
+    calls: list[tuple[str, int]] = []
+
+    class _StubProvider:
+        name = "stub"
+
+        def search(self, query, limit=8):
+            calls.append((query, limit))
+            return [{"title": "t", "url": "https://example.test", "snippet": ""}]
+
+    monkeypatch.setattr(
+        web_search, "get_search_provider", lambda name=None: _StubProvider()
+    )
+    results = search_web("urea manufacturer", 5)
+    assert calls == [("urea manufacturer", 5)]
+    assert results[0]["url"] == "https://example.test"

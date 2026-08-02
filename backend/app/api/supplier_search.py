@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.connectors.pubchem import PubChemConnector
 from app.connectors.web_page import fetch_web_page
-from app.connectors.web_search import search_web
+from app.connectors.web_search import get_search_provider, search_web
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.extraction.llm_client import (
@@ -1486,6 +1486,9 @@ def execute_supplier_search(
 
     attempted_queries: list[str] = []
     executed_items: list[SearchPlanItem] = []
+    # Объект источника нужен ради его имени: по сохранённой трассировке
+    # должно быть видно, каким поисковиком выполнялся запуск.
+    search_provider = get_search_provider()
     raw_results: list[dict] = []
     search_errors: list[str] = []
     excluded_duplicate_count = 0
@@ -1511,7 +1514,7 @@ def execute_supplier_search(
             db,
             search_run=search_run,
             agent_run=search_stage,
-            connector="duckduckgo_html",
+            connector=search_provider.name,
             query=query,
             language=plan_item.language,
             source_type=plan_item.source_type,
