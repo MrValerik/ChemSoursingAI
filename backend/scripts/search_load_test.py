@@ -457,6 +457,16 @@ def main() -> int:
     parser.add_argument("--username", default="ivanov")
     parser.add_argument("--password", default="demo123")
     parser.add_argument("--substances", type=int, default=4)
+    parser.add_argument(
+        "--substance",
+        action="append",
+        default=None,
+        metavar="CAS=NAME",
+        help=(
+            "конкретное вещество вместо набора по умолчанию; "
+            "можно повторять: --substance 59-51-8=DL-methionine"
+        ),
+    )
     parser.add_argument("--country", default="Китай")
     parser.add_argument(
         "--timeout-s",
@@ -510,15 +520,26 @@ def main() -> int:
                     print("  ступень не пройдена, подъём остановлен")
                     break
     else:
-        if args.substances > len(DEFAULT_SUBSTANCES):
-            parser.error(
-                f"в наборе {len(DEFAULT_SUBSTANCES)} веществ; "
-                "добавьте свои в DEFAULT_SUBSTANCES"
-            )
+        if args.substance:
+            chosen = []
+            for item in args.substance:
+                cas, _, name = item.partition("=")
+                if not cas or not name:
+                    parser.error(f"ожидается CAS=НАЗВАНИЕ, получено: {item}")
+                chosen.append((cas.strip(), name.strip()))
+        else:
+            if args.substances > len(DEFAULT_SUBSTANCES):
+                parser.error(
+                    f"в наборе {len(DEFAULT_SUBSTANCES)} веществ; "
+                    "передайте свои через --substance"
+                )
+            chosen = DEFAULT_SUBSTANCES[: args.substances]
         print(
-            f"Сквозной прогон: {args.substances} веществ одновременно "
+            f"Сквозной прогон: {len(chosen)} веществ одновременно "
             f"через {args.base_url}"
         )
+        for cas, name in chosen:
+            print(f"  {cas:<12} {name}")
         print(
             "ВНИМАНИЕ: реальный поиск ходит в веб-выдачу и на сайты "
             "поставщиков. Используйте тестовый стенд."
@@ -527,7 +548,7 @@ def main() -> int:
         step = run_queue_step(
             base_url=args.base_url,
             token=token,
-            substances=DEFAULT_SUBSTANCES[: args.substances],
+            substances=chosen,
             country=args.country,
             timeout_s=args.timeout_s,
             poll_interval_s=args.poll_interval_s,
