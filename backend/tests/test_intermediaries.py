@@ -11,6 +11,7 @@ from app.core.db import SessionLocal, engine
 from app.main import app
 from app.models import Intermediary
 from app.services.intermediaries import (
+    domain_label,
     is_intermediary,
     normalize_domain,
     seed_intermediaries,
@@ -52,9 +53,26 @@ def test_subdomains_of_a_marketplace_are_covered():
 
 
 def test_lookalike_domain_is_not_matched():
-    """Совпадение по суффиксу не должно ловить чужой домен со схожим концом."""
+    """Похожая метка — не та же метка."""
     assert not is_intermediary("https://notechemi.com/p", {"echemi.com"})
-    assert not is_intermediary("https://echemi.com.evil.ru/p", {"echemi.com"})
+    assert not is_intermediary("https://echemi-shop.ru/p", {"echemi.com"})
+
+
+def test_label_is_taken_before_the_zone_not_before_the_first_dot():
+    """У площадок поддомен принадлежит продавцу, а не площадке."""
+    assert domain_label("fortunegrowth.en.made-in-china.com") == "made-in-china"
+    assert domain_label("shop.echemi.com") == "echemi"
+    # Составная зона: иначе меткой оказалось бы «com».
+    assert domain_label("lookchem.com.cn") == "lookchem"
+    assert domain_label("www.guidechem.com") == "guidechem"
+
+
+def test_mirrors_in_other_zones_are_caught():
+    """Ровно тот случай, который проскочил на стенде: lookchem.cn."""
+    registry = {"lookchem.com"}
+    assert is_intermediary("https://www.lookchem.cn/cas_107-43-7.html", registry)
+    assert is_intermediary("https://china.lookchem.com.cn/x", registry)
+    assert is_intermediary("https://www.lookchem.com/cas-107/107-43-7.html", registry)
 
 
 def test_split_keeps_order_and_separates_platforms():

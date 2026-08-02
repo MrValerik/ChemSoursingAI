@@ -73,19 +73,48 @@ def active_domains(db: Session) -> set[str]:
     }
 
 
+# Составные доменные зоны: без них у lookchem.com.cn меткой окажется «com».
+# Список короткий намеренно — сюда попадают только зоны, встречающиеся у
+# химических площадок и поставщиков.
+_MULTI_LABEL_SUFFIXES = frozenset(
+    {
+        "com.cn", "net.cn", "org.cn", "gov.cn",
+        "com.hk", "com.tw", "com.sg", "com.my",
+        "co.in", "co.jp", "co.kr", "co.uk",
+        "com.br", "com.au", "com.tr", "com.ua",
+    }
+)
+
+
+def domain_label(value: str) -> str:
+    """Имя площадки без доменной зоны и поддоменов.
+
+    Берётся метка перед зоной, а не первая часть адреса: площадки выдают
+    продавцам поддомены (``fortunegrowth.en.made-in-china.com``), и по первой
+    точке меткой оказался бы продавец. Зеркала в разных зонах при этом дают
+    одну метку: ``lookchem.com`` и ``lookchem.cn`` — это ``lookchem``.
+    """
+    host = normalize_domain(value)
+    parts = [part for part in host.split(".") if part]
+    if len(parts) < 2:
+        return host
+    if len(parts) >= 3 and ".".join(parts[-2:]) in _MULTI_LABEL_SUFFIXES:
+        return parts[-3]
+    return parts[-2]
+
+
 def is_intermediary(url: str, domains: set[str]) -> bool:
     """Принадлежит ли ссылка посреднику.
 
-    Сравнение идёт по суффиксу домена: у площадок поддомен на компанию —
-    обычное дело (``shop.echemi.com``, ``supplier.made-in-china.com``), и
-    правило должно распространяться на них тоже.
+    Сравнение идёт по имени площадки без доменной зоны, поэтому зеркала вида
+    ``lookchem.cn`` попадают под то же правило, что и ``lookchem.com``, а
+    поддомены продавцов внутри площадки — под правило самой площадки.
     """
     host = normalize_domain(url)
     if not host:
         return False
-    return any(
-        host == domain or host.endswith(f".{domain}") for domain in domains
-    )
+    label = domain_label(host)
+    return any(label == domain_label(domain) for domain in domains if domain)
 
 
 def split_by_intermediary(
