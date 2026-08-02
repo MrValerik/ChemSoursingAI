@@ -96,6 +96,13 @@ services:
     build: ./backend
     restart: unless-stopped
     command: ["python", "-m", "app.search_worker"]
+    # Воркеров больше, чем слотов у модели: значительную часть поиска занимает
+    # загрузка страниц, и всё это время GPU простаивает. Замер на стенде при
+    # двух слотах: параллельность 4 дала 377 запросов в час против 237 при
+    # двух. Несколько процессов безопасны благодаря аренде задач — claim идёт
+    # под FOR UPDATE SKIP LOCKED, а запись результата защищена fencing-токеном.
+    deploy:
+      replicas: 4
     environment:
       APP_ENV: production
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-chemsource}:${POSTGRES_PASSWORD:-change_me}@db:5432/${POSTGRES_DB:-chemsource}
