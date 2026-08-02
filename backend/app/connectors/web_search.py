@@ -69,6 +69,34 @@ def parse_search_results(page: str, limit: int = 8) -> list[dict]:
 
 _SEARCH_URL = "https://html.duckduckgo.com/html/"
 
+# Разметка, которой выдача сообщает о честно пустом результате. Её наличие
+# отличает «ничего не найдено» от страницы, подсунутой антибот-защитой.
+_EMPTY_RESULT_MARKERS = ("no-results", "результатов не найдено", "no results found")
+# Признаки того, что вместо выдачи пришла страница проверки.
+_BLOCK_MARKERS = ("anomaly", "captcha", "unusual traffic", "verify you are human")
+
+
+class SearchSourceBlocked(RuntimeError):
+    """Источник ответил, но выдачи не отдал.
+
+    Поисковик отвечает 200 и антибот-страницей вместо результатов, поэтому
+    «ничего не найдено» и «нас не пускают» выглядят одинаково. Разделять их
+    обязательно: пустой список по реальному веществу закупщик прочитает как
+    факт рынка, а не как отказ источника.
+    """
+
+
+def looks_blocked(page: str, parsed_count: int) -> bool:
+    """Похож ли ответ на отказ доступа, а не на пустую выдачу."""
+    if parsed_count:
+        return False
+    lowered = page.lower()
+    if any(marker in lowered for marker in _BLOCK_MARKERS):
+        return True
+    # Честно пустая выдача содержит собственное сообщение об этом. Ответ без
+    # результатов и без такого сообщения — это не выдача.
+    return not any(marker in lowered for marker in _EMPTY_RESULT_MARKERS)
+
 
 def search_web(query: str, limit: int = 8) -> list[dict]:
     """Запрашивает выдачу, соблюдая общую для всех процессов паузу.
@@ -90,4 +118,13 @@ def search_web(query: str, limit: int = 8) -> list[dict]:
             delay = retry_after_seconds(response.headers.get("Retry-After"))
             defer_domain(_SEARCH_URL, delay or _THROTTLED_BACKOFF_S)
         response.raise_for_status()
-    return parse_search_results(response.text, limit)
+    results = parse_search_results(response.text, limit)
+    if looks_blocked(response.text, len(results)):
+        # Отодвигаем домен: продолжать долбить заблокировавший нас источник
+        # бессмысленно, а соседние процессы должны узнать об этом тоже.
+        defer_domain(_SEARCH_URL, _THROTTLED_BACKOFF_S)
+        raise SearchSourceBlocked(
+            "Поисковая выдача вернула страницу без результатов и без "
+            "сообщения о пустом ответе — вероятно, доступ ограничен"
+        )
+    return results

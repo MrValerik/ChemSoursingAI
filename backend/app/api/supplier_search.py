@@ -76,6 +76,11 @@ from app.services.supplier_sources import (
 
 router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
 
+# Сколько подряд пустых запросов считать отказом источника, а не отсутствием
+# поставщиков. Один запрос может не найти ничего законно; несколько подряд по
+# существующему веществу — почти наверняка блокировка.
+_MIN_QUERIES_FOR_SOURCE_FAILURE = 2
+
 _QUALIFICATION_BATCH_SIZE = 2
 _VERIFICATION_BATCH_SIZE = 2
 # Максимум текста первичной страницы, который вообще имеет смысл передавать.
@@ -1571,6 +1576,30 @@ def execute_supplier_search(
         search_stop_reason = STOP_PLAN_EXHAUSTED
         log_agent_event(search_stage, "План запросов исчерпан полностью")
 
+    if (
+        not raw_results
+        and not search_errors
+        and len(executed_items) >= _MIN_QUERIES_FOR_SOURCE_FAILURE
+    ):
+        # Ни один запрос не отдал ни одной ссылки, и при этом ни один не
+        # завершился ошибкой. Для существующего вещества это не рыночный
+        # факт, а молчаливый отказ источника: иначе запуск завершится
+        # успехом с нулём кандидатов, и закупщик прочитает это как
+        # «производителей нет». Проверка не зависит от разметки выдачи и
+        # переживёт её изменение.
+        error = (
+            f"Источник выдачи не вернул ни одного результата на "
+            f"{len(executed_items)} запросов подряд. Это похоже на "
+            "ограничение доступа к поисковику и не означает, что "
+            "поставщиков не существует."
+        )
+        finish_agent_run(search_stage, search_clock, error=error)
+        finish_search_run(search_run, error=error)
+        db.commit()
+        raise HTTPException(
+            status_code=502,
+            detail={"message": error, "search_run_id": search_run.id},
+        )
     if not raw_results and search_errors:
         error = f"Поисковый источник недоступен: {search_errors[-1]}"
         finish_agent_run(search_stage, search_clock, error=error)

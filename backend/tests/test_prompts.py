@@ -294,8 +294,17 @@ def test_supplier_search_drops_unverified_names_and_queries(client, monkeypatch)
     monkeypatch.setattr(
         "app.api.supplier_search.LLMClient.generate_json", response
     )
+    # Выдача отдаёт хоть что-то: проверка здесь про план запросов, а пустой
+    # ответ на все запросы теперь трактуется как отказ источника.
     monkeypatch.setattr(
-        "app.api.supplier_search.search_web", lambda query, limit: []
+        "app.api.supplier_search.search_web",
+        lambda query, limit: [
+            {
+                "title": "Aspirin manufacturer",
+                "url": "https://supplier.example/aspirin",
+                "snippet": "Aspirin CAS 50-78-2",
+            }
+        ],
     )
     result = client.post(
         "/supplier-search",
@@ -1302,3 +1311,59 @@ def test_auditor_cannot_start_or_qualify_search(client):
         ).status_code
         == 403
     )
+
+
+def test_silent_source_failure_is_reported_instead_of_zero_suppliers(
+    client, monkeypatch
+):
+    """Пустая выдача на все запросы — это отказ источника, а не факт рынка.
+
+    Замер на стенде: поисковик отвечал 200 с антибот-страницей, запуск
+    завершался статусом «completed» с нулём кандидатов, и по карбамиду это
+    читалось как «производителей не найдено».
+    """
+    buyer = _auth(client, "ivanov")
+
+    def response(self, **kwargs):
+        if kwargs["schema_name"] == "substance_identity":
+            return {
+                "canonical_name": "Urea",
+                "search_names": ["Urea"],
+                "input_name_matches": True,
+                "substance_type": "single_substance",
+                "ambiguities": [],
+            }
+        return {
+            "queries": [
+                {
+                    "query": f'"57-13-6" urea manufacturer {suffix}',
+                    "language": "en",
+                    "purpose": "manufacturer",
+                    "source_type": "official_site",
+                    "priority": 1,
+                }
+                for suffix in ("China", "India")
+            ]
+        }
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json", response
+    )
+    monkeypatch.setattr(
+        "app.api.supplier_search.search_web", lambda query, limit: []
+    )
+
+    result = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "57-13-6", "name": "Urea", "country": "China"},
+    )
+
+    assert result.status_code == 502, result.text
+    message = result.json()["detail"]["message"]
+    assert "не вернул ни одного результата" in message
+    assert "не означает, что поставщиков не существует" in message
+
+    run_id = result.json()["detail"]["search_run_id"]
+    trace = client.get(f"/search-runs/{run_id}", headers=buyer).json()
+    assert trace["status"] == "failed", "запуск не должен считаться успешным"
