@@ -787,9 +787,6 @@ def _fallback_search_plan(
         elif "site:cdsco.gov.in" in query:
             purpose = "documents"
             source_type = "registry"
-        elif query.startswith("site:echemi.com"):
-            purpose = "product" if index == 0 else "manufacturer"
-            source_type = "catalog"
         elif any(marker in query for marker in ("CoA", "TDS", "SDS")):
             purpose = "documents"
             source_type = "official_site"
@@ -1682,7 +1679,7 @@ def execute_supplier_search(
         "search_run_id": search_run.id,
         "query": attempted_queries[0],
         "queries_used": attempted_queries,
-        "search_strategy": "echemi_first",
+        "search_strategy": "direct_sites_first",
         "source_counts": source_counts,
         "identity": identity.model_dump(),
         "substance_lookup": lookup,

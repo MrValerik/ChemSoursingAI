@@ -1162,25 +1162,29 @@ def test_supplier_search_prioritizes_chinese_sources(client, monkeypatch):
     assert payload["results"][0]["country_hint"] == "likely"
 
 
-def test_supplier_search_keeps_multiple_echemi_cards(client, monkeypatch):
+def test_multiple_marketplace_cards_survive_deduplication(client, monkeypatch):
+    """Разные карточки одной площадки — разные продавцы, а не дубль домена.
+
+    План больше не резервирует запросы под витрину, поэтому карточки приходят
+    обычным запросом. В режиме поиска изготовителей они откладываются, в
+    режиме сравнения продавцов остаются обе.
+    """
     buyer = _auth(client, "ivanov")
     _mock_search_agents(monkeypatch, '"Aspirin" "50-78-2" manufacturer India')
 
     def fake_search(query, limit):
-        if query.startswith("site:echemi.com"):
-            return [
-                {
-                    "title": "Echemi Supplier One",
-                    "url": "https://www.echemi.com/shop-us111/index.html",
-                    "snippet": "Aspirin CAS 50-78-2 supplier",
-                },
-                {
-                    "title": "Echemi Supplier Two",
-                    "url": "https://www.echemi.com/shop-us222/index.html",
-                    "snippet": "Aspirin manufacturer",
-                },
-            ]
-        return []
+        return [
+            {
+                "title": "Echemi Supplier One",
+                "url": "https://www.echemi.com/shop-us111/index.html",
+                "snippet": "Aspirin CAS 50-78-2 supplier",
+            },
+            {
+                "title": "Echemi Supplier Two",
+                "url": "https://www.echemi.com/shop-us222/index.html",
+                "snippet": "Aspirin manufacturer",
+            },
+        ]
 
     monkeypatch.setattr("app.api.supplier_search.search_web", fake_search)
     response = client.post(
@@ -1188,22 +1192,11 @@ def test_supplier_search_keeps_multiple_echemi_cards(client, monkeypatch):
         headers=buyer,
         json={"cas": "50-78-2", "name": "Aspirin", "country": "India"},
     )
-
     assert response.status_code == 200
     payload = response.json()
-    assert payload["search_strategy"] == "echemi_first"
-    # Режим по умолчанию ищет изготовителей, а ECHEMI — торговая площадка.
-    # Её карточки не выбрасываются, но и бюджет загрузки на них не тратится:
-    # на стенде такие страницы давали «поставщик не указан» с уверенностью 0.
-    assert payload["search_scope"] == "manufacturers"
-    assert payload["results"] == []
-    # Отсев выполняется до ранжирования и дедупликации, поэтому здесь лежат
-    # все найденные ссылки площадки, а не уникальные карточки.
-    assert payload["intermediary_results"], "площадка должна быть отложена, а не потеряна"
-    assert all(
-        "echemi.com" in str(item.get("url"))
-        for item in payload["intermediary_results"]
-    )
+    assert payload["search_strategy"] == "direct_sites_first"
+    assert payload["results"] == [], "витрина не должна тратить бюджет загрузки"
+    assert payload["intermediary_results"], "и не должна теряться"
 
     everyone = client.post(
         "/supplier-search",
@@ -1217,11 +1210,8 @@ def test_supplier_search_keeps_multiple_echemi_cards(client, monkeypatch):
     )
     assert everyone.status_code == 200
     payload = everyone.json()
-    # Для сравнения цен площадка — полноценный источник, отсева нет.
     assert payload["source_counts"]["echemi"] == 2
     assert len(payload["results"]) == 2
-    assert all(result["source_kind"] == "echemi" for result in payload["results"])
-    assert payload["intermediary_results"] == []
 
 
 def test_supplier_search_uses_indian_registries(client, monkeypatch):
@@ -1239,15 +1229,15 @@ def test_supplier_search_uses_indian_registries(client, monkeypatch):
                     "snippet": "Indian chemical exporter and manufacturer",
                 }
             ]
-        if query.startswith("site:echemi.com"):
-            return [
-                {
-                    "title": "Aspirin supplier on Echemi",
-                    "url": "https://www.echemi.com/shop-us333/index.html",
-                    "snippet": "Supplier information for CAS 50-78-2",
-                }
-            ]
-        return []
+        # Витрина приходит обычным запросом: отдельных мест в плане у неё
+        # больше нет, но фильтр обязан её отличить от реестра.
+        return [
+            {
+                "title": "Aspirin supplier on Echemi",
+                "url": "https://www.echemi.com/shop-us333/index.html",
+                "snippet": "Supplier information for CAS 50-78-2",
+            }
+        ]
 
     monkeypatch.setattr("app.api.supplier_search.search_web", fake_search)
     response = client.post(

@@ -128,27 +128,28 @@ def source_kind(url: str) -> SourceKind:
 
 
 def source_priority(kind: SourceKind, country: str | None) -> int:
-    """Prioritize Echemi globally and Indian registries for an India search."""
+    """Отраслевой реестр важнее всего; торговая площадка не имеет преимущества.
+
+    Раньше площадка получала восемь баллов и обгоняла сайты самих компаний.
+    Для поиска изготовителя это ровно обратный порядок: карточка на витрине
+    не подтверждает производство, а реестр — подтверждает.
+    """
     if is_india(country):
         if kind == "india_registry":
-            # Official/export-council evidence should remain visible even when
-            # Echemi returns many marketplace cards for the same chemical.
             return 10
         if kind == "india_web":
             return 4
-    if kind == "echemi":
-        return 8
     return 0
 
 
 def minimum_query_count(country: str | None) -> int:
     """Ensure country-specific sources are attempted before an early stop."""
     if is_india(country):
-        # Echemi (2) + CHEMEXCIL + CDSCO + Pharmexcil + Indian websites.
-        return 6
+        # CHEMEXCIL + CDSCO + Pharmexcil + индийские сайты.
+        return 4
     if is_china(country):
-        # Echemi (2) + English, Chinese-language and .cn searches.
-        return 5
+        # Английский, китайский и поиск по .cn.
+        return 3
     if country:
         return 3
     return 2
@@ -163,12 +164,11 @@ def build_search_queries(
 ) -> list[str]:
     """Build an Echemi-first plan followed by regional verification sources."""
     country_term = f" {country}" if country else ""
-    candidates: list[str | None] = [
-        # ECHEMI officially supports product/CAS and supplier search. Search its
-        # indexed product and shop pages first because it has no public API.
-        f'site:echemi.com "{cas}" "{name}" (supplier OR manufacturer)',
-        f'site:echemi.com "{cas}" ("Contact supplier" OR "Get Price" OR Inquiry)',
-    ]
+    # Отдельных запросов к торговой площадке больше нет: в режиме поиска
+    # изготовителей её карточки всё равно откладываются, а в режиме «все
+    # продавцы» она находится обычным запросом. Два места в плане из восьми
+    # уходят на поиск самих компаний.
+    candidates: list[str | None] = []
 
     if is_china(country):
         candidates.extend(

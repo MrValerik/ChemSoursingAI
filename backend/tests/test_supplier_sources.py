@@ -8,10 +8,17 @@ from app.services.supplier_sources import (
     is_india,
     minimum_query_count,
     source_kind,
+    source_priority,
 )
 
 
-def test_echemi_queries_are_always_first():
+def test_plan_no_longer_reserves_places_for_a_marketplace():
+    """Два запроса из плана раньше уходили на витрину ECHEMI.
+
+    Карточка на площадке не подтверждает производство, а в режиме «все
+    продавцы» площадка находится обычным запросом. Места в плане нужнее для
+    поиска самих компаний.
+    """
     queries = build_search_queries(
         cas="50-78-2",
         name="Aspirin",
@@ -19,8 +26,17 @@ def test_echemi_queries_are_always_first():
         ai_query='"Aspirin" manufacturer China',
     )
 
-    assert queries[0].startswith('site:echemi.com "50-78-2"')
-    assert queries[1].startswith('site:echemi.com "50-78-2"')
+    assert queries, "план не должен опустеть"
+    assert not any(query.startswith("site:echemi.com") for query in queries)
+
+
+def test_marketplace_no_longer_outranks_a_company_site():
+    """Площадка получала восемь баллов и обгоняла сайт завода."""
+    assert source_priority("echemi", "Китай") == source_priority("web", "Китай")
+    # Отраслевой реестр остаётся приоритетным: он подтверждает производителя.
+    assert source_priority("india_registry", "Индия") > source_priority(
+        "india_web", "Индия"
+    )
 
 
 def test_india_plan_uses_export_and_regulatory_sources():
