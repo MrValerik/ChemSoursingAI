@@ -61,6 +61,7 @@ from app.services.supplier_search_continuation import (
     supplier_exclusions,
 )
 from app.services.supplier_registry import register_qualified_candidate
+from app.services.intermediaries import active_domains, split_by_intermediary
 from app.services.supplier_scoring import SELF_DECLARED_ONLY_FLAG, score_supplier
 from app.services.supplier_verification import apply_supplier_verification
 from app.services.supplier_sources import (
@@ -117,10 +118,17 @@ def _raise_if_cancelled(db: Session, search_run: SearchRun) -> None:
         )
 
 
+# Что искать: только изготовителей или всех продавцов. Второй режим нужен,
+# когда задача не «найти завод», а сравнить цену среди доступных продавцов —
+# например, по российским поставщикам.
+SearchScope = Literal["manufacturers", "all_sellers"]
+
+
 class SupplierSearchRequest(BaseModel):
     cas: str = Field(..., min_length=3, max_length=20)
     name: str = Field(..., min_length=2, max_length=255)
     country: str = Field(default="Китай", max_length=100)
+    search_scope: SearchScope = "manufacturers"
     additional_instructions: str | None = Field(default=None, max_length=4000)
     limit: int = Field(default=5, ge=1, le=20)
     catalog_preferred_name: str | None = Field(default=None, max_length=255)
@@ -1612,6 +1620,32 @@ def execute_supplier_search(
             status_code=502,
             detail={"message": error, "search_run_id": search_run.id},
         )
+    # Отсев площадок делается до загрузки страниц: бюджет этапа ограничен
+    # числом загрузок, а не числом найденных ссылок, и площадки съедали его
+    # целиком. В режиме «все продавцы» отсев не применяется — там площадка
+    # такой же источник цены, как и завод.
+    intermediary_results: list[dict] = []
+    if data.search_scope == "manufacturers":
+        known_domains = active_domains(db)
+        raw_results, intermediary_results = split_by_intermediary(
+            raw_results, known_domains
+        )
+        if intermediary_results:
+            log_agent_event(
+                search_stage,
+                f"Отложено {len(intermediary_results)} ссылок на торговые "
+                "площадки и каталоги: бюджет загрузки уходит на сайты "
+                "самих компаний",
+            )
+        if not raw_results:
+            # Все найденное — площадки. Это не отказ источника: результат
+            # честный, просто в режиме поиска изготовителей он пуст.
+            log_agent_event(
+                search_stage,
+                "Вся выдача состоит из площадок и каталогов. Для сравнения "
+                "цен переключите режим на поиск всех продавцов",
+                kind="warning",
+            )
     ranked_pool = _rank_results(raw_results, data.country, reserve_limit)
     results = ranked_pool[: data.limit]
     reserve_results = ranked_pool[data.limit :]
@@ -1638,6 +1672,8 @@ def execute_supplier_search(
             "identity_fallback_reason": identity_error,
             "rejected_model_queries": rejected_queries,
             "excluded_previous_supplier_count": excluded_duplicate_count,
+            "intermediary_results": intermediary_results,
+            "search_scope": data.search_scope,
             "stop_reason": search_stop_reason,
             "budget": budget.snapshot(),
         },
@@ -1657,6 +1693,8 @@ def execute_supplier_search(
         "results": results,
         "reserve_results": reserve_results,
         "excluded_previous_supplier_count": excluded_duplicate_count,
+        "intermediary_results": intermediary_results,
+        "search_scope": data.search_scope,
         "stop_reason": search_stop_reason,
         "budget": budget.snapshot(),
         "warning": (

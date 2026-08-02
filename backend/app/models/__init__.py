@@ -6,6 +6,7 @@ from app.models.document import SupplierDocument
 from app.models.domain_rate_slot import DomainRateSlot
 from app.models.escalation import Escalation
 from app.models.integration import CommunicationTestRun, IntegrationSetting
+from app.models.intermediary import Intermediary
 from app.models.manager import Manager
 from app.models.prompt import PromptTemplate, PromptVersion, RfqAiSetting
 from app.models.quotation import Quotation
@@ -40,6 +41,7 @@ __all__ = [
     "Communication",
     "SupplierDocument",
     "DomainRateSlot",
+    "Intermediary",
     "Escalation",
     "IntegrationSetting",
     "CommunicationTestRun",

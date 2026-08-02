@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, userErrorMessage } from "../api/client";
 import type {
+  SearchScope,
   CasEvidenceStatus,
   CountryEvidenceStatus,
   EvidenceStatus,
@@ -951,6 +952,7 @@ export default function SupplierSearchSection({
     supportedRfqCountries.length ? supportedRfqCountries : ["Китай"],
   );
   const [supplierTarget, setSupplierTarget] = useState(rfq.supplier_target ?? 5);
+  const [searchScope, setSearchScope] = useState<SearchScope>("manufacturers");
   const [instructions, setInstructions] = useState("");
   const [repeatSearchOpen, setRepeatSearchOpen] = useState(false);
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
@@ -1030,6 +1032,7 @@ export default function SupplierSearchSection({
             country: selectedCountry,
             additional_instructions: instructions || null,
             limit: supplierTarget,
+            search_scope: searchScope,
           }),
         );
       }
@@ -1048,6 +1051,8 @@ export default function SupplierSearchSection({
     }
   };
 
+  // Что искать: изготовителей или всех продавцов. Второе нужно, когда
+  // задача — сравнить цену среди доступных продавцов, а не найти завод.
   const toggleSearchCountry = (country: string) =>
     setSelectedCountries((current) =>
       current.includes(country)
@@ -1267,6 +1272,34 @@ export default function SupplierSearchSection({
               </button>
             </div>
             <div className="repeat-search-settings-body">
+              <div className="field">
+                <label>Что искать</label>
+                <div className="checks">
+                  <label>
+                    <input
+                      type="radio"
+                      name="search-scope"
+                      checked={searchScope === "manufacturers"}
+                      onChange={() => setSearchScope("manufacturers")}
+                    />
+                    Только производителей
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="search-scope"
+                      checked={searchScope === "all_sellers"}
+                      onChange={() => setSearchScope("all_sellers")}
+                    />
+                    Всех продавцов
+                  </label>
+                </div>
+                <span className="muted">
+                  {searchScope === "manufacturers"
+                    ? "Торговые площадки и каталоги из раздела «Посредники» отсеиваются до загрузки страниц."
+                    : "Площадки не отсеиваются: режим для сравнения цен среди доступных продавцов."}
+                </span>
+              </div>
               <div className="field">
                 <label>Страны поиска</label>
                 <div className="checks repeat-search-countries">

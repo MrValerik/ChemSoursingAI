@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import AppShell, { type SectionKey } from "./components/AppShell";
+import IntermediariesSection from "./components/IntermediariesSection";
 import ActivityReporter from "./components/ActivityReporter";
 import CommunicationTesting from "./components/CommunicationTesting";
 import Dashboard from "./components/Dashboard";
@@ -56,6 +57,7 @@ function Sections() {
         />
       )}
       {section === "suppliers" && <SuppliersSection onOpenRfq={openRfq} />}
+      {section === "intermediaries" && <IntermediariesSection />}
       {section === "review" && <ReviewQueue onOpenRfq={openRfq} />}
       {section === "templates" && <TemplatesSection />}
       {section === "prompts" && <PromptStudio />}

@@ -17,6 +17,9 @@ import type {
   SupplierDocumentRead,
   SearchRunListItem,
   SupplierRead,
+  IntermediaryRead,
+  IntermediaryKind,
+  SearchScope,
   SupplierQualificationResponse,
   SupplierSearchJob,
   SupplierSearchResponse,
@@ -294,6 +297,25 @@ export const api = {
 
   listSuppliers: () => request<SupplierRead[]>(`/suppliers`),
 
+  listIntermediaries: () => request<IntermediaryRead[]>(`/intermediaries`),
+  createIntermediary: (body: {
+    domain: string;
+    name: string;
+    kind: IntermediaryKind;
+    notes?: string | null;
+  }) =>
+    request<IntermediaryRead>(`/intermediaries`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateIntermediary: (id: number, body: Partial<IntermediaryRead>) =>
+    request<IntermediaryRead>(`/intermediaries/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteIntermediary: (id: number) =>
+    request<void>(`/intermediaries/${id}`, { method: "DELETE" }),
+
   addSupplier: (
     payload: {
       company: string;
@@ -504,6 +526,7 @@ export const api = {
       country?: string | null;
       additional_instructions?: string | null;
       limit?: number;
+      search_scope?: SearchScope;
     },
   ) =>
     request<SupplierSearchJob>(`/supplier-search/jobs?rfq_id=${rfqId}`, {

@@ -11,6 +11,7 @@ export type SectionKey =
   | "requests"
   | "substances"
   | "suppliers"
+  | "intermediaries"
   | "review"
   | "templates"
   | "prompts"
@@ -29,6 +30,11 @@ const NAV_ITEMS: NavItem[] = [
   { key: "requests", label: "Запросы", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "substances", label: "Химические вещества", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "suppliers", label: "Поставщики", roles: ["buyer", "head", "admin", "auditor"] },
+  {
+    key: "intermediaries",
+    label: "Посредники",
+    roles: ["buyer", "head", "admin", "auditor"],
+  },
   { key: "review", label: "Ручной разбор", roles: ["buyer", "head", "auditor"] },
   { key: "templates", label: "Шаблоны", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "prompts", label: "ИИ-промпты", roles: ["buyer", "head", "admin", "auditor"] },

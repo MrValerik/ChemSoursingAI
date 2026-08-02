@@ -1192,9 +1192,36 @@ def test_supplier_search_keeps_multiple_echemi_cards(client, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["search_strategy"] == "echemi_first"
+    # Режим по умолчанию ищет изготовителей, а ECHEMI — торговая площадка.
+    # Её карточки не выбрасываются, но и бюджет загрузки на них не тратится:
+    # на стенде такие страницы давали «поставщик не указан» с уверенностью 0.
+    assert payload["search_scope"] == "manufacturers"
+    assert payload["results"] == []
+    # Отсев выполняется до ранжирования и дедупликации, поэтому здесь лежат
+    # все найденные ссылки площадки, а не уникальные карточки.
+    assert payload["intermediary_results"], "площадка должна быть отложена, а не потеряна"
+    assert all(
+        "echemi.com" in str(item.get("url"))
+        for item in payload["intermediary_results"]
+    )
+
+    everyone = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "country": "India",
+            "search_scope": "all_sellers",
+        },
+    )
+    assert everyone.status_code == 200
+    payload = everyone.json()
+    # Для сравнения цен площадка — полноценный источник, отсева нет.
     assert payload["source_counts"]["echemi"] == 2
     assert len(payload["results"]) == 2
     assert all(result["source_kind"] == "echemi" for result in payload["results"])
+    assert payload["intermediary_results"] == []
 
 
 def test_supplier_search_uses_indian_registries(client, monkeypatch):
@@ -1234,10 +1261,15 @@ def test_supplier_search_uses_indian_registries(client, monkeypatch):
     assert any("site:chemexcil.in" in query for query in queries)
     assert any("site:cdsco.gov.in" in query for query in queries)
     assert payload["results"][0]["source_kind"] == "india_registry"
-    assert {item["source_kind"] for item in payload["results"]} >= {
-        "echemi",
-        "india_registry",
+    # Отраслевые реестры — не посредники: они подтверждают производителя, а не
+    # продают. Отсев их не касается, в отличие от карточек площадки.
+    assert {item["source_kind"] for item in payload["results"]} == {
+        "india_registry"
     }
+    assert any(
+        "echemi.com" in str(item.get("url"))
+        for item in payload["intermediary_results"]
+    )
 
 
 def test_supplier_search_covers_documents_and_chinese_before_early_stop(

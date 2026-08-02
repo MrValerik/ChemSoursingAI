@@ -20,6 +20,7 @@ from app.api import (
     escalations,
     extraction,
     health,
+    intermediaries,
     prompts,
     quotations,
     rfq,
@@ -34,6 +35,7 @@ from app.api import (
 from app.core.config import get_settings
 from app.core.db import SessionLocal, init_db
 from app.core.seed import seed_prompts, seed_suppliers, seed_templates, seed_users
+from app.services.intermediaries import seed_intermediaries
 
 
 def create_app() -> FastAPI:
@@ -56,6 +58,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(intermediaries.router)
     app.include_router(prompts.router)
     app.include_router(prompts.rfq_router)
     app.include_router(auth.router)
@@ -84,6 +87,10 @@ def create_app() -> FastAPI:
             seed_prompts(db)
             seed_suppliers(db)
             seed_templates(db)
+            # Стартовый список площадок: без него первый же поиск потратит
+            # бюджет загрузки на маркетплейсы. Пользовательские правки
+            # заполнение не трогает.
+            seed_intermediaries(db)
 
     return app
 

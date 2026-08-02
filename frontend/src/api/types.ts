@@ -751,3 +751,19 @@ export interface SupplierDocumentRead {
 export interface SupplierDocumentDetail extends SupplierDocumentRead {
   text_content: string | null;
 }
+
+// Реестр посредников: площадки, каталоги и перекупщики, которые не являются
+// сайтами производителей. Используется для отсева выдачи до загрузки страниц.
+export type IntermediaryKind = "marketplace" | "catalog" | "reseller" | "reference";
+
+export interface IntermediaryRead {
+  id: number;
+  domain: string;
+  name: string;
+  kind: IntermediaryKind;
+  notes: string | null;
+  is_active: boolean;
+}
+
+// Режим поиска: только изготовители или все продавцы (для сравнения цен).
+export type SearchScope = "manufacturers" | "all_sellers";
