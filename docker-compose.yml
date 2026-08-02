@@ -38,6 +38,18 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
+      # Источник поисковой выдачи и бюджеты этапа. Без явной передачи сюда
+      # настройки из .env до контейнера не доходят и молча берутся из кода.
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-duckduckgo_html}
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
+      SERPER_REGION: ${SERPER_REGION:-cn}
+      SERPER_LANGUAGE: ${SERPER_LANGUAGE:-en}
+      SEARCH_MAX_QUERIES: ${SEARCH_MAX_QUERIES:-12}
+      SEARCH_MAX_PAGE_FETCHES: ${SEARCH_MAX_PAGE_FETCHES:-30}
+      SEARCH_MAX_LLM_CALLS: ${SEARCH_MAX_LLM_CALLS:-40}
+      SEARCH_MAX_RUNTIME_S: ${SEARCH_MAX_RUNTIME_S:-2700}
+      SEARCH_LEASE_TTL_S: ${SEARCH_LEASE_TTL_S:-120}
+      SEARCH_LEASE_HEARTBEAT_S: ${SEARCH_LEASE_HEARTBEAT_S:-30}
       ATTACHMENT_STORAGE_DIR: ${ATTACHMENT_STORAGE_DIR:-/app/data/attachments}
       ATTACHMENT_MAX_SIZE_MB: ${ATTACHMENT_MAX_SIZE_MB:-25}
       OCR_ENABLED: ${OCR_ENABLED:-true}
@@ -95,6 +107,18 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
+      # Источник поисковой выдачи и бюджеты этапа. Без явной передачи сюда
+      # настройки из .env до контейнера не доходят и молча берутся из кода.
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-duckduckgo_html}
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
+      SERPER_REGION: ${SERPER_REGION:-cn}
+      SERPER_LANGUAGE: ${SERPER_LANGUAGE:-en}
+      SEARCH_MAX_QUERIES: ${SEARCH_MAX_QUERIES:-12}
+      SEARCH_MAX_PAGE_FETCHES: ${SEARCH_MAX_PAGE_FETCHES:-30}
+      SEARCH_MAX_LLM_CALLS: ${SEARCH_MAX_LLM_CALLS:-40}
+      SEARCH_MAX_RUNTIME_S: ${SEARCH_MAX_RUNTIME_S:-2700}
+      SEARCH_LEASE_TTL_S: ${SEARCH_LEASE_TTL_S:-120}
+      SEARCH_LEASE_HEARTBEAT_S: ${SEARCH_LEASE_HEARTBEAT_S:-30}
       ATTACHMENT_STORAGE_DIR: ${ATTACHMENT_STORAGE_DIR:-/app/data/attachments}
       ATTACHMENT_MAX_SIZE_MB: ${ATTACHMENT_MAX_SIZE_MB:-25}
       OCR_ENABLED: ${OCR_ENABLED:-true}
