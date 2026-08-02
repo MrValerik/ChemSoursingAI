@@ -114,6 +114,14 @@ class Settings(BaseSettings):
     # антибот-страницу вместо результатов. Для промышленной работы источник
     # переключается на поисковый API с квотой — это настройка, а не правка кода.
     search_provider: str = Field(default="duckduckgo_html")
+    # Ключ Serper. Пустое значение означает, что провайдер serper не настроен;
+    # секрет живёт только в .env и в коммиты не попадает.
+    serper_api_key: str = Field(default="")
+    serper_base_url: str = Field(default="https://google.serper.dev")
+    # Страна и язык выдачи. Производители, которых мы ищем, находятся в Китае
+    # и Индии, но их сайты и каталоги англоязычные.
+    serper_region: str = Field(default="cn")
+    serper_language: str = Field(default="en")
 
     # --- Аренда задач очереди поиска ---
     # TTL должен с запасом перекрывать интервал heartbeat: одна пропущенная

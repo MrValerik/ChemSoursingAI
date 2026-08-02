@@ -6,6 +6,7 @@ import pytest
 from app.connectors import web_search
 from app.connectors.web_search import (
     DuckDuckGoHtmlProvider,
+    SearchProviderNotConfigured,
     SearchSourceBlocked,
     UnknownSearchProvider,
     available_providers,
@@ -155,3 +156,124 @@ def test_search_web_delegates_to_the_configured_provider(monkeypatch):
     results = search_web("urea manufacturer", 5)
     assert calls == [("urea manufacturer", 5)]
     assert results[0]["url"] == "https://example.test"
+
+
+def _serper_settings(monkeypatch, key: str = "test-key"):
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "serper_api_key", key, raising=False)
+    monkeypatch.setattr(settings, "search_provider", "serper", raising=False)
+    return settings
+
+
+def test_serper_requires_a_key_and_says_so(monkeypatch):
+    """Провайдер без ключа обязан падать на выборе, а не на первом запросе."""
+    _serper_settings(monkeypatch, key="")
+    with pytest.raises(SearchProviderNotConfigured) as excinfo:
+        get_search_provider("serper")
+    assert "SERPER_API_KEY" in str(excinfo.value)
+
+
+def test_serper_maps_organic_results_to_the_pipeline_shape(monkeypatch):
+    _serper_settings(monkeypatch)
+    monkeypatch.setattr(web_search, "reserve_slot", lambda url, *a, **k: 0.0)
+    captured: dict = {}
+
+    class _Client:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> None:
+            return None
+
+        def post(self, url, json=None, headers=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", url),
+                json={
+                    "organic": [
+                        {
+                            "title": "Hebei Plant",
+                            "link": "https://plant.example/urea",
+                            "snippet": "Urea CAS 57-13-6",
+                        },
+                        {"title": "no scheme", "link": "ftp://bad.example"},
+                        {
+                            "title": "duplicate",
+                            "link": "https://plant.example/urea",
+                        },
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(web_search.httpx, "Client", _Client)
+    results = get_search_provider("serper").search("urea 57-13-6", 8)
+
+    assert results == [
+        {
+            "title": "Hebei Plant",
+            "url": "https://plant.example/urea",
+            "snippet": "Urea CAS 57-13-6",
+        }
+    ], "нехттп-ссылки и дубликаты не должны доходить до конвейера"
+    assert captured["headers"]["X-API-KEY"] == "test-key"
+    assert captured["json"]["q"] == "urea 57-13-6"
+
+
+def test_serper_quota_exhaustion_is_a_source_failure(monkeypatch):
+    """Исчерпанная квота — отказ источника, а не отсутствие поставщиков."""
+    _serper_settings(monkeypatch)
+    monkeypatch.setattr(web_search, "reserve_slot", lambda url, *a, **k: 0.0)
+    deferred: list = []
+    monkeypatch.setattr(
+        web_search, "defer_domain", lambda url, delay: deferred.append(url)
+    )
+
+    class _Client:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> None:
+            return None
+
+        def post(self, url, json=None, headers=None):
+            return httpx.Response(429, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(web_search.httpx, "Client", _Client)
+    with pytest.raises(SearchSourceBlocked):
+        get_search_provider("serper").search("urea", 8)
+    assert deferred
+
+
+def test_serper_empty_organic_block_is_a_genuine_empty_result(monkeypatch):
+    """У API пустой ответ однозначен и блокировкой не считается."""
+    _serper_settings(monkeypatch)
+    monkeypatch.setattr(web_search, "reserve_slot", lambda url, *a, **k: 0.0)
+
+    class _Client:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> None:
+            return None
+
+        def post(self, url, json=None, headers=None):
+            return httpx.Response(
+                200, request=httpx.Request("POST", url), json={"organic": []}
+            )
+
+    monkeypatch.setattr(web_search.httpx, "Client", _Client)
+    assert get_search_provider("serper").search("несуществующее вещество") == []

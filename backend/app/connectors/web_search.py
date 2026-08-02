@@ -143,8 +143,83 @@ class DuckDuckGoHtmlProvider:
         return results
 
 
+class SearchProviderNotConfigured(RuntimeError):
+    """Провайдер выбран, но не хватает обязательной настройки."""
+
+
+class SerperProvider:
+    """Выдача Google через API Serper: есть квота, ключ и предсказуемый ответ.
+
+    В отличие от скрейпинга, отказ здесь выражен кодом ответа, а не
+    подсунутой страницей, поэтому «нас не пускают» и «ничего не найдено»
+    различаются на уровне протокола.
+    """
+
+    name = "serper"
+
+    def __init__(self) -> None:
+        settings = get_settings()
+        self.api_key = settings.serper_api_key
+        self.base_url = settings.serper_base_url.rstrip("/")
+        self.region = settings.serper_region
+        self.language = settings.serper_language
+        if not self.api_key:
+            raise SearchProviderNotConfigured(
+                "Для источника serper не задан SERPER_API_KEY"
+            )
+
+    def search(self, query: str, limit: int = 8) -> list[dict]:
+        url = f"{self.base_url}/search"
+        # Квота считается на ключ, но вежливая пауза к домену остаётся общей:
+        # несколько worker-процессов не должны выбирать её очередями.
+        wait = reserve_slot(url, _SERPER_INTERVAL_S)
+        if wait > 0:
+            sleep(wait)
+        payload = {
+            "q": query,
+            "gl": self.region,
+            "hl": self.language,
+            "num": max(10, limit),
+        }
+        headers = {"X-API-KEY": self.api_key, "Content-Type": "application/json"}
+        with httpx.Client(timeout=25) as client:
+            response = client.post(url, json=payload, headers=headers)
+            if response.status_code in _THROTTLED_STATUSES:
+                delay = retry_after_seconds(response.headers.get("Retry-After"))
+                defer_domain(url, delay or _THROTTLED_BACKOFF_S)
+                raise SearchSourceBlocked(
+                    "Serper ограничил доступ или исчерпана квота "
+                    f"(HTTP {response.status_code})"
+                )
+            response.raise_for_status()
+            body = response.json()
+        results: list[dict] = []
+        seen: set[str] = set()
+        for item in body.get("organic") or []:
+            link = str(item.get("link") or "")
+            if urlparse(link).scheme.lower() not in {"http", "https"}:
+                continue
+            if link in seen:
+                continue
+            seen.add(link)
+            results.append(
+                {
+                    "title": _clean(str(item.get("title") or "")),
+                    "url": link,
+                    "snippet": _clean(str(item.get("snippet") or "")),
+                }
+            )
+            if len(results) >= limit:
+                break
+        return results
+
+
+# Пауза к API мягче, чем к скрейпингу: квота считается по ключу, а не по IP.
+_SERPER_INTERVAL_S = 0.2
+
 _PROVIDERS: dict[str, type] = {
     DuckDuckGoHtmlProvider.name: DuckDuckGoHtmlProvider,
+    SerperProvider.name: SerperProvider,
 }
 
 
