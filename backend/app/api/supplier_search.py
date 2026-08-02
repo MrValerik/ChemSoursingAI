@@ -61,7 +61,7 @@ from app.services.supplier_search_continuation import (
     supplier_exclusions,
 )
 from app.services.supplier_registry import register_qualified_candidate
-from app.services.supplier_scoring import score_supplier
+from app.services.supplier_scoring import SELF_DECLARED_ONLY_FLAG, score_supplier
 from app.services.supplier_verification import apply_supplier_verification
 from app.services.supplier_sources import (
     SourceKind,
@@ -2145,6 +2145,19 @@ def execute_supplier_qualification(
         qualification_payload["confidence"] = score.total
         qualification_payload["score_breakdown"] = score.to_dict()
         qualification_payload["shortlist_eligible"] = score.shortlist_eligible
+        if (
+            not score.shortlist_eligible
+            and qualification_payload.get("supplier_type") == "manufacturer"
+            and not score.hard_exclusion
+            and SELF_DECLARED_ONLY_FLAG not in qualification_payload["red_flags"]
+        ):
+            # Кандидат выглядит производителем, но короткий список его не
+            # принял. Причина должна быть в карточке, иначе отказ выглядит
+            # произволом.
+            qualification_payload["red_flags"] = [
+                *qualification_payload["red_flags"],
+                SELF_DECLARED_ONLY_FLAG,
+            ]
         combined_results.append(
             {
                 **source.model_dump(),

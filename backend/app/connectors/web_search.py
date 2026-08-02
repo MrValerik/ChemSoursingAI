@@ -179,7 +179,12 @@ class SerperProvider:
             "q": query,
             "gl": self.region,
             "hl": self.language,
-            "num": max(10, limit),
+            # Ровно десять: столько стоит один кредит, больше API всё равно не
+            # отдаёт, а на бесплатном тарифе запрос большего числа результатов
+            # вместе с операторами (site:, кавычки) отклоняется с ошибкой
+            # «Query pattern not allowed for free accounts». Измерено: тот же
+            # запрос с num=10 отдаёт десять ссылок, с num=20 — HTTP 400.
+            "num": _SERPER_MAX_RESULTS,
         }
         headers = {"X-API-KEY": self.api_key, "Content-Type": "application/json"}
         with httpx.Client(timeout=25) as client:
@@ -216,6 +221,9 @@ class SerperProvider:
 
 # Пауза к API мягче, чем к скрейпингу: квота считается по ключу, а не по IP.
 _SERPER_INTERVAL_S = 0.2
+# Один кредит покрывает до десяти результатов; запрашивать больше и дороже,
+# и на бесплатном тарифе ломает запросы с операторами.
+_SERPER_MAX_RESULTS = 10
 
 _PROVIDERS: dict[str, type] = {
     DuckDuckGoHtmlProvider.name: DuckDuckGoHtmlProvider,

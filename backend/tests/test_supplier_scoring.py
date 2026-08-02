@@ -42,3 +42,84 @@ def test_unverified_quotes_never_add_points():
     )
     assert score.total == 0
     assert score.shortlist_eligible is False
+
+
+def _claim(claim_type: str) -> dict:
+    return {
+        "claim_type": claim_type,
+        "support_status": "supports",
+        "quote_verified": True,
+    }
+
+
+def _manufacturer_assessment() -> dict:
+    return {"supplier_type": "manufacturer", "cas_status": "confirmed"}
+
+
+def test_self_declared_manufacturer_alone_does_not_reach_the_shortlist():
+    """«Мы производитель» на сайте продавца пишет и завод, и перекупщик.
+
+    Замер на стенде: кандидат получил допуск в короткий список на одной
+    цитате с собственной маркетинговой страницы, притом что модель сама
+    отметила «заявление о производстве требует независимой проверки».
+    """
+    evidence = [
+        _claim("chemical_identity"),
+        _claim("manufacturer_role"),
+        _claim("country"),
+    ]
+    score = score_supplier(_manufacturer_assessment(), evidence)
+
+    assert score.shortlist_eligible is False
+    assert score.hard_exclusion is False
+    assert score.total > 0, "кандидат остаётся в выдаче, просто не в шортлисте"
+
+
+def test_certificate_corroborates_a_manufacturer_claim():
+    """Сертификат выдаёт внешний орган — это вторая, независимая опора."""
+    evidence = [
+        _claim("chemical_identity"),
+        _claim("manufacturer_role"),
+        _claim("country"),
+        _claim("iso"),
+    ]
+    score = score_supplier(_manufacturer_assessment(), evidence)
+    assert score.shortlist_eligible is True
+
+
+def test_batch_document_also_corroborates():
+    evidence = [
+        _claim("chemical_identity"),
+        _claim("manufacturer_role"),
+        _claim("country"),
+        _claim("coa"),
+    ]
+    assert score_supplier(_manufacturer_assessment(), evidence).shortlist_eligible
+
+
+def test_corroboration_does_not_rescue_a_distributor():
+    evidence = [
+        _claim("chemical_identity"),
+        _claim("manufacturer_role"),
+        _claim("gmp"),
+        _claim("coa"),
+    ]
+    score = score_supplier(
+        {"supplier_type": "distributor", "cas_status": "confirmed"}, evidence
+    )
+    assert score.shortlist_eligible is False
+
+
+def test_corroboration_does_not_override_a_substance_mismatch():
+    evidence = [
+        _claim("manufacturer_role"),
+        _claim("gmp"),
+        {
+            "claim_type": "chemical_identity",
+            "support_status": "contradicts",
+            "quote_verified": True,
+        },
+    ]
+    score = score_supplier(_manufacturer_assessment(), evidence)
+    assert score.hard_exclusion is True
+    assert score.shortlist_eligible is False

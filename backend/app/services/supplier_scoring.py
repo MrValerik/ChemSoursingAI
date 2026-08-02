@@ -20,6 +20,18 @@ class SupplierScore:
         return asdict(self)
 
 
+# Признаки, которые нельзя выдать простым заявлением о себе: сертификат
+# выдаёт внешний орган, а CoA и TDS относятся к конкретной партии.
+CORROBORATING_CLAIMS = frozenset({"gmp", "iso", "coa", "tds"})
+
+# Причина, по которой кандидат не попал в короткий список: закупщик должен
+# видеть, чего именно не хватило, а не пустую строку.
+SELF_DECLARED_ONLY_FLAG = (
+    "Статус производителя держится только на заявлении самой компании: "
+    "нет ни сертификата, ни документа на партию"
+)
+
+
 def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
     supported = {
         item["claim_type"]
@@ -65,11 +77,18 @@ def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
         100,
         identity + supplier_role + country + documents + evidence_quality,
     )
+    # Роль производителя почти всегда подтверждается цитатой с сайта самого
+    # продавца: «we are a dedicated manufacturer» пишет и завод, и перекупщик.
+    # Для короткого списка этого мало — нужна вторая опора, которую трейдеру
+    # выдать труднее: сертификат от внешнего органа или предъявленный документ
+    # на партию.
+    corroboration = supported & CORROBORATING_CLAIMS
     shortlist_eligible = (
         total >= 70
         and supplier_type == "manufacturer"
         and "chemical_identity" in supported
         and "manufacturer_role" in supported
+        and bool(corroboration)
     )
     return SupplierScore(
         total=total,
