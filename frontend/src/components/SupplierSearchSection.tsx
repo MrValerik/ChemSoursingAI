@@ -1218,16 +1218,14 @@ export default function SupplierSearchSection({
               <span className="ui-field-label">Страна поиска</span>
               <div className="current-search-controls">
                 <Select
-                  aria-label="Выбор текущего поиска"
-                  value={activeRun?.id ?? ""}
-                  onChange={(event) => void openRun(Number(event.target.value))}
-                >
-                  {countryRuns.map((run) => (
-                    <option key={run.id} value={run.id}>
-                      {runText(run, "country") || "Без страны"}
-                    </option>
-                  ))}
-                </Select>
+                  ariaLabel="Выбор текущего поиска"
+                  value={activeRun ? String(activeRun.id) : ""}
+                  onChange={(next) => void openRun(Number(next))}
+                  options={countryRuns.map((run) => ({
+                    value: String(run.id),
+                    label: runText(run, "country") || "Без страны",
+                  }))}
+                />
                 {traceBusy && (
                   <span className="current-search-refresh">
                     <span className="loading-spinner" aria-hidden="true" />

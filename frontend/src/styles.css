@@ -706,6 +706,8 @@ button.is-busy:disabled {
 }
 /* Контролы по умолчанию тянутся на 100% (ui.css), а это flex с переносом:
    без собственной базовой ширины каждый занимал бы целую строку. */
+.requests-filters .ui-select,
+.requests-filters .multi-select,
 .requests-filters .select-wrap,
 .requests-filters > select {
   width: auto;

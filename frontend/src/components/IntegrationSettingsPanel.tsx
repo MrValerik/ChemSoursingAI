@@ -338,31 +338,33 @@ export default function IntegrationSettingsPanel() {
           <Field label="Режим отправки">
             <Select
               value={emailForm.delivery_mode}
-              onChange={(event) =>
+              onChange={(next) =>
                 setEmailForm({
                   ...emailForm,
-                  delivery_mode: event.target.value as "demo" | "live",
+                  delivery_mode: next as "demo" | "live",
                 })
               }
-            >
-              <option value="demo">Demo — без внешней отправки</option>
-              <option value="live">Live — реальная SMTP-отправка</option>
-            </Select>
+              options={[
+                { value: "demo", label: "Demo — без внешней отправки" },
+                { value: "live", label: "Live — реальная SMTP-отправка" },
+              ]}
+            />
           </Field>
           <Field label="Автоматический дозапрос">
             <Select
               value={emailForm.auto_followup_mode}
-              onChange={(event) =>
+              onChange={(next) =>
                 setEmailForm({
                   ...emailForm,
-                  auto_followup_mode: event.target.value as "off" | "draft" | "send",
+                  auto_followup_mode: next as "off" | "draft" | "send",
                 })
               }
-            >
-              <option value="off">Отключён</option>
-              <option value="draft">Только черновик</option>
-              <option value="send">Автоматическая отправка</option>
-            </Select>
+              options={[
+                { value: "off", label: "Отключён" },
+                { value: "draft", label: "Только черновик" },
+                { value: "send", label: "Автоматическая отправка" },
+              ]}
+            />
           </Field>
         </div>
 

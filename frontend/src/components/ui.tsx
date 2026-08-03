@@ -5,8 +5,8 @@ import {
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
-  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
 
@@ -19,18 +19,133 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   },
 );
 
-// Стрелку рисуем своим элементом, а не фоном: фон нельзя повернуть с
-// анимацией. Разворот вверх вешается на select:open через :has() в CSS.
-export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
-  function Select({ className, ...props }, ref) {
-    return (
-      <span className="select-wrap">
-        <select ref={ref} className={classes("ui-control", className)} {...props} />
-        <Icon name="chevron-down" size={16} className="select-chevron" />
-      </span>
-    );
-  },
-);
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
+// Свой список вместо нативного: раскрывающуюся часть <select> рисует
+// операционная система, её нельзя оформить и она выпадает из остального
+// интерфейса. Клавиатура повторяет поведение нативного: стрелки ходят по
+// пунктам, Enter выбирает, Esc закрывает и возвращает фокус на кнопку.
+export function Select({
+  value,
+  options,
+  onChange,
+  className,
+  disabled,
+  ariaLabel,
+  title,
+}: {
+  value: string;
+  options: SelectOption[];
+  onChange: (value: string) => void;
+  className?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+  title?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const selectedIndex = options.findIndex((option) => option.value === value);
+  const current = selectedIndex >= 0 ? options[selectedIndex] : undefined;
+
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  const show = () => {
+    setCursor(selectedIndex >= 0 ? selectedIndex : 0);
+    setOpen(true);
+  };
+
+  const pick = (option: SelectOption) => {
+    onChange(option.value);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const onKeyDown = (event: ReactKeyboardEvent) => {
+    if (disabled) return;
+    if (!open) {
+      if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        show();
+      }
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setCursor((i) => Math.min(i + 1, options.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setCursor((i) => Math.max(i - 1, 0));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setCursor(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setCursor(options.length - 1);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (options[cursor]) pick(options[cursor]);
+    }
+  };
+
+  return (
+    <div className={classes("ui-select", className)} ref={rootRef} onKeyDown={onKeyDown}>
+      <button
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={ariaLabel}
+        className="ui-select-trigger"
+        disabled={disabled}
+        ref={triggerRef}
+        title={title}
+        type="button"
+        onClick={() => (open ? setOpen(false) : show())}
+      >
+        <span>{current?.label ?? ""}</span>
+        <Icon name="chevron-down" size={15} className="ui-select-chevron" />
+      </button>
+      {open && (
+        <div className="ui-select-menu" role="listbox" tabIndex={-1}>
+          {options.map((option, index) => (
+            <button
+              aria-selected={option.value === value}
+              className={classes(
+                "ui-select-option",
+                index === cursor && "is-cursor",
+                option.value === value && "is-selected",
+              )}
+              key={option.value}
+              role="option"
+              type="button"
+              onMouseEnter={() => setCursor(index)}
+              onClick={() => pick(option)}
+            >
+              <span>{option.label}</span>
+              {option.value === value && <Icon name="check" size={14} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export const Textarea = forwardRef<
   HTMLTextAreaElement,

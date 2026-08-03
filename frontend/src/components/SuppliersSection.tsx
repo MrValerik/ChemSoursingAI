@@ -167,59 +167,60 @@ export default function SuppliersSection() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <Select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
-          <option value="">Тип: любой</option>
-          <option value="manufacturer">Производитель</option>
-          <option value="distributor">Дистрибьютор</option>
-        </Select>
+        <Select
+          value={typeFilter}
+          onChange={setTypeFilter}
+          options={[
+            { value: "", label: "Тип: любой" },
+            { value: "manufacturer", label: "Производитель" },
+            { value: "distributor", label: "Дистрибьютор" },
+          ]}
+        />
         <Select
           value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-        >
-          <option value="">Статус: любой</option>
-          {Object.entries(STATUS_LABELS).map(([value, label]) => (
-            <option value={value} key={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
+          onChange={setStatusFilter}
+          options={[
+            { value: "", label: "Статус: любой" },
+            ...Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
+          ]}
+        />
         <Select
           value={countryFilter}
-          onChange={(event) => setCountryFilter(event.target.value)}
-        >
-          <option value="">Страна: любая</option>
-          {countries.map((country) => (
-            <option value={country} key={country}>
-              {country}
-            </option>
-          ))}
-        </Select>
+          onChange={setCountryFilter}
+          options={[
+            { value: "", label: "Страна: любая" },
+            ...countries.map((country) => ({ value: country, label: country })),
+          ]}
+        />
         <Select
           value={channelFilter}
-          onChange={(event) => setChannelFilter(event.target.value)}
-        >
-          <option value="">Контакт: любой</option>
-          <option value="email">Email</option>
-          <option value="whatsapp">WhatsApp</option>
-        </Select>
+          onChange={setChannelFilter}
+          options={[
+            { value: "", label: "Контакт: любой" },
+            { value: "email", label: "Email" },
+            { value: "whatsapp", label: "WhatsApp" },
+          ]}
+        />
         <Select
           value={documentFilter}
-          onChange={(event) => setDocumentFilter(event.target.value)}
-        >
-          <option value="">Документы: любые</option>
-          <option value="coa">Есть CoA в котировке</option>
-          <option value="tds">Есть TDS в котировке</option>
-          <option value="certificates">Указаны сертификаты</option>
-        </Select>
+          onChange={setDocumentFilter}
+          options={[
+            { value: "", label: "Документы: любые" },
+            { value: "coa", label: "Есть CoA в котировке" },
+            { value: "tds", label: "Есть TDS в котировке" },
+            { value: "certificates", label: "Указаны сертификаты" },
+          ]}
+        />
         <Select
           value={minimumScore}
-          onChange={(event) => setMinimumScore(event.target.value)}
-        >
-          <option value="">Баллы: любые</option>
-          <option value="80">80 и выше</option>
-          <option value="60">60 и выше</option>
-          <option value="40">40 и выше</option>
-        </Select>
+          onChange={setMinimumScore}
+          options={[
+            { value: "", label: "Баллы: любые" },
+            { value: "80", label: "80 и выше" },
+            { value: "60", label: "60 и выше" },
+            { value: "40", label: "40 и выше" },
+          ]}
+        />
       </div>
 
       {error && <p className="error">{error}</p>}

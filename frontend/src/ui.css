@@ -76,7 +76,98 @@ select:disabled {
   opacity: 0.7;
 }
 
-/* Обёртка компонента Select: своя стрелка, которая умеет поворачиваться. */
+/* --- Одиночный выбор со своим списком --- */
+.ui-select {
+  position: relative;
+  width: 100%;
+}
+
+button.ui-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--control-height);
+  gap: 10px;
+  padding: 8px 10px 8px 11px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  color: var(--text);
+  text-align: left;
+}
+
+button.ui-select-trigger:hover:not(:disabled),
+button.ui-select-trigger:focus-visible {
+  border-color: var(--control-border-hover);
+  background: var(--control-bg);
+}
+
+button.ui-select-trigger:disabled {
+  background: var(--control-disabled);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.ui-select-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select-chevron {
+  flex: 0 0 auto;
+  color: var(--icon-color);
+  transition: transform 160ms ease;
+}
+
+.ui-select-trigger[aria-expanded="true"] .ui-select-chevron {
+  transform: rotate(180deg);
+}
+
+.ui-select-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 60;
+  display: grid;
+  width: max(100%, 200px);
+  max-height: 280px;
+  padding: 6px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+}
+
+button.ui-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+
+/* Подсветка идёт и за клавиатурой, и за мышью: у пунктов нет собственного
+   фокуса, курсор — единственный указатель текущего. */
+button.ui-select-option.is-cursor {
+  background: var(--panel-2);
+}
+
+button.ui-select-option.is-selected {
+  color: var(--brand);
+  font-weight: 600;
+}
+
+/* Обёртка нативного <select>: своя стрелка, которая умеет поворачиваться. */
 .select-wrap {
   position: relative;
   display: inline-flex;

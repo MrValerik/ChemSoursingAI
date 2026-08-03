@@ -98,13 +98,12 @@ export default function CommunicationTesting() {
             <Field label="Канал">
               <Select
                 value={channel}
-                onChange={(event) =>
-                  setChannel(event.target.value as "email" | "whatsapp")
-                }
-              >
-                <option value="email">Email</option>
-                <option value="whatsapp">WhatsApp</option>
-              </Select>
+                onChange={(next) => setChannel(next as "email" | "whatsapp")}
+                options={[
+                  { value: "email", label: "Email" },
+                  { value: "whatsapp", label: "WhatsApp" },
+                ]}
+              />
             </Field>
             <Field
               label={channel === "email" ? "Email получателя" : "Номер WhatsApp"}
@@ -128,25 +127,23 @@ export default function CommunicationTesting() {
             <Field label="Язык ответа">
               <Select
                 value={language}
-                onChange={(event) =>
-                  setLanguage(event.target.value as "ru" | "en" | "zh")
-                }
-              >
-                <option value="ru">Русский</option>
-                <option value="en">Английский</option>
-                <option value="zh">Китайский</option>
-              </Select>
+                onChange={(next) => setLanguage(next as "ru" | "en" | "zh")}
+                options={[
+                  { value: "ru", label: "Русский" },
+                  { value: "en", label: "Английский" },
+                  { value: "zh", label: "Китайский" },
+                ]}
+              />
             </Field>
             <Field label="Режим">
               <Select
                 value={deliveryMode}
-                onChange={(event) =>
-                  setDeliveryMode(event.target.value as "preview" | "send")
-                }
-              >
-                <option value="preview">Только симуляция</option>
-                <option value="send">Сгенерировать и отправить реально</option>
-              </Select>
+                onChange={(next) => setDeliveryMode(next as "preview" | "send")}
+                options={[
+                  { value: "preview", label: "Только симуляция" },
+                  { value: "send", label: "Сгенерировать и отправить реально" },
+                ]}
+              />
             </Field>
           </div>
           {channel === "email" && (

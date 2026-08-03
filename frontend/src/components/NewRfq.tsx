@@ -176,16 +176,16 @@ export default function NewRfq({ onCreated }: Props) {
         hint="Если карточка уже существует, её подтверждённые названия и исключения автоматически применятся в поиске."
       >
         <Select
-          value={substanceId ?? ""}
-          onChange={(event) => chooseSubstance(event.target.value)}
-        >
-          <option value="">Новое вещество — заполнить вручную</option>
-          {substances.map((substance) => (
-            <option key={substance.id} value={substance.id}>
-              {substance.preferred_name} · CAS {substance.cas}
-            </option>
-          ))}
-        </Select>
+          value={substanceId != null ? String(substanceId) : ""}
+          onChange={chooseSubstance}
+          options={[
+            { value: "", label: "Новое вещество — заполнить вручную" },
+            ...substances.map((substance) => ({
+              value: String(substance.id),
+              label: `${substance.preferred_name} · CAS ${substance.cas}`,
+            })),
+          ]}
+        />
       </Field>
 
       <div className="field">

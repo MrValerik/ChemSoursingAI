@@ -145,16 +145,14 @@ export default function IntermediariesSection() {
           />
           <Select
             value={kind}
-            onChange={(e) => setKind(e.target.value as IntermediaryKind)}
-            aria-label="Вид посредника"
+            onChange={(next) => setKind(next as IntermediaryKind)}
+            ariaLabel="Вид посредника"
             title={KIND_HINTS[kind]}
-          >
-            {KIND_ORDER.map((value) => (
-              <option key={value} value={value}>
-                {KIND_LABELS[value]}
-              </option>
-            ))}
-          </Select>
+            options={KIND_ORDER.map((value) => ({
+              value,
+              label: KIND_LABELS[value],
+            }))}
+          />
           <button type="submit" disabled={saving}>
             {saving ? "Сохраняю…" : "Добавить"}
           </button>
