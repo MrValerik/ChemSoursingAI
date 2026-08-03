@@ -4,8 +4,11 @@
   --border: #e2e8f0;
   --text: #1e293b;
   --muted: #64748b;
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
+  /* Единственный синий продукта: навигация, кнопки, ссылки, активные вкладки. */
+  --brand: #1f4e79;        /* тёмно-синий из плана (раздел 17) */
+  --brand-dark: #173c5e;   /* наведение и нажатое состояние */
+  --accent: #0e9594;       /* бирюзовый акцент */
+  --attention: #d97706;    /* янтарный: внимание/ручной разбор */
   --ok: #16a34a;
   --warn: #d97706;
   --err: #dc2626;
@@ -130,7 +133,7 @@ body {
 .inline-add input { flex: 1; }
 
 button {
-  background: var(--primary);
+  background: var(--brand);
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -138,7 +141,7 @@ button {
   font: inherit;
   cursor: pointer;
 }
-button:hover { background: var(--primary-hover); }
+button:hover { background: var(--brand-dark); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
 button.secondary:hover { background: #f1f5f9; }
@@ -174,7 +177,7 @@ button.secondary:hover { background: #f1f5f9; }
   cursor: pointer;
   background: #fff;
 }
-.rfq-list-item:hover { border-color: var(--primary); }
+.rfq-list-item:hover { border-color: var(--brand); }
 .rfq-list-item .cas { font-size: 12px; color: var(--muted); }
 
 .quote-grid {
@@ -205,13 +208,6 @@ table.summary tr.incomplete { background: #fff7ed; }
 table.summary tbody tr:hover { background: #f8fafc; }
 
 /* ===== Шаг 1 UI/UX-плана: вход, каркас навигации, шапка ===== */
-
-:root {
-  --brand: #1f4e79;        /* тёмно-синий из плана (раздел 17) */
-  --brand-dark: #173c5e;
-  --accent: #0e9594;       /* бирюзовый акцент */
-  --attention: #d97706;    /* янтарный: внимание/ручной разбор */
-}
 
 /* --- Экран входа --- */
 .login-page {
@@ -501,7 +497,7 @@ button.danger:hover {
 
 /* Бейджи статусов (раздел 16: нейтральный/синий/зелёный/янтарный). */
 .badge.tone-neutral { background: #f1f5f9; color: var(--muted); }
-.badge.tone-info { background: #dbeafe; color: #1d4ed8; }
+.badge.tone-info { background: #dbeafe; color: var(--brand-dark); }
 .badge.tone-ok { background: #dcfce7; color: var(--ok); }
 .badge.tone-warn { background: #fef3c7; color: var(--attention); }
 .badge.tone-danger { background: #fee2e2; color: var(--err); }
@@ -850,12 +846,12 @@ button.danger:hover {
 }
 
 .search-job-card:hover {
-  border-color: var(--primary);
+  border-color: var(--brand);
   background: #f8fafc;
 }
 
 .search-job-card.selected {
-  border-color: var(--primary);
+  border-color: var(--brand);
   box-shadow: 0 0 0 2px #dbeafe;
 }
 
@@ -1522,7 +1518,7 @@ button.danger:hover {
   border: 1px solid #bfdbfe;
   border-radius: 999px;
   background: #eff6ff;
-  color: #1d4ed8;
+  color: var(--brand-dark);
   font-size: 12px;
 }
 
@@ -1567,7 +1563,7 @@ button.danger:hover {
   place-items: center;
   border-radius: 50%;
   background: #eff6ff;
-  color: var(--primary);
+  color: var(--brand);
 }
 
 .content-accordion {
@@ -1724,9 +1720,9 @@ button.danger:hover {
 }
 
 .pipeline-marker.running {
-  border-color: var(--primary);
+  border-color: var(--brand);
   background: #dbeafe;
-  color: var(--primary);
+  color: var(--brand);
 }
 
 .pipeline-marker.failed {
@@ -1755,7 +1751,7 @@ button.danger:hover {
 }
 
 .pipeline-status.completed { color: var(--ok); }
-.pipeline-status.running { color: var(--primary); font-weight: 600; }
+.pipeline-status.running { color: var(--brand); font-weight: 600; }
 .pipeline-status.failed { color: var(--err); font-weight: 600; }
 .pipeline-status.skipped { color: var(--muted); }
 
@@ -1765,7 +1761,7 @@ button.danger:hover {
   height: 13px;
   flex: 0 0 13px;
   border: 2px solid #bfdbfe;
-  border-top-color: var(--primary);
+  border-top-color: var(--brand);
   border-radius: 50%;
   animation: search-spinner 0.8s linear infinite;
 }
@@ -1836,8 +1832,8 @@ button.danger:hover {
 }
 
 .button-like:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .document-verification {
@@ -1894,7 +1890,7 @@ button.danger:hover {
 }
 
 .pipeline-activity {
-  color: var(--primary);
+  color: var(--brand);
 }
 
 /* Три точки, набегающие по одной: видно, что агент сейчас думает. */
@@ -2053,7 +2049,7 @@ button.danger:hover {
 }
 
 .stage-result-hero {
-  border-left: 3px solid var(--primary);
+  border-left: 3px solid var(--brand);
   background: #f8fbff;
 }
 
