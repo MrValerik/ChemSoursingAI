@@ -196,9 +196,9 @@ h1, h2, h3 {
 }
 
 .communication-context {
-  background: #f7f8fa;
+  background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   line-height: 1.45;
   margin-bottom: 14px;
@@ -218,7 +218,7 @@ h1, h2, h3 {
 }
 
 .communication-message {
-  border-radius: 10px;
+  border-radius: var(--radius);
   line-height: 1.5;
   max-width: 88%;
   padding: 10px 12px;
@@ -227,14 +227,14 @@ h1, h2, h3 {
 
 .communication-message.from-assistant {
   align-self: flex-start;
-  background: #eef4ff;
-  border: 1px solid #bfd3f6;
+  background: var(--brand-soft);
+  border: 1px solid var(--border);
 }
 
 .communication-message.from-supplier {
   align-self: flex-end;
-  background: #eff8ee;
-  border: 1px solid #c2dec0;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
 }
 
 .communication-message-role {
@@ -1077,7 +1077,7 @@ button.danger:hover {
   min-height: 360px;
   margin-top: 14px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--panel);
 }
@@ -1160,14 +1160,14 @@ button.danger:hover {
   width: min(82%, 680px);
   padding: 11px 13px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--bg);
 }
 
 .conversation-message.outbound {
   align-self: flex-end;
-  background: #eff6ff;
-  border-color: #bfdbfe;
+  background: var(--brand-soft);
+  border-color: var(--border);
 }
 
 .conversation-message p {
@@ -1184,8 +1184,8 @@ button.danger:hover {
   margin: 12px 0;
   padding: 13px;
   border: 1px solid var(--attention);
-  border-radius: 10px;
-  background: #fff7ed;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
 }
 
 .communication-escalation p {
