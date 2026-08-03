@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
+import { LogoMark, LogoWord } from "./Logo";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import type { UserRole } from "../api/types";
 import { IconButton } from "./ui";
@@ -22,6 +23,9 @@ interface NavItem {
   key: SectionKey;
   label: string;
   roles: UserRole[];
+  // Прижать к низу колонки: раздел нужен редко и не должен занимать место
+  // в ежедневном списке.
+  atBottom?: boolean;
 }
 
 // Видимость разделов по ролям (раздел 4 плана: матрица доступа).
@@ -38,7 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "templates", label: "Шаблоны", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "prompts", label: "ИИ-промпты", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "communication-testing", label: "Тестирование общения", roles: ["admin"] },
-  { key: "settings", label: "Настройки", roles: ["admin"] },
+  { key: "settings", label: "Настройки", roles: ["admin"], atBottom: true },
 ];
 
 // Раздел из адресной строки может не подойти текущей роли — например, ссылку
@@ -71,12 +75,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <nav className="shell-nav">
-        <div className="shell-logo">ChemSource AI</div>
+        <div className="shell-logo">
+          <LogoMark size={26} />
+          <LogoWord />
+        </div>
         {visible.map((item) => (
           <NavLink
             key={item.key}
             to={`/${item.key}`}
-            className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+            className={({ isActive }) =>
+              `nav-item${item.atBottom ? " is-bottom" : ""}${isActive ? " active" : ""}`
+            }
           >
             {item.label}
           </NavLink>

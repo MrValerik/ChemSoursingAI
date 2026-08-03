@@ -207,6 +207,148 @@ table.summary th { color: var(--muted); font-weight: 600; font-size: 12px; }
 table.summary tr.incomplete { background: #fff7ed; }
 table.summary tbody tr:hover { background: #f8fafc; }
 
+/* ===== Знак ChemSource AI и заставка загрузки ===== */
+
+.logo-mark {
+  display: block;
+  overflow: visible;
+}
+
+.logo-mark .logo-bonds {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  opacity: 0.9;
+}
+
+.logo-mark .logo-ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.45;
+}
+
+.logo-mark .logo-node {
+  fill: currentColor;
+}
+
+.logo-mark .logo-node.is-accent {
+  fill: var(--accent);
+}
+
+/* Сборка: связи прочерчиваются, кольцо проявляется, узлы встают по местам.
+   Периметр шестиугольника со стороной R равен 6R = 132, длина кольца — 2πr. */
+.logo-mark.is-animated .logo-bonds {
+  stroke-dasharray: 132;
+  stroke-dashoffset: 132;
+  animation: logo-draw 900ms cubic-bezier(0.65, 0, 0.35, 1) 120ms forwards;
+}
+
+.logo-mark.is-animated .logo-ring {
+  stroke-dasharray: 69.1;
+  stroke-dashoffset: 69.1;
+  opacity: 0;
+  animation: logo-ring-in 700ms ease-out 780ms forwards;
+}
+
+.logo-mark.is-animated .logo-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0);
+  opacity: 0;
+  /* Узлы догоняют обводку: каждый следующий на 90 мс позже. */
+  animation: logo-node-in 420ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: calc(180ms + var(--i) * 90ms);
+}
+
+.logo-mark.is-animated .logo-node.is-accent {
+  animation:
+    logo-node-in 420ms cubic-bezier(0.34, 1.56, 0.64, 1) 180ms forwards,
+    logo-accent-pulse 1600ms ease-in-out 1100ms infinite;
+}
+
+@keyframes logo-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes logo-ring-in {
+  from { opacity: 0; stroke-dashoffset: 69.1; }
+  to { opacity: 0.45; stroke-dashoffset: 0; }
+}
+
+@keyframes logo-node-in {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes logo-accent-pulse {
+  0%, 100% { r: 5; }
+  50% { r: 6.2; }
+}
+
+.logo-word {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.logo-word b { font-weight: 700; }
+.logo-word i {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72em;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  vertical-align: 2px;
+}
+
+/* --- Заставка первой загрузки --- */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, var(--brand) 0%, var(--brand-dark) 100%);
+  color: #fff;
+}
+
+.splash-inner {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+}
+
+.splash .splash-word {
+  font-size: 22px;
+  opacity: 0;
+  animation: splash-fade-up 600ms ease-out 900ms forwards;
+}
+
+@keyframes splash-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Анимация здесь — украшение, а не смысл: при запросе на снижение движения
+   знак показывается собранным. */
+@media (prefers-reduced-motion: reduce) {
+  .logo-mark.is-animated .logo-bonds,
+  .logo-mark.is-animated .logo-ring,
+  .logo-mark.is-animated .logo-node,
+  .splash .splash-word {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    stroke-dashoffset: 0;
+  }
+  .logo-mark.is-animated .logo-ring { opacity: 0.45; }
+}
+
 /* ===== Шаг 1 UI/UX-плана: вход, каркас навигации, шапка ===== */
 
 /* --- Экран входа --- */
@@ -224,11 +366,33 @@ table.summary tbody tr:hover { background: #f8fafc; }
   width: 360px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
 }
-.login-card h1 { margin: 0 0 4px; font-size: 20px; color: var(--brand); }
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 4px;
+  color: var(--brand);
+  font-size: 20px;
+}
 .login-card .field { margin-top: 14px; }
-.login-card button[type="submit"] { width: 100%; margin-top: 16px; background: var(--brand); }
+.login-card button[type="submit"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  margin-top: 16px;
+  background: var(--brand);
+}
 .login-card button[type="submit"]:hover { background: var(--brand-dark); }
-.login-hint { margin-top: 12px; text-align: center; }
+
+/* Кнопка на время запроса остаётся выключенной (защита от второго нажатия),
+   но не гаснет: это работа, а не недоступность. */
+button.is-busy:disabled {
+  background: var(--brand-dark);
+  opacity: 1;
+  cursor: progress;
+}
 
 /* --- Каркас: левое меню + контент --- */
 /* Каркас занимает ровно экран: прокручивается содержимое раздела, а не окно.
@@ -245,10 +409,11 @@ table.summary tbody tr:hover { background: #f8fafc; }
   gap: 2px;
 }
 .shell-logo {
-  font-weight: 700;
-  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   padding: 6px 12px 18px;
-  letter-spacing: 0.2px;
+  font-size: 15px;
 }
 /* Пункт меню — ссылка (NavLink), поэтому нужны display и снятие подчёркивания. */
 .nav-item {
@@ -261,6 +426,9 @@ table.summary tbody tr:hover { background: #f8fafc; }
   font-size: 13px;
   text-decoration: none;
 }
+/* Административные разделы прижаты к низу колонки, чтобы не мешаться в
+   ежедневном списке: между ними и рабочими разделами — весь свободный ход. */
+.nav-item.is-bottom { margin-top: auto; }
 .nav-item:hover { background: rgba(255, 255, 255, 0.1); }
 .nav-item.active { background: rgba(255, 255, 255, 0.18); color: #fff; font-weight: 600; }
 
@@ -1834,6 +2002,12 @@ button.danger:hover {
   border-top-color: var(--brand);
   border-radius: 50%;
   animation: search-spinner 0.8s linear infinite;
+}
+
+/* Вариант для тёмной кнопки: бледная окружность и белая «стрелка». */
+.loading-spinner.on-brand {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
 }
 
 @keyframes search-spinner {

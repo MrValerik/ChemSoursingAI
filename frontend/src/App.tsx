@@ -1,6 +1,8 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import AppShell, { isSectionAllowed, type SectionKey } from "./components/AppShell";
+import SplashScreen from "./components/Logo";
 import IntermediariesSection from "./components/IntermediariesSection";
 import ActivityReporter from "./components/ActivityReporter";
 import CommunicationTesting from "./components/CommunicationTesting";
@@ -54,11 +56,45 @@ const REQUEST_PATHS = [
   "/requests/:rfqId/:tab",
 ];
 
+// Проверка сессии на своей машине занимает десятки миллисекунд, и заставка
+// успевала бы только мигнуть. Держим её заданный минимум, чтобы сборка знака
+// дочитывалась до конца, а вход в приложение не выглядел рывком.
+const SPLASH_MIN_MS = 1700;
+
 function Sections() {
   const { user, loading } = useAuth();
+  const [splashHeld, setSplashHeld] = useState(true);
+  const initialHoldDone = useRef(false);
+  const wasAuthorized = useRef(false);
 
-  if (loading) {
-    return <div className="app-loading note">Загрузка…</div>;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      initialHoldDone.current = true;
+      setSplashHeld(false);
+    }, SPLASH_MIN_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Вход — второй момент, когда приложение собирается с нуля, поэтому заставка
+  // повторяется. useLayoutEffect, а не useEffect: иначе между появлением
+  // пользователя и поднятием флага успел бы мелькнуть кадр с интерфейсом.
+  useLayoutEffect(() => {
+    if (!user) {
+      wasAuthorized.current = false;
+      return;
+    }
+    if (wasAuthorized.current) return;
+    wasAuthorized.current = true;
+    // Восстановление сессии при первой загрузке уже накрыто первым таймером —
+    // второй раз держать заставку незачем.
+    if (!initialHoldDone.current) return;
+    setSplashHeld(true);
+    const timer = setTimeout(() => setSplashHeld(false), SPLASH_MIN_MS);
+    return () => clearTimeout(timer);
+  }, [user]);
+
+  if (loading || splashHeld) {
+    return <SplashScreen />;
   }
   if (!user) {
     return <Login />;

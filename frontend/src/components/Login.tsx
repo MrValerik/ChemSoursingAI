@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { LogoMark, LogoWord } from "./Logo";
 
 export default function Login() {
   const { login } = useAuth();
@@ -26,7 +27,10 @@ export default function Login() {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={onSubmit}>
-        <h1>ChemSource AI</h1>
+        <div className="login-brand">
+          <LogoMark size={40} />
+          <LogoWord />
+        </div>
         <p className="note">Рабочее место отдела закупок</p>
 
         <div className="field">
@@ -52,10 +56,15 @@ export default function Login() {
 
         {error && <p className="error">{error}</p>}
 
-        <button type="submit" disabled={busy || !username || !password}>
-          {busy ? "Вход…" : "Войти"}
+        <button
+          type="submit"
+          className={busy ? "is-busy" : undefined}
+          aria-busy={busy}
+          disabled={busy || !username || !password}
+        >
+          {busy && <span className="loading-spinner on-brand" aria-hidden="true" />}
+          {busy ? "Проверяем данные…" : "Войти"}
         </button>
-        <p className="note login-hint">SSO / LDAP — по согласованию (см. ТЗ M9)</p>
       </form>
     </div>
   );
