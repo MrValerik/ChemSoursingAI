@@ -42,7 +42,10 @@
   --shadow-soft: 0 1px 2px rgba(20, 20, 22, 0.05);
   --shadow-pop: 0 8px 26px rgba(20, 20, 22, 0.12);
 
+  /* Две ступени скругления вместо семи разных чисел: мелкие элементы и
+     панели. Круги и пилюли задаются на месте — они не про шкалу. */
   --radius: 10px;
+  --radius-sm: 7px;
   /* Оба семейства лежат в проекте (см. main.tsx), системные — только запасной
      вариант на случай, если файл шрифта не доехал. */
   --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
@@ -140,7 +143,7 @@ h1, h2, h3 {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font: inherit;
   background: var(--panel);
 }
@@ -179,7 +182,7 @@ h1, h2, h3 {
 .generated-message {
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   line-height: 1.55;
   min-height: 180px;
   padding: 16px;
@@ -189,7 +192,7 @@ h1, h2, h3 {
 .external-action-warning {
   background: var(--warn-soft);
   border: 1px solid var(--warn);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   color: var(--warn);
   margin: 12px 0;
   padding: 10px 12px;
@@ -215,7 +218,7 @@ button {
   background: var(--brand);
   color: var(--on-brand);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 8px 14px;
   font: inherit;
   cursor: pointer;
@@ -239,7 +242,7 @@ button.secondary:hover { background: var(--panel-2); }
 .letter {
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 12px;
   white-space: pre-wrap;
   font-family: "Cascadia Code", Consolas, monospace;
@@ -251,7 +254,7 @@ button.secondary:hover { background: var(--panel-2); }
 .rfq-list-item {
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   margin-bottom: 6px;
   cursor: pointer;
   background: var(--panel);
@@ -270,7 +273,7 @@ button.secondary:hover { background: var(--panel-2); }
   gap: 8px;
   padding: 6px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
 }
 .quote-label { font-size: 12px; color: var(--muted); width: 64px; flex-shrink: 0; }
@@ -376,7 +379,7 @@ table.summary tbody tr:hover { background: var(--panel-2); }
 .logo-word i {
   margin-left: 6px;
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--brand-soft);
   color: var(--brand);
   font-family: var(--font-sans);
@@ -443,7 +446,7 @@ table.summary tbody tr:hover { background: var(--panel-2); }
 .login-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius);
   padding: 32px;
   width: 380px;
   box-shadow: var(--shadow-soft);
@@ -508,7 +511,7 @@ button.is-busy:disabled {
   color: var(--sidebar-text);
   text-align: left;
   padding: 9px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-size: 13px;
   text-decoration: none;
   transition: background 120ms ease, color 120ms ease;
@@ -591,7 +594,7 @@ button.is-busy:disabled {
   top: calc(100% + 6px);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow-pop);
   min-width: 200px;
   z-index: 50;
@@ -611,7 +614,7 @@ button.is-busy:disabled {
   background: transparent;
   color: var(--text);
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
 }
 .dropdown-item:hover:not(:disabled) { background: var(--bg); }
@@ -688,7 +691,7 @@ button.is-busy:disabled {
   margin-bottom: 14px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--panel);
 }
 .requests-filters {
@@ -763,7 +766,7 @@ button.request-delete-button:focus-visible {
   gap: 14px;
   padding: 22px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--panel);
   box-shadow: 0 18px 48px rgb(15 23 42 / 18%);
 }
@@ -780,7 +783,7 @@ button.request-delete-button:focus-visible {
   width: 36px;
   height: 36px;
   place-items: center;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
   color: var(--muted);
 }
@@ -801,12 +804,46 @@ button.danger:hover {
   background: var(--err);
 }
 
-/* Бейджи статусов (раздел 16: нейтральный/синий/зелёный/янтарный). */
-.badge.tone-neutral { background: var(--panel-2); color: var(--muted); }
-.badge.tone-info { background: var(--brand-soft); color: var(--brand-dark); }
-.badge.tone-ok { background: var(--ok-soft); color: var(--ok); }
-.badge.tone-warn { background: var(--warn-soft); color: var(--attention); }
-.badge.tone-danger { background: var(--err-soft); color: var(--err); }
+/* Бейджи статусов.
+   На одном экране их бывает больше тридцати, и залитые в четыре цвета
+   пилюли складываются в рябь. Сам тег нейтрален, цвет несёт только точка —
+   сигнал остаётся, пестроты нет. Заливку сохраняет единственный тон, который
+   обязан останавливать взгляд. */
+.badge.tone-neutral,
+.badge.tone-info,
+.badge.tone-ok,
+.badge.tone-warn,
+.badge.tone-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-2);
+  color: var(--text-soft);
+}
+
+.badge.tone-neutral::before,
+.badge.tone-info::before,
+.badge.tone-ok::before,
+.badge.tone-warn::before,
+.badge.tone-danger::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.badge.tone-ok::before { background: var(--ok); }
+.badge.tone-warn::before { background: var(--warn); }
+.badge.tone-danger::before { background: var(--err); }
+/* Терракота — цвет действия; статусу она не принадлежит. */
+.badge.tone-info::before { background: var(--text-soft); }
+
+.badge.tone-danger {
+  background: var(--err-soft);
+  color: var(--err);
+}
 .esc-badge { margin-left: 6px; font-weight: 700; }
 
 /* Индикатор полноты. */
@@ -951,7 +988,7 @@ button.danger:hover {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font: inherit;
   background: var(--panel);
 }
@@ -974,7 +1011,7 @@ button.danger:hover {
 }
 .add-supplier {
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 12px;
   margin: 10px 0;
   background: var(--panel-2);
@@ -983,7 +1020,7 @@ button.danger:hover {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font: inherit;
   background: var(--panel);
 }
@@ -1092,7 +1129,7 @@ button.danger:hover {
   font-size: 12px;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   resize: vertical;
 }
 
@@ -1167,7 +1204,7 @@ button.danger:hover {
   padding: 9px 10px;
   background: var(--warn-soft);
   color: var(--err);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
 }
 .qualification-card details { font-size: 12px; }
@@ -1283,7 +1320,7 @@ button.danger:hover {
   gap: 3px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--panel-2);
 }
 
@@ -1341,7 +1378,7 @@ button.danger:hover {
 .search-attempt-card,
 .source-document-card {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--panel);
   overflow: hidden;
 }
@@ -1402,7 +1439,7 @@ button.danger:hover {
   margin: 0;
   padding: 12px;
   overflow: auto;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--text);
   color: var(--border);
   white-space: pre-wrap;
@@ -1413,7 +1450,7 @@ button.danger:hover {
 .search-query-text {
   margin: 12px;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--brand-soft);
   color: var(--brand-dark);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -1474,7 +1511,7 @@ button.danger:hover {
   padding: 12px;
   border: 1px solid var(--border);
   border-left: 4px solid var(--brand);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--panel);
 }
 
@@ -1572,7 +1609,7 @@ button.danger:hover {
   display: none;
   width: min(320px, 70vw);
   padding: 9px 11px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--text);
   color: var(--on-brand);
   box-shadow: var(--shadow-pop);
@@ -1611,7 +1648,7 @@ button.danger:hover {
   display: none;
   width: min(320px, 70vw);
   padding: 9px 11px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--text);
   color: var(--on-brand);
   box-shadow: var(--shadow-pop);
@@ -1922,7 +1959,7 @@ button.danger:hover {
   min-width: 0;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   font: inherit;
 }
@@ -1940,7 +1977,7 @@ button.danger:hover {
 .content-accordion {
   margin-top: 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--panel);
 }
 
@@ -1964,7 +2001,7 @@ button.danger:hover {
   display: grid;
   gap: 5px;
   padding: 10px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
 }
 
@@ -1984,7 +2021,7 @@ button.danger:hover {
 
 .candidate-row {
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .candidate-row > summary {
@@ -2025,7 +2062,7 @@ button.danger:hover {
   gap: 0;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--panel);
   color: var(--text);
 }
@@ -2202,7 +2239,7 @@ button.danger:hover {
   align-items: center;
   padding: 6px 11px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-size: 13px;
   text-decoration: none;
@@ -2250,7 +2287,7 @@ button.danger:hover {
   padding-left: 10px;
   border-left: 2px solid var(--border);
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .document-claims.rejected small {
@@ -2263,7 +2300,7 @@ button.danger:hover {
   margin: 0;
   padding-left: 18px;
   color: var(--err);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .pipeline-activity {
@@ -2316,7 +2353,7 @@ button.danger:hover {
 .trace-subdetails-meta {
   margin-left: 8px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 400;
 }
 
@@ -2355,7 +2392,7 @@ button.danger:hover {
   gap: 10px;
   align-items: baseline;
   padding: 4px 12px;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -2367,7 +2404,7 @@ button.danger:hover {
   flex: none;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .agent-event.warning .agent-event-message {
@@ -2402,7 +2439,7 @@ button.danger:hover {
   gap: 4px;
   padding: 10px 11px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
 }
 
@@ -2463,7 +2500,7 @@ button.danger:hover {
   gap: 4px;
   padding: 9px 10px;
   border: 1px solid var(--warn-soft);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--warn-soft);
   color: var(--warn);
   font-size: 12px;
@@ -2471,7 +2508,7 @@ button.danger:hover {
 
 .trace-subdetails {
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 
 .trace-subdetails > summary {
@@ -2484,7 +2521,7 @@ button.danger:hover {
 
 .technical-accordion {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .technical-accordion > summary {
@@ -2510,7 +2547,7 @@ button.danger:hover {
   margin-top: 14px;
   padding: 13px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--panel-2);
 }
 
@@ -2529,7 +2566,7 @@ button.danger:hover {
 .identity-saved-rule {
   padding: 9px 10px;
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   color: var(--text-soft);
 }
@@ -2592,7 +2629,7 @@ button.substance-list-item {
   width: 100%;
   padding: 10px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   text-align: left;
@@ -2733,7 +2770,7 @@ button.substance-list-item.active {
   gap: 7px;
   padding: 10px 11px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
 }
 

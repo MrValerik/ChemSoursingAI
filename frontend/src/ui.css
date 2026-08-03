@@ -5,7 +5,7 @@
  */
 :root {
   --control-height: 38px;
-  --control-radius: 7px;
+  --control-radius: var(--radius-sm);
   --control-border: var(--border-strong);
   --control-border-hover: var(--border-strong);
   --control-focus: var(--text-soft);
@@ -152,7 +152,7 @@ button.ui-icon-button {
   padding: 0;
   place-items: center;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--icon-color);
 }
@@ -222,7 +222,7 @@ button.multi-select-trigger:focus-visible {
   width: max(100%, 260px);
   padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--panel);
   box-shadow: var(--shadow-pop);
 }
@@ -238,7 +238,7 @@ button.multi-select-trigger:focus-visible {
   align-items: center;
   gap: 8px;
   padding: 7px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
