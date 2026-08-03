@@ -10,6 +10,7 @@ import type {
   SupplierRead,
   SupplierTypeKind,
 } from "../api/types";
+import { Select } from "./ui";
 
 const TYPE_LABELS: Record<SupplierTypeKind, string> = {
   manufacturer: "Производитель",
@@ -160,46 +161,19 @@ export default function SuppliersSection({
         </div>
       </div>
 
-      <div className="dash-cards supplier-metrics">
-        <div className="dash-card">
-          <div className="dash-value">{suppliers.length}</div>
-          <div className="dash-label">Всего в реестре</div>
-        </div>
-        <div className="dash-card">
-          <div className="dash-value">{filtered.length}</div>
-          <div className="dash-label">Под текущими фильтрами</div>
-        </div>
-        <div className="dash-card">
-          <div className="dash-value">
-            {suppliers.filter((supplier) => supplier.type === "manufacturer").length}
-          </div>
-          <div className="dash-label">Отмечены как производители</div>
-        </div>
-        <div className="dash-card">
-          <div className="dash-value">
-            {
-              suppliers.filter(
-                (supplier) => supplier.qualification_status === "verified",
-              ).length
-            }
-          </div>
-          <div className="dash-label">Проверены человеком</div>
-        </div>
-      </div>
-
       <div className="requests-filters supplier-filters">
         <input
           className="filter-search"
-          placeholder="Компания, вещество, CAS, источник…"
+          placeholder="Компания, страна, сертификат или запрос (название, CAS)"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+        <Select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
           <option value="">Тип: любой</option>
           <option value="manufacturer">Производитель</option>
           <option value="distributor">Дистрибьютор</option>
-        </select>
-        <select
+        </Select>
+        <Select
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value)}
         >
@@ -209,8 +183,8 @@ export default function SuppliersSection({
               {label}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           value={countryFilter}
           onChange={(event) => setCountryFilter(event.target.value)}
         >
@@ -220,16 +194,16 @@ export default function SuppliersSection({
               {country}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           value={channelFilter}
           onChange={(event) => setChannelFilter(event.target.value)}
         >
           <option value="">Контакт: любой</option>
           <option value="email">Email</option>
           <option value="whatsapp">WhatsApp</option>
-        </select>
-        <select
+        </Select>
+        <Select
           value={documentFilter}
           onChange={(event) => setDocumentFilter(event.target.value)}
         >
@@ -237,8 +211,8 @@ export default function SuppliersSection({
           <option value="coa">Есть CoA в котировке</option>
           <option value="tds">Есть TDS в котировке</option>
           <option value="certificates">Указаны сертификаты</option>
-        </select>
-        <select
+        </Select>
+        <Select
           value={minimumScore}
           onChange={(event) => setMinimumScore(event.target.value)}
         >
@@ -246,7 +220,7 @@ export default function SuppliersSection({
           <option value="80">80 и выше</option>
           <option value="60">60 и выше</option>
           <option value="40">40 и выше</option>
-        </select>
+        </Select>
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -276,10 +250,10 @@ export default function SuppliersSection({
                   <th onClick={() => toggleSort("country")}>
                     Страна{arrow("country")}
                   </th>
-                  <th onClick={() => toggleSort("evidence_score")}>
+                  <th className="col-num" onClick={() => toggleSort("evidence_score")}>
                     Балл{arrow("evidence_score")}
                   </th>
-                  <th onClick={() => toggleSort("request_count")}>
+                  <th className="col-num" onClick={() => toggleSort("request_count")}>
                     Запросы{arrow("request_count")}
                   </th>
                   <th>Контакты</th>
@@ -299,7 +273,14 @@ export default function SuppliersSection({
                   >
                     <td>
                       <strong>{supplier.company}</strong>
-                      <div className="cas">{supplier.source ?? "Источник не указан"}</div>
+                      {/* Источник — единственное поле переменной длины: обрезаем,
+                          чтобы строки держали общую высоту. */}
+                      <div
+                        className="cas supplier-source"
+                        title={supplier.source ?? undefined}
+                      >
+                        {supplier.source ?? "Источник не указан"}
+                      </div>
                     </td>
                     <td>
                       <span
@@ -312,8 +293,8 @@ export default function SuppliersSection({
                     </td>
                     <td>{supplier.type ? TYPE_LABELS[supplier.type] : "Не определён"}</td>
                     <td>{supplier.country ?? "—"}</td>
-                    <td>{supplier.evidence_score ?? "—"}</td>
-                    <td>{supplier.request_count}</td>
+                    <td className="col-num">{supplier.evidence_score ?? "—"}</td>
+                    <td className="col-num">{supplier.request_count}</td>
                     <td>{supplier.channels.join(", ") || "Нет"}</td>
                     <td>{formatDate(supplier.last_checked_at)}</td>
                   </tr>

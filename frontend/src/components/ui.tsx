@@ -19,9 +19,16 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   },
 );
 
+// Стрелку рисуем своим элементом, а не фоном: фон нельзя повернуть с
+// анимацией. Разворот вверх вешается на select:open через :has() в CSS.
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
   function Select({ className, ...props }, ref) {
-    return <select ref={ref} className={classes("ui-control", className)} {...props} />;
+    return (
+      <span className="select-wrap">
+        <select ref={ref} className={classes("ui-control", className)} {...props} />
+        <Icon name="chevron-down" size={16} className="select-chevron" />
+      </span>
+    );
   },
 );
 

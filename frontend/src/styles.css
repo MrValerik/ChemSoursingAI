@@ -403,6 +403,14 @@ table.summary tbody tr:hover { background: #f8fafc; }
   width: 240px;
   flex-basis: 240px;
 }
+/* Контролы по умолчанию тянутся на 100% (ui.css), а это flex с переносом:
+   без собственной базовой ширины каждый занимал бы целую строку. */
+.requests-filters .select-wrap,
+.requests-filters > select {
+  width: auto;
+  min-width: 150px;
+  flex: 0 1 190px;
+}
 .filter-search {
   width: min(360px, 100%);
   flex: 1 1 260px;
@@ -688,15 +696,57 @@ button.danger:hover {
 
 /* ===== Шаг 5: ручной разбор, поставщики, шаблоны ===== */
 
-.suppliers-layout { display: flex; gap: 16px; align-items: flex-start; }
+.suppliers-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-top: 5px;
+}
 .suppliers-list, .templates-list { flex: 1; min-width: 0; }
 .supplier-card { width: 360px; flex-shrink: 0; }
-.supplier-metrics .dash-card { cursor: default; }
-.supplier-metrics .dash-card:hover {
-  border-color: var(--border);
-  background: var(--panel);
-}
 .supplier-filters .filter-search { flex-basis: 320px; }
+
+/* --- Таблица реестра поставщиков ---
+   Строка 40px, липкая шапка, числа сравниваются по разряду. Ограничено
+   .suppliers-list: «Запросы» и «Ручной разбор» делят класс .requests-table. */
+.suppliers-list.table-panel {
+  max-height: calc(100vh - 250px);
+  min-height: 320px;
+  overflow: auto;
+}
+
+.suppliers-list table.summary th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 36px;
+  padding: 0 12px;
+  background: var(--panel);
+  /* У прилипшей ячейки border уезжает вместе с содержимым — рисуем тенью. */
+  border-bottom: none;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.suppliers-list table.summary td {
+  height: 40px;
+  padding: 6px 12px;
+  border-bottom-color: #f1f5f9;
+}
+
+.suppliers-list .col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.suppliers-list .supplier-source {
+  display: block;
+  max-width: 34ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.suppliers-list tbody tr.row-active:hover { background: #dbeafe; }
 .supplier-details { margin-top: 14px; }
 .supplier-request-links {
   display: grid;
@@ -707,7 +757,8 @@ button.danger:hover {
   width: 100%;
   text-align: left;
 }
-.row-active { background: #eff6ff !important; }
+/* Класс бьёт по специфичности `tbody tr:hover`, !important не нужен. */
+.row-active { background: #eff6ff; }
 .row-actions { display: flex; gap: 6px; }
 .link { color: var(--brand); cursor: pointer; text-decoration: underline; }
 .link:hover { color: var(--brand-dark); }
@@ -720,24 +771,6 @@ button.danger:hover {
   border-radius: 6px;
   resize: vertical;
 }
-
-/* ===== Карточки-метрики: реестр поставщиков ===== */
-
-.dash-cards { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-.dash-card {
-  flex: 1;
-  min-width: 160px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px;
-  text-align: left;
-  color: var(--text);
-  cursor: pointer;
-}
-.dash-card:hover { border-color: var(--brand); background: var(--panel); }
-.dash-card .dash-value { font-size: 28px; font-weight: 700; color: var(--brand); }
-.dash-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
 /* Предварительная ИИ-квалификация результатов открытого поиска. */
 .qualification-action {

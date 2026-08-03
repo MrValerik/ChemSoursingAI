@@ -56,9 +56,51 @@
 }
 
 :where(input, select, textarea, .ui-control):disabled {
-  background: var(--control-disabled);
+  /* background-color, а не background: иначе сбрасывается стрелка select. */
+  background-color: var(--control-disabled);
   color: var(--muted);
   cursor: not-allowed;
+}
+
+/* Нативная стрелка выпадающего списка рисуется браузером вплотную к краю и
+   выглядит по-разному в каждом из них. Заменяем на собственный шеврон. */
+select {
+  appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+}
+
+select:disabled {
+  opacity: 0.7;
+}
+
+/* Обёртка компонента Select: своя стрелка, которая умеет поворачиваться. */
+.select-wrap {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+}
+
+.select-wrap > select {
+  width: 100%;
+  /* Фоновый шеврон убираем, иначе стрелки будет две. */
+  background-image: none;
+}
+
+.select-chevron {
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  color: var(--icon-color);
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: transform 160ms ease;
+}
+
+.select-wrap:has(select:open) .select-chevron {
+  transform: translateY(-50%) rotate(180deg);
 }
 
 textarea.ui-control {
