@@ -42,10 +42,30 @@ class SubstanceInfo:
     source: str = "pubchem"
     error: str | None = None
 
+    @property
+    def outcome(self) -> str:
+        """Почему проверка не удалась — это три разных факта, не один.
+
+        `found=False` возвращается при опечатке в номере, при отсутствии
+        вещества в PubChem и при недоступности самого PubChem. Первое —
+        точно ошибка ввода, второе ничего не говорит о существовании
+        вещества (смесей и промышленных продуктов там нет), третье вообще
+        не факт о веществе, а факт о нас. Показывать их одинаково —
+        значит выдавать сбой сети за отсутствие вещества.
+        """
+        if self.found:
+            return "confirmed"
+        if self.error == "invalid_cas_checksum":
+            return "invalid_checksum"
+        if self.error == "not_found":
+            return "not_found"
+        return "unavailable"
+
     def as_dict(self) -> dict:
         return {
             "cas": self.cas,
             "found": self.found,
+            "outcome": self.outcome,
             "cid": self.cid,
             "iupac_name": self.iupac_name,
             "molecular_formula": self.molecular_formula,

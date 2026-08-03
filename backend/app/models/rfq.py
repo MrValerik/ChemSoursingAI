@@ -26,9 +26,39 @@ class RFQ(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    # Входные параметры продукта.
-    cas: Mapped[str] = mapped_column(String(20), index=True)
+    # Способ идентификации предмета закупки: cas — точная молекула по
+    # номеру, analog — «как вот это вещество», spec — назначение и
+    # требования. Номер есть не у всего, что закупают: у смесей, рецептур
+    # и промышленных продуктов его нет и не будет.
+    identification_method: Mapped[str] = mapped_column(
+        String(16), default="cas", index=True
+    )
+
+    # Входные параметры продукта. CAS необязателен — см. выше.
+    cas: Mapped[str | None] = mapped_column(String(20), index=True, default=None)
     name: Mapped[str] = mapped_column(String(255))
+
+    # Режим analog: эталонное вещество и то, чем от него можно отступить
+    # (соль, чистота, форма, производитель). Без второго поля «аналог»
+    # означает сразу всё перечисленное и текст письма собрать нельзя.
+    analog_reference: Mapped[str | None] = mapped_column(String(255), default=None)
+    analog_variations: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+
+    # Режим spec: требования свободным текстом (чистота и применение —
+    # отдельные поля ниже).
+    specification: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # Названия, отмеченные закупщиком как подходящие, и снятые им. Без
+    # CAS-номера якорем поиска служит название, а оно неуникально: у
+    # бетаина и его гидрохлорида названия соседние, вещества разные.
+    # Снятые названия работают отрицательным фильтром в поиске.
+    confirmed_synonyms: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    excluded_names: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+
+    # Источник каждого поля: pubchem / ai_agent / human / catalog. Хранится
+    # рядом со значением, иначе находка ИИ-агента через месяц неотличима
+    # от справочных данных.
+    field_sources: Mapped[dict | None] = mapped_column(JSON, default=None)
     purity: Mapped[str | None] = mapped_column(String(64))
     application: Mapped[str | None] = mapped_column(Text)
     volume: Mapped[str | None] = mapped_column(String(64))

@@ -23,14 +23,30 @@ INCOTERM_PLACES = {
 # Документы, обязательные к запросу в каждом RFQ.
 REQUIRED_DOCUMENTS = ["Certificate of Analysis (CoA)", "Technical Data Sheet (TDS)"]
 
+# Чем аналог может отличаться от эталона — формулировки для письма.
+# Без этого списка «analog» для поставщика означает что угодно, и в
+# ответ приходит не то, что просили.
+ANALOG_VARIATION_TEXT = {
+    "salt": "an alternative salt, hydrate or ester form is acceptable",
+    "purity": "a different purity or grade is acceptable",
+    "form": "a different physical form (powder, granules, solution) is acceptable",
+    "manufacturer": "any manufacturer of the same substance is acceptable",
+}
+
 
 @dataclass
 class RFQInput:
     """Входные параметры для генерации RFQ."""
 
-    cas: str
     name: str
     incoterms: list[str]
+    # CAS-номера может не быть: у смесей, рецептур и промышленных
+    # продуктов его нет и не будет, а запрос по ним отправить можно.
+    cas: str | None = None
+    identification_method: str = "cas"
+    analog_reference: str | None = None
+    analog_variations: list[str] | None = None
+    specification: str | None = None
     purity: str | None = None
     application: str | None = None
     volume: str | None = None
@@ -61,6 +77,10 @@ def build_rfq(data: RFQInput) -> dict:
     fields = {
         "substance": data.name,
         "cas": data.cas,
+        "identification_method": data.identification_method,
+        "analog_reference": data.analog_reference,
+        "analog_variations": list(data.analog_variations or []),
+        "specification": data.specification,
         "purity": data.purity or "to be specified by supplier",
         "application": data.application,
         "quantity": data.volume or "to be confirmed",
@@ -88,7 +108,11 @@ def build_rfq(data: RFQInput) -> dict:
 
 
 def _build_subject(data: RFQInput) -> str:
-    return f"Request for quotation: {data.name} (CAS {data.cas})"
+    # Номер в теме письма помогает поставщику сразу понять предмет, но
+    # без него тема должна оставаться осмысленной, а не содержать «None».
+    if data.cas:
+        return f"Request for quotation: {data.name} (CAS {data.cas})"
+    return f"Request for quotation: {data.name}"
 
 
 def _build_body(data: RFQInput, incoterms: list[str]) -> str:
@@ -102,7 +126,18 @@ def _build_body(data: RFQInput, incoterms: list[str]) -> str:
     lines.append("")
     lines.append("Product details:")
     lines.append(f"  - Substance: {data.name}")
-    lines.append(f"  - CAS No.: {data.cas}")
+    if data.cas:
+        lines.append(f"  - CAS No.: {data.cas}")
+    if data.analog_reference:
+        # Поставщик должен видеть эталон и границы замены отдельными
+        # строками: «analog» без границ означает что угодно.
+        lines.append(f"  - Similar to: {data.analog_reference}")
+        for code in data.analog_variations or []:
+            text = ANALOG_VARIATION_TEXT.get(code)
+            if text:
+                lines.append(f"  - Note: {text}")
+    if data.specification:
+        lines.append(f"  - Requirements: {data.specification}")
     if data.purity:
         lines.append(f"  - Purity / Grade: {data.purity}")
     if data.application:

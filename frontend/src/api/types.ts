@@ -13,6 +13,8 @@ export type RFQStatus =
 export interface SubstanceInfo {
   cas: string;
   found: boolean;
+  /** Почему проверка не удалась — см. VerificationOutcome. */
+  outcome: VerificationOutcome;
   cid: number | null;
   iupac_name: string | null;
   molecular_formula: string | null;
@@ -67,10 +69,44 @@ export interface RFQPreview {
   fields: Record<string, unknown>;
 }
 
+/**
+ * Способ идентификации предмета закупки. CAS-номер есть не у всего, что
+ * закупают: у смесей, рецептур и промышленных продуктов его нет и не
+ * будет, но отправить по ним запрос поставщику вполне можно.
+ */
+export type IdentificationMethod = "cas" | "analog" | "spec";
+
+/** Чем аналог может отличаться от эталона. */
+export type AnalogVariation = "salt" | "purity" | "form" | "manufacturer";
+
+/**
+ * Источник значения поля. Находка ИИ-агента без пометки через месяц
+ * неотличима от справочных данных.
+ */
+export type FieldSource = "pubchem" | "ai_agent" | "human" | "catalog";
+
+/**
+ * Чем закончилась проверка номера. Опечатка, отсутствие вещества в
+ * PubChem и недоступность самого PubChem — три разных факта: последний
+ * вообще не про вещество, а про доступность сервиса.
+ */
+export type VerificationOutcome =
+  | "confirmed"
+  | "not_found"
+  | "invalid_checksum"
+  | "unavailable";
+
 export interface RFQRead {
   id: number;
-  cas: string;
+  identification_method: IdentificationMethod;
+  cas: string | null;
   name: string;
+  analog_reference: string | null;
+  analog_variations: string[] | null;
+  specification: string | null;
+  confirmed_synonyms: string[] | null;
+  excluded_names: string[] | null;
+  field_sources: Record<string, FieldSource> | null;
   purity: string | null;
   application: string | null;
   volume: string | null;
@@ -95,6 +131,7 @@ export interface RFQRead {
 }
 
 export interface RFQListItem {
+  identification_method: IdentificationMethod;
   owner_id: number | null;
   owner_name: string | null;
   n_quotations: number;
@@ -102,7 +139,7 @@ export interface RFQListItem {
   completeness_pct: number;
   has_open_escalation: boolean;
   id: number;
-  cas: string;
+  cas: string | null;
   name: string;
   status: RFQStatus;
   verified: boolean;

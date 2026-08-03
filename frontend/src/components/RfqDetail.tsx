@@ -13,6 +13,7 @@ import ExtractReplies from "./ExtractReplies";
 import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
+import { FieldSourceBadge, VerificationNotice } from "./SubstanceProvenance";
 import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
 import { Term } from "./ui";
 
@@ -286,18 +287,34 @@ export default function RfqDetail({
               />
             </dt>
             <dd className="param-value">
-              <Term
-                label={rfq.cas}
-                help={
-                  rfq.verified
-                    ? `CAS ${rfq.cas} прошёл автоматическую проверку. Перед закупочным решением всё равно сравните его со спецификацией и CoA.`
-                    : `CAS ${rfq.cas} ещё не подтверждён справочником или решением специалиста. Результаты поиска следует считать предварительными.`
-                }
-              />
-              {rfq.verified ? (
-                <span className="badge tone-ok">проверен</span>
+              {rfq.cas ? (
+                <>
+                  <Term
+                    label={rfq.cas}
+                    help={
+                      rfq.verified
+                        ? `CAS ${rfq.cas} прошёл автоматическую проверку. Перед закупочным решением всё равно сравните его со спецификацией и CoA.`
+                        : `CAS ${rfq.cas} ещё не подтверждён справочником или решением специалиста. Результаты поиска следует считать предварительными.`
+                    }
+                  />
+                  {rfq.verified ? (
+                    <span className="badge tone-ok">проверен</span>
+                  ) : (
+                    <span className="badge tone-neutral">не проверен</span>
+                  )}
+                  <FieldSourceBadge source={rfq.field_sources?.cas ?? null} />
+                </>
               ) : (
-                <span className="badge tone-neutral">не проверен</span>
+                // Номера нет — это не пробел в данных, а способ задать
+                // предмет закупки. Показываем какой.
+                <Term
+                  label={
+                    rfq.identification_method === "analog"
+                      ? `аналог: ${rfq.analog_reference ?? "—"}`
+                      : "по спецификации"
+                  }
+                  help="У этого запроса нет CAS-номера: так закупают смеси, рецептуры и промышленные продукты, которым номер не присваивается. Поиск ведётся по подтверждённым названиям."
+                />
               )}
             </dd>
             {rfq.purity && (
@@ -486,6 +503,11 @@ function OverviewTab({ rfq }: { rfq: RFQRead }) {
   const [history, setHistory] = useState<PriceHistoryItem[] | null>(null);
 
   useEffect(() => {
+    // История цен ключуется номером: без него сопоставлять нечего.
+    if (!rfq.cas) {
+      setHistory([]);
+      return;
+    }
     api
       .priceHistory(rfq.cas)
       .then(setHistory)
@@ -498,6 +520,9 @@ function OverviewTab({ rfq }: { rfq: RFQRead }) {
 
   return (
     <>
+      {/* Проверять нечего, если номера нет: запрос по аналогу или
+          спецификации PubChem подтвердить не может в принципе. */}
+      {rfq.cas && (
       <div className="panel">
         <h2>
           Верификация вещества{" "}
@@ -505,6 +530,7 @@ function OverviewTab({ rfq }: { rfq: RFQRead }) {
             PubChem
           </span>
         </h2>
+        <VerificationNotice outcome={v?.outcome ?? null} />
         {v?.found ? (
           <dl className="params-list">
             <dt>Название (IUPAC)</dt>
@@ -520,13 +546,14 @@ function OverviewTab({ rfq }: { rfq: RFQRead }) {
           </dl>
         ) : (
           <p className="note">
-            Вещество не верифицировано
-            {v?.error ? ` (${userErrorMessage(v.error)})` : ""}. Проверка
-            выполняется при создании запроса.
+            Проверка выполняется при создании запроса
+            {v?.error ? ` (${userErrorMessage(v.error)})` : ""}.
           </p>
         )}
       </div>
+      )}
 
+      {rfq.cas && (
       <div className="panel">
         <h2>История закупочных цен по CAS {rfq.cas}</h2>
         {history === null && <p className="note">Загрузка…</p>}
@@ -560,6 +587,7 @@ function OverviewTab({ rfq }: { rfq: RFQRead }) {
           </table>
         )}
       </div>
+      )}
     </>
   );
 }

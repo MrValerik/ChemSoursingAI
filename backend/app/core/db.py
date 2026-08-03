@@ -50,6 +50,51 @@ def init_db() -> None:
     _apply_light_migrations()
 
 
+def _relax_sqlite_not_null(table: str, column: str) -> None:
+    """Снимает устаревший NOT NULL в dev-базе SQLite.
+
+    В PostgreSQL это делает миграция (ALTER COLUMN ... DROP NOT NULL), но
+    SQLite менять ограничение колонки не умеет — только пересоздавать
+    таблицу. Свежая dev-база берёт схему из моделей и уже корректна;
+    проблема только у баз, созданных до того, как CAS стал необязательным.
+    Без этого запрос по аналогу или спецификации падает на вставке, причём
+    ошибкой уровня БД, которую в интерфейсе не объяснить.
+
+    Схема пересоздаётся из метаданных модели, а не переписывается руками:
+    так она не разъедется с определением таблицы.
+    """
+    from sqlalchemy import inspect, text
+
+    if engine.dialect.name != "sqlite":
+        return
+    inspector = inspect(engine)
+    if table not in inspector.get_table_names():
+        return
+    columns = inspector.get_columns(table)
+    target = next((c for c in columns if c["name"] == column), None)
+    if target is None or target.get("nullable", True):
+        return
+
+    model_table = Base.metadata.tables.get(table)
+    if model_table is None:
+        return
+    # Переносим только те колонки, что есть в обеих схемах: недостающие
+    # добавит обычный проход по ALTER TABLE следом.
+    shared = [c["name"] for c in columns if c["name"] in model_table.c]
+    names = ", ".join(f'"{name}"' for name in shared)
+    backup = f"{table}__old"
+    with engine.begin() as conn:
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        conn.execute(text(f'DROP TABLE IF EXISTS "{backup}"'))
+        conn.execute(text(f'ALTER TABLE "{table}" RENAME TO "{backup}"'))
+        model_table.create(bind=conn)
+        conn.execute(
+            text(f'INSERT INTO "{table}" ({names}) SELECT {names} FROM "{backup}"')
+        )
+        conn.execute(text(f'DROP TABLE "{backup}"'))
+        conn.execute(text("PRAGMA foreign_keys=ON"))
+
+
 def _apply_light_migrations() -> None:
     """Дописывает недостающие колонки в существующие таблицы (dev/демо).
 
@@ -61,6 +106,8 @@ def _apply_light_migrations() -> None:
     inspector = inspect(engine)
     tables = inspector.get_table_names()
     if "rfqs" in tables:
+        _relax_sqlite_not_null("rfqs", "cas")
+        inspector = inspect(engine)
         cols = {c["name"] for c in inspector.get_columns("rfqs")}
         json_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
         with engine.begin() as conn:
@@ -83,6 +130,29 @@ def _apply_light_migrations() -> None:
             if "substance_id" not in cols:
                 conn.execute(
                     text("ALTER TABLE rfqs ADD COLUMN substance_id INTEGER")
+                )
+            if "identification_method" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE rfqs ADD COLUMN identification_method "
+                        "VARCHAR(16) NOT NULL DEFAULT 'cas'"
+                    )
+                )
+            if "analog_reference" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE rfqs ADD COLUMN analog_reference VARCHAR(255)"
+                    )
+                )
+            for column in ("analog_variations", "confirmed_synonyms",
+                           "excluded_names", "field_sources"):
+                if column not in cols:
+                    conn.execute(
+                        text(f"ALTER TABLE rfqs ADD COLUMN {column} {json_type}")
+                    )
+            if "specification" not in cols:
+                conn.execute(
+                    text("ALTER TABLE rfqs ADD COLUMN specification TEXT")
                 )
             conn.execute(
                 text(

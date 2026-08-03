@@ -173,6 +173,15 @@ def apply_rfq_decision(
     *,
     reviewer_id: int,
 ) -> Substance:
+    if not rfq.cas:
+        # Карточка справочника ключуется CAS-номером, поэтому запрос по
+        # аналогу или спецификации в неё пока не ложится. Явный отказ
+        # лучше падения на normalize_cas(None): решение эксперта здесь
+        # просто нечему приписать.
+        raise SubstanceConflictError(
+            "У запроса нет CAS-номера — решение по карточке вещества "
+            "можно принять только для запроса с номером"
+        )
     cas = normalize_cas(rfq.cas)
     substance = db.scalar(select(Substance).where(Substance.cas == cas))
     if substance is None:

@@ -81,7 +81,8 @@ export default function RequestsTable({
       out = out.filter(
         (r) =>
           r.name.toLowerCase().includes(q) ||
-          r.cas.includes(q) ||
+          // Запрос по аналогу или спецификации живёт без номера.
+          (r.cas ?? "").includes(q) ||
           String(r.id).includes(q),
       );
     }

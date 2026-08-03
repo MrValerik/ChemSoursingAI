@@ -2,9 +2,11 @@
 // JWT-токен хранится в localStorage и добавляется в Authorization.
 
 import type {
+  AnalogVariation,
   ChannelStatus,
   CommunicationRead,
   DashboardData,
+  IdentificationMethod,
   EmailIntegration,
   EmailSyncRead,
   EscalationRead,
@@ -139,8 +141,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export interface RFQCreatePayload {
-  cas: string;
+  identification_method?: IdentificationMethod;
+  /** Необязателен: у смесей и промышленных продуктов номера нет. */
+  cas?: string | null;
   name: string;
+  analog_reference?: string | null;
+  analog_variations?: AnalogVariation[];
+  specification?: string | null;
+  /** Названия, отмеченные закупщиком, и снятые им. */
+  confirmed_synonyms?: string[];
+  excluded_names?: string[];
   incoterms: string[];
   channels?: string[];
   search_countries: string[];
@@ -507,7 +517,7 @@ export const api = {
   listPrompts: () => request<PromptRead[]>(`/prompts`),
 
   searchSuppliers: (payload: {
-    cas: string;
+    cas: string | null;
     name: string;
     country?: string | null;
     additional_instructions?: string | null;
@@ -521,7 +531,8 @@ export const api = {
   enqueueSupplierSearch: (
     rfqId: number,
     payload: {
-      cas: string;
+      // Поиск без номера ведётся по подтверждённым названиям.
+      cas: string | null;
       name: string;
       country?: string | null;
       additional_instructions?: string | null;

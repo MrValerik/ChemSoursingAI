@@ -42,9 +42,27 @@ def _can_delete(user: User, rfq: RFQ) -> bool:
     return user.role in _DELETE_ALL_ROLES or rfq.owner_id == user.id
 
 
+def _merge_names(*groups: list[str] | None) -> list[str]:
+    """Объединяет списки названий без повторов, сохраняя порядок."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for raw in group or []:
+            name = raw.strip()
+            key = name.casefold()
+            if name and key not in seen:
+                seen.add(key)
+                merged.append(name)
+    return merged
+
+
 class RFQGenerateRequest(BaseModel):
-    cas: str = Field(..., examples=["50-78-2"])
+    cas: str | None = Field(default=None, examples=["50-78-2"])
     name: str = Field(..., examples=["Acetylsalicylic acid"])
+    identification_method: str = "cas"
+    analog_reference: str | None = None
+    analog_variations: list[str] = Field(default_factory=list)
+    specification: str | None = None
     incoterms: list[str] = Field(..., examples=[["CIP", "FCA", "EXW"]])
     purity: str | None = None
     application: str | None = None
@@ -64,6 +82,10 @@ def preview_rfq(
             RFQInput(
                 cas=req.cas,
                 name=req.name,
+                identification_method=req.identification_method,
+                analog_reference=req.analog_reference,
+                analog_variations=req.analog_variations,
+                specification=req.specification,
                 incoterms=req.incoterms,
                 purity=req.purity,
                 application=req.application,
@@ -126,15 +148,19 @@ def create(
                         if selected_substance
                         else None
                     ),
-                    "known_synonyms": (
-                        list(selected_substance.synonyms or [])
-                        if selected_substance
-                        else []
+                    # Отметки закупщика по этому запросу идут вместе с
+                    # накопленными в карточке: без CAS-номера якорем
+                    # поиска служит название, и именно подтверждённые
+                    # названия держат точность в этой ветке.
+                    "known_synonyms": _merge_names(
+                        selected_substance.synonyms if selected_substance else None,
+                        rfq.confirmed_synonyms,
                     ),
-                    "excluded_names": (
-                        list(selected_substance.excluded_names or [])
+                    "excluded_names": _merge_names(
+                        selected_substance.excluded_names
                         if selected_substance
-                        else []
+                        else None,
+                        rfq.excluded_names,
                     ),
                     "catalog_notes": (
                         selected_substance.notes

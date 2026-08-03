@@ -35,6 +35,10 @@ def create_rfq(
         RFQInput(
             cas=data.cas,
             name=data.name,
+            identification_method=data.identification_method,
+            analog_reference=data.analog_reference,
+            analog_variations=list(data.analog_variations),
+            specification=data.specification,
             incoterms=data.incoterms,
             purity=data.purity,
             application=data.application,
@@ -47,15 +51,31 @@ def create_rfq(
     verification = None
     verified = False
     status = RFQStatus.DRAFT
-    if verify:
+    field_sources: dict[str, str] = {}
+    # Проверять нечего, если номера нет: запрос по аналогу или
+    # спецификации — не повод дёргать PubChem.
+    if verify and data.cas:
         info = PubChemConnector().verify_cas(data.cas)
         verification = info.as_dict()
         verified = info.found
         status = RFQStatus.VERIFIED if info.found else RFQStatus.DRAFT
+        if info.found:
+            field_sources["cas"] = "pubchem"
+    if data.cas and not verified:
+        # Номер ввёл человек, а подтверждения не получил. Источник
+        # фиксируем честно: это не справочные данные.
+        field_sources["cas"] = "human"
 
     rfq = RFQ(
         cas=data.cas,
         name=data.name,
+        identification_method=data.identification_method,
+        analog_reference=data.analog_reference,
+        analog_variations=list(data.analog_variations) or None,
+        specification=data.specification,
+        confirmed_synonyms=list(data.confirmed_synonyms) or None,
+        excluded_names=list(data.excluded_names) or None,
+        field_sources=field_sources or None,
         purity=data.purity,
         application=data.application,
         volume=data.volume,
@@ -83,6 +103,10 @@ def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
         RFQInput(
             cas=rfq.cas,
             name=rfq.name,
+            identification_method=rfq.identification_method,
+            analog_reference=rfq.analog_reference,
+            analog_variations=list(rfq.analog_variations or []),
+            specification=rfq.specification,
             incoterms=list(rfq.incoterms or []),
             purity=rfq.purity,
             application=rfq.application,

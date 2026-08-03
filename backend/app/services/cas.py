@@ -29,5 +29,30 @@ def is_valid_cas(value: str) -> bool:
         return False
     body = m.group(1) + m.group(2)        # все цифры, кроме контрольной
     check = int(m.group(3))
-    total = sum(int(d) * i for i, d in enumerate(reversed(body), start=1))
-    return total % 10 == check
+    return _check_digit(body) == check
+
+
+def _check_digit(body: str) -> int:
+    """Контрольная цифра для набора цифр без неё самой."""
+    return sum(int(d) * i for i, d in enumerate(reversed(body), start=1)) % 10
+
+
+def suggest_check_digit(value: str) -> str | None:
+    """Возвращает номер с исправленной контрольной цифрой, если дело в ней.
+
+    Опечатка в контрольной цифре — самая частая и единственная, которую
+    можно исправить не гадая: остальные цифры мы под сомнение не ставим.
+    Сообщение «не прошёл проверку» без подсказки заставляет закупщика
+    сверять номер вручную, хотя верный вариант вычисляется здесь же.
+
+    None означает, что подсказать нечего: строка не похожа на CAS или
+    контрольная цифра и так верна.
+    """
+    m = _CAS_RE.match(normalize_cas(value))
+    if not m:
+        return None
+    body = m.group(1) + m.group(2)
+    correct = _check_digit(body)
+    if correct == int(m.group(3)):
+        return None
+    return f"{m.group(1)}-{m.group(2)}-{correct}"

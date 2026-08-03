@@ -3,18 +3,36 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import RFQStatus
+from app.services.cas import is_valid_cas, normalize_cas, suggest_check_digit
 from app.services.search_countries import normalize_search_country
+
+# Способ идентификации предмета закупки. Номер есть не у всего, что
+# закупают: у смесей, рецептур и промышленных продуктов его нет и не
+# будет, но отправить по ним RFQ вполне можно.
+IdentificationMethod = Literal["cas", "analog", "spec"]
+
+# Чем аналог может отличаться от эталона. Слово «аналог» само по себе
+# означает сразу всё перечисленное, и без уточнения текст письма
+# поставщику собрать нельзя.
+AnalogVariation = Literal["salt", "purity", "form", "manufacturer"]
 
 
 class RFQCreate(BaseModel):
     """Входные данные для создания запроса (функция 1 ТЗ)."""
 
-    cas: str = Field(..., examples=["50-78-2"])
+    identification_method: IdentificationMethod = "cas"
+    cas: str | None = Field(default=None, examples=["50-78-2"])
     name: str = Field(..., examples=["Acetylsalicylic acid"])
+    analog_reference: str | None = Field(default=None, max_length=255)
+    analog_variations: list[AnalogVariation] = Field(default_factory=list)
+    specification: str | None = Field(default=None, max_length=4000)
+    confirmed_synonyms: list[str] = Field(default_factory=list, max_length=50)
+    excluded_names: list[str] = Field(default_factory=list, max_length=50)
     incoterms: list[str] = Field(..., examples=[["CIP", "FCA", "EXW"]])
     channels: list[str] = Field(default_factory=list, examples=[["email"]])
     search_countries: list[str] = Field(
@@ -49,6 +67,40 @@ class RFQCreate(BaseModel):
             raise ValueError("Выберите хотя бы одну страну поиска")
         return countries
 
+    @model_validator(mode="after")
+    def check_identification(self) -> "RFQCreate":
+        """Каждый способ идентификации требует своего минимума данных.
+
+        Проверка перекрёстная: одного взгляда на поле мало, потому что
+        обязательность CAS зависит от выбранного способа.
+        """
+        if self.identification_method == "cas":
+            if not (self.cas or "").strip():
+                raise ValueError("Укажите CAS-номер или выберите другой способ")
+            cas = normalize_cas(self.cas or "")
+            if not is_valid_cas(cas):
+                # Контрольная цифра вычисляется, поэтому не отправляем
+                # закупщика сверять номер вручную — называем верный.
+                hint = suggest_check_digit(cas)
+                raise ValueError(
+                    f"В номере ошибка. Похоже, имелся в виду {hint}"
+                    if hint
+                    else "CAS не прошёл проверку формата и контрольной суммы"
+                )
+        elif self.identification_method == "analog":
+            if not (self.analog_reference or "").strip():
+                raise ValueError(
+                    "Укажите вещество, на которое должен быть похож аналог"
+                )
+        elif self.identification_method == "spec":
+            if not (self.specification or "").strip() and not (
+                self.application or ""
+            ).strip():
+                raise ValueError(
+                    "Опишите назначение или требования к веществу"
+                )
+        return self
+
 
 class RFQRead(BaseModel):
     """Полное представление запроса + сгенерированный текст RFQ."""
@@ -56,8 +108,15 @@ class RFQRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    cas: str
+    identification_method: str = "cas"
+    cas: str | None
     name: str
+    analog_reference: str | None = None
+    analog_variations: list[str] | None = None
+    specification: str | None = None
+    confirmed_synonyms: list[str] | None = None
+    excluded_names: list[str] | None = None
+    field_sources: dict | None = None
     purity: str | None
     application: str | None
     volume: str | None
@@ -89,7 +148,8 @@ class RFQListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    cas: str
+    identification_method: str = "cas"
+    cas: str | None
     name: str
     status: RFQStatus
     verified: bool

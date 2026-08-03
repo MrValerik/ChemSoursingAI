@@ -125,7 +125,10 @@ SearchScope = Literal["manufacturers", "all_sellers"]
 
 
 class SupplierSearchRequest(BaseModel):
-    cas: str = Field(..., min_length=3, max_length=20)
+    # Номер необязателен: у смесей, рецептур и промышленных продуктов его
+    # нет и не будет, а искать по ним поставщиков нужно. Якорем тогда
+    # служат подтверждённые названия из known_synonyms.
+    cas: str | None = Field(default=None, min_length=3, max_length=20)
     name: str = Field(..., min_length=2, max_length=255)
     country: str = Field(default="Китай", max_length=100)
     search_scope: SearchScope = "manufacturers"
@@ -775,6 +778,9 @@ def _fallback_search_plan(
         name=preferred_name,
         country=data.country,
         ai_query=None,
+        # Без номера якорем становятся подтверждённые названия, поэтому
+        # известные синонимы едут в план запросов, а не только в оценку.
+        synonyms=list(data.known_synonyms or []),
     )
     items: list[SearchPlanItem] = []
     for index, query in enumerate(queries):
@@ -820,9 +826,13 @@ def _merge_search_plans(
         *ai_items,
         *fallback_items[required_count:],
     ]
+    # Запрос обязан содержать якорь предмета поиска, иначе модель уводит
+    # план в сторону. С номером якорь — номер, без номера — название:
+    # `None in str` не только упало бы, но и сняло бы проверку вовсе.
+    anchor = data.cas or data.name
     for item in ordered_items:
         normalized = item.query.strip()
-        if data.cas not in normalized:
+        if anchor not in normalized:
             rejected_count += 1
             continue
         key = normalized.casefold()
@@ -1026,8 +1036,11 @@ def enqueue_supplier_search(
                 "catalog_notes": substance.notes if substance else None,
             }
         )
-    normalized_cas = normalize_cas(data.cas)
-    if not is_valid_cas(normalized_cas):
+    # Номер проверяем, только если он есть. Запрос без номера ищется по
+    # названию: отказать здесь значило бы закрыть поиск для всего, чего
+    # нет в реестрах, — смесей, рецептур, промышленных продуктов.
+    normalized_cas = normalize_cas(data.cas) if data.cas else None
+    if normalized_cas and not is_valid_cas(normalized_cas):
         raise HTTPException(
             status_code=422,
             detail="CAS не прошёл проверку формата и контрольной суммы",

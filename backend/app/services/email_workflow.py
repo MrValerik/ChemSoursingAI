@@ -102,11 +102,20 @@ def _quote_mapping(quote) -> dict:
     }
 
 
+def _subject_label(rfq: RFQ) -> str:
+    """Предмет запроса для письма: с номером, если он есть.
+
+    У запроса по спецификации номера нет, и «CAS None» в письме
+    поставщику выглядит как ошибка системы.
+    """
+    return f"{rfq.name} (CAS {rfq.cas})" if rfq.cas else rfq.name
+
+
 def _fallback_followup(rfq: RFQ, missing: list[str]) -> str:
     fields = ", ".join(_MISSING_LABELS.get(item, item) for item in missing)
     return (
         "Dear Supplier,\n\n"
-        f"Thank you for your reply regarding {rfq.name} (CAS {rfq.cas}). "
+        f"Thank you for your reply regarding {_subject_label(rfq)}. "
         f"To complete our evaluation, could you please provide: {fields}?\n\n"
         "Please keep the previously requested product, grade and delivery "
         "requirements unchanged.\n\nBest regards,\nProcurement Department"
@@ -124,7 +133,7 @@ def _render_followup(db: Session, rfq: RFQ, missing: list[str]) -> str:
         return LLMClient().generate_text(
             system_prompt=system_prompt,
             user_text=(
-                f"RFQ: {rfq.name}, CAS {rfq.cas}.\n"
+                f"RFQ: {_subject_label(rfq)}.\n"
                 f"Недостающие данные: {', '.join(missing)}."
             ),
             additional_instructions=(
