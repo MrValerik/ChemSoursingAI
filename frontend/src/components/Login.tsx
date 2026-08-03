@@ -31,7 +31,7 @@ export default function Login() {
           <LogoMark size={40} />
           <LogoWord />
         </div>
-        <p className="note">Рабочее место отдела закупок</p>
+        <p className="note">Поиск и проверка поставщиков химического сырья</p>
 
         <div className="field">
           <label htmlFor="login-username">Логин</label>
