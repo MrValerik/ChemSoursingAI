@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { SubstanceHistoryEntry, SubstanceRecord } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -114,13 +115,10 @@ function TagEditor({
   );
 }
 
-export default function SubstancesSection({
-  focusId,
-  onFocusConsumed,
-}: {
-  focusId?: number | null;
-  onFocusConsumed?: () => void;
-}) {
+export default function SubstancesSection() {
+  // Открытая карточка вещества — часть адреса: /substances/17.
+  const { substanceId } = useParams();
+  const focusId = substanceId ? Number(substanceId) : null;
   const { user } = useAuth();
   const canEdit = user?.role !== "auditor";
   const [items, setItems] = useState<SubstanceRecord[]>([]);
@@ -162,9 +160,8 @@ export default function SubstancesSection({
     if (focusId != null) {
       setSelectedId(focusId);
       setCreating(false);
-      onFocusConsumed?.();
     }
-  }, [focusId, onFocusConsumed]);
+  }, [focusId]);
 
   const selected = items.find((item) => item.id === selectedId) ?? null;
 

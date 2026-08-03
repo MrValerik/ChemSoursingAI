@@ -17,14 +17,15 @@ const NEEDS_ATTENTION = (r: RFQListItem) =>
   (r.n_quotations > 0 && r.completeness_pct < 100) ||
   r.status === "escalated";
 
+// Список перезапрашивается при монтировании: возврат из карточки — это
+// переход по адресу, а не смена внутреннего состояния, поэтому счётчик
+// обновления больше не нужен.
 export default function RequestsTable({
   onOpen,
   onNew,
-  refreshKey,
 }: {
   onOpen: (id: number) => void;
   onNew: () => void;
-  refreshKey: number;
 }) {
   const { user } = useAuth();
   const showOwner = user?.role === "head" || user?.role === "admin" || user?.role === "auditor";
@@ -54,7 +55,7 @@ export default function RequestsTable({
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [refreshKey]);
+  }, []);
 
   const owners = useMemo(
     () => [...new Set(rows.map((r) => r.owner_name).filter((o): o is string => !!o))].sort(),

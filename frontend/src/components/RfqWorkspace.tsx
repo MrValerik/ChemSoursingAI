@@ -1,76 +1,77 @@
 // Раздел «Запросы»: сводная таблица → карточка запроса / форма нового запроса.
-// Полная карточка с вкладками (Верификация → … → История) появится на шаге 3.
+// Что показать, решает адрес: /requests, /requests/new, /requests/:rfqId[/:tab].
 
 import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { useNavigate, useParams } from "react-router-dom";
+import { api, userErrorMessage } from "../api/client";
 import type { RFQRead } from "../api/types";
 import NewRfq from "./NewRfq";
 import RequestsTable from "./RequestsTable";
 import RfqDetail from "./RfqDetail";
 
-type View = "table" | "new" | "detail";
-
-export default function RfqWorkspace({
-  jumpRfqId,
-  onJumpConsumed,
-  onOpenSubstance,
-}: {
-  jumpRfqId?: number | null;
-  onJumpConsumed?: () => void;
-  onOpenSubstance?: (id: number) => void;
-}) {
-  const [view, setView] = useState<View>("table");
+export default function RfqWorkspace() {
+  const { rfqId } = useParams();
+  const navigate = useNavigate();
   const [selected, setSelected] = useState<RFQRead | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  const isNew = rfqId === "new";
+  const openedId = !isNew && rfqId ? Number(rfqId) : null;
+
   useEffect(() => {
-    if (jumpRfqId != null) {
-      void openRfq(jumpRfqId);
-      onJumpConsumed?.();
+    if (openedId === null) {
+      setSelected(null);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jumpRfqId]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rfq = await api.getRfq(openedId);
+        if (!cancelled) {
+          setSelected(rfq);
+          setError(null);
+        }
+      } catch (e) {
+        // Адрес мог прийти из старой закладки на удалённый запрос.
+        if (!cancelled) setError(userErrorMessage(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openedId]);
 
-  const openRfq = async (id: number) => {
-    try {
-      setSelected(await api.getRfq(id));
-      setView("detail");
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  };
+  const backToTable = () => navigate("/requests");
 
-  const backToTable = () => {
-    setView("table");
-    setSelected(null);
-    setRefreshKey((k) => k + 1);
-  };
-
-  if (view === "new") {
+  if (isNew) {
     return (
       <div className="requests-page">
         <button className="secondary back-btn" onClick={backToTable}>
           ← К запросам
         </button>
-        <NewRfq
-          onCreated={(rfq) => {
-            setSelected(rfq);
-            setView("detail");
-          }}
-        />
+        <NewRfq onCreated={(rfq) => navigate(`/requests/${rfq.id}`)} />
       </div>
     );
   }
 
-  if (view === "detail" && selected) {
+  if (openedId !== null) {
+    if (error) {
+      return (
+        <div className="requests-page">
+          <button className="secondary back-btn" onClick={backToTable}>
+            ← К запросам
+          </button>
+          <p className="error">{error}</p>
+        </div>
+      );
+    }
+    if (!selected) return <p className="note" style={{ padding: 24 }}>Загрузка…</p>;
     return (
       <RfqDetail
         rfq={selected}
         onBack={backToTable}
         onChanged={setSelected}
-        onOpenSubstance={onOpenSubstance}
+        onOpenSubstance={(id) => navigate(`/substances/${id}`)}
       />
     );
   }
@@ -79,9 +80,8 @@ export default function RfqWorkspace({
     <>
       {error && <p className="error" style={{ padding: "0 24px" }}>{error}</p>}
       <RequestsTable
-        refreshKey={refreshKey}
-        onOpen={(id) => void openRfq(id)}
-        onNew={() => setView("new")}
+        onOpen={(id) => navigate(`/requests/${id}`)}
+        onNew={() => navigate("/requests/new")}
       />
     </>
   );

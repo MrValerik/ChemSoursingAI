@@ -3,6 +3,7 @@
 // уже известных поставщиков и кандидатов.
 
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   ChannelKind,
@@ -43,11 +44,9 @@ type SortKey =
 const formatDate = (value: string | null) =>
   value ? new Date(value).toLocaleDateString("ru-RU") : "Не проверялся";
 
-export default function SuppliersSection({
-  onOpenRfq,
-}: {
-  onOpenRfq: (id: number) => void;
-}) {
+export default function SuppliersSection() {
+  const navigate = useNavigate();
+  const onOpenRfq = (id: number) => navigate(`/requests/${id}`);
   const [suppliers, setSuppliers] = useState<SupplierRead[]>([]);
   const [selected, setSelected] = useState<SupplierRead | null>(null);
   const [search, setSearch] = useState("");

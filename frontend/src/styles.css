@@ -250,13 +250,16 @@ table.summary tbody tr:hover { background: #f8fafc; }
   padding: 6px 12px 18px;
   letter-spacing: 0.2px;
 }
+/* Пункт меню — ссылка (NavLink), поэтому нужны display и снятие подчёркивания. */
 .nav-item {
+  display: block;
   background: transparent;
   color: rgba(255, 255, 255, 0.85);
   text-align: left;
   padding: 9px 12px;
   border-radius: 6px;
   font-size: 13px;
+  text-decoration: none;
 }
 .nav-item:hover { background: rgba(255, 255, 255, 0.1); }
 .nav-item.active { background: rgba(255, 255, 255, 0.18); color: #fff; font-weight: 600; }

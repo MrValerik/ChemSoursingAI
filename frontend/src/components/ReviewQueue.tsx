@@ -2,6 +2,7 @@
 // назначение ответственных (руководитель), закрытие с результатом.
 
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { EscalationRead, UserAdminRead } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -21,11 +22,9 @@ const STATUS_LABELS: Record<string, string> = {
   resolved: "решён",
 };
 
-export default function ReviewQueue({
-  onOpenRfq,
-}: {
-  onOpenRfq: (id: number) => void;
-}) {
+export default function ReviewQueue() {
+  const navigate = useNavigate();
+  const onOpenRfq = (id: number) => navigate(`/requests/${id}`);
   const { user } = useAuth();
   const canAssign = user?.role === "head" || user?.role === "admin";
   const readOnly = user?.role === "auditor";

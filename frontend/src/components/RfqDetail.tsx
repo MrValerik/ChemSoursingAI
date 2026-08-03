@@ -3,6 +3,7 @@
 // доступна на любом шаге.
 
 import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { api, userErrorMessage } from "../api/client";
 import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -111,7 +112,14 @@ export default function RfqDetail({
   onOpenSubstance?: (id: number) => void;
 }) {
   const { user } = useAuth();
-  const [tab, setTab] = useState<TabKey>("supplier_search");
+  // Вкладка живёт в адресе: /requests/42/dispatch открывается по ссылке и
+  // переживает перезагрузку. Неизвестное имя откатывается к поиску.
+  const { tab: tabParam } = useParams();
+  const navigate = useNavigate();
+  const tab: TabKey = TABS.some((item) => item.key === tabParam)
+    ? (tabParam as TabKey)
+    : "supplier_search";
+  const setTab = (key: TabKey) => navigate(`/requests/${rfq.id}/${key}`);
   const [searchRuns, setSearchRuns] = useState<SearchRunListItem[]>([]);
 
   const [escOpen, setEscOpen] = useState(false);

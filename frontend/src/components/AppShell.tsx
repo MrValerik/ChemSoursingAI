@@ -2,6 +2,7 @@
 // верхняя панель с поиском, уведомлениями и профилем/ролью.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { NavLink } from "react-router-dom";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import type { UserRole } from "../api/types";
 import { IconButton } from "./ui";
@@ -40,15 +41,13 @@ const NAV_ITEMS: NavItem[] = [
   { key: "settings", label: "Настройки", roles: ["admin"] },
 ];
 
-export default function AppShell({
-  section,
-  onSectionChange,
-  children,
-}: {
-  section: SectionKey;
-  onSectionChange: (s: SectionKey) => void;
-  children: ReactNode;
-}) {
+// Раздел из адресной строки может не подойти текущей роли — например, ссылку
+// на «Настройки» открыл закупщик. Матрица доступа одна и живёт здесь.
+export function isSectionAllowed(section: SectionKey, role: UserRole) {
+  return NAV_ITEMS.some((item) => item.key === section && item.roles.includes(role));
+}
+
+export default function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -74,13 +73,13 @@ export default function AppShell({
       <nav className="shell-nav">
         <div className="shell-logo">ChemSource AI</div>
         {visible.map((item) => (
-          <button
+          <NavLink
             key={item.key}
-            className={`nav-item ${section === item.key ? "active" : ""}`}
-            onClick={() => onSectionChange(item.key)}
+            to={`/${item.key}`}
+            className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
           >
             {item.label}
-          </button>
+          </NavLink>
         ))}
       </nav>
 
