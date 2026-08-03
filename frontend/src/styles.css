@@ -1806,7 +1806,8 @@ button.danger:hover {
 
 .settings-accordion > summary,
 .content-accordion > summary,
-.technical-accordion > summary {
+.technical-accordion > summary,
+.trace-subdetails > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1817,23 +1818,36 @@ button.danger:hover {
 
 .settings-accordion > summary::-webkit-details-marker,
 .content-accordion > summary::-webkit-details-marker,
-.technical-accordion > summary::-webkit-details-marker {
+.technical-accordion > summary::-webkit-details-marker,
+.trace-subdetails > summary::-webkit-details-marker {
   display: none;
 }
 
+/* Стрелка нарисована двумя границами, а не текстовым символом: у глифа своя
+   посадка в строке и свои боковые отступы, из-за чего он не совпадал с
+   оптическим центром и льнул к краю. У фигуры бокс задан явно, а поворот
+   считается от её середины. */
 .settings-accordion > summary::after,
 .content-accordion > summary::after,
-.technical-accordion > summary::after {
-  content: "⌄";
-  color: var(--muted);
-  font-size: 18px;
-  transition: transform 0.15s ease;
+.technical-accordion > summary::after,
+.trace-subdetails > summary::after {
+  content: "";
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-right: 1.8px solid var(--muted);
+  border-bottom: 1.8px solid var(--muted);
+  /* Повёрнутый квадрат «висит» выше своей геометрии — компенсируем сдвигом. */
+  transform: translateY(-22%) rotate(45deg);
+  transition: transform 160ms ease;
 }
 
 .settings-accordion[open] > summary::after,
 .content-accordion[open] > summary::after,
-.technical-accordion[open] > summary::after {
-  transform: rotate(180deg);
+.technical-accordion[open] > summary::after,
+.trace-subdetails[open] > summary::after {
+  transform: translateY(18%) rotate(225deg);
 }
 
 .settings-accordion > summary > span {
@@ -2461,7 +2475,7 @@ button.danger:hover {
 }
 
 .trace-subdetails > summary {
-  padding: 9px 10px;
+  padding: 9px 12px 9px 10px;
   cursor: pointer;
   color: var(--brand);
   font-size: 12px;
@@ -2474,7 +2488,8 @@ button.danger:hover {
 }
 
 .technical-accordion > summary {
-  padding: 11px 12px;
+  /* Справа просторнее: стрелке нужен воздух, иначе она читается как обрезанная. */
+  padding: 11px 14px 11px 12px;
   font-weight: 600;
 }
 
