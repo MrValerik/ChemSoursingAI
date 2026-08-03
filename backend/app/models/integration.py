@@ -30,7 +30,7 @@ class IntegrationSetting(Base, TimestampMixin):
 
 
 class CommunicationTestRun(Base, TimestampMixin):
-    """Аудит симуляции сообщения и явной тестовой отправки."""
+    """Аудит тестового диалога и явной тестовой отправки."""
 
     __tablename__ = "communication_test_runs"
 
@@ -40,6 +40,10 @@ class CommunicationTestRun(Base, TimestampMixin):
     )
     channel: Mapped[str] = mapped_column(String(32), index=True)
     recipient_masked: Mapped[str] = mapped_column(String(320))
+    procurement_context: Mapped[str] = mapped_column(Text)
+    subject: Mapped[str] = mapped_column(String(998), default="Тест ChemSource AI")
+    # Сохраняется для совместимости со старыми журналами/API. Для новых
+    # диалогов содержит последнюю реплику поставщика (до неё — контекст).
     customer_message: Mapped[str] = mapped_column(Text)
     additional_instructions: Mapped[str | None] = mapped_column(
         Text, default=None
@@ -55,3 +59,29 @@ class CommunicationTestRun(Base, TimestampMixin):
     error: Mapped[str | None] = mapped_column(Text, default=None)
 
     actor: Mapped["User"] = relationship()
+    messages: Mapped[list["CommunicationTestMessage"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="CommunicationTestMessage.id",
+    )
+
+
+class CommunicationTestMessage(Base, TimestampMixin):
+    """Оригинальная реплика участника тестового диалога."""
+
+    __tablename__ = "communication_test_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("communication_test_runs.id", ondelete="CASCADE"), index=True
+    )
+    sender_role: Mapped[str] = mapped_column(String(32), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    delivery_status: Mapped[str] = mapped_column(
+        String(32), default="previewed"
+    )
+    provider_message_id: Mapped[str | None] = mapped_column(
+        String(255), default=None
+    )
+
+    run: Mapped["CommunicationTestRun"] = relationship(back_populates="messages")

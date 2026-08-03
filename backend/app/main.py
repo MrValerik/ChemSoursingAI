@@ -14,6 +14,7 @@ from app import __version__
 from app.api import (
     auth,
     communication_testing,
+    communications,
     documents,
     escalations,
     extraction,
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(prompts.rfq_router)
     app.include_router(auth.router)
     app.include_router(communication_testing.router)
+    app.include_router(communications.router)
     app.include_router(documents.router)
     app.include_router(substances.router)
     app.include_router(supplier_search.router)

@@ -62,6 +62,9 @@ echo "Резервная копия БД: $backup_file"
 
 bash "$PROJECT_DIR/deploy/apply-migrations.sh" "$PROJECT_DIR"
 "${COMPOSE[@]}" up -d --build
+# Nginx resolves the backend container name when it starts. If only backend was
+# recreated, an unchanged frontend container can retain the old container IP.
+"${COMPOSE[@]}" restart frontend
 
 sudo systemctl reset-failed chemsource.service || true
 sudo systemctl start chemsource.service

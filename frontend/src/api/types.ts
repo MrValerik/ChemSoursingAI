@@ -278,6 +278,60 @@ export interface RecipientRead {
   supplier_company: string | null;
 }
 
+export interface CommunicationMessageRead {
+  id: number;
+  direction: "inbound" | "outbound";
+  channel: ChannelKind;
+  subject: string | null;
+  body: string | null;
+  status: string | null;
+  from_address: string | null;
+  to_address: string | null;
+  attachments: Record<string, unknown>[] | null;
+  created_at: string;
+}
+
+export interface CommunicationEscalationRead {
+  id: number;
+  reason: string;
+  status: string;
+  assignee: string | null;
+  note: string | null;
+  communication_id: number | null;
+  message_body: string | null;
+  created_at: string;
+}
+
+export interface SupplierConversationRead {
+  supplier_id: number | null;
+  supplier_company: string;
+  manager_id: number | null;
+  manager_name: string | null;
+  channel: ChannelKind;
+  contact: string | null;
+  recipient_status: DispatchStatusKind | null;
+  last_message_at: string | null;
+  messages: CommunicationMessageRead[];
+  escalations: CommunicationEscalationRead[];
+}
+
+export interface CommunicationOverviewRead {
+  conversations: SupplierConversationRead[];
+  unassigned_escalations: CommunicationEscalationRead[];
+}
+
+export interface EmailSyncRead {
+  fetched: number;
+  processed: number;
+  duplicates: number;
+  unmatched: number;
+  quotations_created: number;
+  followups_drafted: number;
+  followups_sent: number;
+  escalations_created: number;
+  errors: string[];
+}
+
 export type TemplateKind = "reply" | "followup" | "whatsapp";
 export type WhatsappModeration = "draft" | "pending" | "approved" | "rejected";
 
@@ -351,6 +405,8 @@ export interface CommunicationTestRun {
   id: number;
   channel: "email" | "whatsapp";
   recipient_masked: string;
+  procurement_context: string;
+  subject: string;
   customer_message: string;
   additional_instructions: string | null;
   generated_reply: string | null;
@@ -366,6 +422,16 @@ export interface CommunicationTestRun {
   provider_message_id: string | null;
   error: string | null;
   created_at: string;
+  messages: CommunicationTestMessage[];
+}
+
+export interface CommunicationTestMessage {
+  id: number;
+  sender_role: "assistant" | "supplier";
+  content: string;
+  delivery_status: string;
+  provider_message_id: string | null;
+  created_at: string;
 }
 
 export type PromptKind =
@@ -374,7 +440,8 @@ export type PromptKind =
   | "substance_identity"
   | "supplier_search"
   | "qualification"
-  | "followup";
+  | "followup"
+  | "supplier_communication";
 
 export interface PromptRead {
   id: number;

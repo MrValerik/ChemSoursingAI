@@ -12,6 +12,11 @@ from app.models import PromptTemplate, PromptVersion, Supplier, Template, User
 from app.models.enums import SupplierType, UserRole
 from app.models.manager import Manager
 from app.models.template import TemplateKind, WhatsappModeration
+from app.services.supplier_communication_prompts import (
+    FOLLOWUP_PROMPT,
+    RFQ_GENERATION_PROMPT,
+    SUPPLIER_COMMUNICATION_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +35,7 @@ _DEFAULT_PROMPTS = [
         "rfq_generation",
         "Подготовка RFQ",
         "Готовит профессиональный запрос цены и обязательных документов.",
-        "Подготовь краткий профессиональный RFQ на закупку химического сырья. "
-        "Запроси цену для каждого указанного базиса Incoterms, MOQ, срок поставки, "
-        "условия оплаты, возможность предоставления образца, CoA и TDS. Точно "
-        "сохраняй CAS и требования к качеству. Если язык письма не указан, "
-        "подготовь русский текст; по явному запросу используй английский или китайский.",
+        RFQ_GENERATION_PROMPT,
     ),
     (
         "substance_identity",
@@ -95,10 +96,16 @@ _DEFAULT_PROMPTS = [
         "followup",
         "Дозапрос недостающих данных",
         "Готовит короткое письмо только по отсутствующим полям.",
-        "Подготовь вежливый дозапрос поставщику. Запрашивай только отсутствующие "
-        "поля котировки и документы, перечисленные пользователем. Не изменяй "
-        "вещество, CAS, грейд и требования к поставке. Если язык сообщения не "
-        "указан, пиши по-русски.",
+        FOLLOWUP_PROMPT,
+    ),
+    (
+        "supplier_communication",
+        "Общение с поставщиком",
+        (
+            "Ведёт безопасный многоходовый диалог по Email или WhatsApp от "
+            "первого запроса до сбора сопоставимой котировки."
+        ),
+        SUPPLIER_COMMUNICATION_PROMPT,
     ),
 ]
 

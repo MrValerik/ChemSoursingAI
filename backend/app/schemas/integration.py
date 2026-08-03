@@ -135,9 +135,11 @@ class IntegrationConnectionRead(BaseModel):
 
 class CommunicationTestCreate(BaseModel):
     channel: Literal["email", "whatsapp"]
-    recipient: str = Field(min_length=3, max_length=320)
-    customer_message: str = Field(min_length=1, max_length=8000)
-    reply_language: Literal["ru", "en", "zh"] = "ru"
+    recipient: str = Field(default="", max_length=320)
+    procurement_context: str = Field(default="", max_length=8000)
+    # Старое имя принимается временно, чтобы не ломать существующих клиентов.
+    customer_message: str = Field(default="", max_length=8000)
+    reply_language: Literal["ru", "en", "zh"] = "en"
     additional_instructions: str = Field(default="", max_length=2000)
     delivery_mode: Literal["preview", "send"] = "preview"
     subject: str = Field(default="Тест ChemSource AI", max_length=998)
@@ -145,6 +147,7 @@ class CommunicationTestCreate(BaseModel):
 
     @field_validator(
         "recipient",
+        "procurement_context",
         "customer_message",
         "additional_instructions",
         "subject",
@@ -155,7 +158,13 @@ class CommunicationTestCreate(BaseModel):
         return str(value or "").strip()
 
     @model_validator(mode="after")
-    def validate_recipient(self) -> "CommunicationTestCreate":
+    def validate_scenario_and_recipient(self) -> "CommunicationTestCreate":
+        if not self.procurement_context and not self.customer_message:
+            raise ValueError("Укажите общую информацию о закупке или веществе")
+        if not self.recipient:
+            if self.delivery_mode == "send":
+                raise ValueError("Для реальной отправки укажите получателя")
+            return self
         if self.channel == "email":
             parsed = parseaddr(self.recipient)[1]
             if (
@@ -172,6 +181,32 @@ class CommunicationTestCreate(BaseModel):
                 )
         return self
 
+    @property
+    def scenario_text(self) -> str:
+        return self.procurement_context or self.customer_message
+
+
+class CommunicationTestContinue(BaseModel):
+    supplier_message: str = Field(min_length=1, max_length=8000)
+    recipient: str = Field(default="", max_length=320)
+    confirm_external_send: bool = False
+
+    @field_validator("supplier_message", "recipient", mode="before")
+    @classmethod
+    def clean_text(cls, value: object) -> str:
+        return str(value or "").strip()
+
+
+class CommunicationTestMessageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sender_role: Literal["assistant", "supplier"]
+    content: str
+    delivery_status: str
+    provider_message_id: str | None
+    created_at: datetime
+
 
 class CommunicationTestRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -179,6 +214,8 @@ class CommunicationTestRead(BaseModel):
     id: int
     channel: str
     recipient_masked: str
+    procurement_context: str
+    subject: str
     customer_message: str
     additional_instructions: str | None
     generated_reply: str | None
@@ -189,3 +226,4 @@ class CommunicationTestRead(BaseModel):
     provider_message_id: str | None
     error: str | None
     created_at: datetime
+    messages: list[CommunicationTestMessageRead] = Field(default_factory=list)

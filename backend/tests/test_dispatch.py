@@ -14,6 +14,8 @@ from app.connectors.email import IncomingEmail
 from app.core.db import SessionLocal
 from app.extraction.schema import ExtractedQuote
 from app.models.communication import Communication
+from app.models.escalation import Escalation
+from app.services.communication_policy import CommunicationPolicyDecision
 from app.services.email_workflow import sync_inbox
 
 
@@ -153,6 +155,13 @@ def test_select_and_dispatch(client):
     assert sent[0]["status"] == "sent"
     updated = client.get(f"/rfq/{rfq['id']}", headers=headers).json()
     assert updated["status"] == "sent"
+    overview = client.get(
+        f"/rfq/{rfq['id']}/communications", headers=headers
+    ).json()
+    assert len(overview["conversations"]) == 1
+    assert overview["conversations"][0]["supplier_id"] == s1["id"]
+    assert overview["conversations"][0]["recipient_status"] == "sent"
+    assert overview["conversations"][0]["messages"][0]["status"] == "demo"
 
     # После отправки отмена недоступна, повторная рассылка — 422 (очередь пуста).
     resp = client.delete(
@@ -251,6 +260,15 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
         ),
     )
     monkeypatch.setattr(
+        "app.services.email_workflow.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Стандартный ответ по котировке.",
+            method="test",
+        ),
+    )
+    monkeypatch.setattr(
         "app.services.email_workflow._render_followup",
         lambda *args, **kwargs: "Please provide MOQ and CoA.",
     )
@@ -279,3 +297,114 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
     quotes = client.get(f"/rfq/{rfq['id']}/quotations", headers=headers).json()
     assert len(quotes) == 1
     assert quotes[0]["price"] == 500
+
+
+def test_nonstandard_supplier_question_creates_escalation_without_reply(
+    client, monkeypatch
+):
+    headers = _login(client)
+    supplier = client.post(
+        "/suppliers",
+        json={
+            "company": "Escalation Supplier",
+            "email": "escalate@supplier.example",
+        },
+        headers=headers,
+    ).json()
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "75-07-0", "name": "Acetaldehyde", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+
+    class FakeConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="send",
+            email_delivery_mode="live",
+            email_from="buyer@example.com",
+        )
+        sent = []
+
+        def fetch_unseen(self, limit=20):
+            return [
+                IncomingEmail(
+                    uid="501",
+                    message_id="<social-501@supplier.example>",
+                    subject=f"Re: [RFQ-{rfq['id']}] Acetaldehyde",
+                    from_address="escalate@supplier.example",
+                    to_addresses=["buyer@example.com"],
+                    text="Hello, how are you?",
+                )
+            ]
+
+        def mark_seen(self, uids):
+            self.seen = uids
+
+        def send(self, **kwargs):
+            self.sent.append(kwargs)
+            return "<must-not-send@example.com>"
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Nonstandard message must not be extracted or answered")
+        ),
+    )
+    connector = FakeConnector()
+    with SessionLocal() as db:
+        result = sync_inbox(db, connector=connector)
+        escalation = db.scalar(
+            select(Escalation).where(Escalation.rfq_id == rfq["id"])
+        )
+
+    assert result.processed == 1
+    assert result.escalations_created == 1
+    assert result.quotations_created == 0
+    assert result.followups_drafted == 0
+    assert result.followups_sent == 0
+    assert connector.sent == []
+    assert escalation is not None
+    assert escalation.communication_id is not None
+    assert escalation.manager_id is not None
+    assert "Автоответ остановлен" in escalation.note
+
+    overview = client.get(
+        f"/rfq/{rfq['id']}/communications", headers=headers
+    )
+    assert overview.status_code == 200
+    conversations = overview.json()["conversations"]
+    assert len(conversations) == 1
+    assert conversations[0]["supplier_id"] == supplier["id"]
+    assert conversations[0]["supplier_company"] == "Escalation Supplier"
+    assert conversations[0]["messages"][0]["body"] == "Hello, how are you?"
+    assert conversations[0]["escalations"][0]["status"] == "open"
+    assert client.get(f"/rfq/{rfq['id']}", headers=headers).json()["status"] == "escalated"
+
+
+def test_email_sync_is_restricted_to_head_and_admin(client, monkeypatch):
+    buyer = _login(client)
+    assert (
+        client.post("/communications/email/sync", headers=buyer).status_code
+        == 403
+    )
+
+    monkeypatch.setattr(
+        "app.api.communications.sync_inbox",
+        lambda db, limit=20: SimpleNamespace(
+            as_dict=lambda: {
+                "fetched": 1,
+                "processed": 1,
+                "duplicates": 0,
+                "unmatched": 0,
+                "quotations_created": 0,
+                "followups_drafted": 0,
+                "followups_sent": 0,
+                "escalations_created": 1,
+                "errors": [],
+            }
+        ),
+    )
+    admin = _login(client, "admin")
+    response = client.post("/communications/email/sync", headers=admin)
+    assert response.status_code == 200
+    assert response.json()["escalations_created"] == 1

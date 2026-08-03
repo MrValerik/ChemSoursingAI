@@ -5,7 +5,11 @@ from app.models.communication import Communication
 from app.models.document import SupplierDocument
 from app.models.domain_rate_slot import DomainRateSlot
 from app.models.escalation import Escalation
-from app.models.integration import CommunicationTestRun, IntegrationSetting
+from app.models.integration import (
+    CommunicationTestMessage,
+    CommunicationTestRun,
+    IntegrationSetting,
+)
 from app.models.intermediary import Intermediary
 from app.models.manager import Manager
 from app.models.prompt import PromptTemplate, PromptVersion, RfqAiSetting
@@ -44,6 +48,7 @@ __all__ = [
     "Intermediary",
     "Escalation",
     "IntegrationSetting",
+    "CommunicationTestMessage",
     "CommunicationTestRun",
     "SearchRun",
     "AgentRun",
