@@ -7,7 +7,7 @@ import { LogoMark, LogoWord } from "./Logo";
 import { applyTheme, readTheme, type Theme } from "../theme";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import type { UserRole } from "../api/types";
-import { IconButton } from "./ui";
+import { Icon, IconButton } from "./ui";
 
 export type SectionKey =
   | "requests"
@@ -40,8 +40,8 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["buyer", "head", "admin", "auditor"],
   },
   { key: "review", label: "Ручной разбор", roles: ["buyer", "head", "auditor"] },
-  { key: "templates", label: "Шаблоны", roles: ["buyer", "head", "admin", "auditor"] },
-  { key: "prompts", label: "ИИ-промпты", roles: ["buyer", "head", "admin", "auditor"] },
+  { key: "templates", label: "Шаблоны", roles: ["admin"] },
+  { key: "prompts", label: "ИИ-промпты", roles: ["admin"] },
   { key: "communication-testing", label: "Тестирование общения", roles: ["admin"] },
   { key: "settings", label: "Настройки", roles: ["admin"], atBottom: true },
 ];
@@ -51,6 +51,11 @@ const NAV_ITEMS: NavItem[] = [
 export function isSectionAllowed(section: SectionKey, role: UserRole) {
   return NAV_ITEMS.some((item) => item.key === section && item.roles.includes(role));
 }
+
+// Замок ставится по самой матрице, а не списком ключей: добавится раздел с
+// доступом только для администратора — пометка появится сама.
+const isAdminOnly = (item: NavItem) =>
+  item.roles.length === 1 && item.roles[0] === "admin";
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -88,8 +93,21 @@ export default function AppShell({ children }: { children: ReactNode }) {
             className={({ isActive }) =>
               `nav-item${item.atBottom ? " is-bottom" : ""}${isActive ? " active" : ""}`
             }
+            title={
+              isAdminOnly(item)
+                ? `${item.label} — раздел виден только администратору`
+                : undefined
+            }
           >
-            {item.label}
+            <span>{item.label}</span>
+            {isAdminOnly(item) && (
+              <Icon
+                name="lock"
+                size={13}
+                className="nav-item-lock"
+                aria-label="Только для администратора"
+              />
+            )}
           </NavLink>
         ))}
       </nav>

@@ -75,7 +75,8 @@ export type IconName =
   | "save"
   | "trash"
   | "sun"
-  | "moon";
+  | "moon"
+  | "lock";
 
 export function Icon({
   name,
@@ -101,6 +102,12 @@ export function Icon({
       </>
     ),
     moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5" />,
+    lock: (
+      <>
+        <rect x="5" y="10.5" width="14" height="9.5" rx="2.5" />
+        <path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" />
+      </>
+    ),
     "chevron-down": <path d="m6 9 6 6 6-6" />,
     close: (
       <>

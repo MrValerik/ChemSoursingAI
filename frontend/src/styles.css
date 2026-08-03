@@ -501,7 +501,9 @@ button.is-busy:disabled {
 }
 /* Пункт меню — ссылка (NavLink), поэтому нужны display и снятие подчёркивания. */
 .nav-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   background: transparent;
   color: var(--sidebar-text);
   text-align: left;
@@ -511,6 +513,15 @@ button.is-busy:disabled {
   text-decoration: none;
   transition: background 120ms ease, color 120ms ease;
 }
+/* Замок у разделов, доступных только администратору: он не должен спорить с
+   названием, поэтому уходит к правому краю и приглушён. */
+.nav-item-lock {
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+.nav-item:hover .nav-item-lock,
+.nav-item.active .nav-item-lock { opacity: 0.75; }
 /* Административные разделы прижаты к низу колонки, чтобы не мешаться в
    ежедневном списке: между ними и рабочими разделами — весь свободный ход. */
 .nav-item.is-bottom { margin-top: auto; }
