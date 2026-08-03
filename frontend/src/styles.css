@@ -1966,16 +1966,6 @@ button.danger:hover {
   font: inherit;
 }
 
-.search-results-header > strong {
-  display: grid;
-  min-width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--brand-soft);
-  color: var(--brand);
-}
-
 .content-accordion {
   margin-top: 10px;
   border: 1px solid var(--border);
