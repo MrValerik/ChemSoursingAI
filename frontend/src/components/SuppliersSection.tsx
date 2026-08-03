@@ -151,7 +151,7 @@ export default function SuppliersSection({
     sortKey === key ? (sortAsc ? " ↑" : " ↓") : "";
 
   return (
-    <div className="requests-page">
+    <div className="requests-page suppliers-page">
       <div className="requests-header">
         <div>
           <h1>Поставщики</h1>

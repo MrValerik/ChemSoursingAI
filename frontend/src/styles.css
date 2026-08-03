@@ -231,7 +231,9 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .login-hint { margin-top: 12px; text-align: center; }
 
 /* --- Каркас: левое меню + контент --- */
-.shell { display: flex; min-height: 100vh; }
+/* Каркас занимает ровно экран: прокручивается содержимое раздела, а не окно.
+   Это позволяет таблицам тянуться на всю доступную высоту. */
+.shell { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
 .shell-nav {
   width: 200px;
   flex-shrink: 0;
@@ -259,7 +261,13 @@ table.summary tbody tr:hover { background: #f8fafc; }
 .nav-item:hover { background: rgba(255, 255, 255, 0.1); }
 .nav-item.active { background: rgba(255, 255, 255, 0.18); color: #fff; font-weight: 600; }
 
-.shell-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.shell-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 
 /* --- Верхняя панель --- */
 .shell-topbar {
@@ -348,7 +356,7 @@ table.summary tbody tr:hover { background: #f8fafc; }
   line-height: 1.45;
 }
 
-.shell-content { flex: 1; min-width: 0; }
+.shell-content { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
 
 /* --- Заглушки разделов и загрузка --- */
 .placeholder { padding: 24px; }
@@ -696,10 +704,20 @@ button.danger:hover {
 
 /* ===== Шаг 5: ручной разбор, поставщики, шаблоны ===== */
 
+/* Страница тянется во всю высоту раздела, чтобы таблица забирала весь
+   остаток: шапка, фильтры и заголовок — фиксированы, прокручивается список. */
+.suppliers-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .suppliers-layout {
   display: flex;
   gap: 16px;
-  align-items: flex-start;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
   margin-top: 5px;
 }
 .suppliers-list, .templates-list { flex: 1; min-width: 0; }
@@ -710,8 +728,15 @@ button.danger:hover {
    Строка 40px, липкая шапка, числа сравниваются по разряду. Ограничено
    .suppliers-list: «Запросы» и «Ручной разбор» делят класс .requests-table. */
 .suppliers-list.table-panel {
-  max-height: calc(100vh - 250px);
-  min-height: 320px;
+  height: 100%;
+  min-height: 0;
+  margin-bottom: 0;
+  overflow: auto;
+}
+
+.suppliers-layout > .supplier-card {
+  max-height: 100%;
+  margin-bottom: 0;
   overflow: auto;
 }
 
