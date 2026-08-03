@@ -4,8 +4,10 @@
 import type {
   AnalogVariation,
   ChannelStatus,
+  CommunicationOverviewRead,
   IdentificationMethod,
   EmailIntegration,
+  EmailSyncRead,
   EscalationRead,
   PriceHistoryItem,
   PromptRead,
@@ -365,6 +367,14 @@ export const api = {
 
   removeRecipient: (rfqId: number, recipientId: number) =>
     request<void>(`/rfq/${rfqId}/recipients/${recipientId}`, { method: "DELETE" }),
+
+  communicationOverview: (rfqId: number) =>
+    request<CommunicationOverviewRead>(`/rfq/${rfqId}/communications`),
+
+  syncEmailCommunications: (limit = 20) =>
+    request<EmailSyncRead>(`/communications/email/sync?limit=${limit}`, {
+      method: "POST",
+    }),
 
   listEscalationQueue: () => request<EscalationRead[]>(`/escalations`),
 

@@ -17,11 +17,19 @@ from app.connectors.email import (
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.extraction.pipeline import extract_quote
 from app.models.communication import Communication
-from app.models.enums import Channel, CommDirection, RFQStatus
+from app.models.enums import (
+    Channel,
+    CommDirection,
+    EscalationReason,
+    EscalationStatus,
+    RFQStatus,
+)
+from app.models.escalation import Escalation
 from app.models.manager import Manager
 from app.models.rfq import RFQ
 from app.schemas.quotation import QuotationCreate
 from app.services.completeness import evaluate_completeness
+from app.services.communication_policy import classify_supplier_message
 from app.services.document_intake import store_incoming_attachments
 from app.services.integration_settings import effective_email_settings
 from app.services.prompt_service import get_rfq_prompt_context
@@ -45,6 +53,7 @@ class EmailSyncSummary:
     quotations_created: int = 0
     followups_drafted: int = 0
     followups_sent: int = 0
+    escalations_created: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -56,6 +65,7 @@ class EmailSyncSummary:
             "quotations_created": self.quotations_created,
             "followups_drafted": self.followups_drafted,
             "followups_sent": self.followups_sent,
+            "escalations_created": self.escalations_created,
             "errors": self.errors,
         }
 
@@ -256,6 +266,33 @@ def sync_inbox(
                 )
                 or None
             )
+
+            policy = classify_supplier_message(
+                message.text,
+                rfq_name=rfq.name,
+                rfq_cas=rfq.cas,
+            )
+            if not policy.auto_reply_allowed:
+                db.add(
+                    Escalation(
+                        rfq_id=rfq.id,
+                        communication_id=inbound.id,
+                        manager_id=manager.id if manager else None,
+                        reason=EscalationReason.OTHER,
+                        status=EscalationStatus.OPEN,
+                        note=(
+                            "Автоответ остановлен: "
+                            f"{policy.explanation} "
+                            f"Категория: {policy.category}."
+                        ),
+                    )
+                )
+                rfq.status = RFQStatus.ESCALATED
+                db.commit()
+                summary.escalations_created += 1
+                summary.processed += 1
+                seen_uids.append(message.uid)
+                continue
 
             system_prompt, instructions = get_rfq_prompt_context(
                 db, rfq.id, kind="extraction"

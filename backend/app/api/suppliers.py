@@ -345,15 +345,31 @@ def dispatch(
 
     for recipient in queued:
         if recipient.channel == Channel.WHATSAPP:
-            if whatsapp_connector is None:
-                recipient.status = DispatchStatus.SENT
-                recipient.note = "отправлено (демо; WhatsApp выключен)"
-                sent_any = True
-                continue
             manager = next(
                 (item for item in recipient.supplier.managers if item.whatsapp),
                 None,
             )
+            if whatsapp_connector is None:
+                recipient.status = DispatchStatus.SENT
+                recipient.note = "отправлено (демо; WhatsApp выключен)"
+                db.add(
+                    Communication(
+                        rfq_id=rfq.id,
+                        manager_id=manager.id if manager else None,
+                        direction=CommDirection.OUTBOUND,
+                        channel=Channel.WHATSAPP,
+                        subject=None,
+                        body=body,
+                        from_address=None,
+                        to_address=manager.whatsapp if manager else None,
+                        status="demo",
+                        thread_id=None,
+                        external_id=None,
+                        attachments=None,
+                    )
+                )
+                sent_any = True
+                continue
             if manager is None:
                 recipient.status = DispatchStatus.ERROR
                 recipient.note = "у поставщика отсутствует WhatsApp"
@@ -390,15 +406,31 @@ def dispatch(
             )
             sent_any = True
             continue
-        if not live_email:
-            recipient.status = DispatchStatus.SENT
-            recipient.note = "отправлено (демо; SMTP выключен)"
-            sent_any = True
-            continue
-
         manager = next(
             (item for item in recipient.supplier.managers if item.email), None
         )
+        if not live_email:
+            recipient.status = DispatchStatus.SENT
+            recipient.note = "отправлено (демо; SMTP выключен)"
+            db.add(
+                Communication(
+                    rfq_id=rfq.id,
+                    manager_id=manager.id if manager else None,
+                    direction=CommDirection.OUTBOUND,
+                    channel=Channel.EMAIL,
+                    subject=subject,
+                    body=body,
+                    from_address=email_settings.email_from or None,
+                    to_address=manager.email if manager else None,
+                    status="demo",
+                    thread_id=None,
+                    external_id=None,
+                    attachments=None,
+                )
+            )
+            sent_any = True
+            continue
+
         if manager is None:
             recipient.status = DispatchStatus.ERROR
             recipient.note = "у поставщика отсутствует Email"

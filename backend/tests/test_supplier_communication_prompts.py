@@ -28,6 +28,8 @@ from app.services.supplier_communication_prompts import (
         "Начинай по делу",
         "Не добавляй в тело строку «Subject»",
         "служебные оговорки о тесте",
+        "включая «как ваши дела»",
+        "обрабатывать сотрудник после эскалации",
     ],
 )
 def test_dialogue_prompt_keeps_observed_procurement_rules(required_rule):
