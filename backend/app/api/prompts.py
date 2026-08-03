@@ -23,6 +23,7 @@ PROMPT_KINDS = {
     "supplier_search",
     "qualification",
     "followup",
+    "supplier_communication",
 }
 _EDIT_ROLES = {UserRole.HEAD, UserRole.ADMIN}
 _SEE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN, UserRole.AUDITOR}

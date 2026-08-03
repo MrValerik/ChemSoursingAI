@@ -10,6 +10,7 @@ const KIND_LABELS: Record<PromptKind, string> = {
   supplier_search: "Поиск поставщиков",
   qualification: "Квалификация",
   followup: "Дозапрос данных",
+  supplier_communication: "Общение с поставщиком",
 };
 
 const SAMPLE =

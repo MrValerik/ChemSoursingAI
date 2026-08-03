@@ -219,10 +219,10 @@ def test_communication_testing_preview_and_explicit_delivery(
     client, monkeypatch
 ):
     admin = _login(client)
-    prompts = []
+    llm_calls = []
 
     def fake_generate_text(self, **kwargs):
-        prompts.append(kwargs["user_text"])
+        llm_calls.append(kwargs)
         if "История диалога" in kwargs["user_text"]:
             return "Thank you. Please also confirm the lead time and Incoterms."
         return "Hello. We need 50 kg of ammonia. Please quote and provide a CoA."
@@ -250,7 +250,10 @@ def test_communication_testing_preview_and_explicit_delivery(
     assert [message["sender_role"] for message in preview.json()["messages"]] == [
         "assistant"
     ]
-    assert "первое сообщение" in prompts[0]
+    assert "первое сообщение" in llm_calls[0]["user_text"]
+    assert "лабораторный образец" in llm_calls[0]["system_prompt"]
+    assert "Канал — Email" in llm_calls[0]["additional_instructions"]
+    assert "первый контакт" in llm_calls[0]["additional_instructions"]
 
     continued = client.post(
         f"/communication-testing/{preview.json()['id']}/messages",
@@ -266,9 +269,10 @@ def test_communication_testing_preview_and_explicit_delivery(
         "supplier",
         "assistant",
     ]
-    assert "50 кг аммиака" in prompts[1]
-    assert "ПОСТАВЩИК_НЕДОВЕРЕННЫЙ" in prompts[1]
-    assert "USD 700 per ton" in prompts[1]
+    assert "50 кг аммиака" in llm_calls[1]["user_text"]
+    assert "ПОСТАВЩИК_НЕДОВЕРЕННЫЙ" in llm_calls[1]["user_text"]
+    assert "USD 700 per ton" in llm_calls[1]["user_text"]
+    assert "продолжение диалога" in llm_calls[1]["additional_instructions"]
 
     buyer = _login(client, "ivanov")
     assert (
@@ -354,6 +358,7 @@ def test_communication_testing_preview_and_explicit_delivery(
     )
     assert sent_whatsapp.status_code == 201
     assert sent_whatsapp.json()["provider_message_id"] == "wamid.test"
+    assert "Канал — WhatsApp" in llm_calls[-1]["additional_instructions"]
 
     history = client.get("/communication-testing", headers=admin)
     assert history.status_code == 200

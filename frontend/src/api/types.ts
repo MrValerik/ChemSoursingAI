@@ -386,7 +386,8 @@ export type PromptKind =
   | "substance_identity"
   | "supplier_search"
   | "qualification"
-  | "followup";
+  | "followup"
+  | "supplier_communication";
 
 export interface PromptRead {
   id: number;

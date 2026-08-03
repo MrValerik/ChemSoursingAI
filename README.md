@@ -228,6 +228,8 @@ OCR и долговременное хранилище файлов остают
   целевые компоненты
 - [`docs/AI_QUALITY_ROADMAP.md`](docs/AI_QUALITY_ROADMAP.md) — план
   воспроизводимости, replay, eval, budgets и наблюдаемости ИИ-конвейера
+- [`docs/SUPPLIER_COMMUNICATION_PROMPTS.md`](docs/SUPPLIER_COMMUNICATION_PROMPTS.md) —
+  правила первого RFQ и многоходового общения с поставщиками по Email/WhatsApp
 - [`docs/RUN.md`](docs/RUN.md) — запуск, тестирование и безопасное включение
   интеграций
 - [`docs/YANDEX_VM.md`](docs/YANDEX_VM.md) — запуск, остановка и проверка

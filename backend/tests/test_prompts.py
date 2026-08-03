@@ -91,6 +91,14 @@ def test_prompt_versions_and_roles(client):
     buyer = _auth(client, "ivanov")
     prompts = client.get("/prompts", headers=buyer).json()
     assert {p["kind"] for p in prompts} >= {"extraction", "supplier_search"}
+    supplier_communication = next(
+        p for p in prompts if p["kind"] == "supplier_communication"
+    )
+    communication_text = supplier_communication["system_prompt"].casefold()
+    assert "лабораторный образец" in communication_text
+    assert "incoterm" in communication_text
+    assert "dear friend" in communication_text
+    assert "не подтверждай заказ" in communication_text
     supplier_search_prompt = next(
         p for p in prompts if p["kind"] == "supplier_search"
     )
