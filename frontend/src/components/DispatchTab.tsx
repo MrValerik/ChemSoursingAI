@@ -1,33 +1,14 @@
-// Вкладка «Рассылка» (раздел 10 UI/UX-плана): получатели и статусы доставки.
-// Email отправляется через SMTP только после явного включения live-режима.
+// Вкладка «Общение»: история диалогов с поставщиками и очередь эскалаций.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type {
   CommunicationEscalationRead,
   CommunicationOverviewRead,
-  DispatchStatusKind,
-  RecipientRead,
   RFQRead,
   SupplierConversationRead,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-
-const STATUS_LABELS: Record<DispatchStatusKind, string> = {
-  queued: "в очереди",
-  sent: "отправлено",
-  delivered: "доставлено",
-  read: "прочитано",
-  error: "ошибка",
-};
-
-const STATUS_TONE: Record<DispatchStatusKind, string> = {
-  queued: "neutral",
-  sent: "info",
-  delivered: "ok",
-  read: "ok",
-  error: "warn",
-};
 
 const EMPTY_OVERVIEW: CommunicationOverviewRead = {
   conversations: [],
@@ -56,12 +37,10 @@ export default function DispatchTab({
   const { user } = useAuth();
   const readOnly = user?.role === "auditor";
 
-  const [recipients, setRecipients] = useState<RecipientRead[]>([]);
   const [overview, setOverview] = useState<CommunicationOverviewRead>(EMPTY_OVERVIEW);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [escalationBusy, setEscalationBusy] = useState<number | null>(null);
 
@@ -69,11 +48,7 @@ export default function DispatchTab({
 
   const load = async () => {
     try {
-      const [recipientItems, communicationItems] = await Promise.all([
-        api.listRecipients(rfqId),
-        api.communicationOverview(rfqId),
-      ]);
-      setRecipients(recipientItems);
+      const communicationItems = await api.communicationOverview(rfqId);
       setOverview(communicationItems);
       setSelectedKey((current) => {
         if (
@@ -101,7 +76,6 @@ export default function DispatchTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rfqId]);
 
-  const queued = recipients.filter((r) => r.status === "queued");
   const selectedConversation =
     overview.conversations.find((item) => conversationKey(item) === selectedKey) ??
     null;
@@ -109,30 +83,6 @@ export default function DispatchTab({
     ...overview.unassigned_escalations,
     ...overview.conversations.flatMap((item) => item.escalations),
   ].filter((item) => item.status !== "resolved");
-
-  const dispatch = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.dispatchRfq(rfqId);
-      await load();
-      onStatusChanged();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async (id: number) => {
-    setError(null);
-    try {
-      await api.removeRecipient(rfqId, id);
-      await load();
-    } catch (e) {
-      setError(String(e));
-    }
-  };
 
   const syncEmail = async () => {
     setSyncing(true);
@@ -330,90 +280,6 @@ export default function DispatchTab({
         )}
       </div>
 
-      <div className="panel">
-        <h2>Первое письмо поставщикам</h2>
-        <p className="note">
-          Текст формируется из параметров запроса. Перед реальной отправкой его
-          можно проверить вместе со списком получателей.
-        </p>
-        {rfq.rfq_subject && (
-          <p>
-            <b>Тема:</b> {rfq.rfq_subject}
-          </p>
-        )}
-        {rfq.rfq_body ? (
-          <>
-            <pre className="letter">{rfq.rfq_body}</pre>
-            <div className="actions">
-              <button
-                className="secondary"
-                onClick={() => void navigator.clipboard.writeText(rfq.rfq_body ?? "")}
-              >
-                Скопировать текст
-              </button>
-            </div>
-          </>
-        ) : (
-          <p className="note">Текст первого письма ещё не сформирован.</p>
-        )}
-      </div>
-
-      <div className="panel">
-        <div className="tab-toolbar">
-          <h2>Получатели и отправка</h2>
-          {!readOnly && (
-            <button onClick={() => void dispatch()} disabled={busy || queued.length === 0}>
-              {busy ? "Отправка…" : `Отправить выбранным (${queued.length})`}
-            </button>
-          )}
-        </div>
-        <p className="note">
-          Email использует SMTP в live-режиме. Без него сохраняется безопасная
-          демонстрация; WhatsApp пока работает только как демонстрационный канал.
-        </p>
-
-        {recipients.length === 0 ? (
-          <p className="note">
-            Получатели не выбраны — добавьте их на вкладке «Отобранные поставщики».
-          </p>
-        ) : (
-          <table className="summary">
-          <thead>
-            <tr>
-              <th>Получатель</th>
-              <th>Канал</th>
-              <th>Статус</th>
-              <th>Примечание</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {recipients.map((r) => (
-              <tr key={r.id}>
-                <td>{r.supplier_company ?? `Поставщик #${r.supplier_id}`}</td>
-                <td>{r.channel}</td>
-                <td>
-                  <span className={`badge tone-${STATUS_TONE[r.status]}`}>
-                    {STATUS_LABELS[r.status]}
-                  </span>
-                </td>
-                <td className="note">{r.note ?? "—"}</td>
-                <td>
-                  {!readOnly && r.status === "queued" && (
-                    <button
-                      className="secondary btn-small"
-                      onClick={() => void remove(r.id)}
-                    >
-                      Убрать
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          </table>
-        )}
-      </div>
     </div>
   );
 }
