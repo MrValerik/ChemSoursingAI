@@ -224,10 +224,14 @@ def test_communication_testing_preview_and_explicit_delivery(
     def fake_generate_text(self, **kwargs):
         llm_calls.append(kwargs)
         if "История диалога" in kwargs["user_text"]:
-            return "**Thank you.** Please also confirm the lead time and Incoterms."
+            return (
+                "**Thank you.** Please also confirm the lead time and Incoterms. "
+                "This is a test message."
+            )
         return (
-            "# Request\n**Hello.** We need 50 kg of ammonia.\n"
-            "* Please quote and provide a `CoA`."
+            "**Subject: Request**\n**Hello.** We need 50 kg of ammonia.\n"
+            "* Please quote and provide a `CoA`.\n"
+            "This message was generated for testing purposes."
         )
 
     monkeypatch.setattr(
@@ -251,7 +255,7 @@ def test_communication_testing_preview_and_explicit_delivery(
     assert preview.json()["recipient_masked"] == "не задан"
     assert preview.json()["procurement_context"] == "50 кг аммиака, нужны цена и CoA"
     assert preview.json()["generated_reply"] == (
-        "Request\nHello. We need 50 kg of ammonia.\n"
+        "Hello. We need 50 kg of ammonia.\n"
         "Please quote and provide a CoA."
     )
     assert "*" not in preview.json()["generated_reply"]

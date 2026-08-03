@@ -41,6 +41,28 @@ _MARKDOWN_BULLET_RE = re.compile(r"(?m)^[ \t]*[*+][ \t]+")
 _MARKDOWN_BOLD_RE = re.compile(r"(\*\*|__)(?=\S)(.*?\S)\1", re.DOTALL)
 _MARKDOWN_ITALIC_RE = re.compile(r"(?<!\w)([*_])(?=\S)([^\n]*?\S)\1(?!\w)")
 _EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
+_LEADING_SUBJECT_RE = re.compile(
+    r"\A[ \t]*(?:subject(?: line)?|тема(?: письма)?|主题)"
+    r"[ \t]*(?:[:：]|[-–—])[ \t]*[^\n]*(?:\n+|\Z)",
+    re.IGNORECASE,
+)
+_TRAILING_TEST_NOTE_RE = re.compile(
+    r"(?:\s*(?:(?:please\s+note\s+that|note|обратите\s+внимание|примечание)"
+    r"\s*[:：-]?\s*)?(?:"
+    r"this\s+is\s+(?:a\s+)?test(?:ing)?\s+message|"
+    r"this\s+is\s+(?:a\s+)?simulated\s+(?:message|conversation)|"
+    r"this\s+message\s+(?:is|was)\s+(?:generated|created)\s+"
+    r"(?:for\s+testing(?:\s+purposes)?|in\s+test\s+mode)|"
+    r"for\s+testing\s+purposes\s+only|"
+    r"это\s+тестовое\s+сообщение|"
+    r"это\s+(?:только\s+)?(?:тест|симуляция)(?:\s+переписки)?|"
+    r"(?:это\s+)?сообщение\s+(?:создано|сгенерировано|предназначено)\s+"
+    r"(?:только\s+)?(?:для\s+тестирования|в\s+тестовом\s+режиме)|"
+    r"сообщение\s+не\s+будет\s+отправлено|"
+    r"这是(?:一条)?测试消息|本消息仅用于测试"
+    r")[.!。]*\s*)+\Z",
+    re.IGNORECASE,
+)
 
 
 class CommunicationTestError(RuntimeError):
@@ -48,7 +70,7 @@ class CommunicationTestError(RuntimeError):
 
 
 def _plain_text_message(value: str) -> str:
-    """Удаляет служебную Markdown-разметку из исходящего сообщения."""
+    """Удаляет разметку и тестовые служебные пометки из сообщения."""
     text = value.strip().replace("```", "").replace("`", "")
     text = _MARKDOWN_HEADING_RE.sub("", text)
     text = _MARKDOWN_BULLET_RE.sub("", text)
@@ -56,6 +78,9 @@ def _plain_text_message(value: str) -> str:
     text = _MARKDOWN_ITALIC_RE.sub(r"\2", text)
     text = text.replace("*", "")
     text = "\n".join(line.rstrip() for line in text.splitlines())
+    text = _EXCESS_BLANK_LINES_RE.sub("\n\n", text).strip()
+    text = _LEADING_SUBJECT_RE.sub("", text).strip()
+    text = _TRAILING_TEST_NOTE_RE.sub("", text).strip()
     return _EXCESS_BLANK_LINES_RE.sub("\n\n", text).strip()
 
 

@@ -25,6 +25,9 @@ from app.services.supplier_communication_prompts import (
         "как живой сотрудник отдела закупок",
         "Никогда не используй Markdown",
         "один–три наиболее важных связанных вопроса",
+        "Начинай по делу",
+        "Не добавляй в тело строку «Subject»",
+        "служебные оговорки о тесте",
     ],
 )
 def test_dialogue_prompt_keeps_observed_procurement_rules(required_rule):
@@ -49,15 +52,17 @@ def test_followup_only_requests_missing_or_conflicting_terms():
 
 
 def test_email_and_whatsapp_have_different_style_constraints():
-    assert "100–180 слов" in CHANNEL_INSTRUCTIONS["email"]
-    assert "2–6 коротких строк" in CHANNEL_INSTRUCTIONS["whatsapp"]
+    assert "50–100 слов" in CHANNEL_INSTRUCTIONS["email"]
+    assert "1–4 короткие строки" in CHANNEL_INSTRUCTIONS["whatsapp"]
+    assert "сразу переходи к сути" in CHANNEL_INSTRUCTIONS["email"]
+    assert "без долгого приветствия" in CHANNEL_INSTRUCTIONS["whatsapp"]
     assert "dear friend" in CHANNEL_INSTRUCTIONS["whatsapp"]
     assert "без Markdown" in CHANNEL_INSTRUCTIONS["email"]
     assert "звёздочки" in CHANNEL_INSTRUCTIONS["whatsapp"]
 
 
 def test_plain_text_message_removes_markdown_without_damaging_product_text():
-    generated = """# Quotation request
+    generated = """**Subject: Quotation request**
 **Hello, Anna.**
 * Please quote X-100, 2M solution.
 * Please send the `CoA`.*
@@ -65,15 +70,39 @@ def test_plain_text_message_removes_markdown_without_damaging_product_text():
 
 
 Thank you.
+This is a test message.
 """
 
     result = _plain_text_message(generated)
 
     assert result == (
-        "Quotation request\n"
         "Hello, Anna.\n"
         "Please quote X-100, 2M solution.\n"
         "Please send the CoA.\n\n"
         "Thank you."
     )
     assert "*" not in result
+
+
+@pytest.mark.parametrize(
+    ("generated", "expected"),
+    [
+        (
+            "Тема письма: Запрос цены\n\nЗдравствуйте. Нужна цена.\n"
+            "Это сообщение создано в тестовом режиме.",
+            "Здравствуйте. Нужна цена.",
+        ),
+        (
+            "Subject - RFQ\nHello. Please confirm MOQ. For testing purposes only.",
+            "Hello. Please confirm MOQ.",
+        ),
+        (
+            "主题：询价\n您好。请确认最小起订量。\n这是测试消息。",
+            "您好。请确认最小起订量。",
+        ),
+    ],
+)
+def test_plain_text_message_removes_subject_and_trailing_test_note(
+    generated, expected
+):
+    assert _plain_text_message(generated) == expected
