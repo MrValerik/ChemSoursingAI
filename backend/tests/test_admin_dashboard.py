@@ -224,8 +224,11 @@ def test_communication_testing_preview_and_explicit_delivery(
     def fake_generate_text(self, **kwargs):
         llm_calls.append(kwargs)
         if "История диалога" in kwargs["user_text"]:
-            return "Thank you. Please also confirm the lead time and Incoterms."
-        return "Hello. We need 50 kg of ammonia. Please quote and provide a CoA."
+            return "**Thank you.** Please also confirm the lead time and Incoterms."
+        return (
+            "# Request\n**Hello.** We need 50 kg of ammonia.\n"
+            "* Please quote and provide a `CoA`."
+        )
 
     monkeypatch.setattr(
         "app.services.communication_testing.LLMClient.generate_text",
@@ -247,6 +250,11 @@ def test_communication_testing_preview_and_explicit_delivery(
     assert preview.json()["status"] == "previewed"
     assert preview.json()["recipient_masked"] == "не задан"
     assert preview.json()["procurement_context"] == "50 кг аммиака, нужны цена и CoA"
+    assert preview.json()["generated_reply"] == (
+        "Request\nHello. We need 50 kg of ammonia.\n"
+        "Please quote and provide a CoA."
+    )
+    assert "*" not in preview.json()["generated_reply"]
     assert [message["sender_role"] for message in preview.json()["messages"]] == [
         "assistant"
     ]
@@ -264,6 +272,7 @@ def test_communication_testing_preview_and_explicit_delivery(
         headers=admin,
     )
     assert continued.status_code == 201
+    assert "*" not in continued.json()["generated_reply"]
     assert [message["sender_role"] for message in continued.json()["messages"]] == [
         "assistant",
         "supplier",

@@ -36,9 +36,27 @@ _LANGUAGE_INSTRUCTIONS = {
 
 _MAX_TRANSCRIPT_CHARS = 24_000
 
+_MARKDOWN_HEADING_RE = re.compile(r"(?m)^[ \t]{0,3}#{1,6}[ \t]+")
+_MARKDOWN_BULLET_RE = re.compile(r"(?m)^[ \t]*[*+][ \t]+")
+_MARKDOWN_BOLD_RE = re.compile(r"(\*\*|__)(?=\S)(.*?\S)\1", re.DOTALL)
+_MARKDOWN_ITALIC_RE = re.compile(r"(?<!\w)([*_])(?=\S)([^\n]*?\S)\1(?!\w)")
+_EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
+
 
 class CommunicationTestError(RuntimeError):
     """Безопасная ошибка теста, пригодная для показа администратору."""
+
+
+def _plain_text_message(value: str) -> str:
+    """Удаляет служебную Markdown-разметку из исходящего сообщения."""
+    text = value.strip().replace("```", "").replace("`", "")
+    text = _MARKDOWN_HEADING_RE.sub("", text)
+    text = _MARKDOWN_BULLET_RE.sub("", text)
+    text = _MARKDOWN_BOLD_RE.sub(r"\2", text)
+    text = _MARKDOWN_ITALIC_RE.sub(r"\2", text)
+    text = text.replace("*", "")
+    text = "\n".join(line.rstrip() for line in text.splitlines())
+    return _EXCESS_BLANK_LINES_RE.sub("\n\n", text).strip()
 
 
 def _load_run(db: Session, run_id: int) -> CommunicationTestRun | None:
@@ -163,15 +181,17 @@ def _generate_reply(
     run.model = getattr(client, "model", None)
     db.commit()
     try:
-        reply = client.generate_text(
-            system_prompt=(
-                get_active_prompt_text(db, "supplier_communication")
-                or SUPPLIER_COMMUNICATION_PROMPT
-            ),
-            user_text=user_text,
-            additional_instructions=_generation_instructions(run, stage=stage),
-            max_tokens=512,
-        ).strip()
+        reply = _plain_text_message(
+            client.generate_text(
+                system_prompt=(
+                    get_active_prompt_text(db, "supplier_communication")
+                    or SUPPLIER_COMMUNICATION_PROMPT
+                ),
+                user_text=user_text,
+                additional_instructions=_generation_instructions(run, stage=stage),
+                max_tokens=512,
+            )
+        )
     except LLMUnavailableError as exc:
         run.status = "llm_error"
         run.error = (

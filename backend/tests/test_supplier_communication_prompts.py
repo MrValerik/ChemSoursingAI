@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.services.communication_testing import _plain_text_message
 from app.services.supplier_communication_prompts import (
     CHANNEL_INSTRUCTIONS,
     FOLLOWUP_PROMPT,
@@ -21,6 +22,9 @@ from app.services.supplier_communication_prompts import (
         "Не соглашайся на оплату",
         "После одного вежливого напоминания",
         "Не используй фамильярные обращения",
+        "как живой сотрудник отдела закупок",
+        "Никогда не используй Markdown",
+        "один–три наиболее важных связанных вопроса",
     ],
 )
 def test_dialogue_prompt_keeps_observed_procurement_rules(required_rule):
@@ -48,3 +52,28 @@ def test_email_and_whatsapp_have_different_style_constraints():
     assert "100–180 слов" in CHANNEL_INSTRUCTIONS["email"]
     assert "2–6 коротких строк" in CHANNEL_INSTRUCTIONS["whatsapp"]
     assert "dear friend" in CHANNEL_INSTRUCTIONS["whatsapp"]
+    assert "без Markdown" in CHANNEL_INSTRUCTIONS["email"]
+    assert "звёздочки" in CHANNEL_INSTRUCTIONS["whatsapp"]
+
+
+def test_plain_text_message_removes_markdown_without_damaging_product_text():
+    generated = """# Quotation request
+**Hello, Anna.**
+* Please quote X-100, 2M solution.
+* Please send the `CoA`.*
+
+
+
+Thank you.
+"""
+
+    result = _plain_text_message(generated)
+
+    assert result == (
+        "Quotation request\n"
+        "Hello, Anna.\n"
+        "Please quote X-100, 2M solution.\n"
+        "Please send the CoA.\n\n"
+        "Thank you."
+    )
+    assert "*" not in result
