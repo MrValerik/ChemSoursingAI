@@ -263,7 +263,7 @@ export default function SubstancesSection() {
   };
 
   return (
-    <div className="substances-page">
+    <div className="requests-page substances-page">
       <div className="requests-header">
         <div>
           <h1>Химические вещества</h1>

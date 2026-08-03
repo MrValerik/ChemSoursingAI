@@ -626,13 +626,32 @@ button.is-busy:disabled {
 /* ===== Шаг 2: раздел «Запросы» — сводная таблица ===== */
 
 .requests-page { padding: 20px 24px; }
+
+/* Шапка раздела. Заголовок обязан стоять на одной высоте во всех разделах,
+   поэтому выравнивание по верху, а не по центру: при центрировании он съезжал
+   вслед за самым высоким соседом — кнопкой или блоком с подзаголовком. */
 .requests-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 16px;
+  min-height: 34px;
   margin-bottom: 14px;
 }
-.requests-header h1 { font-size: 18px; margin: 0; }
+/* Заголовок с подзаголовком: только первый блок, чтобы правило не задело
+   .requests-actions — она тоже прямой потомок. */
+.requests-header > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+/* Подзаголовок — обычный <p>, его собственные поля сломали бы шаг сетки. */
+.requests-header > div:first-child > p { margin: 0; }
+.requests-header h1 {
+  margin: 0;
+  font-size: 18px;
+  /* Фиксированная строка: высота бокса не зависит от метрик шрифта. */
+  line-height: 30px;
+}
 .requests-actions { display: flex; gap: 8px; }
 
 .request-scope-tabs {
@@ -2519,20 +2538,6 @@ button.danger:hover {
   gap: 7px;
 }
 
-.substances-page {
-  padding: 0 24px 24px;
-}
-
-.substances-page .requests-header > div > h1,
-.substances-page .requests-header > div > p {
-  margin: 0;
-}
-
-.substances-page .requests-header > div {
-  display: grid;
-  gap: 5px;
-}
-
 .substance-catalog-layout {
   display: grid;
   grid-template-columns: minmax(280px, 0.85fr) minmax(430px, 1.6fr);
@@ -2824,10 +2829,6 @@ button.substance-list-item.active {
 
   .stage-result-grid {
     grid-template-columns: 1fr;
-  }
-
-  .substances-page {
-    padding: 0 12px 12px;
   }
 
   .substance-catalog-layout {
