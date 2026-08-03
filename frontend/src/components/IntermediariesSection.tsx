@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, userErrorMessage } from "../api/client";
 import type { IntermediaryKind, IntermediaryRead } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { IconButton, Input, Select } from "./ui";
 
 const KIND_LABELS: Record<IntermediaryKind, string> = {
   marketplace: "Торговая площадка",
@@ -20,6 +21,8 @@ const KIND_LABELS: Record<IntermediaryKind, string> = {
   reseller: "Перекупщик",
   reference: "Справочный сайт",
 };
+
+const KIND_ORDER = Object.keys(KIND_LABELS) as IntermediaryKind[];
 
 const KIND_HINTS: Record<IntermediaryKind, string> = {
   marketplace: "Витрина с объявлениями многих продавцов",
@@ -56,15 +59,17 @@ export default function IntermediariesSection() {
     void load();
   }, [load]);
 
-  const grouped = useMemo(() => {
-    const byKind = new Map<IntermediaryKind, IntermediaryRead[]>();
-    for (const item of items) {
-      const list = byKind.get(item.kind) ?? [];
-      list.push(item);
-      byKind.set(item.kind, list);
-    }
-    return byKind;
-  }, [items]);
+  // Одна таблица вместо четырёх: вид стал колонкой, а порядок сохраняет
+  // прежнюю группировку — записи одного вида по-прежнему идут подряд.
+  const ordered = useMemo(
+    () =>
+      [...items].sort(
+        (left, right) =>
+          KIND_ORDER.indexOf(left.kind) - KIND_ORDER.indexOf(right.kind) ||
+          left.domain.localeCompare(right.domain, "ru"),
+      ),
+    [items],
+  );
 
   const activeCount = items.filter((item) => item.is_active).length;
 
@@ -104,96 +109,120 @@ export default function IntermediariesSection() {
   };
 
   return (
-    <section className="section">
-      <header className="section-header">
-        <h1>Посредники</h1>
-        <p className="muted">
-          Домены, которые не являются сайтами производителей. При поиске
-          изготовителей эти ссылки откладываются до загрузки страниц, чтобы
-          бюджет уходил на сайты самих компаний. В режиме «все продавцы»
-          отсев не применяется — там площадка такой же источник цены.
-        </p>
-        <p className="muted">
-          Действующих записей: <strong>{activeCount}</strong> из {items.length}
-        </p>
-      </header>
+    <div className="requests-page intermediaries-page">
+      <div className="requests-header">
+        <div>
+          <h1>Посредники</h1>
+          <p className="note">
+            Домены, которые не являются сайтами производителей. При поиске
+            изготовителей эти ссылки откладываются до загрузки страниц, чтобы
+            бюджет уходил на сайты самих компаний. В режиме «все продавцы»
+            отсев не применяется — там площадка такой же источник цены.
+          </p>
+          <p className="note">
+            Учитывается <strong>{activeCount}</strong> из {items.length}
+          </p>
+        </div>
+      </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <p className="error">{error}</p>}
 
       {canEdit && (
-        <form className="inline-form" onSubmit={add}>
-          <input
+        <form className="requests-filters intermediary-form" onSubmit={add}>
+          <Input
+            className="field-domain"
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
             placeholder="домен, например echemi.com"
             aria-label="Домен посредника"
           />
-          <input
+          <Input
+            className="field-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="название"
             aria-label="Название посредника"
           />
-          <select
+          <Select
             value={kind}
             onChange={(e) => setKind(e.target.value as IntermediaryKind)}
             aria-label="Вид посредника"
             title={KIND_HINTS[kind]}
           >
-            {(Object.keys(KIND_LABELS) as IntermediaryKind[]).map((value) => (
+            {KIND_ORDER.map((value) => (
               <option key={value} value={value}>
                 {KIND_LABELS[value]}
               </option>
             ))}
-          </select>
+          </Select>
           <button type="submit" disabled={saving}>
             {saving ? "Сохраняю…" : "Добавить"}
           </button>
         </form>
       )}
 
-      {loading ? (
-        <p className="muted">Загрузка…</p>
-      ) : (
-        (Object.keys(KIND_LABELS) as IntermediaryKind[]).map((value) => {
-          const list = grouped.get(value) ?? [];
-          if (!list.length) return null;
-          return (
-            <div key={value} className="card">
-              <h2 title={KIND_HINTS[value]}>{KIND_LABELS[value]}</h2>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Домен</th>
-                    <th>Название</th>
-                    <th>Учитывается</th>
-                    {canEdit && <th aria-label="Действия" />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map((item) => (
-                    <tr key={item.id} className={item.is_active ? "" : "muted"}>
-                      <td>{item.domain}</td>
-                      <td>{item.name}</td>
-                      <td>{item.is_active ? "да" : "нет"}</td>
-                      {canEdit && (
-                        <td>
-                          <button type="button" onClick={() => void toggle(item)}>
-                            {item.is_active ? "Отключить" : "Включить"}
-                          </button>
-                          <button type="button" onClick={() => void remove(item)}>
-                            Удалить
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          );
-        })
+      {loading && <p className="note">Загрузка…</p>}
+
+      {!loading && items.length === 0 && (
+        <div className="panel">
+          <p className="note">
+            Реестр пуст. Добавьте домен площадки или каталога, чтобы поиск
+            изготовителей перестал тратить бюджет на его страницы.
+          </p>
+        </div>
       )}
-    </section>
+
+      {!loading && items.length > 0 && (
+        <div className="panel table-panel data-table intermediaries-list">
+          <table className="summary requests-table">
+            <thead>
+              <tr>
+                <th>Домен</th>
+                <th>Название</th>
+                <th>Вид</th>
+                <th>Учитывается</th>
+                {canEdit && <th className="request-actions-column" />}
+              </tr>
+            </thead>
+            <tbody>
+              {ordered.map((item) => (
+                <tr key={item.id} className={item.is_active ? "" : "row-muted"}>
+                  <td>
+                    <strong>{item.domain}</strong>
+                  </td>
+                  <td>{item.name}</td>
+                  <td title={KIND_HINTS[item.kind]}>{KIND_LABELS[item.kind]}</td>
+                  <td>
+                    <span
+                      className={`badge ${item.is_active ? "tone-ok" : "tone-neutral"}`}
+                    >
+                      {item.is_active ? "да" : "нет"}
+                    </span>
+                  </td>
+                  {canEdit && (
+                    <td className="request-actions-column">
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className="secondary btn-small"
+                          onClick={() => void toggle(item)}
+                        >
+                          {item.is_active ? "Отключить" : "Включить"}
+                        </button>
+                        <IconButton
+                          icon="trash"
+                          label={`Удалить ${item.domain}`}
+                          onClick={() => void remove(item)}
+                        />
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

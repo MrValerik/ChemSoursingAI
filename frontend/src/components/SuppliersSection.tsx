@@ -236,7 +236,7 @@ export default function SuppliersSection({
 
       {filtered.length > 0 && (
         <div className="suppliers-layout">
-          <div className="panel table-panel suppliers-list">
+          <div className="panel table-panel data-table suppliers-list">
             <table className="summary requests-table">
               <thead>
                 <tr>

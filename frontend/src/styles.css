@@ -706,7 +706,8 @@ button.danger:hover {
 
 /* Страница тянется во всю высоту раздела, чтобы таблица забирала весь
    остаток: шапка, фильтры и заголовок — фиксированы, прокручивается список. */
-.suppliers-page {
+.suppliers-page,
+.intermediaries-page {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -724,10 +725,11 @@ button.danger:hover {
 .supplier-card { width: 360px; flex-shrink: 0; }
 .supplier-filters .filter-search { flex-basis: 320px; }
 
-/* --- Таблица реестра поставщиков ---
-   Строка 40px, липкая шапка, числа сравниваются по разряду. Ограничено
-   .suppliers-list: «Запросы» и «Ручной разбор» делят класс .requests-table. */
-.suppliers-list.table-panel {
+/* --- Таблица реестра: поставщики, посредники ---
+   Строка 40px, липкая шапка, числа сравниваются по разряду. Включается
+   классом .data-table: «Запросы» и «Ручной разбор» делят .requests-table,
+   но этого оформления пока не получают. */
+.data-table.table-panel {
   height: 100%;
   min-height: 0;
   margin-bottom: 0;
@@ -740,7 +742,7 @@ button.danger:hover {
   overflow: auto;
 }
 
-.suppliers-list table.summary th {
+.data-table table.summary th {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -752,18 +754,18 @@ button.danger:hover {
   box-shadow: inset 0 -1px 0 var(--border);
 }
 
-.suppliers-list table.summary td {
+.data-table table.summary td {
   height: 40px;
   padding: 6px 12px;
   border-bottom-color: #f1f5f9;
 }
 
-.suppliers-list .col-num {
+.data-table .col-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
-.suppliers-list .supplier-source {
+.data-table .supplier-source {
   display: block;
   max-width: 34ch;
   overflow: hidden;
@@ -771,7 +773,14 @@ button.danger:hover {
   text-overflow: ellipsis;
 }
 
-.suppliers-list tbody tr.row-active:hover { background: #dbeafe; }
+.data-table tbody tr.row-active:hover { background: #dbeafe; }
+
+/* --- Реестр посредников --- */
+.intermediary-form { margin-bottom: 5px; }
+.intermediary-form .field-domain { flex: 0 1 260px; }
+.intermediary-form .field-name { flex: 0 1 220px; }
+.intermediaries-list.table-panel { flex: 1; min-width: 0; margin-top: 5px; }
+.intermediaries-list .row-actions { justify-content: flex-end; }
 .supplier-details { margin-top: 14px; }
 .supplier-request-links {
   display: grid;
