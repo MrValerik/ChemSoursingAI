@@ -105,6 +105,32 @@ def _apply_light_migrations() -> None:
 
     inspector = inspect(engine)
     tables = inspector.get_table_names()
+    if "communication_test_runs" in tables:
+        cols = {
+            c["name"]
+            for c in inspector.get_columns("communication_test_runs")
+        }
+        with engine.begin() as conn:
+            if "procurement_context" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE communication_test_runs ADD COLUMN "
+                        "procurement_context TEXT NOT NULL DEFAULT ''"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "UPDATE communication_test_runs "
+                        "SET procurement_context = customer_message"
+                    )
+                )
+            if "subject" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE communication_test_runs ADD COLUMN subject "
+                        "VARCHAR(998) NOT NULL DEFAULT 'Тест ChemSource AI'"
+                    )
+                )
     if "rfqs" in tables:
         _relax_sqlite_not_null("rfqs", "cas")
         inspector = inspect(engine)

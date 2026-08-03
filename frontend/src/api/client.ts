@@ -469,7 +469,7 @@ export const api = {
   runCommunicationTest: (payload: {
     channel: "email" | "whatsapp";
     recipient: string;
-    customer_message: string;
+    procurement_context: string;
     reply_language: "ru" | "en" | "zh";
     additional_instructions: string;
     delivery_mode: "preview" | "send";
@@ -480,6 +480,22 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  continueCommunicationTest: (
+    runId: number,
+    payload: {
+      supplier_message: string;
+      recipient: string;
+      confirm_external_send: boolean;
+    },
+  ) =>
+    request<CommunicationTestRun>(
+      `/communication-testing/${runId}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
 
   listTemplates: () => request<TemplateRead[]>(`/templates`),
 

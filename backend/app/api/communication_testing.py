@@ -7,9 +7,14 @@ from app.api.deps import require_roles
 from app.core.db import get_db
 from app.models import CommunicationTestRun, User
 from app.models.enums import UserRole
-from app.schemas.integration import CommunicationTestCreate, CommunicationTestRead
+from app.schemas.integration import (
+    CommunicationTestContinue,
+    CommunicationTestCreate,
+    CommunicationTestRead,
+)
 from app.services.communication_testing import (
     CommunicationTestError,
+    continue_communication_test,
     list_test_runs,
     run_communication_test,
 )
@@ -37,6 +42,22 @@ def run_test(
 ) -> CommunicationTestRun:
     try:
         return run_communication_test(db, payload=payload, actor=user)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CommunicationTestError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/{run_id}/messages", response_model=CommunicationTestRead, status_code=201)
+def continue_test(
+    run_id: int,
+    payload: CommunicationTestContinue,
+    db: Session = Depends(get_db),
+) -> CommunicationTestRun:
+    try:
+        return continue_communication_test(db, run_id=run_id, payload=payload)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except CommunicationTestError as exc:

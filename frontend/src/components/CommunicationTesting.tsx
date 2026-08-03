@@ -4,9 +4,9 @@ import type { CommunicationTestRun } from "../api/types";
 import { Field, Input, Select, Textarea } from "./ui";
 
 const STATUS_LABELS: Record<string, string> = {
-  generating: "Нейросеть формирует ответ",
-  previewed: "Симуляция завершена",
-  sent: "Отправлено",
+  generating: "Нейросеть формирует сообщение",
+  previewed: "Диалог активен",
+  sent: "Сообщение отправлено",
   llm_error: "Ошибка нейросети",
   delivery_error: "Ошибка доставки",
 };
@@ -22,11 +22,14 @@ const STATUS_TONES: Record<string, string> = {
 export default function CommunicationTesting() {
   const [channel, setChannel] = useState<"email" | "whatsapp">("email");
   const [recipient, setRecipient] = useState("");
-  const [customerMessage, setCustomerMessage] = useState("");
-  const [language, setLanguage] = useState<"ru" | "en" | "zh">("ru");
+  const [procurementContext, setProcurementContext] = useState("");
+  const [supplierMessage, setSupplierMessage] = useState("");
+  const [language, setLanguage] = useState<"ru" | "en" | "zh">("en");
   const [instructions, setInstructions] = useState("");
   const [subject, setSubject] = useState("Тест ChemSource AI");
-  const [deliveryMode, setDeliveryMode] = useState<"preview" | "send">("preview");
+  const [deliveryMode, setDeliveryMode] = useState<"preview" | "send">(
+    "preview",
+  );
   const [history, setHistory] = useState<CommunicationTestRun[]>([]);
   const [active, setActive] = useState<CommunicationTestRun | null>(null);
   const [busy, setBusy] = useState(false);
@@ -40,15 +43,16 @@ export default function CommunicationTesting() {
     loadHistory().catch((reason) => setError(String(reason)));
   }, []);
 
-  const run = async () => {
-    if (!recipient.trim() || !customerMessage.trim()) return;
+  const startDialog = async () => {
+    if (!procurementContext.trim()) return;
     const live = deliveryMode === "send";
+    if (!recipient.trim() && live) return;
     if (
       live &&
       !window.confirm(
-        `Отправить сгенерированный ответ реально через ${
+        `Нейросеть сформирует первое сообщение и реально отправит его через ${
           channel === "email" ? "Email" : "WhatsApp"
-        } на указанный адрес?`,
+        } указанному получателю. Продолжить?`,
       )
     ) {
       return;
@@ -59,7 +63,7 @@ export default function CommunicationTesting() {
       const created = await api.runCommunicationTest({
         channel,
         recipient: recipient.trim(),
-        customer_message: customerMessage.trim(),
+        procurement_context: procurementContext.trim(),
         reply_language: language,
         additional_instructions: instructions.trim(),
         delivery_mode: deliveryMode,
@@ -67,6 +71,7 @@ export default function CommunicationTesting() {
         confirm_external_send: live,
       });
       setActive(created);
+      setSupplierMessage("");
       await loadHistory();
     } catch (reason) {
       setError(String(reason));
@@ -76,15 +81,65 @@ export default function CommunicationTesting() {
     }
   };
 
+  const continueDialog = async () => {
+    if (!active || !supplierMessage.trim()) return;
+    const live = active.delivery_mode === "send";
+    if (!recipient.trim() && live) return;
+    if (
+      live &&
+      !window.confirm(
+        "Сохранить введённый ответ как сообщение поставщика и реально отправить следующий ответ нейросети?",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.continueCommunicationTest(active.id, {
+        supplier_message: supplierMessage.trim(),
+        recipient: recipient.trim(),
+        confirm_external_send: live,
+      });
+      setActive(updated);
+      setSupplierMessage("");
+      await loadHistory();
+    } catch (reason) {
+      setError(String(reason));
+      await loadHistory().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openDialog = (item: CommunicationTestRun) => {
+    setActive(item);
+    setChannel(item.channel);
+    setProcurementContext(item.procurement_context);
+    setLanguage(item.reply_language);
+    setInstructions(item.additional_instructions ?? "");
+    setSubject(item.subject);
+    setDeliveryMode(item.delivery_mode);
+    setRecipient("");
+    setSupplierMessage("");
+    setError(null);
+  };
+
+  const canContinue =
+    active !== null &&
+    active.messages.length > 0 &&
+    active.messages[active.messages.length - 1].sender_role === "assistant" &&
+    active.status !== "delivery_error";
+
   return (
     <div className="requests-page communication-testing">
       <div className="requests-header">
         <div>
           <h1>Тестирование общения</h1>
           <p className="note">
-            Администраторская песочница: сообщение контрагента передаётся
-            локальной нейросети как недоверенный текст. По умолчанию результат
-            остаётся только в приложении.
+            Администраторская песочница: задайте потребность, нейросеть первой
+            обратится к поставщику, а затем будет отвечать на ваши тестовые
+            реплики с учётом всей истории.
           </p>
         </div>
       </div>
@@ -93,7 +148,7 @@ export default function CommunicationTesting() {
 
       <div className="communication-test-layout">
         <div className="panel">
-          <h2>Сценарий</h2>
+          <h2>Новый диалог</h2>
           <div className="settings-grid">
             <Field label="Канал">
               <Select
@@ -109,31 +164,29 @@ export default function CommunicationTesting() {
             <Field
               label={channel === "email" ? "Email получателя" : "Номер WhatsApp"}
               hint={
-                channel === "whatsapp"
-                  ? "Номер с кодом страны; свободный текст требует открытого 24-часового окна"
-                  : undefined
+                deliveryMode === "preview"
+                  ? "Для симуляции получателя можно не указывать"
+                  : "Обязателен для реальной отправки"
               }
             >
               <Input
                 placeholder={
-                  channel === "email"
-                    ? "test@example.com"
-                    : "+7 900 000-00-00"
+                  channel === "email" ? "test@example.com" : "+7 900 000-00-00"
                 }
                 type={channel === "email" ? "email" : "tel"}
                 value={recipient}
                 onChange={(event) => setRecipient(event.target.value)}
               />
             </Field>
-            <Field label="Язык ответа">
+            <Field label="Язык общения">
               <Select
                 value={language}
                 onChange={(event) =>
                   setLanguage(event.target.value as "ru" | "en" | "zh")
                 }
               >
-                <option value="ru">Русский</option>
                 <option value="en">Английский</option>
+                <option value="ru">Русский</option>
                 <option value="zh">Китайский</option>
               </Select>
             </Field>
@@ -145,7 +198,7 @@ export default function CommunicationTesting() {
                 }
               >
                 <option value="preview">Только симуляция</option>
-                <option value="send">Сгенерировать и отправить реально</option>
+                <option value="send">Генерировать и отправлять реально</option>
               </Select>
             </Field>
           </div>
@@ -157,69 +210,119 @@ export default function CommunicationTesting() {
               />
             </Field>
           )}
-          <Field label="Сообщение контрагента">
+          <Field
+            label="Общая информация о закупке"
+            hint="Достаточно свободного описания вещества, количества и известных требований"
+          >
             <Textarea
-              rows={7}
-              placeholder="Например: We can offer the material, but MOQ is 500 kg. Please confirm the required grade."
-              value={customerMessage}
-              onChange={(event) => setCustomerMessage(event.target.value)}
+              rows={6}
+              placeholder="Например: 50 кг аммиака. Нужна цена, срок поставки и CoA."
+              value={procurementContext}
+              onChange={(event) => setProcurementContext(event.target.value)}
             />
           </Field>
           <Field
             label="Дополнительные инструкции"
-            hint="Можно уточнить тон и цель ответа; ограничения безопасности изменить нельзя"
+            hint="Можно уточнить тон и цель; ограничения безопасности изменить нельзя"
           >
             <Textarea
               rows={3}
-              placeholder="Например: ответ должен быть кратким и запросить CoA"
+              placeholder="Например: писать очень кратко"
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
             />
           </Field>
           {deliveryMode === "send" && (
             <p className="external-action-warning">
-              Это реальное внешнее действие. Перед отправкой появится отдельное
-              подтверждение.
+              Это реальное внешнее действие. Каждая отправка потребует отдельного
+              подтверждения.
             </p>
           )}
           <div className="actions">
             <button
-              disabled={busy || !recipient.trim() || !customerMessage.trim()}
-              onClick={() => void run()}
+              disabled={
+                busy ||
+                !procurementContext.trim() ||
+                (deliveryMode === "send" && !recipient.trim())
+              }
+              onClick={() => void startDialog()}
             >
               {busy
-                ? "Нейросеть отвечает…"
+                ? "Нейросеть пишет…"
                 : deliveryMode === "send"
-                  ? "Сгенерировать и отправить"
-                  : "Запустить симуляцию"}
+                  ? "Начать и отправить"
+                  : "Начать диалог"}
             </button>
           </div>
         </div>
 
-        <div className="panel">
-          <h2>Ответ нейросети</h2>
-          {active?.generated_reply ? (
+        <div className="panel communication-dialog-panel">
+          <h2>Диалог</h2>
+          {active ? (
             <>
-              <div className="generated-message">{active.generated_reply}</div>
+              <div className="communication-context">
+                <strong>Контекст:</strong> {active.procurement_context}
+              </div>
+              <div className="communication-messages">
+                {active.messages.map((message) => (
+                  <div
+                    className={`communication-message ${
+                      message.sender_role === "assistant"
+                        ? "from-assistant"
+                        : "from-supplier"
+                    }`}
+                    key={message.id}
+                  >
+                    <span className="communication-message-role">
+                      {message.sender_role === "assistant"
+                        ? "Нейросеть · покупатель"
+                        : "Вы · поставщик"}
+                    </span>
+                    <div>{message.content}</div>
+                  </div>
+                ))}
+              </div>
               <p className="note">
-                Канал: {active.channel === "email" ? "Email" : "WhatsApp"} ·{" "}
                 {STATUS_LABELS[active.status] ?? active.status}
                 {active.model ? ` · модель: ${active.model}` : ""}
               </p>
+              {active.error && <p className="error">{active.error}</p>}
+              {canContinue && (
+                <div className="communication-reply">
+                  <Field label="Ваш ответ от лица поставщика">
+                    <Textarea
+                      rows={4}
+                      placeholder="Напишите ответ поставщика — нейросеть продолжит диалог"
+                      value={supplierMessage}
+                      onChange={(event) => setSupplierMessage(event.target.value)}
+                    />
+                  </Field>
+                  <button
+                    disabled={
+                      busy ||
+                      !supplierMessage.trim() ||
+                      (active.delivery_mode === "send" && !recipient.trim())
+                    }
+                    onClick={() => void continueDialog()}
+                  >
+                    {busy ? "Нейросеть отвечает…" : "Ответить и продолжить"}
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <p className="empty">
-              Заполните сценарий и запустите симуляцию. Ответ появится здесь до
-              любой внешней отправки.
+              Укажите общую информацию и начните диалог. Первое сообщение
+              сформирует нейросеть.
             </p>
           )}
         </div>
       </div>
 
       <div className="panel">
-        <h2>Последние тесты</h2>
+        <h2>Последние диалоги</h2>
         {history.length === 0 ? (
-          <p className="empty">Тесты ещё не запускались.</p>
+          <p className="empty">Диалоги ещё не запускались.</p>
         ) : (
           <table className="summary">
             <thead>
@@ -247,12 +350,11 @@ export default function CommunicationTesting() {
                     >
                       {STATUS_LABELS[item.status] ?? item.status}
                     </span>
-                    {item.error && <div className="note">{item.error}</div>}
                   </td>
                   <td>
                     <button
                       className="secondary btn-small"
-                      onClick={() => setActive(item)}
+                      onClick={() => openDialog(item)}
                     >
                       Открыть
                     </button>

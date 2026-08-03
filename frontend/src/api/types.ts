@@ -351,6 +351,8 @@ export interface CommunicationTestRun {
   id: number;
   channel: "email" | "whatsapp";
   recipient_masked: string;
+  procurement_context: string;
+  subject: string;
   customer_message: string;
   additional_instructions: string | null;
   generated_reply: string | null;
@@ -365,6 +367,16 @@ export interface CommunicationTestRun {
     | "delivery_error";
   provider_message_id: string | null;
   error: string | null;
+  created_at: string;
+  messages: CommunicationTestMessage[];
+}
+
+export interface CommunicationTestMessage {
+  id: number;
+  sender_role: "assistant" | "supplier";
+  content: string;
+  delivery_status: string;
+  provider_message_id: string | null;
   created_at: string;
 }
 
