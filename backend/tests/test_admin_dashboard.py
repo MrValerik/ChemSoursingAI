@@ -1,4 +1,4 @@
-"""Тесты шага 6: администрирование пользователей, каналы, дашборд."""
+"""Тесты шага 6: администрирование пользователей, каналы, интеграции."""
 
 import os
 
@@ -134,26 +134,6 @@ def test_llm_health_reports_availability(client, monkeypatch):
     assert response.status_code == 503
     assert response.json()["status"] == "unavailable"
     assert "connection refused" not in response.text
-
-
-def test_dashboard_role_adapted(client):
-    buyer = _login(client, "ivanov")
-    client.post(
-        "/rfq?verify=false",
-        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
-        headers=buyer,
-    )
-
-    data = client.get("/dashboard", headers=buyer).json()
-    assert data["role"] == "buyer"
-    assert data["in_work"] >= 1
-    assert "workload" not in data
-
-    head = _login(client, "petrova")
-    data = client.get("/dashboard", headers=head).json()
-    assert data["role"] == "head"
-    assert "workload" in data
-    assert any(w["owner"] == "Иван Иванов" for w in data["workload"])
 
 
 def test_integration_settings_encrypt_secrets_and_require_admin(client, monkeypatch):

@@ -7,7 +7,6 @@ import type { UserRole } from "../api/types";
 import { IconButton } from "./ui";
 
 export type SectionKey =
-  | "dashboard"
   | "requests"
   | "substances"
   | "suppliers"
@@ -26,7 +25,6 @@ interface NavItem {
 
 // Видимость разделов по ролям (раздел 4 плана: матрица доступа).
 const NAV_ITEMS: NavItem[] = [
-  { key: "dashboard", label: "Дашборд", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "requests", label: "Запросы", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "substances", label: "Химические вещества", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "suppliers", label: "Поставщики", roles: ["buyer", "head", "admin", "auditor"] },

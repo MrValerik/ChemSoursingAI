@@ -520,46 +520,6 @@ button.danger:hover {
 .meter-fill.ok { background: #86efac; }
 .meter-fill.warn { background: #fcd34d; }
 
-.communication-list {
-  display: grid;
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.communication-card {
-  border: 1px solid var(--border);
-  border-left: 4px solid #94a3b8;
-  border-radius: 8px;
-  padding: 14px;
-  background: #fff;
-}
-
-.communication-card.inbound { border-left-color: var(--brand); }
-.communication-card.outbound { border-left-color: var(--ok); }
-
-.communication-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.communication-body {
-  margin: 10px 0;
-  padding: 12px;
-  border-radius: 6px;
-  background: #f8fafc;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: inherit;
-}
-
-.sync-result {
-  margin: 12px 0;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: #f8fafc;
-}
 .meter-label {
   position: absolute;
   inset: 0;
@@ -765,7 +725,7 @@ button.danger:hover {
   resize: vertical;
 }
 
-/* ===== Шаг 6: дашборд и настройки ===== */
+/* ===== Карточки-метрики: реестр поставщиков ===== */
 
 .dash-cards { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .dash-card {
@@ -781,26 +741,7 @@ button.danger:hover {
 }
 .dash-card:hover { border-color: var(--brand); background: var(--panel); }
 .dash-card .dash-value { font-size: 28px; font-weight: 700; color: var(--brand); }
-.dash-card.attention .dash-value { color: var(--attention); }
-.dash-card.warn .dash-value { color: var(--err); }
 .dash-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
-
-.dash-columns { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
-.dash-columns .panel { flex: 1; min-width: 260px; }
-
-.dash-statuses { display: flex; flex-direction: column; gap: 8px; }
-.dash-status-row { display: flex; align-items: center; justify-content: space-between; }
-
-.workload-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.workload-name { width: 130px; font-size: 13px; flex-shrink: 0; }
-.workload-bar {
-  flex: 1;
-  height: 14px;
-  background: #f1f5f9;
-  border-radius: 999px;
-  overflow: hidden;
-}
-.workload-fill { height: 100%; background: var(--brand); border-radius: 999px; }
 
 /* Предварительная ИИ-квалификация результатов открытого поиска. */
 .qualification-action {

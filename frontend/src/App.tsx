@@ -4,7 +4,6 @@ import AppShell, { type SectionKey } from "./components/AppShell";
 import IntermediariesSection from "./components/IntermediariesSection";
 import ActivityReporter from "./components/ActivityReporter";
 import CommunicationTesting from "./components/CommunicationTesting";
-import Dashboard from "./components/Dashboard";
 import Login from "./components/Login";
 import ReviewQueue from "./components/ReviewQueue";
 import RfqWorkspace from "./components/RfqWorkspace";
@@ -40,9 +39,6 @@ function Sections() {
 
   return (
     <AppShell section={section} onSectionChange={setSection}>
-      {section === "dashboard" && (
-        <Dashboard onOpenRfq={openRfq} onGoToRequests={() => setSection("requests")} />
-      )}
       {section === "requests" && (
         <RfqWorkspace
           jumpRfqId={jumpRfqId}

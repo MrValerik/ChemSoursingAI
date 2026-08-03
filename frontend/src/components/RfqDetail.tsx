@@ -7,7 +7,6 @@ import { api, userErrorMessage } from "../api/client";
 import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
-import CommunicationHistory from "./CommunicationHistory";
 import DocumentsSection from "./DocumentsSection";
 import ExtractReplies from "./ExtractReplies";
 import SupplierSearchSection from "./SupplierSearchSection";
@@ -22,29 +21,26 @@ type TabKey =
   | "supplier_search"
   | "suppliers"
   | "dispatch"
-  | "replies"
-  | "summary"
-  | "history";
+  | "summary";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Обзор" },
   { key: "supplier_search", label: "Поиск и проверка" },
   { key: "suppliers", label: "Отобранные поставщики" },
   { key: "dispatch", label: "Общение" },
-  { key: "replies", label: "Ответы" },
-  { key: "summary", label: "Сравнение" },
-  { key: "history", label: "История" },
+  { key: "summary", label: "Сводная таблица" },
 ];
 
 // Статус → пройденные этапы конвейера (раздел 7: «Этапы»).
 const STAGES = ["Проверка вещества", "Поиск", "Отбор", "Общение", "Ответы", "Сравнение"];
 // Куда ведёт клик по проблемному этапу: вкладка с местом ошибки.
+// Этап «Ответы» ведёт в «Общение»: отдельной вкладки ответов больше нет.
 const STAGE_TABS: TabKey[] = [
   "supplier_search",
   "supplier_search",
   "suppliers",
   "dispatch",
-  "replies",
+  "dispatch",
   "summary",
 ];
 const STAGE_BY_STATUS: Record<string, number> = {
@@ -116,7 +112,6 @@ export default function RfqDetail({
 }) {
   const { user } = useAuth();
   const [tab, setTab] = useState<TabKey>("supplier_search");
-  const [refreshKey, setRefreshKey] = useState(0);
   const [searchRuns, setSearchRuns] = useState<SearchRunListItem[]>([]);
 
   const [escOpen, setEscOpen] = useState(false);
@@ -463,36 +458,26 @@ export default function RfqDetail({
             <SuppliersTab rfqId={rfq.id} onGoToDispatch={() => setTab("dispatch")} />
           )}
 
+          {/* Рассылка, пришедшие ответы и документы — один рабочий поток. */}
           {tab === "dispatch" && (
-            <DispatchTab
-              rfq={rfq}
-              onStatusChanged={() => {
-                void api.getRfq(rfq.id).then(onChanged);
-              }}
-            />
-          )}
-
-          {tab === "replies" && (
             <>
+              <DispatchTab
+                rfq={rfq}
+                onStatusChanged={() => {
+                  void api.getRfq(rfq.id).then(onChanged);
+                }}
+              />
               <ExtractReplies
                 rfqId={rfq.id}
-                onStored={() => setRefreshKey((k) => k + 1)}
+                onStored={() => {
+                  void api.getRfq(rfq.id).then(onChanged);
+                }}
               />
               <DocumentsSection rfqId={rfq.id} />
             </>
           )}
 
-          {tab === "summary" && <Summary rfqId={rfq.id} refreshKey={refreshKey} />}
-
-          {tab === "history" && (
-            <CommunicationHistory
-              rfqId={rfq.id}
-              onSynced={() => {
-                setRefreshKey((key) => key + 1);
-                void api.getRfq(rfq.id).then(onChanged);
-              }}
-            />
-          )}
+          {tab === "summary" && <Summary rfqId={rfq.id} />}
         </div>
       </div>
     </div>

@@ -7,12 +7,26 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test_dispatch.db")
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.main import app
 from app.connectors.email import IncomingEmail
 from app.core.db import SessionLocal
 from app.extraction.schema import ExtractedQuote
+from app.models.communication import Communication
 from app.services.email_workflow import sync_inbox
+
+
+def _communications(rfq_id: int) -> list[Communication]:
+    """Переписка запроса: HTTP-ручки истории больше нет, читаем из базы."""
+    with SessionLocal() as db:
+        return list(
+            db.scalars(
+                select(Communication)
+                .where(Communication.rfq_id == rfq_id)
+                .order_by(Communication.created_at, Communication.id)
+            ).all()
+        )
 
 
 @pytest.fixture(scope="module")
@@ -38,7 +52,6 @@ def test_supplier_registry_seeded(client):
     assert len(suppliers) >= 3
     haihua = next(s for s in suppliers if s["company"] == "Shandong Haihua")
     assert "email" in haihua["channels"]
-    assert client.post("/email/sync", headers=headers).status_code == 403
 
 
 def test_add_supplier_manually(client):
@@ -186,13 +199,11 @@ def test_live_smtp_dispatch_creates_communication(client, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()[0]["status"] == "sent"
-    history = client.get(
-        f"/rfq/{rfq['id']}/communications", headers=headers
-    ).json()
+    history = _communications(rfq["id"])
     assert len(history) == 1
-    assert history[0]["status"] == "sent"
-    assert history[0]["to_address"] == "live@supplier.example"
-    assert history[0]["subject"].startswith(f"[RFQ-{rfq['id']}]")
+    assert history[0].status == "sent"
+    assert history[0].to_address == "live@supplier.example"
+    assert history[0].subject.startswith(f"[RFQ-{rfq['id']}]")
 
 
 def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
@@ -263,10 +274,8 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
     assert result.quotations_created == 1
     assert result.followups_drafted == 1
     assert connector.seen == ["500"]
-    history = client.get(
-        f"/rfq/{rfq['id']}/communications", headers=headers
-    ).json()
-    assert [item["status"] for item in history] == ["received", "draft"]
+    history = _communications(rfq["id"])
+    assert [item.status for item in history] == ["received", "draft"]
     quotes = client.get(f"/rfq/{rfq['id']}/quotations", headers=headers).json()
     assert len(quotes) == 1
     assert quotes[0]["price"] == 500

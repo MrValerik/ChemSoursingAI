@@ -4,7 +4,8 @@ import type { EscalationRead, SummaryRow } from "../api/types";
 
 interface Props {
   rfqId: number;
-  refreshKey: number;
+  // Пересобрать таблицу без размонтирования вкладки.
+  refreshKey?: number;
 }
 
 const REASON_LABELS: Record<string, string> = {
@@ -16,7 +17,7 @@ const REASON_LABELS: Record<string, string> = {
   other: "прочее",
 };
 
-export default function Summary({ rfqId, refreshKey }: Props) {
+export default function Summary({ rfqId, refreshKey = 0 }: Props) {
   const [rows, setRows] = useState<SummaryRow[]>([]);
   const [escalations, setEscalations] = useState<EscalationRead[]>([]);
   const [onlyComplete, setOnlyComplete] = useState(false);
