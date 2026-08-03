@@ -72,6 +72,14 @@ const SOURCE_LABELS: Record<SupplierSearchResult["source_kind"], string> = {
   web: "Открытый веб",
 };
 
+const SEARCH_STRATEGY_LABELS: Record<
+  SupplierSearchResponse["search_strategy"],
+  string
+> = {
+  direct_sites_first: "сайты компаний в первую очередь",
+  echemi_first: "Echemi в первую очередь",
+};
+
 const sourceTone = (source: SupplierSearchResult["source_kind"]) => {
   if (source === "echemi") return "tone-ok";
   if (source === "india_registry") return "tone-ok";
@@ -1181,7 +1189,9 @@ export default function SupplierSearchSection({
           <HelpTip text="ИИ-агент ищет компании по выбранным странам, затем помогает проверить их роль, документы и соответствие веществу." />
         </div>
         <p className="note">
-          Сначала проверяются карточки Echemi, затем сайты и реестры выбранной страны.
+          Сначала проверяются сайты самих компаний и отраслевые реестры выбранной
+          страны. Домены из раздела «Посредники» откладываются до загрузки
+          страниц в режиме «Только производителей».
         </p>
       </div>
 
@@ -1372,7 +1382,9 @@ export default function SupplierSearchSection({
           {data ? (
             <>
               <div className="qualification-evidence">
-                <span className="badge tone-ok">Стратегия: Echemi в первую очередь</span>
+                <span className="badge tone-ok">
+                  Стратегия: {SEARCH_STRATEGY_LABELS[data.search_strategy]}
+                </span>
                 {Object.entries(data.source_counts).map(([source, count]) => {
                   const kind = source as SupplierSearchResult["source_kind"];
                   return (

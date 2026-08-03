@@ -462,7 +462,9 @@ export interface SupplierSearchResponse {
   search_run_id: number;
   query: string;
   queries_used: string[];
-  search_strategy: "echemi_first";
+  // echemi_first встречается только в прогонах, сохранённых до перехода
+  // на поиск по сайтам самих компаний.
+  search_strategy: "direct_sites_first" | "echemi_first";
   source_counts: Record<string, number>;
   identity: SubstanceIdentity;
   substance_lookup: {
