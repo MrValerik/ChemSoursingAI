@@ -1,28 +1,107 @@
+/* ===== Палитра =====
+   Тёплые нейтрали вместо холодных серо-синих: фон уходит в бумагу, акцент —
+   терракота. Все поверхности заданы токенами, поэтому тёмная тема — это
+   только переопределение значений ниже, без параллельных правил.
+
+   Насыщенный цвет несёт один смысл: действие и текущее положение. Статусы
+   (ok / warn / err) остаются отдельным сигналом и в теме не растворяются. */
 :root {
-  --bg: #f5f7fa;
-  --panel: #ffffff;
-  --border: #e2e8f0;
-  --text: #1e293b;
-  --muted: #64748b;
-  /* Единственный синий продукта: навигация, кнопки, ссылки, активные вкладки. */
-  --brand: #1f4e79;        /* тёмно-синий из плана (раздел 17) */
-  --brand-dark: #173c5e;   /* наведение и нажатое состояние */
-  --accent: #0e9594;       /* бирюзовый акцент */
-  --attention: #d97706;    /* янтарный: внимание/ручной разбор */
-  --ok: #16a34a;
-  --warn: #d97706;
-  --err: #dc2626;
-  --radius: 8px;
+  color-scheme: light;
+
+  --bg: #f7f7f8;           /* фон приложения — нейтральный, без желтизны */
+  --panel: #ffffff;        /* карточки, таблицы, всплывающие меню */
+  --panel-2: #f2f2f3;      /* подложка: наведение, шапки, вторичные кнопки */
+  --panel-3: #e7e7e9;      /* активная строка, полоса прогресса */
+
+  --border: #e5e5e7;
+  --border-strong: #cdcdd1;
+
+  --text: #1c1c1e;
+  --text-soft: #55555b;
+  --muted: #76767d;
+
+  --brand: #c15f3c;        /* терракота: единственный акцент действия */
+  --brand-dark: #a44b2c;
+  --brand-soft: #f8ece7;   /* фон подсветки в тон акценту */
+  --on-brand: #ffffff;
+  --accent: #6d6d75;       /* второй тон: роли, служебные метки */
+
+  --ok: #3f7d4a;
+  --ok-soft: #e6f1e8;
+  --warn: #9a6b23;
+  --warn-soft: #f6eeda;
+  --err: #b23c2c;
+  --err-soft: #f8e7e4;
+  --info-soft: #ecedf0;
+  --attention: var(--warn);
+
+  --sidebar-bg: #f1f1f2;
+  --sidebar-text: #55555b;
+  --sidebar-active-bg: #e3e3e6;
+
+  --shadow-soft: 0 1px 2px rgba(20, 20, 22, 0.05);
+  --shadow-pop: 0 8px 26px rgba(20, 20, 22, 0.12);
+
+  --radius: 10px;
+  /* Оба семейства лежат в проекте (см. main.tsx), системные — только запасной
+     вариант на случай, если файл шрифта не доехал. */
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
+  --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #191919;
+  --panel: #222223;
+  --panel-2: #2a2a2c;
+  --panel-3: #333336;
+
+  --border: #363638;
+  --border-strong: #494a4d;
+
+  --text: #eeeef0;
+  --text-soft: #c3c3c8;
+  --muted: #98989f;
+
+  --brand: #d9785a;        /* светлее: на тёмном фоне держит контраст */
+  --brand-dark: #e58f74;
+  --brand-soft: #3a2820;
+  --on-brand: #191919;
+  --accent: #9a9aa2;
+
+  --ok: #79ad83;
+  --ok-soft: #232e26;
+  --warn: #d0a05c;
+  --warn-soft: #322a1c;
+  --err: #df8172;
+  --err-soft: #382422;
+  --info-soft: #292a2d;
+
+  --sidebar-bg: #151516;
+  --sidebar-text: #adadb4;
+  --sidebar-active-bg: #2a2a2c;
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 8px 26px rgba(0, 0, 0, 0.5);
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Заголовки — засечками: они задают тон, всё остальное остаётся рабочим. */
+h1, h2, h3 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .app-header {
@@ -63,7 +142,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
   font: inherit;
-  background: #fff;
+  background: var(--panel);
 }
 
 .integration-settings {
@@ -98,7 +177,7 @@ body {
 }
 
 .generated-message {
-  background: #f7f8fa;
+  background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   line-height: 1.55;
@@ -108,10 +187,10 @@ body {
 }
 
 .external-action-warning {
-  background: #fff7e8;
-  border: 1px solid #e8c47a;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
   border-radius: 7px;
-  color: #704c00;
+  color: var(--warn);
   margin: 12px 0;
   padding: 10px 12px;
 }
@@ -134,7 +213,7 @@ body {
 
 button {
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
   border: none;
   border-radius: 6px;
   padding: 8px 14px;
@@ -143,22 +222,22 @@ button {
 }
 button:hover { background: var(--brand-dark); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
-button.secondary:hover { background: #f1f5f9; }
+button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+button.secondary:hover { background: var(--panel-2); }
 
 .actions { display: flex; gap: 8px; margin-top: 8px; }
 
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
-.badge.ok { background: #dcfce7; color: var(--ok); }
-.badge.err { background: #fee2e2; color: var(--err); }
-.badge.muted { background: #f1f5f9; color: var(--muted); }
+.badge.ok { background: var(--ok-soft); color: var(--ok); }
+.badge.err { background: var(--err-soft); color: var(--err); }
+.badge.muted { background: var(--panel-2); color: var(--muted); }
 
 .note { font-size: 12px; color: var(--muted); }
 .error { color: var(--err); font-size: 13px; }
 .success { color: var(--ok); font-size: 13px; }
 
 .letter {
-  background: #f8fafc;
+  background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 12px;
@@ -175,7 +254,7 @@ button.secondary:hover { background: #f1f5f9; }
   border-radius: 6px;
   margin-bottom: 6px;
   cursor: pointer;
-  background: #fff;
+  background: var(--panel);
 }
 .rfq-list-item:hover { border-color: var(--brand); }
 .rfq-list-item .cas { font-size: 12px; color: var(--muted); }
@@ -192,7 +271,7 @@ button.secondary:hover { background: #f1f5f9; }
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 .quote-label { font-size: 12px; color: var(--muted); width: 64px; flex-shrink: 0; }
 .quote-value { flex: 1; font-weight: 500; }
@@ -204,8 +283,8 @@ table.summary th, table.summary td {
   border-bottom: 1px solid var(--border);
 }
 table.summary th { color: var(--muted); font-weight: 600; font-size: 12px; }
-table.summary tr.incomplete { background: #fff7ed; }
-table.summary tbody tr:hover { background: #f8fafc; }
+table.summary tr.incomplete { background: var(--warn-soft); }
+table.summary tbody tr:hover { background: var(--panel-2); }
 
 /* ===== Знак ChemSource AI и заставка загрузки ===== */
 
@@ -288,8 +367,9 @@ table.summary tbody tr:hover { background: #f8fafc; }
 }
 
 .logo-word {
+  color: var(--text);
+  font-family: var(--font-serif);
   font-weight: 600;
-  letter-spacing: 0.2px;
   white-space: nowrap;
 }
 .logo-word b { font-weight: 700; }
@@ -297,13 +377,14 @@ table.summary tbody tr:hover { background: #f8fafc; }
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 5px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 0.72em;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-family: var(--font-sans);
+  font-size: 0.62em;
   font-style: normal;
   font-weight: 700;
   letter-spacing: 0.6px;
-  vertical-align: 2px;
+  vertical-align: 3px;
 }
 
 /* --- Заставка первой загрузки --- */
@@ -313,18 +394,18 @@ table.summary tbody tr:hover { background: #f8fafc; }
   z-index: 100;
   display: grid;
   place-items: center;
-  background: linear-gradient(160deg, var(--brand) 0%, var(--brand-dark) 100%);
-  color: #fff;
+  background: var(--bg);
+  color: var(--brand);
 }
 
 .splash-inner {
   display: grid;
   justify-items: center;
-  gap: 14px;
+  gap: 16px;
 }
 
 .splash .splash-word {
-  font-size: 22px;
+  font-size: 24px;
   opacity: 0;
   animation: splash-fade-up 600ms ease-out 900ms forwards;
 }
@@ -357,14 +438,15 @@ table.summary tbody tr:hover { background: #f8fafc; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(160deg, var(--brand) 0%, var(--brand-dark) 100%);
+  background: var(--bg);
 }
 .login-card {
   background: var(--panel);
-  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
   padding: 32px;
-  width: 360px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  width: 380px;
+  box-shadow: var(--shadow-soft);
 }
 .login-brand {
   display: flex;
@@ -401,8 +483,9 @@ button.is-busy:disabled {
 .shell-nav {
   width: 200px;
   flex-shrink: 0;
-  background: var(--brand);
-  color: #fff;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  color: var(--sidebar-text);
   display: flex;
   flex-direction: column;
   padding: 16px 10px;
@@ -413,24 +496,30 @@ button.is-busy:disabled {
   align-items: center;
   gap: 9px;
   padding: 6px 12px 18px;
+  color: var(--brand);
   font-size: 15px;
 }
 /* Пункт меню — ссылка (NavLink), поэтому нужны display и снятие подчёркивания. */
 .nav-item {
   display: block;
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--sidebar-text);
   text-align: left;
   padding: 9px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 13px;
   text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
 }
 /* Административные разделы прижаты к низу колонки, чтобы не мешаться в
    ежедневном списке: между ними и рабочими разделами — весь свободный ход. */
 .nav-item.is-bottom { margin-top: auto; }
-.nav-item:hover { background: rgba(255, 255, 255, 0.1); }
-.nav-item.active { background: rgba(255, 255, 255, 0.18); color: #fff; font-weight: 600; }
+.nav-item:hover { background: var(--sidebar-active-bg); color: var(--text); }
+.nav-item.active {
+  background: var(--sidebar-active-bg);
+  color: var(--text);
+  font-weight: 600;
+}
 
 .shell-body {
   flex: 1;
@@ -478,7 +567,7 @@ button.is-busy:disabled {
 .profile-name { font-weight: 600; font-size: 13px; }
 .profile-role {
   font-size: 11px;
-  color: #fff;
+  color: var(--on-brand);
   background: var(--accent);
   border-radius: 999px;
   padding: 1px 8px;
@@ -492,7 +581,7 @@ button.is-busy:disabled {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--shadow-pop);
   min-width: 200px;
   z-index: 50;
   padding: 6px;
@@ -522,7 +611,7 @@ button.is-busy:disabled {
 .notification-description {
   margin: 0;
   padding: 8px 10px 4px;
-  color: #475569;
+  color: var(--text-soft);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -556,13 +645,13 @@ button.is-busy:disabled {
   margin-left: 5px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: #f1f5f9;
+  background: var(--panel-2);
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
 }
 .tab.active .tab-count {
-  background: #e2e8f0;
+  background: var(--border);
   color: var(--brand);
 }
 .requests-filter-panel {
@@ -606,7 +695,7 @@ button.is-busy:disabled {
   font-size: 12px;
 }
 .chip:hover { background: var(--bg); }
-.chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+.chip.active { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
 
 .table-panel { padding: 0; overflow-x: auto; }
 .requests-table th { cursor: pointer; user-select: none; white-space: nowrap; }
@@ -624,8 +713,8 @@ button.request-delete-button {
 }
 button.request-delete-button:hover,
 button.request-delete-button:focus-visible {
-  border-color: #fecaca;
-  background: #fef2f2;
+  border-color: var(--err-soft);
+  background: var(--err-soft);
   color: var(--err);
 }
 .request-delete-backdrop {
@@ -662,7 +751,7 @@ button.request-delete-button:focus-visible {
   height: 36px;
   place-items: center;
   border-radius: 9px;
-  background: #f1f5f9;
+  background: var(--panel-2);
   color: var(--muted);
 }
 .request-delete-dialog-actions {
@@ -675,19 +764,19 @@ button.request-delete-button:focus-visible {
 button.danger {
   border-color: var(--err);
   background: var(--err);
-  color: #fff;
+  color: var(--on-brand);
 }
 button.danger:hover {
-  border-color: #b91c1c;
-  background: #b91c1c;
+  border-color: var(--err);
+  background: var(--err);
 }
 
 /* Бейджи статусов (раздел 16: нейтральный/синий/зелёный/янтарный). */
-.badge.tone-neutral { background: #f1f5f9; color: var(--muted); }
-.badge.tone-info { background: #dbeafe; color: var(--brand-dark); }
-.badge.tone-ok { background: #dcfce7; color: var(--ok); }
-.badge.tone-warn { background: #fef3c7; color: var(--attention); }
-.badge.tone-danger { background: #fee2e2; color: var(--err); }
+.badge.tone-neutral { background: var(--panel-2); color: var(--muted); }
+.badge.tone-info { background: var(--brand-soft); color: var(--brand-dark); }
+.badge.tone-ok { background: var(--ok-soft); color: var(--ok); }
+.badge.tone-warn { background: var(--warn-soft); color: var(--attention); }
+.badge.tone-danger { background: var(--err-soft); color: var(--err); }
 .esc-badge { margin-left: 6px; font-weight: 700; }
 
 /* Индикатор полноты. */
@@ -695,13 +784,13 @@ button.danger:hover {
   position: relative;
   width: 110px;
   height: 18px;
-  background: #f1f5f9;
+  background: var(--panel-2);
   border-radius: 999px;
   overflow: hidden;
 }
 .meter-fill { height: 100%; border-radius: 999px; }
-.meter-fill.ok { background: #86efac; }
-.meter-fill.warn { background: #fcd34d; }
+.meter-fill.ok { background: var(--ok); }
+.meter-fill.warn { background: var(--warn); }
 
 .meter-label {
   position: absolute;
@@ -770,9 +859,9 @@ button.danger:hover {
 .stages li.done { color: var(--text); }
 .stages li.done::before { background: var(--ok); border-color: var(--ok); }
 .stages li.current { color: var(--text); font-weight: 600; }
-.stages li.current::before { border-color: var(--brand); background: #dbeafe; }
+.stages li.current::before { border-color: var(--brand); background: var(--brand-soft); }
 .stages li.error { color: var(--err); font-weight: 600; }
-.stages li.error::before { border-color: var(--err); background: #fee2e2; }
+.stages li.error::before { border-color: var(--err); background: var(--err-soft); }
 .stage-jump {
   padding: 0;
   border: none;
@@ -826,7 +915,7 @@ button.danger:hover {
 .tab.active { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
 
 .escalate-btn { margin-left: auto; border-color: var(--attention); color: var(--attention); }
-.escalate-btn:hover { background: #fef3c7; }
+.escalate-btn:hover { background: var(--warn-soft); }
 .escalate-form h2 { color: var(--attention); }
 .escalate-form select {
   width: 100%;
@@ -858,7 +947,7 @@ button.danger:hover {
   border-radius: 6px;
   padding: 12px;
   margin: 10px 0;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 .add-supplier select {
   width: 100%;
@@ -868,7 +957,7 @@ button.danger:hover {
   font: inherit;
   background: var(--panel);
 }
-.stars { color: #f59e0b; letter-spacing: 1px; }
+.stars { color: var(--warn); letter-spacing: 1px; }
 .stars-empty { color: var(--border); }
 .row-muted { opacity: 0.55; }
 .btn-small { padding: 4px 10px; font-size: 12px; }
@@ -928,7 +1017,7 @@ button.danger:hover {
 .data-table table.summary td {
   height: 40px;
   padding: 6px 12px;
-  border-bottom-color: #f1f5f9;
+  border-bottom-color: var(--panel-2);
 }
 
 .data-table .col-num {
@@ -944,7 +1033,7 @@ button.danger:hover {
   text-overflow: ellipsis;
 }
 
-.data-table tbody tr.row-active:hover { background: #dbeafe; }
+.data-table tbody tr.row-active:hover { background: var(--brand-soft); }
 
 /* --- Реестр посредников --- */
 .intermediary-form { margin-bottom: 5px; }
@@ -963,7 +1052,7 @@ button.danger:hover {
   text-align: left;
 }
 /* Класс бьёт по специфичности `tbody tr:hover`, !important не нужен. */
-.row-active { background: #eff6ff; }
+.row-active { background: var(--brand-soft); }
 .row-actions { display: flex; gap: 6px; }
 .link { color: var(--brand); cursor: pointer; text-decoration: underline; }
 .link:hover { color: var(--brand-dark); }
@@ -1046,8 +1135,8 @@ button.danger:hover {
 }
 .qualification-warning {
   padding: 9px 10px;
-  background: #fff7ed;
-  color: #9a3412;
+  background: var(--warn-soft);
+  color: var(--err);
   border-radius: 6px;
   font-size: 12px;
 }
@@ -1078,19 +1167,19 @@ button.danger:hover {
   width: 100%;
   padding: 12px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--panel);
   color: var(--text);
   text-align: left;
 }
 
 .search-job-card:hover {
   border-color: var(--brand);
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .search-job-card.selected {
   border-color: var(--brand);
-  box-shadow: 0 0 0 2px #dbeafe;
+  box-shadow: 0 0 0 2px var(--brand-soft);
 }
 
 .search-job-main,
@@ -1165,7 +1254,7 @@ button.danger:hover {
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .search-run-metrics strong {
@@ -1197,7 +1286,7 @@ button.danger:hover {
 }
 
 .agent-pipeline-step:hover {
-  background: #f8fafc;
+  background: var(--panel-2);
   border-color: var(--brand);
 }
 
@@ -1223,7 +1312,7 @@ button.danger:hover {
 .source-document-card {
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--panel);
   overflow: hidden;
 }
 
@@ -1235,7 +1324,7 @@ button.danger:hover {
   gap: 10px;
   padding: 12px;
   cursor: pointer;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .agent-trace-card > summary > span:nth-child(2) {
@@ -1256,7 +1345,7 @@ button.danger:hover {
   place-items: center;
   border-radius: 50%;
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
   font-weight: 700;
 }
 
@@ -1284,8 +1373,8 @@ button.danger:hover {
   padding: 12px;
   overflow: auto;
   border-radius: 8px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--text);
+  color: var(--border);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -1295,8 +1384,8 @@ button.danger:hover {
   margin: 12px;
   padding: 10px;
   border-radius: 8px;
-  background: #eff6ff;
-  color: #1e3a8a;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   overflow-wrap: anywhere;
 }
@@ -1356,7 +1445,7 @@ button.danger:hover {
   border: 1px solid var(--border);
   border-left: 4px solid var(--brand);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
 }
 
 .evidence-claim-card > div {
@@ -1373,9 +1462,9 @@ button.danger:hover {
 .evidence-claim-card blockquote,
 .candidate-evidence blockquote {
   padding: 8px 10px;
-  border-left: 3px solid #93c5fd;
-  background: #eff6ff;
-  color: #1e3a8a;
+  border-left: 3px solid var(--border-strong);
+  background: var(--brand-soft);
+  color: var(--brand-dark);
   font-size: 12px;
 }
 
@@ -1454,9 +1543,9 @@ button.danger:hover {
   width: min(320px, 70vw);
   padding: 9px 11px;
   border-radius: 7px;
-  background: #0f172a;
-  color: #fff;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+  background: var(--text);
+  color: var(--on-brand);
+  box-shadow: var(--shadow-pop);
   font-size: 12px;
   font-weight: 400;
   line-height: 1.45;
@@ -1493,9 +1582,9 @@ button.danger:hover {
   width: min(320px, 70vw);
   padding: 9px 11px;
   border-radius: 7px;
-  background: #0f172a;
-  color: #fff;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+  background: var(--text);
+  color: var(--on-brand);
+  box-shadow: var(--shadow-pop);
   font-size: 12px;
   font-weight: 400;
   line-height: 1.45;
@@ -1519,12 +1608,12 @@ button.danger:hover {
   align-items: flex-start;
   width: min(380px, calc(100vw - 32px));
   padding: 12px 12px 12px 14px;
-  border: 1px solid #bbf7d0;
+  border: 1px solid var(--ok-soft);
   border-left: 3px solid var(--ok);
   border-radius: var(--radius);
-  background: #f0fdf4;
+  background: var(--ok-soft);
   color: var(--text);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+  box-shadow: var(--shadow-pop);
   animation: toast-slide-in 0.25s ease-out;
 }
 
@@ -1753,9 +1842,9 @@ button.danger:hover {
   align-items: center;
   gap: 6px;
   padding: 4px 8px 4px 10px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
-  background: #eff6ff;
+  background: var(--brand-soft);
   color: var(--brand-dark);
   font-size: 12px;
 }
@@ -1775,7 +1864,7 @@ button.danger:hover {
 }
 
 .country-token button:hover {
-  background: #dbeafe;
+  background: var(--brand-soft);
 }
 
 .country-picker {
@@ -1790,7 +1879,7 @@ button.danger:hover {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   font: inherit;
 }
 
@@ -1800,7 +1889,7 @@ button.danger:hover {
   height: 34px;
   place-items: center;
   border-radius: 50%;
-  background: #eff6ff;
+  background: var(--brand-soft);
   color: var(--brand);
 }
 
@@ -1808,7 +1897,7 @@ button.danger:hover {
   margin-top: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
 }
 
 .content-accordion > summary {
@@ -1832,7 +1921,7 @@ button.danger:hover {
   gap: 5px;
   padding: 10px;
   border-radius: 7px;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .search-plan-list code {
@@ -1893,7 +1982,7 @@ button.danger:hover {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
   color: var(--text);
 }
 
@@ -1917,16 +2006,16 @@ button.danger:hover {
 }
 
 .agent-pipeline-step.completed {
-  border-color: #bbf7d0;
+  border-color: var(--ok-soft);
 }
 
 .agent-pipeline-step.running {
-  border-color: #93c5fd;
-  box-shadow: 0 0 0 2px #dbeafe;
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px var(--brand-soft);
 }
 
 .agent-pipeline-step.failed {
-  border-color: #fecaca;
+  border-color: var(--err-soft);
 }
 
 .agent-pipeline-step.waiting {
@@ -1935,7 +2024,7 @@ button.danger:hover {
 
 .agent-pipeline-step.skipped {
   opacity: 0.75;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .pipeline-marker {
@@ -1943,9 +2032,9 @@ button.danger:hover {
   width: 26px;
   height: 26px;
   place-items: center;
-  border: 2px solid #cbd5e1;
+  border: 2px solid var(--border-strong);
   border-radius: 50%;
-  background: #fff;
+  background: var(--panel);
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
@@ -1954,18 +2043,18 @@ button.danger:hover {
 .pipeline-marker.completed {
   border-color: var(--ok);
   background: var(--ok);
-  color: #fff;
+  color: var(--on-brand);
 }
 
 .pipeline-marker.running {
   border-color: var(--brand);
-  background: #dbeafe;
+  background: var(--brand-soft);
   color: var(--brand);
 }
 
 .pipeline-marker.failed {
   border-color: var(--err);
-  background: #fee2e2;
+  background: var(--err-soft);
   color: var(--err);
 }
 
@@ -1998,7 +2087,7 @@ button.danger:hover {
   width: 13px;
   height: 13px;
   flex: 0 0 13px;
-  border: 2px solid #bfdbfe;
+  border: 2px solid var(--border-strong);
   border-top-color: var(--brand);
   border-radius: 50%;
   animation: search-spinner 0.8s linear infinite;
@@ -2007,7 +2096,7 @@ button.danger:hover {
 /* Вариант для тёмной кнопки: бледная окружность и белая «стрелка». */
 .loading-spinner.on-brand {
   border-color: rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
+  border-top-color: var(--on-brand);
 }
 
 @keyframes search-spinner {
@@ -2212,7 +2301,7 @@ button.danger:hover {
   list-style: none;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #f8fafc;
+  background: var(--panel-2);
   max-height: 320px;
   overflow-y: auto;
 }
@@ -2268,9 +2357,9 @@ button.danger:hover {
   display: grid;
   gap: 4px;
   padding: 10px 11px;
-  border: 1px solid #dbe5ef;
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .stage-result-grid span,
@@ -2294,7 +2383,7 @@ button.danger:hover {
 
 .stage-result-hero {
   border-left: 3px solid var(--brand);
-  background: #f8fbff;
+  background: var(--panel-2);
 }
 
 .stage-result-tags {
@@ -2306,9 +2395,9 @@ button.danger:hover {
 
 .stage-result-tags span {
   padding: 4px 7px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
-  background: #fff;
+  background: var(--panel);
   color: var(--text);
   font-size: 11px;
 }
@@ -2329,10 +2418,10 @@ button.danger:hover {
   display: grid;
   gap: 4px;
   padding: 9px 10px;
-  border: 1px solid #fde68a;
+  border: 1px solid var(--warn-soft);
   border-radius: 7px;
-  background: #fffbeb;
-  color: #92400e;
+  background: var(--warn-soft);
+  color: var(--warn);
   font-size: 12px;
 }
 
@@ -2377,7 +2466,7 @@ button.danger:hover {
   padding: 13px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .identity-decision p {
@@ -2394,10 +2483,10 @@ button.danger:hover {
 
 .identity-saved-rule {
   padding: 9px 10px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #fff;
-  color: #334155;
+  background: var(--panel);
+  color: var(--text-soft);
 }
 
 .identity-saved-rule > span {
@@ -2480,12 +2569,12 @@ button.substance-list-item {
 
 button.substance-list-item:hover {
   border-color: var(--border);
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 button.substance-list-item.active {
-  border-color: #94a3b8;
-  background: #f1f5f9;
+  border-color: var(--border-strong);
+  background: var(--panel-2);
 }
 
 .substance-list-item > span:first-child {
@@ -2566,10 +2655,10 @@ button.substance-list-item.active {
   gap: 5px;
   max-width: 100%;
   padding: 4px 7px 4px 9px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
-  background: #f8fafc;
-  color: #334155;
+  background: var(--panel-2);
+  color: var(--text-soft);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -2586,7 +2675,7 @@ button.substance-list-item.active {
 }
 
 .substance-name-tag button:hover {
-  background: #e2e8f0;
+  background: var(--border);
   color: var(--text);
 }
 
@@ -2614,7 +2703,7 @@ button.substance-list-item.active {
   padding: 10px 11px;
   border: 1px solid var(--border);
   border-radius: 7px;
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .substance-history-entry-header,

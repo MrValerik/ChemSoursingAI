@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { LogoMark, LogoWord } from "./Logo";
+import { applyTheme, readTheme, type Theme } from "../theme";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import type { UserRole } from "../api/types";
 import { IconButton } from "./ui";
@@ -53,6 +54,7 @@ export function isSectionAllowed(section: SectionKey, role: UserRole) {
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
+  const [theme, setTheme] = useState<Theme>(readTheme);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -95,6 +97,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="shell-body">
         <header className="shell-topbar" ref={menuRef}>
           <div className="topbar-right">
+            <IconButton
+              className="icon-btn"
+              icon={theme === "dark" ? "sun" : "moon"}
+              label={theme === "dark" ? "Светлая тема" : "Тёмная тема"}
+              title={theme === "dark" ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
+              onClick={() => {
+                const next = theme === "dark" ? "light" : "dark";
+                applyTheme(next);
+                setTheme(next);
+              }}
+            />
             <div className="topbar-menu">
               <IconButton
                 className="icon-btn"

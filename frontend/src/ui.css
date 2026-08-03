@@ -6,12 +6,12 @@
 :root {
   --control-height: 38px;
   --control-radius: 7px;
-  --control-border: #cbd5e1;
-  --control-border-hover: #94a3b8;
-  --control-focus: #475569;
-  --control-bg: #ffffff;
-  --control-disabled: #f1f5f9;
-  --icon-color: #475569;
+  --control-border: var(--border-strong);
+  --control-border-hover: var(--border-strong);
+  --control-focus: var(--text-soft);
+  --control-bg: var(--panel);
+  --control-disabled: var(--panel-2);
+  --icon-color: var(--text-soft);
 }
 
 :where(
@@ -52,7 +52,7 @@
   .ui-control
 ):focus-visible {
   border-color: var(--control-focus);
-  box-shadow: 0 0 0 3px rgba(71, 85, 105, 0.12);
+  box-shadow: 0 0 0 3px var(--brand-soft);
 }
 
 :where(input, select, textarea, .ui-control):disabled {
@@ -67,7 +67,7 @@
 select {
   appearance: none;
   padding-right: 34px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888078' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 11px center;
 }
@@ -119,7 +119,7 @@ textarea.ui-control {
 }
 
 .ui-field-label {
-  color: #475569;
+  color: var(--text-soft);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.3;
@@ -160,8 +160,8 @@ button.ui-icon-button {
 button.ui-icon-button:hover,
 button.ui-icon-button:focus-visible {
   border-color: var(--border);
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--panel-2);
+  color: var(--text);
 }
 
 .input-with-icon {
@@ -205,7 +205,7 @@ button.multi-select-trigger {
 button.multi-select-trigger:hover,
 button.multi-select-trigger:focus-visible {
   border-color: var(--control-border-hover);
-  background: #fff;
+  background: var(--panel);
 }
 
 .multi-select-trigger > span {
@@ -223,8 +223,8 @@ button.multi-select-trigger:focus-visible {
   padding: 7px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
 }
 
 .multi-select-options {
@@ -243,7 +243,7 @@ button.multi-select-trigger:focus-visible {
 }
 
 .multi-select-options label:hover {
-  background: #f8fafc;
+  background: var(--panel-2);
 }
 
 .multi-select-options input {
@@ -265,6 +265,6 @@ button.multi-select-clear {
 }
 
 button.multi-select-clear:hover {
-  background: #f8fafc;
+  background: var(--panel-2);
   color: var(--text);
 }
