@@ -73,36 +73,142 @@ class FetchedPage:
     truncated: bool = False
 
 
+# Поля schema.org, которые несут смысл для карточки поставщика. Остальное
+# в разметке — навигация, хлебные крошки и счётчики.
+# Типы schema.org, описывающие сам товар или его продавца. Всё остальное в
+# разметке — навигация и разделы сайта.
+_JSONLD_TYPES = frozenset(
+    {
+        "product",
+        "productmodel",
+        "chemicalsubstance",
+        "offer",
+        "organization",
+        "corporation",
+        "manufacturer",
+    }
+)
+
+_JSONLD_FIELDS = (
+    ("name", "Название"),
+    ("description", "Описание"),
+    ("sku", "Артикул"),
+    ("productID", "Идентификатор"),
+    ("brand", "Бренд"),
+    ("manufacturer", "Изготовитель"),
+    ("category", "Категория"),
+)
+
+
 class _TextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.title_parts: list[str] = []
+        self.jsonld_parts: list[str] = []
         self._ignored_depth = 0
         self._in_title = False
+        self._in_jsonld = False
 
     def handle_starttag(self, tag: str, attrs) -> None:
         tag = tag.casefold()
         if tag in {"script", "style", "noscript", "svg"}:
             self._ignored_depth += 1
+            if tag == "script":
+                kind = next(
+                    (v or "" for k, v in attrs if (k or "").casefold() == "type"),
+                    "",
+                )
+                # Разметка schema.org лежит внутри script, поэтому вместе со
+                # скриптами терялась. На карточках товара там обычно самое
+                # точное описание продукта на всей странице.
+                self._in_jsonld = "ld+json" in kind.casefold()
         elif tag == "title":
             self._in_title = True
         elif tag in {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4"}:
             self.parts.append("\n")
+        elif tag in {"td", "th"}:
+            # Без разделителя соседние ячейки склеиваются: в замере на бетаине
+            # получалось «Origin : ChinaCAS Number : 107-43-7», где два разных
+            # поля спецификации выглядят одним значением.
+            self.parts.append(" | ")
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.casefold()
         if tag in {"script", "style", "noscript", "svg"} and self._ignored_depth:
             self._ignored_depth -= 1
+            if tag == "script":
+                self._in_jsonld = False
         elif tag == "title":
             self._in_title = False
 
     def handle_data(self, data: str) -> None:
+        if self._in_jsonld:
+            self.jsonld_parts.append(data)
+            return
         if self._ignored_depth:
             return
         if self._in_title:
             self.title_parts.append(data)
         self.parts.append(data)
+
+
+def _render_jsonld(blocks: list[str]) -> list[str]:
+    """Превращает schema.org-разметку в строки «поле: значение».
+
+    Строки попадают в тот же текст страницы, что и остальное содержимое,
+    поэтому цитата из них проходит детерминированную проверку наравне с
+    цитатой из видимой части. Отдельным полем их держать нельзя: проверка
+    ищет цитату в сохранённом тексте.
+    """
+    import json
+
+    lines: list[str] = []
+    seen: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        # Разметка описывает не только товар: там же лежат хлебные крошки,
+        # разделы сайта и виджеты. На chemicalbook так в подсветку попало
+        # «Название: CAS DataBase List» — имя раздела, а не вещества.
+        kinds = node.get("@type")
+        kinds = kinds if isinstance(kinds, list) else [kinds]
+        if not any(
+            isinstance(kind, str) and kind.casefold() in _JSONLD_TYPES
+            for kind in kinds
+        ):
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    walk(value)
+            return
+        for key, label in _JSONLD_FIELDS:
+            value = node.get(key)
+            if isinstance(value, dict):
+                value = value.get("name")
+            if isinstance(value, str) and value.strip():
+                line = f"{label}: {' '.join(value.split())}"
+                if line not in seen:
+                    seen.add(line)
+                    lines.append(line)
+        for value in node.values():
+            if isinstance(value, (dict, list)):
+                walk(value)
+
+    for block in blocks:
+        text = block.strip()
+        if not text:
+            continue
+        try:
+            walk(json.loads(text))
+        except (ValueError, RecursionError):
+            # Разметка бывает битой; это не повод терять остальную страницу.
+            continue
+    return lines
 
 
 def extract_page_text(content: str, content_type: str) -> tuple[str | None, str]:
@@ -112,7 +218,10 @@ def extract_page_text(content: str, content_type: str) -> tuple[str | None, str]
     parser.feed(content)
     title = " ".join(" ".join(parser.title_parts).split()) or None
     lines = [" ".join(line.split()) for line in "".join(parser.parts).splitlines()]
-    text = "\n".join(line for line in lines if line)
+    body = [line for line in lines if line]
+    # Разметка идёт первой: она компактна и описывает товар точнее, чем
+    # окружающая её вёрстка, а до конца страницы обрезка может не дойти.
+    text = "\n".join(_render_jsonld(parser.jsonld_parts) + body)
     return title, html.unescape(text)[:MAX_PAGE_TEXT]
 
 

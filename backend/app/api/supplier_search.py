@@ -62,6 +62,12 @@ from app.services.supplier_search_continuation import (
 )
 from app.services.supplier_registry import register_qualified_candidate
 from app.services.intermediaries import active_domains, split_by_intermediary
+from app.services.page_facts import (
+    build_highlights,
+    cas_quote,
+    find_document_mentions,
+    page_cas_match,
+)
 from app.services.supplier_scoring import SELF_DECLARED_ONLY_FLAG, score_supplier
 from app.services.supplier_verification import apply_supplier_verification
 from app.services.supplier_sources import (
@@ -86,6 +92,26 @@ _QUALIFICATION_BATCH_SIZE = 2
 _VERIFICATION_BATCH_SIZE = 2
 # Максимум текста первичной страницы, который вообще имеет смысл передавать.
 _PAGE_TEXT_HARD_LIMIT = 4000
+
+
+def _compose_page_text(text: str, highlights: list[str], limit: int) -> str:
+    """Фрагмент страницы для модели: сначала спецификация, потом начало.
+
+    Раньше отдавался просто префикс, и решала позиция факта в вёрстке, а не
+    его важность. Подсветка занимает часть того же бюджета, поэтому остаток
+    страницы урезается на её длину — суммарный объём не растёт.
+
+    Строки подсветки копируются дословно, чтобы цитата из них проходила
+    проверку вхождением в сохранённый текст наравне с любой другой.
+    """
+    if not highlights:
+        return (text or "")[:limit]
+    block = "\n".join(highlights)
+    # Подсветке отдаём не больше половины бюджета: она помогает найти факт,
+    # но не должна вытеснить страницу целиком.
+    block = block[: max(0, limit // 2)]
+    rest = max(0, limit - len(block) - 2)
+    return f"{block}\n\n{(text or '')[:rest]}" if rest else block
 
 
 def _page_text_budget(
@@ -517,7 +543,12 @@ def _qualification_system_prompt(prompt: PromptTemplate | None) -> str:
         "Для country_status используй claimed при прямом указании нахождения "
         "компании в требуемой стране, likely — только по косвенным признакам "
         "вроде домена или региона, mismatch — при явном указании другой страны, "
-        "иначе not_found. page_text — текст загруженной первичной страницы. "
+        "иначе not_found. page_text — текст загруженной первичной страницы: "
+        "в начале идут строки спецификации, затем начало страницы. "
+        "cas_found_on_page — результат поиска номера по всему тексту страницы, "
+        "а не только по видимому здесь фрагменту. Если он равен true, номер на "
+        "странице есть, даже когда в page_text его не видно; cas_status тогда "
+        "не может быть not_found. "
         "Если fetch_status равен failed, доступен только поисковый snippet: "
         "считай его слабым свидетельством и снижай уверенность. "
         "В evidence включай только факты из page_text. Для каждого факта укажи "
@@ -593,6 +624,72 @@ def _evidence_rejection_reason(
     return None
 
 
+def _inject_deterministic_evidence(
+    qualifications: dict[int, SupplierQualification],
+    *,
+    cas: str | None,
+    source_documents: dict[int, SourceDocument],
+    source_indexes: dict[int, int],
+) -> None:
+    """Добавляет доказательства, читаемые со страницы без модели.
+
+    Два разных рода фактов. Совпадение вещества — факт о товаре: номер либо
+    есть в тексте, либо нет. Упоминание GMP, ISO, CoA и TDS — факт о том,
+    что написала страница, и не более того: сертификат подтверждается
+    документом, а не сайтом продавца. Поэтому вторые дают статус «заявлено»
+    и никогда не подтверждают сами себя.
+
+    Ничего не добавляется там, где модель уже привела доказательство того же
+    рода. Цитатой служит дословная строка со страницы, поэтому запись идёт
+    обычным путём и проходит те же ворота.
+    """
+    documents_by_index: dict[int, SourceDocument] = {}
+    for source_id, index in source_indexes.items():
+        source = source_documents.get(source_id)
+        if source is not None and source.status == "completed":
+            documents_by_index.setdefault(index, source)
+
+    for result_index, qualification in qualifications.items():
+        source = documents_by_index.get(result_index)
+        if source is None or not source.text_content:
+            continue
+        text = source.text_content
+        present = {item.claim_type for item in qualification.evidence}
+        additions: list[QualificationEvidence] = []
+
+        if (
+            cas
+            and "chemical_identity" not in present
+            and page_cas_match(text, cas)
+        ):
+            quote = cas_quote(text, cas)
+            if quote:
+                additions.append(
+                    QualificationEvidence(
+                        source_document_id=source.id,
+                        claim_type="chemical_identity",
+                        claim_value=f"CAS {normalize_cas(cas)} найден на странице",
+                        support_status="supports",
+                        quote=quote,
+                    )
+                )
+
+        for claim_type, quote in find_document_mentions(text).items():
+            if claim_type in present:
+                continue
+            additions.append(
+                QualificationEvidence(
+                    source_document_id=source.id,
+                    claim_type=claim_type,
+                    claim_value=f"{claim_type.upper()} упомянут на странице",
+                    support_status="supports",
+                    quote=quote,
+                )
+            )
+
+        qualification.evidence[:0] = additions
+
+
 def _apply_evidence_gates(
     qualification: SupplierQualification,
     evidence_items: list[dict],
@@ -624,6 +721,11 @@ def _apply_evidence_gates(
     elif payload["cas_status"] == "confirmed" and "chemical_identity" not in supported:
         payload["cas_status"] = "not_found"
         flag("Совпадение вещества не подтверждено проверенной цитатой")
+    elif payload["cas_status"] == "not_found" and "chemical_identity" in supported:
+        # Номер найден на странице поиском по тексту, а модель его не
+        # заметила. Ворота работают в обе стороны: проверенная цитата и
+        # подтверждает статус, и снимает его.
+        payload["cas_status"] = "confirmed"
 
     if "country" in contradicted:
         payload["country_status"] = "mismatch"
@@ -642,6 +744,11 @@ def _apply_evidence_gates(
         elif payload[field] == "claimed" and claim_type not in supported:
             payload[field] = "not_found"
             flag(f"{label} не подтверждён проверенной цитатой")
+        elif payload[field] == "not_found" and claim_type in supported:
+            # Упоминание найдено поиском по тексту, а модель его пропустила.
+            # Статус именно «заявлено»: страница продавца сертификат не
+            # подтверждает, она о нём только сообщает.
+            payload[field] = "claimed"
 
     payload["red_flags"] = red_flags
     return payload
@@ -1841,6 +1948,11 @@ def execute_supplier_qualification(
             source.text_content = page.text
             source.content_hash = page.content_hash
             source.status = "completed"
+            # Номер и спецификацию ищем по полному тексту, до обрезки: на
+            # карточках поставщиков таблица со спецификацией стоит ниже
+            # маркетинговой части, и префикс страницы до неё не достаёт.
+            highlights = build_highlights(page.text, cas=data.cas)
+            cas_on_page = page_cas_match(page.text, data.cas)
             fetched_sources.append(
                 {
                     "result_index": index,
@@ -1851,7 +1963,12 @@ def execute_supplier_qualification(
                     "domain": source.domain,
                     "source_kind": result.source_kind,
                     "fetch_status": "completed",
-                    "page_text": page.text[:page_text_limit],
+                    # Детерминированный факт, а не мнение модели: номер либо
+                    # присутствует на странице, либо нет.
+                    "cas_found_on_page": cas_on_page,
+                    "page_text": _compose_page_text(
+                        page.text, highlights, page_text_limit
+                    ),
                 }
             )
             log_agent_event(
@@ -2086,6 +2203,18 @@ def execute_supplier_qualification(
             )
             continue
         qualifications.setdefault(parsed.result_index, parsed)
+
+    # Часть фактов читается со страницы без модели: номер вещества и
+    # упоминания GMP, ISO, CoA, TDS. Модель их пропускает — в замере на
+    # бетаине номер не был найден ни на одной из четырёх страниц, где он
+    # присутствовал. Доказательства проходят ту же проверку цитаты, что и
+    # остальные: обхода ворот здесь нет.
+    _inject_deterministic_evidence(
+        qualifications,
+        cas=data.cas,
+        source_documents=source_documents_by_id,
+        source_indexes=source_index_by_id,
+    )
 
     validated_evidence: dict[int, list[dict]] = {}
     rejected_evidence: list[dict] = []
