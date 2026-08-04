@@ -1183,13 +1183,13 @@ def test_multiple_marketplace_cards_survive_deduplication(client, monkeypatch):
     def fake_search(query, limit):
         return [
             {
-                "title": "Echemi Supplier One",
-                "url": "https://www.echemi.com/shop-us111/index.html",
+                "title": "Aspirin on Echemi",
+                "url": "https://www.echemi.com/produce/cas-50-78-2.html",
                 "snippet": "Aspirin CAS 50-78-2 supplier",
             },
             {
-                "title": "Echemi Supplier Two",
-                "url": "https://www.echemi.com/shop-us222/index.html",
+                "title": "Aspirin listing",
+                "url": "https://www.echemi.com/productsSearch?keyword=aspirin",
                 "snippet": "Aspirin manufacturer",
             },
         ]
@@ -1203,8 +1203,8 @@ def test_multiple_marketplace_cards_survive_deduplication(client, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["search_strategy"] == "direct_sites_first"
-    assert payload["results"] == [], "витрина не должна тратить бюджет загрузки"
-    assert payload["intermediary_results"], "и не должна теряться"
+    assert payload["results"] == [], "список продавцов не должен тратить бюджет"
+    assert payload["intermediary_results"], "и не должен теряться"
 
     everyone = client.post(
         "/supplier-search",
@@ -1241,8 +1241,8 @@ def test_supplier_search_uses_indian_registries(client, monkeypatch):
         # больше нет, но фильтр обязан её отличить от реестра.
         return [
             {
-                "title": "Aspirin supplier on Echemi",
-                "url": "https://www.echemi.com/shop-us333/index.html",
+                "title": "Aspirin on Echemi",
+                "url": "https://www.echemi.com/produce/cas-50-78-2.html",
                 "snippet": "Supplier information for CAS 50-78-2",
             }
         ]
@@ -1260,7 +1260,8 @@ def test_supplier_search_uses_indian_registries(client, monkeypatch):
     assert any("site:cdsco.gov.in" in query for query in queries)
     assert payload["results"][0]["source_kind"] == "india_registry"
     # Отраслевые реестры — не посредники: они подтверждают производителя, а не
-    # продают. Отсев их не касается, в отличие от карточек площадки.
+    # продают. Отсев их не касается, в отличие от списков площадки: страница
+    # вида /produce/cas-… перечисляет многих продавцов и компанию не называет.
     assert {item["source_kind"] for item in payload["results"]} == {
         "india_registry"
     }

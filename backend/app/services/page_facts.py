@@ -24,7 +24,14 @@ from app.services.cas import is_valid_cas, normalize_cas
 
 # CAS-номер: до семи цифр, две цифры, контрольная. Границы слова отсекают
 # куски телефонов и артикулов, контрольная сумма — почти весь остальной шум.
-_CAS_RE = re.compile(r"(?<![\d-])(\d{2,7}-\d{2}-\d)(?![\d-])")
+# Дефис допускается любой: китайские карточки товара пишут номер через
+# полноширинный, копипаста из Word — через неразрывный. Минус стоит в конце
+# класса, иначе он читается как диапазон.
+_DASHES = "‐‑‒–—―−－-"
+_DASH = f"[{_DASHES}]"
+_CAS_RE = re.compile(
+    rf"(?<![\d{_DASHES}])(\d{{2,7}}{_DASH}\d{{2}}{_DASH}\d)(?![\d{_DASHES}])"
+)
 
 # Европейский номер EINECS/EC: три-три-одна цифра с контрольной суммой.
 # Полезен как вторая точка опоры: у вещества он свой, и расхождение с
@@ -126,7 +133,9 @@ def find_cas_numbers(text: str) -> list[str]:
     found: list[str] = []
     seen: set[str] = set()
     for match in _CAS_RE.finditer(text or ""):
-        candidate = match.group(1)
+        # Приводим к обычному дефису: иначе номер с китайской страницы не
+        # сравнится с номером из запроса, хотя это одно и то же.
+        candidate = normalize_cas(match.group(1))
         if candidate in seen:
             continue
         seen.add(candidate)
@@ -213,6 +222,67 @@ def find_purity(text: str) -> list[str]:
     return found
 
 
+# Слова роли. Когда их три и больше подряд в одной строке, это не
+# утверждение, а перечисление ключевых слов для поисковика: «China leading
+# ... suppliers, factory & manufacturers» стоит на каждой товарной странице
+# каталога и о конкретном товаре не говорит ничего.
+_ROLE_WORDS = (
+    "supplier",
+    "suppliers",
+    "manufacturer",
+    "manufacturers",
+    "factory",
+    "factories",
+    "exporter",
+    "exporters",
+    "trader",
+    "traders",
+    "distributor",
+    "distributors",
+    "wholesaler",
+    "wholesalers",
+    "producer",
+    "producers",
+    "vendor",
+    "vendors",
+)
+_ROLE_WORD_RE = re.compile(
+    r"\b(" + "|".join(_ROLE_WORDS) + r")\b", re.IGNORECASE
+)
+_MIN_STUFFED_ROLES = 3
+
+
+def looks_like_role_keyword_stuffing(quote: str) -> bool:
+    """Перечисление ролей вместо утверждения о производстве.
+
+    Замер на эпоксидированном соевом масле: перепродавец получил допуск в
+    короткий список на строке «China leading Epoxidized Soybean Oil ESBO
+    CAS 8013-07-8 suppliers, factory & manufacturers». Строка дословная,
+    вещество в ней названо — и всё же она ничего не утверждает: тот же
+    шаблон стоит на каждой из тысяч товарных страниц этого сайта.
+    """
+    found = {match.group(1).casefold() for match in _ROLE_WORD_RE.finditer(quote or "")}
+    # Единственное и множественное число одной роли считаем за одну.
+    roles = {word.rstrip("s") for word in found}
+    return len(roles) >= _MIN_STUFFED_ROLES
+
+
+def mentions_substance(quote: str, *, cas: str | None, names: list[str]) -> bool:
+    """Говорит ли цитата об искомом веществе, а не о компании вообще.
+
+    «У нас свой завод» подтверждает, что компания что-то производит. Что
+    она производит именно это вещество — не подтверждает. На бетаине
+    доказательством роли служила строка «Our Gelatin Factory»: завод
+    настоящий, вещество другое.
+    """
+    text = (quote or "").casefold()
+    if not text:
+        return False
+    if cas and normalize_cas(cas).casefold() in text:
+        return True
+    return any(name.strip().casefold() in text for name in names if name.strip())
+
+
 def find_document_mentions(text: str) -> dict[str, str]:
     """Упоминания GMP, ISO, CoA и TDS с дословной строкой страницы.
 
@@ -234,8 +304,34 @@ def find_document_mentions(text: str) -> dict[str, str]:
 
 
 def cas_quote(text: str, cas: str) -> str | None:
-    """Дословная строка страницы, содержащая искомый номер."""
-    return quote_for(text, normalize_cas(cas or ""))
+    """Дословная строка страницы, содержащая искомый номер.
+
+    Ищем не подстрокой, а разбором: на странице номер может быть написан
+    другим дефисом, и тогда прямое сравнение строк его не найдёт.
+    """
+    target = normalize_cas(cas or "")
+    if not target or not text:
+        return None
+    for line in text.splitlines():
+        if any(
+            normalize_cas(match.group(1)) == target
+            for match in _CAS_RE.finditer(line)
+        ):
+            return _trimmed(line.strip(), target)
+    return None
+
+
+def _trimmed(line: str, needle: str) -> str | None:
+    """Обрезает длинную строку, оставляя искомое внутри цитаты."""
+    if not line:
+        return None
+    if len(line) <= _MAX_LINE_CHARS:
+        return line
+    position = line.find(needle)
+    if position < 0:
+        return line[:_MAX_LINE_CHARS]
+    start = max(0, position - _MAX_LINE_CHARS // 2)
+    return line[start : start + _MAX_LINE_CHARS]
 
 
 def quote_for(text: str, needle: str) -> str | None:
@@ -250,15 +346,10 @@ def quote_for(text: str, needle: str) -> str | None:
     for line in text.splitlines():
         if target in line:
             stripped = line.strip()
-            if not stripped:
-                continue
-            # Длинную строку обрезаем с начала совпадения, чтобы номер
-            # остался внутри цитаты и она осталась подстрокой текста.
-            if len(stripped) <= _MAX_LINE_CHARS:
-                return stripped
-            position = stripped.find(target)
-            start = max(0, position - _MAX_LINE_CHARS // 2)
-            return stripped[start : start + _MAX_LINE_CHARS]
+            if stripped:
+                # Длинную строку обрезаем вокруг совпадения, чтобы искомое
+                # осталось внутри цитаты, а она — подстрокой текста.
+                return _trimmed(stripped, target)
     return None
 
 

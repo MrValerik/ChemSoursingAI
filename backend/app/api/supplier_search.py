@@ -66,6 +66,8 @@ from app.services.page_facts import (
     build_highlights,
     cas_quote,
     find_document_mentions,
+    looks_like_role_keyword_stuffing,
+    mentions_substance,
     page_cas_match,
 )
 from app.services.supplier_scoring import SELF_DECLARED_ONLY_FLAG, score_supplier
@@ -230,6 +232,10 @@ class SupplierQualificationRequest(BaseModel):
     additional_instructions: str | None = Field(default=None, max_length=4000)
     expert_notes: str | None = Field(default=None, max_length=4000)
     target_count: int | None = Field(default=None, ge=1, le=20)
+    # Подтверждённые названия нужны, чтобы связать заявление о производстве
+    # с искомым веществом: на китайской странице английского имени может не
+    # быть, а синоним или номер — есть.
+    known_synonyms: list[str] = Field(default_factory=list, max_length=50)
     results: list[SupplierSearchResultInput] = Field(
         ..., min_length=1, max_length=60
     )
@@ -611,6 +617,8 @@ def _evidence_rejection_reason(
     result_index: int,
     source_documents: dict[int, SourceDocument],
     source_indexes: dict[int, int],
+    cas: str | None = None,
+    names: list[str] | None = None,
 ) -> str | None:
     source = source_documents.get(evidence.source_document_id)
     if source is None:
@@ -621,6 +629,15 @@ def _evidence_rejection_reason(
         return "первичная страница не была успешно загружена"
     if evidence.quote not in source.text_content:
         return "цитата дословно не найдена в сохранённом тексте"
+    if evidence.claim_type == "manufacturer_role":
+        # Роль производителя обязана относиться к искомому веществу.
+        # «У нас свой завод» подтверждает, что компания что-то производит,
+        # но не что она производит это. На бетаине доказательством служила
+        # строка «Our Gelatin Factory»: завод настоящий, вещество другое.
+        if looks_like_role_keyword_stuffing(evidence.quote):
+            return "перечисление ролей для поисковика, а не утверждение о производстве"
+        if not mentions_substance(evidence.quote, cas=cas, names=names or []):
+            return "цитата о компании вообще, а не об искомом веществе"
     return None
 
 
@@ -2226,6 +2243,8 @@ def execute_supplier_qualification(
                 result_index=result_index,
                 source_documents=source_documents_by_id,
                 source_indexes=source_index_by_id,
+                cas=data.cas,
+                names=[data.name, *(data.known_synonyms or [])],
             )
             dedupe_key = (
                 evidence.source_document_id,

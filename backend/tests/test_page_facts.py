@@ -45,6 +45,23 @@ def test_position_on_the_page_does_not_matter():
     assert page_cas_match(text, "107-43-7") is True
 
 
+def test_a_word_hyphen_does_not_break_the_number():
+    """В списке сырья заказчика так записаны два номера из 323.
+
+    Копипаста из Word и PDF даёт неразрывный дефис U+2011. Оба номера
+    верны, и отклонять их — значит терять настоящие запросы.
+    """
+    assert find_cas_numbers("CAS 112‑70‑9") == ["112-70-9"]
+    assert page_cas_match("CAS 27458‑92‑0", "27458-92-0") is True
+
+
+def test_a_fullwidth_hyphen_does_not_break_the_number():
+    """Китайские карточки товара пишут номер полноширинным дефисом."""
+    assert page_cas_match("CAS：107－43－7", "107-43-7") is True
+    quote = cas_quote("产品 CAS：107－43－7 现货", "107-43-7")
+    assert quote is not None and "107" in quote
+
+
 def test_a_different_substance_is_not_a_match():
     assert page_cas_match("CAS 50-78-2 aspirin", "107-43-7") is False
 

@@ -103,6 +103,58 @@ def domain_label(value: str) -> str:
     return parts[-2]
 
 
+# Поддомены, которые площадка выдаёт не продавцу, а себе: язык, зеркало,
+# мобильная версия. Всё остальное перед именем площадки — имя продавца.
+_GENERIC_SUBDOMAINS = frozenset(
+    {
+        "www", "m", "mobile", "amp", "en", "cn", "ru", "de", "es", "fr", "pt",
+        "it", "ja", "ko", "ar", "chinese", "russian", "china", "us", "uk",
+        "shop", "store", "app", "api", "static", "img", "www2",
+    }
+)
+
+# Пути, которыми площадка обозначает страницу одной компании.
+_STOREFRONT_PATHS = (
+    "/company-",
+    "/company/",
+    "/showroom/",
+    "/supplier/",
+    "/suppliers/",
+    "/store/",
+    "/stores/",
+    "/shop-",
+    "/seller/",
+    "/manufacturer/",
+)
+
+
+def marketplace_page_kind(url: str) -> str:
+    """Что это за страница на домене площадки: витрина или магазин компании.
+
+    Разница существенная, и различать её приходится обязательно. Витрина
+    (`made-in-china.com/products-search/…`, `lookchem.com/cas-107/…`)
+    перечисляет многих продавцов и роль производителя подтвердить не может.
+    Магазин одной компании (`xjleso.en.made-in-china.com`) называет
+    конкретное предприятие и по содержанию не отличается от его сайта.
+
+    Это не мелочь: крупнейший в мире производитель эпоксидированного
+    соевого масла собственного сайта не имеет вовсе и существует только
+    магазином на площадке. Отбрасывая площадку целиком, поиск делает его
+    принципиально ненаходимым.
+    """
+    host = normalize_domain(url)
+    parts = [part for part in host.split(".") if part]
+    label = domain_label(host)
+    if label in parts:
+        prefix = parts[: parts.index(label)]
+        if any(part not in _GENERIC_SUBDOMAINS for part in prefix):
+            return "storefront"
+    path = urlparse(url if "//" in url else f"//{url}").path.casefold()
+    if any(marker in path for marker in _STOREFRONT_PATHS):
+        return "storefront"
+    return "listing"
+
+
 def is_intermediary(url: str, domains: set[str]) -> bool:
     """Принадлежит ли ссылка посреднику.
 
@@ -120,14 +172,19 @@ def is_intermediary(url: str, domains: set[str]) -> bool:
 def split_by_intermediary(
     results: list[dict], domains: set[str]
 ) -> tuple[list[dict], list[dict]]:
-    """Делит выдачу на сайты компаний и посредников, сохраняя порядок."""
+    """Делит выдачу на сайты компаний и посредников, сохраняя порядок.
+
+    Магазин одной компании на домене площадки остаётся среди прямых
+    источников: он называет предприятие, а не перечисляет продавцов.
+    """
     direct: list[dict] = []
     intermediaries: list[dict] = []
     for result in results:
-        target = intermediaries if is_intermediary(
-            str(result.get("url") or ""), domains
-        ) else direct
-        target.append(result)
+        url = str(result.get("url") or "")
+        if is_intermediary(url, domains) and marketplace_page_kind(url) != "storefront":
+            intermediaries.append(result)
+        else:
+            direct.append(result)
     return direct, intermediaries
 
 

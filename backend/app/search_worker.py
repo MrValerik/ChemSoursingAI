@@ -356,6 +356,7 @@ def _execute_claimed_job(
                     additional_instructions=request.additional_instructions,
                     expert_notes=request.catalog_notes,
                     target_count=request.limit,
+                    known_synonyms=list(request.known_synonyms or []),
                     results=qualification_pool[:60],
                 )
                 run_qualifier(qualification_request, db, user)
