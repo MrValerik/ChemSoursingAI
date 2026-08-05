@@ -22,6 +22,7 @@ from app.core.db import get_db
 from app.extraction.llm_client import (
     LLMClient,
     LLMContextOverflowError,
+    LLMOutputTruncatedError,
     LLMUnavailableError,
 )
 from app.models import (
@@ -125,7 +126,9 @@ def _compose_page_text(text: str, highlights: list[str], limit: int) -> str:
 
 
 def _page_text_budget(
-    *, batch_size: int = _QUALIFICATION_BATCH_SIZE, output_tokens: int = 1536
+    *,
+    batch_size: int = _QUALIFICATION_BATCH_SIZE,
+    output_tokens: int | None = None,
 ) -> int:
     """Сколько символов страницы помещается в контекст модели.
 
@@ -133,9 +136,12 @@ def _page_text_budget(
     как недоступность модели, поэтому объём страниц ужимается заранее. При
     маленьком контексте этап отдаёт меньше текста, но не падает.
     """
+    settings = get_settings()
+    if output_tokens is None:
+        output_tokens = settings.llm_max_output_tokens
     # Запас на системный промпт, служебные поля запроса и разметку JSON.
     overhead_tokens = 1200
-    available = get_settings().llm_context_tokens - output_tokens - overhead_tokens
+    available = settings.llm_context_tokens - output_tokens - overhead_tokens
     per_source_tokens = max(300, available // max(1, batch_size))
     # Осторожная оценка для смешанного текста ru/en/zh: около двух символов
     # на токен. Заниженный коэффициент безопаснее завышенного.
@@ -716,6 +722,54 @@ def _evidence_rejection_reason(
         if not mentions_substance(evidence.quote, cas=cas, names=names or []):
             return "цитата о компании вообще, а не об искомом веществе"
     return None
+
+
+def _qualify_batch(
+    llm: LLMClient,
+    *,
+    system_prompt: str,
+    batch_payload: dict,
+    on_split=None,
+) -> dict:
+    """Оценивает пакет источников, дробя его, если ответ не поместился.
+
+    Обрыв по лимиту выхода воспроизводится при каждой попытке: повторять
+    тот же запрос бессмысленно. Помогает укоротить вход, поэтому пакет
+    делится пополам, а оценки половин склеиваются.
+
+    Замер на облачной Qwen3.6: пакет с 9789 символами входа обрывался, а
+    его половины по 5000 проходили. Соседние пакеты того же прогона на
+    5626 и 5093 символах проходили сразу.
+    """
+    sources = batch_payload.get("sources") or []
+    try:
+        return llm.generate_json(
+            system_prompt=system_prompt,
+            user_text=json.dumps(batch_payload, ensure_ascii=False),
+            schema_name="supplier_qualification",
+            json_schema=_QUALIFICATION_SCHEMA,
+            max_tokens=get_settings().llm_max_output_tokens,
+        )
+    except LLMOutputTruncatedError:
+        if len(sources) < 2:
+            # Дробить больше нечего: один источник и так не помещается.
+            raise
+        middle = len(sources) // 2
+        if on_split is not None:
+            on_split(middle)
+        merged: list[dict] = []
+        for half in (sources[:middle], sources[middle:]):
+            part = dict(batch_payload, sources=half)
+            answer = _qualify_batch(
+                llm,
+                system_prompt=system_prompt,
+                batch_payload=part,
+                on_split=on_split,
+            )
+            results = answer.get("results") if isinstance(answer, dict) else None
+            if isinstance(results, list):
+                merged.extend(results)
+        return {"results": merged}
 
 
 def _inject_deterministic_evidence(
@@ -2333,7 +2387,7 @@ def execute_supplier_qualification(
         effective_system_prompt=llm.effective_json_system_prompt(system_prompt),
         model=llm.model,
         temperature=0,
-        max_tokens=1536,
+        max_tokens=get_settings().llm_max_output_tokens,
     )
     db.commit()
     raw_batches: list[dict] = []
@@ -2381,12 +2435,15 @@ def execute_supplier_qualification(
                     "и сохрани исходный result_index."
                 ),
             }
-            raw_batch = llm.generate_json(
+            raw_batch = _qualify_batch(
+                llm,
                 system_prompt=system_prompt,
-                user_text=json.dumps(batch_payload, ensure_ascii=False),
-                schema_name="supplier_qualification",
-                json_schema=_QUALIFICATION_SCHEMA,
-                max_tokens=1536,
+                batch_payload=batch_payload,
+                on_split=lambda size: log_agent_event(
+                    qualification_run,
+                    f"Ответ не поместился в лимит: дроблю пакет на {size}",
+                    kind="warning",
+                ),
             )
             _raise_if_cancelled(db, search_run)
             raw_batches.append(raw_batch)

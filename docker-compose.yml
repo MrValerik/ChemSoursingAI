@@ -43,6 +43,9 @@ services:
       LLM_THINKING_CONTROL: ${LLM_THINKING_CONTROL:-chat_template_kwargs}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
+      # Сколько токенов отводится ответу. Делит контекст с текстом
+      # страниц, поэтому им же считается их бюджет.
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-1536}
       # Должно совпадать с --parallel у llama-server. Воркеров больше, и
       # это верно для загрузки страниц, но у модели мест ровно столько:
       # третий одновременный вызов ждёт в очереди сервера, превышает
@@ -129,6 +132,9 @@ services:
       LLM_THINKING_CONTROL: ${LLM_THINKING_CONTROL:-chat_template_kwargs}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
+      # Сколько токенов отводится ответу. Делит контекст с текстом
+      # страниц, поэтому им же считается их бюджет.
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-1536}
       # Должно совпадать с --parallel у llama-server. Воркеров больше, и
       # это верно для загрузки страниц, но у модели мест ровно столько:
       # третий одновременный вызов ждёт в очереди сервера, превышает

@@ -37,6 +37,16 @@ class LLMUnavailableError(RuntimeError):
     """Модель недоступна (нет соединения/таймаут/ошибка сервера)."""
 
 
+class LLMOutputTruncatedError(RuntimeError):
+    """Ответ оборван лимитом выхода, не начавшись как валидный JSON.
+
+    Намеренно НЕ наследуется от :class:`LLMUnavailableError`: модель
+    доступна и ответила, просто ответу не хватило места. Повтор того же
+    запроса ничего не изменит — помогает более короткий вход или больший
+    лимит, и решает это вызывающая сторона.
+    """
+
+
 class LLMContextOverflowError(LLMUnavailableError):
     """Запрос длиннее контекста модели.
 
@@ -153,6 +163,28 @@ class LLMClient:
         elif control == "reasoning_effort":
             payload["reasoning_effort"] = "none"
         return payload
+
+    @staticmethod
+    def _raise_if_truncated(data: dict) -> None:
+        """Ответ, оборванный на полуслове, — не отказ модели.
+
+        Замер на облачной Qwen3.6: пакет с 9789 символами входа упёрся в
+        лимит выхода, JSON оборвался незакрытой строкой, схема-ремонт
+        сломался там же. Повторять такое бессмысленно — обрыв
+        воспроизводится при каждой попытке; помогает только более короткий
+        запрос или больший лимит.
+
+        Отдельный класс ошибки нужен, чтобы это не доезжало до закупщика
+        как «локальная ИИ-модель недоступна»: модель и не локальная, и
+        вполне доступна.
+        """
+        choice = (data.get("choices") or [{}])[0]
+        if choice.get("finish_reason") == "length":
+            usage = data.get("usage") or {}
+            raise LLMOutputTruncatedError(
+                "ответ не поместился в лимит выхода "
+                f"({usage.get('completion_tokens')} токенов)"
+            )
 
     @staticmethod
     def _message_content(data: dict) -> str | None:
@@ -385,7 +417,12 @@ class LLMClient:
                             headers=self._headers(),
                         )
                         response.raise_for_status()
-                        content = self._message_content(response.json())
+                        answer = response.json()
+                        # Проверяем до разбора: оборванный JSON иначе
+                        # выглядит как испорченный и уводит в схема-ремонт,
+                        # который сломается там же.
+                        self._raise_if_truncated(answer)
+                        content = self._message_content(answer)
             except TimeoutError as exc:
                 # Ожидание места, а не отказ модели: этап должен сказать
                 # правду о перегрузке, а не о недоступности.

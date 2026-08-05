@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     llm_thinking_control: Literal[
         "chat_template_kwargs", "reasoning_effort", "none"
     ] = Field(default="chat_template_kwargs")
+    # Сколько токенов отводится ответу. Значение делит контекст с текстом
+    # страниц, поэтому им же считается их бюджет: подняв выход, надо ужать
+    # вход, иначе запрос перестанет помещаться. У облака контекст большой,
+    # и там значение поднимается — Qwen3.6 пишет заметно длиннее локальной
+    # модели, и в 1536 токенов ответ по крупному пакету не помещался.
+    llm_max_output_tokens: int = Field(default=1536, ge=256, le=32768)
     llm_timeout_s: int = Field(default=600)
     # Размер контекста llama-server (--ctx-size). Backend сам ужимает
     # передаваемые страницы под этот бюджет, поэтому запрос не может
