@@ -38,6 +38,11 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
+      # Должно совпадать с --parallel у llama-server. Воркеров больше, и
+      # это верно для загрузки страниц, но у модели мест ровно столько:
+      # третий одновременный вызов ждёт в очереди сервера, превышает
+      # таймаут и возвращается как «модель недоступна».
+      LLM_PARALLEL_SLOTS: ${LLM_PARALLEL_SLOTS:-2}
       # Источник поисковой выдачи и бюджеты этапа. Без явной передачи сюда
       # настройки из .env до контейнера не доходят и молча берутся из кода.
       SEARCH_PROVIDER: ${SEARCH_PROVIDER:-duckduckgo_html}
@@ -114,6 +119,11 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
+      # Должно совпадать с --parallel у llama-server. Воркеров больше, и
+      # это верно для загрузки страниц, но у модели мест ровно столько:
+      # третий одновременный вызов ждёт в очереди сервера, превышает
+      # таймаут и возвращается как «модель недоступна».
+      LLM_PARALLEL_SLOTS: ${LLM_PARALLEL_SLOTS:-2}
       # Источник поисковой выдачи и бюджеты этапа. Без явной передачи сюда
       # настройки из .env до контейнера не доходят и молча берутся из кода.
       SEARCH_PROVIDER: ${SEARCH_PROVIDER:-duckduckgo_html}

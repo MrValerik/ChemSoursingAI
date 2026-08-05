@@ -125,6 +125,10 @@ _GENERIC_SUBDOMAINS = frozenset(
         "www", "m", "mobile", "amp", "en", "cn", "ru", "de", "es", "fr", "pt",
         "it", "ja", "ko", "ar", "chinese", "russian", "china", "us", "uk",
         "shop", "store", "app", "api", "static", "img", "www2",
+        # Мобильные версии китайских площадок. Без них wap.guidechem.com
+        # читался как магазин компании и уходил от отсева: в прогоне по
+        # 4-хлорфенолу торговая страница площадки так и попала в кандидаты.
+        "wap", "3g", "touch", "mip", "h5", "mobi", "web", "www3",
     }
 )
 

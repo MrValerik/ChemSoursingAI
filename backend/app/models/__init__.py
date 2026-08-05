@@ -4,6 +4,7 @@ from app.models.base import Base
 from app.models.communication import Communication
 from app.models.document import SupplierDocument
 from app.models.domain_rate_slot import DomainRateSlot
+from app.models.llm_slot import LlmSlot
 from app.models.escalation import Escalation
 from app.models.integration import (
     CommunicationTestMessage,
@@ -45,6 +46,7 @@ __all__ = [
     "Communication",
     "SupplierDocument",
     "DomainRateSlot",
+    "LlmSlot",
     "Intermediary",
     "Escalation",
     "IntegrationSetting",

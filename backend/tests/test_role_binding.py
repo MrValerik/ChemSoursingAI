@@ -175,6 +175,19 @@ def test_language_and_mirror_prefixes_are_not_company_names():
         assert marketplace_page_kind(url) == "listing"
 
 
+def test_a_chinese_mobile_prefix_is_not_a_company_name():
+    """Замер по 4-хлорфенолу: торговая страница площадки прошла в кандидаты.
+
+    `wap` — стандартная мобильная версия китайского сайта, а не имя
+    продавца, и без него адрес читался как магазин компании.
+    """
+    assert marketplace_page_kind(
+        "https://wap.guidechem.com/trade/4-chlorophenol-id3916146.html"
+    ) == "listing"
+    for prefix in ("3g", "touch", "mip", "h5"):
+        assert marketplace_page_kind(f"https://{prefix}.guidechem.com/x.html") == "listing"
+
+
 def test_a_storefront_survives_the_split():
     domains = {"made-in-china.com", "lookchem.com"}
     results = [

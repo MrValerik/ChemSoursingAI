@@ -13,8 +13,17 @@ import re
 
 import httpx
 
+import os
+import socket
+
 from app.core.config import get_settings
 from app.extraction.schema import QUOTE_JSON_SCHEMA
+from app.services.llm_capacity import model_slot
+
+
+def _worker_name() -> str:
+    """Кто занял место — для разбора зависшей аренды."""
+    return f"{socket.gethostname()}:{os.getpid()}"
 
 _SYSTEM_PROMPT = (
     "Ты извлекаешь структурированную котировку из ответа поставщика химического "
@@ -288,16 +297,29 @@ class LLMClient:
                 },
             }
             try:
-                with httpx.Client(timeout=self.timeout_s) as client:
-                    response = client.post(
-                        f"{self.base_url}/chat/completions",
-                        json=payload,
-                        headers=headers,
-                    )
-                    response.raise_for_status()
-                    content = response.json()["choices"][0]["message"][
-                        "content"
-                    ]
+                # Место у модели занимается на время вызова. Без этого
+                # третий одновременный запрос ждёт в очереди llama-server,
+                # превышает таймаут и возвращается как «модель недоступна»:
+                # на стенде это дало семь отказов подряд при живой модели.
+                with model_slot(_worker_name()):
+                    with httpx.Client(timeout=self.timeout_s) as client:
+                        response = client.post(
+                            f"{self.base_url}/chat/completions",
+                            json=payload,
+                            headers=headers,
+                        )
+                        response.raise_for_status()
+                        content = response.json()["choices"][0]["message"][
+                            "content"
+                        ]
+            except TimeoutError as exc:
+                # Ожидание места, а не отказ модели: этап должен сказать
+                # правду о перегрузке, а не о недоступности.
+                attempt_record["error"] = str(exc)[:500]
+                self.last_attempts.append(attempt_record)
+                raise LLMUnavailableError(
+                    "модель перегружена: все места заняты дольше допустимого"
+                ) from exc
             except httpx.HTTPError as exc:
                 attempt_record["error"] = str(exc)[:500]
                 if isinstance(exc, httpx.HTTPStatusError):

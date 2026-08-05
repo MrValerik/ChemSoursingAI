@@ -232,6 +232,41 @@ def test_highlights_cover_documents_and_properties():
         assert line in text
 
 
+# --- имена компаний ---
+
+
+def test_company_names_are_recognised_by_their_legal_tail():
+    """Заводы многотоннажной химии находятся по имени, а не по веществу.
+
+    В прогоне по адипиновой кислоте система нашла торговые дома, тогда как
+    рынок держат Shenma и Hualu Hengsheng. Их имена стоят в отраслевых
+    сообщениях, и по имени корпоративный сайт находится сразу.
+    """
+    from app.services.page_facts import find_company_names
+
+    text = (
+        "China ShenMa Group Co., Ltd announced an expansion.\n"
+        "Shandong Hualu Hengsheng Chemical Co., Ltd operates a plant.\n"
+        "adipic acid production increased this year\n"
+        "山东华鲁恒升化工股份有限公司 扩产\n"
+    )
+    names = find_company_names(text)
+
+    assert "China ShenMa Group Co., Ltd" in names
+    assert any("Hualu Hengsheng" in name for name in names)
+    assert any("有限公司" in name for name in names)
+    # Обычное словосочетание компанией не становится.
+    assert all("adipic acid production" not in name for name in names)
+
+
+def test_market_research_names_are_skipped():
+    """«Market Report Corp» — не завод, а издатель отчёта."""
+    from app.services.page_facts import find_company_names
+
+    names = find_company_names("Global Market Report Corporation published data")
+    assert names == []
+
+
 # --- разбор HTML ---
 
 

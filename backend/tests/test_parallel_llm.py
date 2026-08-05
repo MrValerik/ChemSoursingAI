@@ -34,6 +34,7 @@ from sqlalchemy import select
 
 from app import search_worker
 from app.api.supplier_search import _page_text_budget
+from app.services import llm_capacity
 from app.core.config import get_settings
 from app.core.db import SessionLocal, engine
 from app.extraction.llm_client import (
@@ -264,6 +265,12 @@ def run_experiment(
         workers=workers,
         substances=substances,
     )
+    # Ограничитель обращений к модели должен знать конфигурацию сервера:
+    # он выдаёт ровно столько мест, сколько у llama-server слотов. Иначе
+    # эксперимент с четырьмя слотами упрётся в значение по умолчанию.
+    previous_slots = os.environ.get("LLM_PARALLEL_SLOTS")
+    os.environ["LLM_PARALLEL_SLOTS"] = str(slots)
+    llm_capacity._fallback_lock = threading.BoundedSemaphore(slots)
     with LlamaServerStub(
         slots=slots,
         ctx_size=ctx_size,
@@ -283,6 +290,11 @@ def run_experiment(
         experiment.llm_requests = stub.stats.requests
         experiment.context_rejections = stub.stats.context_rejections
         experiment.max_prompt_tokens = stub.stats.max_prompt_tokens
+
+    if previous_slots is None:
+        os.environ.pop("LLM_PARALLEL_SLOTS", None)
+    else:
+        os.environ["LLM_PARALLEL_SLOTS"] = previous_slots
 
     with SessionLocal() as db:
         runs = db.scalars(select(SearchRun).where(SearchRun.id.in_(run_ids))).all()

@@ -312,6 +312,72 @@ def mentions_substance(quote: str, *, cas: str | None, names: list[str]) -> bool
     return any(name.strip().casefold() in text for name in names if name.strip())
 
 
+# Юридические окончания названий компаний. По ним имя завода отличается от
+# обычного словосочетания: «Shandong Hualu Hengsheng Chemical Co., Ltd.» —
+# компания, «adipic acid production» — нет.
+_COMPANY_TAILS = (
+    r"Co\.,?\s*Ltd\.?",
+    r"Co\.,?\s*Limited",
+    r"Company\s+Limited",
+    r"Corporation",
+    r"Corp\.?",
+    r"Group\s+Co\.",
+    r"Chemical\s+Co\.",
+    r"Petrochemical",
+    r"Holdings?",
+    r"Inc\.?",
+    r"GmbH",
+    r"S\.?A\.?S\.?",
+    r"LLC",
+)
+_COMPANY_RE = re.compile(
+    r"\b([A-Z][\w&.\-]*(?:\s+[A-Z][\w&.\-]*){0,5}\s+(?:"
+    + "|".join(_COMPANY_TAILS)
+    + r"))",
+)
+# Китайское юридическое лицо: «山东华鲁恒升化工股份有限公司».
+_COMPANY_CN_RE = re.compile(r"[一-鿿]{2,12}(?:有限公司|股份有限公司|集团)")
+
+# Слова, после которых «компания» оказывается разделом сайта, а не заводом.
+_NOT_A_COMPANY = (
+    "market report",
+    "research",
+    "consulting",
+    "news",
+    "database",
+)
+_MAX_COMPANY_NAMES = 20
+
+
+def find_company_names(text: str) -> list[str]:
+    """Названия компаний, упомянутые в тексте.
+
+    Зачем. Заводы многотоннажной химии не оптимизируют страницы под запрос
+    «вещество + manufacturer»: у них корпоративные сайты, а не карточки
+    товара. В прогоне по адипиновой кислоте система нашла торговые дома,
+    тогда как рынок держат Shenma, Hualu Hengsheng и Ляоянский НПЗ — их
+    имена стоят в отраслевых обзорах.
+
+    Поэтому обзор полезен не как источник поставщика, а как источник
+    имён: по имени компании её собственный сайт находится сразу.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for pattern in (_COMPANY_RE, _COMPANY_CN_RE):
+        for match in pattern.finditer(text or ""):
+            name = " ".join(match.group(0).split()).strip(" .,")
+            key = name.casefold()
+            if not name or key in seen or len(name) < 6:
+                continue
+            if any(word in key for word in _NOT_A_COMPANY):
+                continue
+            seen.add(key)
+            found.append(name)
+            if len(found) >= _MAX_COMPANY_NAMES:
+                return found
+    return found
+
+
 def find_document_mentions(text: str) -> dict[str, str]:
     """Упоминания GMP, ISO, CoA и TDS с дословной строкой страницы.
 
