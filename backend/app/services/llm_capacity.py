@@ -172,5 +172,13 @@ def model_slot(owner: str, *, wait_s: float = 1800.0):
 
 
 def _needs_setup(db: Session) -> bool:
-    """Есть ли вообще строки мест."""
-    return db.scalar(select(LlmSlot.id).limit(1)) is None
+    """Совпадает ли число строк с настройкой.
+
+    Сравнивается именно количество, а не факт существования: иначе правка
+    LLM_PARALLEL_SLOTS не действовала бы никогда, потому что строки уже
+    созданы. Проверка стоит один COUNT на попытку взять место.
+    """
+    from sqlalchemy import func
+
+    current = db.scalar(select(func.count()).select_from(LlmSlot)) or 0
+    return current != configured_slots()
