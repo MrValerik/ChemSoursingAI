@@ -11,6 +11,12 @@ ACTIVITY_LOG="${ACTIVITY_LOG:-/var/log/nginx/chemsource_access.log}"
 HTTP_PORTS="${HTTP_PORTS:-80 443}"
 DRY_RUN="${DRY_RUN:-0}"
 LOCK_FILE="${LOCK_FILE:-/run/lock/chemsource-idle-shutdown.lock}"
+# Файл-заглушка для ручных прогонов. Надёжнее, чем `systemctl stop timer`:
+# остановка службы не переживает перезагрузку ВМ, а файл переживает, пока
+# его не удалят.
+KEEP_ALIVE_FILE="${KEEP_ALIVE_FILE:-/etc/chemsource-keep-alive}"
+# Каталог проекта нужен, чтобы спросить очередь через docker compose.
+PROJECT_DIR="${PROJECT_DIR:-__PROJECT_DIR__}"
 
 log() {
   logger -t chemsource-idle-shutdown -- "$*"
@@ -68,6 +74,49 @@ idle_seconds="$((now - last_activity))"
 if (( idle_seconds < IDLE_TIMEOUT_SECONDS )); then
   log "Site idle for ${idle_seconds}s of ${IDLE_TIMEOUT_SECONDS}s."
   exit 0
+fi
+
+if [[ -f "$KEEP_ALIVE_FILE" ]]; then
+  log "Keep-alive file present (${KEEP_ALIVE_FILE}); shutdown postponed."
+  exit 0
+fi
+
+# A supplier search is background work: the buyer queued it and closed the
+# tab. Workers take jobs from PostgreSQL and reach the model over the host
+# interface, so nothing of it passes through nginx and the site looks idle.
+# Powering off here abandoned a run after 201 minutes on the stand.
+unfinished_searches() {
+  local sql db_user db_name env_file
+  sql="SELECT count(*) FROM search_runs WHERE status NOT IN"
+  sql="${sql} ('completed','failed','cancelled')"
+  # Реквизиты берём из .env проекта: с чужими psql откажет, проверка
+  # вернёт пустоту, и машина не погаснет уже никогда.
+  db_user="chemsource"
+  db_name="chemsource"
+  env_file="${PROJECT_DIR}/.env"
+  if [[ -f "$env_file" ]]; then
+    db_user="$(sed -n 's/^POSTGRES_USER=//p' "$env_file" | tail -1 || true)"
+    db_name="$(sed -n 's/^POSTGRES_DB=//p' "$env_file" | tail -1 || true)"
+    [[ -n "$db_user" ]] || db_user="chemsource"
+    [[ -n "$db_name" ]] || db_name="chemsource"
+  fi
+  docker compose -f "${PROJECT_DIR}/docker-compose.yml" exec -T db \
+    psql -U "$db_user" -d "$db_name" -t -A -c "$sql" 2>/dev/null \
+    | tr -d '[:space:]'
+}
+
+if [[ -f "${PROJECT_DIR}/docker-compose.yml" ]]; then
+  pending="$(unfinished_searches || true)"
+  if [[ "$pending" =~ ^[0-9]+$ ]] && (( pending > 0 )); then
+    log "Queue holds ${pending} unfinished search(es); shutdown postponed."
+    exit 0
+  fi
+  if [[ -z "$pending" ]]; then
+    # База недоступна — судить о очереди нельзя. Гасить машину на
+    # догадке дороже, чем оставить её работать до следующей проверки.
+    log "Queue state unavailable; shutdown postponed."
+    exit 0
+  fi
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then

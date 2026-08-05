@@ -31,8 +31,11 @@ replace_project_dir() {
 }
 
 install -d -m 0755 "${PROJECT_DIR}/data/nginx"
-install -m 0755 "${SCRIPT_DIR}/chemsource-idle-shutdown" \
+# Скрипту нужен путь проекта: он спрашивает очередь через docker compose,
+# чтобы не погасить машину посреди фонового поиска.
+replace_project_dir "${SCRIPT_DIR}/chemsource-idle-shutdown" \
   /usr/local/sbin/chemsource-idle-shutdown
+chmod 0755 /usr/local/sbin/chemsource-idle-shutdown
 install -m 0644 "${SCRIPT_DIR}/chemsource-idle-shutdown.service" \
   /etc/systemd/system/chemsource-idle-shutdown.service
 install -m 0644 "${SCRIPT_DIR}/chemsource-idle-shutdown.timer" \
