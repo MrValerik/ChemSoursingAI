@@ -118,6 +118,50 @@ def test_russia_asks_in_russian():
     assert "site:.ru" in joined
 
 
+def test_the_plan_asks_who_produces_not_only_who_sells():
+    """«Manufacturer» и «factory» — маркетинг, их пишет и перекупщик.
+
+    Слова выпуска пишет только тот, у кого выпуск есть. Замер на адипиновой
+    кислоте, где рынок держат Shenma, Hualu Hengsheng и Ляоянский НПЗ:
+    покупательский запрос не нашёл ни одного, производственные — троих.
+    """
+    queries = build_search_queries(
+        cas="124-04-9", name="Adipic acid", country="Китай", ai_query=None
+    )
+    joined = " ".join(queries)
+
+    assert "annual output" in joined or "annual capacity" in joined
+    # Язык рынка добавляет компании, которых нет в англоязычной выдаче:
+    # тот же приём по-китайски вывел Lubrizol и Tinci по карбомеру.
+    assert "产能" in joined
+
+
+def test_russia_asks_about_output_in_russian():
+    queries = build_search_queries(
+        cas="124-04-9", name="Adipic acid", country="Россия", ai_query=None
+    )
+    joined = " ".join(queries)
+    assert "тонн в год" in joined or "производственная мощность" in joined
+
+
+def test_one_query_drops_the_number():
+    """Номер сужает выдачу до страниц, где он напечатан.
+
+    Крупный производитель может его не печатать: запрос по одному названию
+    находит Hairma, крупнейшего в мире изготовителя эпоксидированного
+    соевого масла, а тот же запрос с номером — никого.
+    """
+    queries = build_search_queries(
+        cas="8013-07-8",
+        name="Epoxidized soybean oil",
+        country="Китай",
+        ai_query=None,
+    )
+    without_cas = [q for q in queries if "8013-07-8" not in q]
+    assert without_cas, "хотя бы один запрос должен идти без номера"
+    assert any("Epoxidized soybean oil" in q for q in without_cas)
+
+
 def test_marketplace_no_longer_outranks_a_company_site():
     """Площадка получала восемь баллов и обгоняла сайт завода."""
     assert source_priority("echemi", "Китай") == source_priority("web", "Китай")
@@ -140,7 +184,10 @@ def test_india_plan_uses_export_and_regulatory_sources():
     assert any("site:chemexcil.in" in query for query in required)
     assert any("site:cdsco.gov.in" in query for query in required)
     assert any("site:pharmexcil.com" in query for query in required)
-    assert any("site:.in" in query for query in required)
+    # Сужение по зоне остаётся в плане, но не в обязательной части:
+    # замер дал site:.in ноль результатов, тогда как реестры подтверждают
+    # изготовителя. Тратить на зону место в начале плана незачем.
+    assert any("site:.in" in query for query in queries)
 
 
 def test_supplier_source_classification():

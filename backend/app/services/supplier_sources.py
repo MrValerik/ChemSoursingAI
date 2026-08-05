@@ -209,6 +209,19 @@ class MarketProfile:
     """
 
     role_terms: str
+    # Слова, которыми завод описывает собственное производство. Отличаются
+    # от role_terms принципиально: «manufacturer» и «factory» — это
+    # маркетинг, их пишет и перекупщик. «Annual output» перекупщик не
+    # пишет, потому что выпуска у него нет.
+    #
+    # Замер на адипиновой кислоте, где рынок держат Shenma, Hualu Hengsheng
+    # и Ляоянский НПЗ: покупательский запрос не нашёл ни одного из них,
+    # производственный — троих. На карбомере тот же приём по-китайски
+    # добавил Lubrizol и Tinci, отсутствовавших в англоязычной выдаче.
+    output_terms: str = '"annual output" OR "annual capacity"'
+    # Запрос на языке рынка о производстве. Пусто там, где своего языка у
+    # рынка нет.
+    native_output_query: str = ""
     # Название страны на языке запроса. Пользователь выбирает страну
     # по-русски, но «Китай» внутри английского запроса ищет хуже, чем
     # «China»: слово должно быть на языке остальной части строки.
@@ -222,8 +235,14 @@ class MarketProfile:
 _MARKET_CHINA = MarketProfile(
     role_terms="(manufacturer OR factory)",
     country_term="China",
+    # 产能 — производственная мощность, 万吨 — десять тысяч тонн,
+    # 生产企业 — производящее предприятие. Замер: этот запрос вывел 华鲁 и
+    # 神马 по адипиновой кислоте и Lubrizol с 天赐 по карбомеру, тогда как
+    # англоязычные не показали ни одного из них.
+    native_output_query="{subject} 产能 万吨 生产企业",
     site_scope="site:.cn",
-    min_queries=3,
+    # Реестров нет, зато есть два производственных семейства.
+    min_queries=4,
 )
 _MARKET_INDIA = MarketProfile(
     role_terms="(manufacturer OR producer OR factory)",
@@ -240,8 +259,9 @@ _MARKET_INDIA = MarketProfile(
 _MARKET_RUSSIA = MarketProfile(
     role_terms="(производитель OR изготовитель OR завод)",
     country_term="Россия",
+    output_terms='"тонн в год" OR "производственная мощность"',
     site_scope="site:.ru",
-    min_queries=3,
+    min_queries=4,
 )
 _MARKET_DEFAULT = MarketProfile(
     role_terms="(manufacturer OR producer OR factory)",
@@ -519,7 +539,23 @@ def build_search_queries(
         # английский не показал ни разу.
         candidates.append(f"{subject} (生产厂家 OR 工厂) 中国")
 
+    # Вопрос «кто производит» вместо «кто продаёт». Слова роли пишет и
+    # перекупщик, слова выпуска — только тот, у кого есть выпуск. На
+    # адипиновой кислоте покупательский запрос не нашёл ни одного из трёх
+    # лидеров рынка, а эти два семейства нашли всех.
+    if profile.native_output_query:
+        candidates.append(profile.native_output_query.format(subject=subject))
+    candidates.append(f"{subject} {profile.output_terms}{country_term}")
+
     candidates.append(f"{subject} {profile.role_terms}{country_term}")
+
+    # Один заход без номера. Номер сужает выдачу до страниц, где он
+    # напечатан, а крупный производитель может его не печатать: замер на
+    # эпоксидированном соевом масле — запрос по одному названию находит
+    # Hairma, крупнейшего в мире, а тот же запрос с номером не находит
+    # никого. Место в плане это стоит одного запроса.
+    if cas and quoted_name != subject:
+        candidates.append(f"{quoted_name} {profile.role_terms}{country_term}")
 
     for variant in _explicit_form_variants(name):
         variant_subject = f'"{variant}"' if _is_quotable(variant) else variant

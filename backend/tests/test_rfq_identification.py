@@ -146,14 +146,22 @@ def test_queries_without_cas_use_confirmed_names_as_the_anchor():
 
 
 def test_queries_with_cas_are_unchanged():
-    """Ветка с номером не должна пострадать от появления второй."""
+    """Ветка с номером не должна пострадать от появления второй.
+
+    Один запрос идёт намеренно без номера: номер сужает выдачу до страниц,
+    где он напечатан, а крупный производитель может его не печатать. Замер
+    на эпоксидированном соевом масле — по одному названию находится Hairma,
+    крупнейший в мире, с номером не находится никто.
+    """
     queries = build_search_queries(
         cas="50-78-2",
         name="Aspirin",
         country="China",
         ai_query=None,
     )
-    assert all('"50-78-2"' in query for query in queries)
+    with_cas = [q for q in queries if '"50-78-2"' in q]
+    assert len(with_cas) >= len(queries) - 1
+    assert all("Aspirin" in query for query in queries)
 
 
 def test_name_group_is_capped():
