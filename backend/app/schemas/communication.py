@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.enums import Channel, CommDirection, DispatchStatus
 
@@ -20,6 +21,42 @@ class CommunicationMessageRead(BaseModel):
     to_address: str | None
     attachments: list[dict] | None
     created_at: datetime
+
+
+class CommunicationSendCreate(BaseModel):
+    manager_id: int = Field(gt=0)
+    channel: Channel
+    body: str = Field(min_length=1, max_length=12_000)
+    subject: str | None = Field(default=None, max_length=998)
+    idempotency_key: UUID
+    confirm_external_send: bool = False
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def clean_body(cls, value: object) -> str:
+        return str(value or "").strip()
+
+    @field_validator("subject", mode="before")
+    @classmethod
+    def clean_subject(cls, value: object) -> str | None:
+        cleaned = str(value or "").strip()
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def require_confirmation(self) -> "CommunicationSendCreate":
+        if not self.confirm_external_send:
+            raise ValueError("Подтвердите реальную внешнюю отправку")
+        return self
+
+
+class CommunicationDraftSend(BaseModel):
+    confirm_external_send: bool = False
+
+    @model_validator(mode="after")
+    def require_confirmation(self) -> "CommunicationDraftSend":
+        if not self.confirm_external_send:
+            raise ValueError("Подтвердите реальную внешнюю отправку")
+        return self
 
 
 class CommunicationEscalationRead(BaseModel):

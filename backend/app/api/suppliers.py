@@ -315,6 +315,7 @@ def select_recipients(
 @router.post("/rfq/{rfq_id}/dispatch", response_model=list[RecipientRead])
 def dispatch(
     rfq_id: int,
+    confirm_external_send: bool = Query(default=False),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[RecipientRead]:
@@ -339,6 +340,19 @@ def dispatch(
     whatsapp_connector = (
         WhatsAppConnector(whatsapp_settings) if whatsapp_enabled else None
     )
+    will_send_externally = any(
+        (recipient.channel == Channel.EMAIL and live_email)
+        or (
+            recipient.channel == Channel.WHATSAPP
+            and whatsapp_connector is not None
+        )
+        for recipient in queued
+    )
+    if will_send_externally and not confirm_external_send:
+        raise HTTPException(
+            status_code=422,
+            detail="Подтвердите реальную внешнюю отправку RFQ",
+        )
     subject, body = render_rfq_text(rfq)
     subject = f"[RFQ-{rfq.id}] {subject}"
     sent_any = False
@@ -374,6 +388,40 @@ def dispatch(
                 recipient.status = DispatchStatus.ERROR
                 recipient.note = "у поставщика отсутствует WhatsApp"
                 continue
+            attempt_key = f"dispatch-{recipient.id}"
+            previous_attempt = db.scalar(
+                select(Communication).where(
+                    Communication.idempotency_key == attempt_key
+                )
+            )
+            if previous_attempt is not None:
+                if previous_attempt.status == "sent":
+                    recipient.status = DispatchStatus.SENT
+                    recipient.note = "WhatsApp Cloud API: отправлено"
+                    sent_any = True
+                else:
+                    recipient.status = DispatchStatus.ERROR
+                    recipient.note = (
+                        "Предыдущая попытка не повторена во избежание дубля"
+                    )
+                continue
+            communication = Communication(
+                rfq_id=rfq.id,
+                manager_id=manager.id,
+                direction=CommDirection.OUTBOUND,
+                channel=Channel.WHATSAPP,
+                subject=None,
+                body=body,
+                from_address=whatsapp_settings.whatsapp_phone_id,
+                to_address=manager.whatsapp,
+                status="sending",
+                thread_id=None,
+                external_id=None,
+                idempotency_key=attempt_key,
+                attachments=None,
+            )
+            db.add(communication)
+            db.commit()
             try:
                 message_id = whatsapp_connector.send_text(
                     to_number=manager.whatsapp,
@@ -385,25 +433,15 @@ def dispatch(
             ) as exc:
                 recipient.status = DispatchStatus.ERROR
                 recipient.note = str(exc)[:255]
+                communication.status = "delivery_error"
+                db.commit()
                 continue
             recipient.status = DispatchStatus.SENT
             recipient.note = "WhatsApp Cloud API: отправлено"
-            db.add(
-                Communication(
-                    rfq_id=rfq.id,
-                    manager_id=manager.id,
-                    direction=CommDirection.OUTBOUND,
-                    channel=Channel.WHATSAPP,
-                    subject=None,
-                    body=body,
-                    from_address=whatsapp_settings.whatsapp_phone_id,
-                    to_address=manager.whatsapp,
-                    status="sent",
-                    thread_id=message_id,
-                    external_id=message_id,
-                    attachments=None,
-                )
-            )
+            communication.status = "sent"
+            communication.thread_id = message_id
+            communication.external_id = message_id
+            db.commit()
             sent_any = True
             continue
         manager = next(
@@ -436,6 +474,38 @@ def dispatch(
             recipient.note = "у поставщика отсутствует Email"
             continue
         assert email_connector is not None
+        attempt_key = f"dispatch-{recipient.id}"
+        previous_attempt = db.scalar(
+            select(Communication).where(
+                Communication.idempotency_key == attempt_key
+            )
+        )
+        if previous_attempt is not None:
+            if previous_attempt.status == "sent":
+                recipient.status = DispatchStatus.SENT
+                recipient.note = f"SMTP: отправлено на {manager.email}"[:255]
+                sent_any = True
+            else:
+                recipient.status = DispatchStatus.ERROR
+                recipient.note = "Предыдущая попытка не повторена во избежание дубля"
+            continue
+        communication = Communication(
+            rfq_id=rfq.id,
+            manager_id=manager.id,
+            direction=CommDirection.OUTBOUND,
+            channel=Channel.EMAIL,
+            subject=subject,
+            body=body,
+            from_address=email_settings.email_from,
+            to_address=manager.email,
+            status="sending",
+            thread_id=None,
+            external_id=None,
+            idempotency_key=attempt_key,
+            attachments=None,
+        )
+        db.add(communication)
+        db.commit()
         try:
             message_id = email_connector.send(
                 to_address=manager.email,
@@ -445,26 +515,16 @@ def dispatch(
         except (EmailConfigurationError, EmailDeliveryError) as exc:
             recipient.status = DispatchStatus.ERROR
             recipient.note = str(exc)[:255]
+            communication.status = "delivery_error"
+            db.commit()
             continue
 
         recipient.status = DispatchStatus.SENT
         recipient.note = f"SMTP: отправлено на {manager.email}"[:255]
-        db.add(
-            Communication(
-                rfq_id=rfq.id,
-                manager_id=manager.id,
-                direction=CommDirection.OUTBOUND,
-                channel=Channel.EMAIL,
-                subject=subject,
-                body=body,
-                from_address=email_settings.email_from,
-                to_address=manager.email,
-                status="sent",
-                thread_id=message_id,
-                external_id=message_id,
-                attachments=None,
-            )
-        )
+        communication.status = "sent"
+        communication.thread_id = message_id
+        communication.external_id = message_id
+        db.commit()
         sent_any = True
 
     if sent_any and rfq.status in (RFQStatus.DRAFT, RFQStatus.VERIFIED):

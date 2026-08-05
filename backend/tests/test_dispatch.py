@@ -11,10 +11,12 @@ from sqlalchemy import select
 
 from app.main import app
 from app.connectors.email import IncomingEmail
+from app.connectors.whatsapp import WhatsAppDeliveryError
 from app.core.db import SessionLocal
 from app.extraction.schema import ExtractedQuote
 from app.models.communication import Communication
 from app.models.escalation import Escalation
+from app.models.enums import Channel, CommDirection
 from app.services.communication_policy import CommunicationPolicyDecision
 from app.services.email_workflow import sync_inbox
 
@@ -204,8 +206,14 @@ def test_live_smtp_dispatch_creates_communication(client, monkeypatch):
         lambda self, **kwargs: "<rfq-live@example.com>",
     )
 
-    response = client.post(f"/rfq/{rfq['id']}/dispatch", headers=headers)
+    not_confirmed = client.post(f"/rfq/{rfq['id']}/dispatch", headers=headers)
+    response = client.post(
+        f"/rfq/{rfq['id']}/dispatch?confirm_external_send=true",
+        headers=headers,
+    )
 
+    assert not_confirmed.status_code == 422
+    assert "Подтвердите" in not_confirmed.json()["detail"]
     assert response.status_code == 200
     assert response.json()[0]["status"] == "sent"
     history = _communications(rfq["id"])
@@ -213,6 +221,57 @@ def test_live_smtp_dispatch_creates_communication(client, monkeypatch):
     assert history[0].status == "sent"
     assert history[0].to_address == "live@supplier.example"
     assert history[0].subject.startswith(f"[RFQ-{rfq['id']}]")
+    assert history[0].idempotency_key == f"dispatch-{response.json()[0]['id']}"
+
+
+def test_live_whatsapp_dispatch_requires_confirmation(client, monkeypatch):
+    headers = _login(client)
+    supplier = client.post(
+        "/suppliers",
+        json={
+            "company": "Live WhatsApp Supplier",
+            "whatsapp": "+7 900 555-01-02",
+        },
+        headers=headers,
+    ).json()
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "67-56-1", "name": "Methanol", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+    selected = client.post(
+        f"/rfq/{rfq['id']}/recipients",
+        json={"items": [{"supplier_id": supplier["id"], "channel": "whatsapp"}]},
+        headers=headers,
+    ).json()
+    settings = SimpleNamespace(whatsapp_phone_id="123456789")
+    monkeypatch.setattr(
+        "app.api.suppliers.effective_whatsapp_settings",
+        lambda db: (settings, True, "database"),
+    )
+    sent: list[dict] = []
+
+    def fake_send(self, **kwargs):
+        sent.append(kwargs)
+        return "wamid.initial-test"
+
+    monkeypatch.setattr(
+        "app.api.suppliers.WhatsAppConnector.send_text", fake_send
+    )
+
+    not_confirmed = client.post(f"/rfq/{rfq['id']}/dispatch", headers=headers)
+    response = client.post(
+        f"/rfq/{rfq['id']}/dispatch?confirm_external_send=true",
+        headers=headers,
+    )
+
+    assert not_confirmed.status_code == 422
+    assert response.status_code == 200
+    assert response.json()[0]["status"] == "sent"
+    assert len(sent) == 1
+    history = _communications(rfq["id"])
+    assert history[0].external_id == "wamid.initial-test"
+    assert history[0].idempotency_key == f"dispatch-{selected[0]['id']}"
 
 
 def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
@@ -408,3 +467,193 @@ def test_email_sync_is_restricted_to_head_and_admin(client, monkeypatch):
     response = client.post("/communications/email/sync", headers=admin)
     assert response.status_code == 200
     assert response.json()["escalations_created"] == 1
+
+
+def _started_conversation(client, headers, *, channel: str, contact: str):
+    supplier_payload = {"company": f"Manual {channel} Supplier", channel: contact}
+    supplier = client.post(
+        "/suppliers", json=supplier_payload, headers=headers
+    ).json()
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "64-17-5", "name": "Ethanol", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+    client.post(
+        f"/rfq/{rfq['id']}/recipients",
+        json={"items": [{"supplier_id": supplier["id"], "channel": channel}]},
+        headers=headers,
+    )
+    dispatched = client.post(
+        f"/rfq/{rfq['id']}/dispatch", headers=headers
+    )
+    assert dispatched.status_code == 200
+    first = _communications(rfq["id"])[0]
+    assert first.manager_id is not None
+    return rfq, first
+
+
+def test_manual_email_message_is_live_idempotent_and_threaded(client, monkeypatch):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="manual-email@supplier.example",
+    )
+    settings = SimpleNamespace(
+        email_delivery_mode="live",
+        email_from="buyer@example.com",
+    )
+    monkeypatch.setattr(
+        "app.services.communication_delivery.effective_email_settings",
+        lambda db: (settings, True, "database"),
+    )
+    sent: list[dict] = []
+
+    def fake_send(self, **kwargs):
+        sent.append(kwargs)
+        return "<manual-reply@example.com>"
+
+    monkeypatch.setattr(
+        "app.services.communication_delivery.EmailConnector.send", fake_send
+    )
+    payload = {
+        "manager_id": first.manager_id,
+        "channel": "email",
+        "body": "Please confirm the lead time.",
+        "idempotency_key": "3f8bd99f-e8cd-4976-bad6-0d3bdce07e5b",
+        "confirm_external_send": True,
+    }
+
+    response = client.post(
+        f"/rfq/{rfq['id']}/communications/send",
+        json=payload,
+        headers=headers,
+    )
+    repeated = client.post(
+        f"/rfq/{rfq['id']}/communications/send",
+        json=payload,
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    assert repeated.status_code == 201
+    assert response.json()["status"] == "sent"
+    assert len(sent) == 1
+    assert sent[0]["to_address"] == "manual-email@supplier.example"
+    assert sent[0]["subject"].startswith("Re: [RFQ-")
+    history = _communications(rfq["id"])
+    assert len(history) == 2
+    assert history[-1].external_id == "<manual-reply@example.com>"
+    assert history[-1].idempotency_key == payload["idempotency_key"]
+
+    auditor = _login(client, "auditor")
+    assert (
+        client.post(
+            f"/rfq/{rfq['id']}/communications/send",
+            json={**payload, "idempotency_key": "ba26298b-0fef-461b-b96f-af0404c705cb"},
+            headers=auditor,
+        ).status_code
+        == 403
+    )
+
+
+def test_manual_whatsapp_message_records_provider_error_without_retry(
+    client, monkeypatch
+):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="whatsapp",
+        contact="+7 900 100-20-30",
+    )
+    settings = SimpleNamespace(whatsapp_phone_id="123456789")
+    monkeypatch.setattr(
+        "app.services.communication_delivery.effective_whatsapp_settings",
+        lambda db: (settings, True, "database"),
+    )
+    attempts: list[str] = []
+
+    def fail_send(self, *, to_number, body):
+        attempts.append(to_number)
+        raise WhatsAppDeliveryError("WhatsApp отклонил тестовое сообщение")
+
+    monkeypatch.setattr(
+        "app.services.communication_delivery.WhatsAppConnector.send_text", fail_send
+    )
+    payload = {
+        "manager_id": first.manager_id,
+        "channel": "whatsapp",
+        "body": "Could you confirm availability?",
+        "idempotency_key": "0f6e55a4-bcf4-4548-a75d-ce1e3084fb32",
+        "confirm_external_send": True,
+    }
+
+    response = client.post(
+        f"/rfq/{rfq['id']}/communications/send",
+        json=payload,
+        headers=headers,
+    )
+    repeated = client.post(
+        f"/rfq/{rfq['id']}/communications/send",
+        json=payload,
+        headers=headers,
+    )
+
+    assert response.status_code == 503
+    assert repeated.status_code == 503
+    assert len(attempts) == 1
+    assert _communications(rfq["id"])[-1].status == "delivery_error"
+
+
+def test_send_saved_email_draft(client, monkeypatch):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="draft@supplier.example",
+    )
+    with SessionLocal() as db:
+        draft = Communication(
+            rfq_id=rfq["id"],
+            manager_id=first.manager_id,
+            direction=CommDirection.OUTBOUND,
+            channel=Channel.EMAIL,
+            subject=f"Re: [RFQ-{rfq['id']}] Ethanol",
+            body="Please provide MOQ.",
+            from_address=None,
+            to_address="draft@supplier.example",
+            status="draft",
+            thread_id="<supplier-reply@example.com>",
+            external_id=None,
+            attachments=None,
+        )
+        db.add(draft)
+        db.commit()
+        draft_id = draft.id
+
+    settings = SimpleNamespace(
+        email_delivery_mode="live",
+        email_from="buyer@example.com",
+    )
+    monkeypatch.setattr(
+        "app.services.communication_delivery.effective_email_settings",
+        lambda db: (settings, True, "database"),
+    )
+    monkeypatch.setattr(
+        "app.services.communication_delivery.EmailConnector.send",
+        lambda self, **kwargs: "<sent-draft@example.com>",
+    )
+
+    response = client.post(
+        f"/communications/{draft_id}/send",
+        json={"confirm_external_send": True},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "sent"
+    assert response.json()["body"] == "Please provide MOQ."

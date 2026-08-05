@@ -37,6 +37,7 @@ export default function SuppliersTab({
   const [recipients, setRecipients] = useState<RecipientRead[]>([]);
   const [checked, setChecked] = useState<Map<number, ChannelKind>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [addOpen, setAddOpen] = useState(false);
@@ -68,6 +69,11 @@ export default function SuppliersTab({
     () => new Set(recipients.map((r) => r.supplier_id)),
     [recipients],
   );
+  const recipientBySupplier = useMemo(
+    () => new Map(recipients.map((item) => [item.supplier_id, item])),
+    [recipients],
+  );
+  const queuedRecipients = recipients.filter((item) => item.status === "queued");
 
   const toggle = (s: SupplierRead) => {
     if (readOnly || alreadySelected.has(s.id) || s.channels.length === 0) return;
@@ -86,6 +92,7 @@ export default function SuppliersTab({
   const submitSelection = async () => {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       await api.selectRecipients(
         rfqId,
@@ -95,6 +102,40 @@ export default function SuppliersTab({
         })),
       );
       setChecked(new Map());
+      await load();
+      setNotice("Получатели добавлены. Проверьте каналы и подтвердите отправку RFQ.");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const dispatchSelected = async () => {
+    if (queuedRecipients.length === 0) return;
+    const channels = [...new Set(queuedRecipients.map((item) => item.channel))]
+      .map((item) => (item === "email" ? "Email" : "WhatsApp"))
+      .join(" и ");
+    if (
+      !window.confirm(
+        `Отправить RFQ ${queuedRecipients.length} получателям через ${channels}? При включённых каналах это реальное внешнее действие.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.dispatchRfq(rfqId, true);
+      const failed = result.filter((item) => item.status === "error");
+      await load();
+      if (failed.length > 0) {
+        setError(
+          `Не отправлено: ${failed.length}. Проверьте контакты и настройки каналов.`,
+        );
+        return;
+      }
       onGoToDispatch();
     } catch (e) {
       setError(String(e));
@@ -182,6 +223,7 @@ export default function SuppliersTab({
       )}
 
       {error && <p className="error">{error}</p>}
+      {notice && <p className="success-note">{notice}</p>}
 
       <table className="summary">
         <thead>
@@ -190,6 +232,7 @@ export default function SuppliersTab({
             <th>Компания</th>
             <th>Тип</th>
             <th>Канал</th>
+            <th>Статус отправки</th>
             <th>Источник</th>
             <th>Репутация</th>
           </tr>
@@ -198,6 +241,7 @@ export default function SuppliersTab({
           {suppliers.map((s) => {
             const selected = alreadySelected.has(s.id);
             const isChecked = checked.has(s.id);
+            const recipient = recipientBySupplier.get(s.id);
             return (
               <tr
                 key={s.id}
@@ -236,6 +280,7 @@ export default function SuppliersTab({
                     s.channels.join(", ")
                   )}
                 </td>
+                <td>{recipient?.note ?? recipient?.status ?? "—"}</td>
                 <td>{s.source ?? "—"}</td>
                 <td>
                   <Stars value={s.reputation} />
@@ -251,12 +296,21 @@ export default function SuppliersTab({
           Выбрано: {checked.size}
           {alreadySelected.size > 0 ? ` · уже в рассылке: ${alreadySelected.size}` : ""}
         </span>
-        <button
-          onClick={() => void submitSelection()}
-          disabled={busy || checked.size === 0}
-        >
-          Перейти к рассылке →
-        </button>
+        <div className="actions">
+          <button
+            className="secondary"
+            onClick={() => void submitSelection()}
+            disabled={busy || checked.size === 0}
+          >
+            Добавить получателей
+          </button>
+          <button
+            onClick={() => void dispatchSelected()}
+            disabled={busy || queuedRecipients.length === 0}
+          >
+            Отправить RFQ ({queuedRecipients.length})
+          </button>
+        </div>
       </div>
     </div>
   );

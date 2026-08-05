@@ -4,6 +4,7 @@
 import type {
   AnalogVariation,
   ChannelStatus,
+  CommunicationMessageRead,
   CommunicationOverviewRead,
   IdentificationMethod,
   EmailIntegration,
@@ -362,14 +363,39 @@ export const api = {
       body: JSON.stringify({ items }),
     }),
 
-  dispatchRfq: (rfqId: number) =>
-    request<RecipientRead[]>(`/rfq/${rfqId}/dispatch`, { method: "POST" }),
+  dispatchRfq: (rfqId: number, confirmExternalSend = false) =>
+    request<RecipientRead[]>(
+      `/rfq/${rfqId}/dispatch?confirm_external_send=${confirmExternalSend}`,
+      { method: "POST" },
+    ),
 
   removeRecipient: (rfqId: number, recipientId: number) =>
     request<void>(`/rfq/${rfqId}/recipients/${recipientId}`, { method: "DELETE" }),
 
   communicationOverview: (rfqId: number) =>
     request<CommunicationOverviewRead>(`/rfq/${rfqId}/communications`),
+
+  sendCommunicationMessage: (
+    rfqId: number,
+    payload: {
+      manager_id: number;
+      channel: "email" | "whatsapp";
+      body: string;
+      subject?: string | null;
+      idempotency_key: string;
+      confirm_external_send: boolean;
+    },
+  ) =>
+    request<CommunicationMessageRead>(`/rfq/${rfqId}/communications/send`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  sendCommunicationDraft: (communicationId: number) =>
+    request<CommunicationMessageRead>(`/communications/${communicationId}/send`, {
+      method: "POST",
+      body: JSON.stringify({ confirm_external_send: true }),
+    }),
 
   syncEmailCommunications: (limit = 20) =>
     request<EmailSyncRead>(`/communications/email/sync?limit=${limit}`, {

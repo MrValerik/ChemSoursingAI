@@ -9,6 +9,7 @@ import type {
   SupplierConversationRead,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { Textarea } from "./ui";
 
 const EMPTY_OVERVIEW: CommunicationOverviewRead = {
   conversations: [],
@@ -25,6 +26,16 @@ const formatMoment = (value: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+
+const deliveryStatusLabel = (status: string) =>
+  ({
+    demo: "демонстрация",
+    draft: "черновик",
+    sending: "отправляется",
+    sent: "отправлено",
+    received: "получено",
+    delivery_error: "доставка не подтверждена",
+  })[status] ?? status;
 
 export default function DispatchTab({
   rfq,
@@ -43,6 +54,12 @@ export default function DispatchTab({
   const [notice, setNotice] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [escalationBusy, setEscalationBusy] = useState<number | null>(null);
+  const [messageBody, setMessageBody] = useState("");
+  const [messageActionId, setMessageActionId] = useState(() =>
+    crypto.randomUUID(),
+  );
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [draftBusy, setDraftBusy] = useState<number | null>(null);
 
   const canSyncEmail = user?.role === "head" || user?.role === "admin";
 
@@ -76,6 +93,12 @@ export default function DispatchTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rfqId]);
 
+  useEffect(() => {
+    // Текст одного поставщика нельзя случайно перенести в другой диалог.
+    setMessageBody("");
+    setMessageActionId(crypto.randomUUID());
+  }, [selectedKey]);
+
   const selectedConversation =
     overview.conversations.find((item) => conversationKey(item) === selectedKey) ??
     null;
@@ -104,6 +127,67 @@ export default function DispatchTab({
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const sendMessage = async () => {
+    if (
+      !selectedConversation?.manager_id ||
+      !selectedConversation.contact ||
+      !messageBody.trim()
+    ) {
+      return;
+    }
+    const channelLabel =
+      selectedConversation.channel === "email" ? "Email" : "WhatsApp";
+    if (
+      !window.confirm(
+        `Реально отправить сообщение через ${channelLabel} контакту ${selectedConversation.contact}?`,
+      )
+    ) {
+      return;
+    }
+    setSendingMessage(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.sendCommunicationMessage(rfqId, {
+        manager_id: selectedConversation.manager_id,
+        channel: selectedConversation.channel,
+        body: messageBody.trim(),
+        idempotency_key: messageActionId,
+        confirm_external_send: true,
+      });
+      setMessageBody("");
+      setMessageActionId(crypto.randomUUID());
+      setNotice(`Сообщение отправлено через ${channelLabel}.`);
+      await load();
+      onStatusChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      await load();
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const sendDraft = async (communicationId: number) => {
+    if (!window.confirm("Реально отправить этот Email-черновик поставщику?")) {
+      return;
+    }
+    setDraftBusy(communicationId);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.sendCommunicationDraft(communicationId);
+      setNotice("Email-черновик отправлен.");
+      await load();
+      onStatusChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      await load();
+    } finally {
+      setDraftBusy(null);
     }
   };
 
@@ -262,17 +346,69 @@ export default function DispatchTab({
                             <span>{formatMoment(message.created_at)}</span>
                           </div>
                           <p>{message.body || "—"}</p>
-                          {message.status && (
-                            <span className="conversation-delivery-status">
-                              {message.status === "demo"
-                                ? "демонстрация"
-                                : message.status}
-                            </span>
-                          )}
+                          <div className="conversation-message-actions">
+                            {message.status && (
+                              <span className="conversation-delivery-status">
+                                {deliveryStatusLabel(message.status)}
+                              </span>
+                            )}
+                            {!readOnly &&
+                              message.channel === "email" &&
+                              message.direction === "outbound" &&
+                              message.status === "draft" && (
+                                <button
+                                  className="secondary btn-small"
+                                  disabled={draftBusy !== null}
+                                  onClick={() => void sendDraft(message.id)}
+                                  type="button"
+                                >
+                                  {draftBusy === message.id
+                                    ? "Отправка…"
+                                    : "Отправить черновик"}
+                                </button>
+                              )}
+                          </div>
                         </article>
                       ))
                     )}
                   </div>
+
+                  {!readOnly && (
+                    <div className="conversation-composer">
+                      {selectedConversation.manager_id &&
+                      selectedConversation.contact ? (
+                        <>
+                          <Textarea
+                            rows={4}
+                            placeholder="Напишите сообщение поставщику"
+                            value={messageBody}
+                            onChange={(event) => {
+                              setMessageBody(event.target.value);
+                              setMessageActionId(crypto.randomUUID());
+                            }}
+                          />
+                          <div className="conversation-composer-footer">
+                            <span className="note">
+                              {selectedConversation.channel === "email"
+                                ? "Будет отправлено через подключённый SMTP."
+                                : "Будет отправлено через Meta WhatsApp Cloud API в открытом 24-часовом окне."}
+                            </span>
+                            <button
+                              disabled={sendingMessage || !messageBody.trim()}
+                              onClick={() => void sendMessage()}
+                              type="button"
+                            >
+                              {sendingMessage ? "Отправка…" : "Отправить"}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="note">
+                          Для ответа свяжите диалог с контактом поставщика.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>

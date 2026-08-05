@@ -361,33 +361,3 @@ def sync_inbox(
         except Exception as exc:
             summary.errors.append(str(exc))
     return summary
-
-
-def send_followup_draft(
-    db: Session,
-    communication: Communication,
-    connector: EmailConnector | None = None,
-) -> Communication:
-    """Отправляет сохранённый черновик и фиксирует Message-ID."""
-    if (
-        communication.direction != CommDirection.OUTBOUND
-        or communication.channel != Channel.EMAIL
-        or communication.status != "draft"
-    ):
-        raise ValueError("Отправить можно только исходящий Email-черновик")
-    if not communication.to_address:
-        raise ValueError("У черновика отсутствует адрес получателя")
-    email = connector or EmailConnector(effective_email_settings(db)[0])
-    external_id = email.send(
-        to_address=communication.to_address,
-        subject=communication.subject or "RFQ follow-up",
-        body=communication.body or "",
-        in_reply_to=communication.thread_id,
-        references=[communication.thread_id] if communication.thread_id else None,
-    )
-    communication.external_id = external_id
-    communication.status = "sent"
-    communication.from_address = email.settings.email_from or None
-    db.commit()
-    db.refresh(communication)
-    return communication

@@ -40,6 +40,11 @@ class Communication(Base, TimestampMixin):
     external_id: Mapped[str | None] = mapped_column(
         String(255), unique=True, index=True
     )
+    # Идемпотентность явных отправок из интерфейса. Ключ создаётся клиентом
+    # для одного нажатия и не заменяется идентификатором провайдера.
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(36), unique=True, index=True
+    )
 
     # Вложения (CoA/TDS): метаданные/ссылки на объектное хранилище.
     attachments: Mapped[list[dict] | None] = mapped_column(JSON, default=None)

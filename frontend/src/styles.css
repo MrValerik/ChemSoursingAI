@@ -1180,6 +1180,31 @@ button.danger:hover {
   font-size: 12px;
 }
 
+.conversation-message-actions,
+.conversation-composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.conversation-composer {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.conversation-composer textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.conversation-composer-footer .note {
+  margin: 0;
+}
+
 .communication-escalation {
   margin: 12px 0;
   padding: 13px;
@@ -1222,6 +1247,11 @@ button.danger:hover {
   }
 
   .communication-escalation {
+    flex-direction: column;
+  }
+
+  .conversation-composer-footer {
+    align-items: stretch;
     flex-direction: column;
   }
 }
