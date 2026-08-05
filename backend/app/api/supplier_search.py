@@ -68,6 +68,7 @@ from app.services.supplier_search_continuation import (
 from app.services.supplier_registry import register_qualified_candidate
 from app.services.intermediaries import active_domains, split_by_intermediary
 from app.services.page_facts import (
+    MIN_QUOTE_CHARS,
     build_highlights,
     cas_quote,
     find_cas_numbers,
@@ -811,7 +812,7 @@ def _inject_deterministic_evidence(
             and page_cas_match(text, cas)
         ):
             quote = cas_quote(text, cas)
-            if quote:
+            if quote and len(quote) >= MIN_QUOTE_CHARS:
                 additions.append(
                     QualificationEvidence(
                         source_document_id=source.id,
@@ -823,7 +824,7 @@ def _inject_deterministic_evidence(
                 )
 
         for claim_type, quote in find_document_mentions(text).items():
-            if claim_type in present:
+            if claim_type in present or len(quote) < MIN_QUOTE_CHARS:
                 continue
             additions.append(
                 QualificationEvidence(

@@ -123,6 +123,12 @@ _SPEC_MARKERS = (
 _MAX_HIGHLIGHT_LINES = 12
 _MAX_LINE_CHARS = 300
 
+# Контракт доказательства требует цитату не короче пяти символов, и это
+# разумно: «TDS» само по себе ничего не доказывает. Строка страницы вполне
+# может оказаться такой короткой — на прогоне по адипиновой кислоте это
+# уронило весь этап оценки ошибкой проверки схемы.
+MIN_QUOTE_CHARS = 5
+
 
 def find_cas_numbers(text: str) -> list[str]:
     """Все синтаксически верные CAS-номера страницы, без повторов.
@@ -392,6 +398,8 @@ def find_document_mentions(text: str) -> dict[str, str]:
             line = raw.strip()
             if not line or len(line) > _MAX_LINE_CHARS:
                 continue
+            if len(line) < MIN_QUOTE_CHARS:
+                continue
             if pattern.search(line):
                 mentions[claim] = line
                 break
@@ -417,8 +425,12 @@ def cas_quote(text: str, cas: str) -> str | None:
 
 
 def _trimmed(line: str, needle: str) -> str | None:
-    """Обрезает длинную строку, оставляя искомое внутри цитаты."""
-    if not line:
+    """Обрезает длинную строку, оставляя искомое внутри цитаты.
+
+    Слишком короткая строка не возвращается вовсе: контракт доказательства
+    её не примет, и вместо пропуска одного факта упадёт весь этап.
+    """
+    if not line or len(line) < MIN_QUOTE_CHARS:
         return None
     if len(line) <= _MAX_LINE_CHARS:
         return line

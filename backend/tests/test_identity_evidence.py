@@ -110,6 +110,21 @@ def test_the_model_is_not_overruled_when_it_did_the_work():
     assert len(qualifications[0].evidence) == 1
 
 
+def test_a_quote_too_short_for_the_contract_is_skipped():
+    """Контракт требует цитату не короче пяти символов.
+
+    Строка страницы вполне может быть короче: на прогоне по адипиновой
+    кислоте строка вида «TDS» уронила весь этап оценки ошибкой проверки
+    схемы. Пропустить один факт дешевле, чем потерять прогон.
+    """
+    page = "о компании\n" * 50 + "TDS\nGMP\n"
+    qualifications = {0: _qualification()}
+    _inject(qualifications, cas="107-43-7", source=_source(page))
+
+    for item in qualifications[0].evidence:
+        assert len(item.quote) >= 5
+
+
 def test_a_failed_page_yields_nothing():
     source = _source("")
     source.status = "failed"
