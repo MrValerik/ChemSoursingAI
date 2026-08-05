@@ -2704,6 +2704,7 @@ def execute_supplier_qualification(
     finish_agent_run(
         qualification_run,
         qualification_clock,
+        llm=llm,
         output_payload={
             "model_output": raw,
             "model_batches": raw_batches,
@@ -2992,6 +2993,7 @@ def execute_supplier_qualification(
         finish_agent_run(
             verification_run,
             verification_clock,
+            llm=llm,
             output_payload={
                 "model_output": {"results": verification_raw_results},
                 "model_batches": verification_raw_batches,
