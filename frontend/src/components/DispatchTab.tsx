@@ -19,6 +19,28 @@ const EMPTY_OVERVIEW: CommunicationOverviewRead = {
 const conversationKey = (item: SupplierConversationRead) =>
   `${item.supplier_id ?? item.contact ?? "unknown"}:${item.channel}`;
 
+const createActionId = () => {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
 const formatMoment = (value: string) =>
   new Date(value).toLocaleString("ru-RU", {
     day: "2-digit",
@@ -55,9 +77,7 @@ export default function DispatchTab({
   const [syncing, setSyncing] = useState(false);
   const [escalationBusy, setEscalationBusy] = useState<number | null>(null);
   const [messageBody, setMessageBody] = useState("");
-  const [messageActionId, setMessageActionId] = useState(() =>
-    crypto.randomUUID(),
-  );
+  const [messageActionId, setMessageActionId] = useState(createActionId);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [draftBusy, setDraftBusy] = useState<number | null>(null);
 
@@ -96,7 +116,7 @@ export default function DispatchTab({
   useEffect(() => {
     // Текст одного поставщика нельзя случайно перенести в другой диалог.
     setMessageBody("");
-    setMessageActionId(crypto.randomUUID());
+    setMessageActionId(createActionId());
   }, [selectedKey]);
 
   const selectedConversation =
@@ -159,7 +179,7 @@ export default function DispatchTab({
         confirm_external_send: true,
       });
       setMessageBody("");
-      setMessageActionId(crypto.randomUUID());
+      setMessageActionId(createActionId());
       setNotice(`Сообщение отправлено через ${channelLabel}.`);
       await load();
       onStatusChanged();
@@ -384,7 +404,7 @@ export default function DispatchTab({
                             value={messageBody}
                             onChange={(event) => {
                               setMessageBody(event.target.value);
-                              setMessageActionId(crypto.randomUUID());
+                              setMessageActionId(createActionId());
                             }}
                           />
                           <div className="conversation-composer-footer">
