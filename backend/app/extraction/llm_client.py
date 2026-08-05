@@ -135,6 +135,11 @@ class LLMClient:
         self.timeout_s = timeout_s if timeout_s is not None else s.llm_timeout_s
         # Журнал попыток последнего вызова generate_json для трассировки.
         self.last_attempts: list[dict] = []
+        # Расход токенов накапливается за всё время жизни клиента: этап
+        # делает несколько вызовов пакетами, и считать надо их сумму.
+        # Неудачные попытки тоже стоят денег, поэтому учитываются.
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
 
     def _headers(self) -> dict[str, str]:
         """Возвращает заголовки OpenAI-совместимого провайдера без логирования секретов."""
@@ -163,6 +168,12 @@ class LLMClient:
         elif control == "reasoning_effort":
             payload["reasoning_effort"] = "none"
         return payload
+
+    def _count_usage(self, data: dict) -> None:
+        """Складывает расход токенов ответа к счётчику клиента."""
+        usage = data.get("usage") or {}
+        self.prompt_tokens += usage.get("prompt_tokens") or 0
+        self.completion_tokens += usage.get("completion_tokens") or 0
 
     @staticmethod
     def _raise_if_truncated(data: dict) -> None:
@@ -418,6 +429,7 @@ class LLMClient:
                         )
                         response.raise_for_status()
                         answer = response.json()
+                        self._count_usage(answer)
                         # Проверяем до разбора: оборванный JSON иначе
                         # выглядит как испорченный и уводит в схема-ремонт,
                         # который сломается там же.

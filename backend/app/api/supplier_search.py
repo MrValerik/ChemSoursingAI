@@ -1671,6 +1671,7 @@ def execute_supplier_search(
             finish_agent_run(
                 identity_run,
                 identity_clock,
+                llm=llm,
                 output_payload={
                     "identity": identity.model_dump(),
                     "raw": raw_identity,
@@ -1699,6 +1700,7 @@ def execute_supplier_search(
             finish_agent_run(
                 identity_run,
                 identity_clock,
+                llm=llm,
                 output_payload={
                     "identity": identity.model_dump(),
                     "fallback_reason": identity_error,
@@ -1732,6 +1734,7 @@ def execute_supplier_search(
         finish_agent_run(
             identity_run,
             identity_clock,
+            llm=llm,
             output_payload={
                 "identity": identity.model_dump(),
                 "fallback_reason": identity_error,
@@ -1818,6 +1821,7 @@ def execute_supplier_search(
             finish_agent_run(
                 planner_run,
                 planner_clock,
+                llm=llm,
                 output_payload={
                     "raw": generated,
                     "queries": [item.model_dump() for item in ai_items],
@@ -1839,6 +1843,7 @@ def execute_supplier_search(
             finish_agent_run(
                 planner_run,
                 planner_clock,
+                llm=llm,
                 output_payload={
                     "queries": [],
                     "accepted": False,
@@ -1863,6 +1868,7 @@ def execute_supplier_search(
         finish_agent_run(
             planner_run,
             planner_clock,
+            llm=llm,
             output_payload={
                 "queries": [],
                 "accepted": False,
@@ -2498,6 +2504,7 @@ def execute_supplier_qualification(
         finish_agent_run(
             qualification_run,
             qualification_clock,
+            llm=llm,
             output_payload=qualification_run.output_payload,
             raw_output_payload={"model_batches": raw_batches},
             validation_output_payload={

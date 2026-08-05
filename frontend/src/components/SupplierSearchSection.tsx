@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, userErrorMessage } from "../api/client";
 import type {
   SearchScope,
+  AgentRunRead,
   CasEvidenceStatus,
   CountryEvidenceStatus,
   EvidenceStatus,
@@ -295,6 +296,19 @@ const formatDuration = (latencyMs: number) => {
   return `${minutes} мин ${seconds} сек`;
 };
 
+const formatTokens = (value: number | null | undefined) =>
+  value == null ? "—" : value.toLocaleString("ru-RU");
+
+/** Расход токенов всего запуска: этапы делают вызовы пакетами. */
+const totalTokens = (stages: AgentRunRead[]) =>
+  stages.reduce(
+    (sum, stage) => ({
+      input: sum.input + (stage.prompt_tokens ?? 0),
+      output: sum.output + (stage.completion_tokens ?? 0),
+    }),
+    { input: 0, output: 0 },
+  );
+
 function StageResult({
   slug,
   output,
@@ -521,6 +535,18 @@ function SearchTracePanel({
             <h2>Ход поиска</h2>
             <HelpTip text="Этапы выполняются последовательно. Завершённые отмечены зелёным, текущий — синим, ещё не запущенные — серым." />
           </div>
+          {(() => {
+            const spent = totalTokens(trace.agent_runs);
+            if (!spent.input && !spent.output) return null;
+            return (
+              <p className="note">
+                Токены запуска: <strong>{formatTokens(spent.input)}</strong> на
+                вход, <strong>{formatTokens(spent.output)}</strong> на выход.
+                Вход обычно дороже выхода в несколько раз, поэтому расход
+                определяется тем, сколько текста страниц уходит модели.
+              </p>
+            );
+          })()}
         </div>
         <div className="search-trace-actions">
           <span className={`badge ${traceTone(trace.status)}`}>
@@ -654,6 +680,12 @@ function SearchTracePanel({
                       {state === "running" && elapsedMs >= 30 * 60 * 1000
                         ? " · нет прогресса более 30 минут"
                         : ""}
+                    </span>
+                  )}
+                  {(stage.prompt_tokens ?? stage.completion_tokens) !== null && (
+                    <span title="Расход токенов этапа. Вход обычно вчетверо больше выхода, поэтому экономия сидит в том, что отправляется модели.">
+                      Токены: {formatTokens(stage.prompt_tokens)} вход ·{" "}
+                      {formatTokens(stage.completion_tokens)} выход
                     </span>
                   )}
                 </div>

@@ -266,6 +266,14 @@ def _apply_light_migrations() -> None:
                         f"ADD COLUMN results_payload {json_type}"
                     )
                 )
+    if "agent_runs" in tables:
+        cols = {c["name"] for c in inspector.get_columns("agent_runs")}
+        with engine.begin() as conn:
+            for column in ("prompt_tokens", "completion_tokens"):
+                if column not in cols:
+                    conn.execute(
+                        text(f"ALTER TABLE agent_runs ADD COLUMN {column} INTEGER")
+                    )
     if "search_runs" in tables:
         cols = {c["name"] for c in inspector.get_columns("search_runs")}
         json_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"

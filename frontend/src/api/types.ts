@@ -645,6 +645,9 @@ export interface AgentRunRead {
   started_at: string;
   completed_at: string | null;
   latency_ms: number | null;
+  /** Расход токенов этапа: вход дороже выхода вчетверо по объёму. */
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
   error: string | null;
 }
 

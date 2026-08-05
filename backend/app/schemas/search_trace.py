@@ -34,6 +34,8 @@ class AgentRunRead(BaseModel):
     started_at: datetime
     completed_at: datetime | None
     latency_ms: int | None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
     error: str | None
 
 

@@ -146,6 +146,12 @@ class AgentRun(Base, TimestampMixin):
         DateTime(timezone=True), default=None
     )
     latency_ms: Mapped[int | None] = mapped_column(Integer, default=None)
+    # Расход токенов этапа. Без него стоимость поиска считается только
+    # повтором вызовов, то есть оплачивается второй раз. Замер на карбомере:
+    # 20 722 входных и 4 753 выходных на семь вызовов — вход дороже выхода
+    # вчетверо по объёму, значит экономия сидит в том, что мы отправляем.
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, default=None)
     error: Mapped[str | None] = mapped_column(Text, default=None)
 
     search_run: Mapped["SearchRun"] = relationship(back_populates="agent_runs")
