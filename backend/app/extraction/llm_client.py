@@ -48,7 +48,15 @@ class LLMContextOverflowError(LLMUnavailableError):
 
 _TRANSIENT_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 _AUTH_PREFIXES = {"bearer": "Bearer", "api-key": "Api-Key"}
-_REQUEST_PROFILES = {"llama_cpp", "openai_compatible"}
+# Чем выключается режим рассуждения. Различается по провайдерам, поэтому
+# вынесено в настройку: под новую облачную модель меняется значение, а не
+# код. Проверено на Yandex AI Studio (Qwen3.6): работают оба параметра.
+#
+# Отдельного «профиля запроса» здесь нет намеренно. Он предполагал, что
+# облаку нельзя слать расширения llama.cpp, — замер это опроверг: Yandex
+# принимает chat_template_kwargs и отвечает по схеме. Единственное реальное
+# различие оказалось вот этим выключателем.
+_THINKING_CONTROLS = {"chat_template_kwargs", "reasoning_effort", "none"}
 
 
 def _context_overflow_message(exc: httpx.HTTPStatusError) -> str | None:
@@ -94,7 +102,7 @@ class LLMClient:
         api_key: str | None = None,
         auth_scheme: str | None = None,
         project_id: str | None = None,
-        request_profile: str | None = None,
+        thinking_control: str | None = None,
         timeout_s: float | None = None,
     ) -> None:
         s = get_settings()
@@ -105,14 +113,14 @@ class LLMClient:
         self.project_id = (
             project_id if project_id is not None else s.llm_project_id
         ).strip()
-        self.request_profile = request_profile or s.llm_request_profile
+        self.thinking_control = thinking_control or s.llm_thinking_control
         if self.auth_scheme not in _AUTH_PREFIXES:
             raise ValueError(
                 f"неподдерживаемая схема авторизации LLM: {self.auth_scheme}"
             )
-        if self.request_profile not in _REQUEST_PROFILES:
+        if self.thinking_control not in _THINKING_CONTROLS:
             raise ValueError(
-                f"неподдерживаемый профиль LLM: {self.request_profile}"
+                f"неподдерживаемое выключение рассуждения: {self.thinking_control}"
             )
         self.timeout_s = timeout_s if timeout_s is not None else s.llm_timeout_s
         # Журнал попыток последнего вызова generate_json для трассировки.
@@ -128,10 +136,44 @@ class LLMClient:
         return headers
 
     def _with_provider_options(self, payload: dict) -> dict:
-        """Добавляет только опции, принадлежащие выбранной реализации API."""
-        if self.request_profile == "llama_cpp":
+        """Добавляет опции провайдера, включая выключение рассуждения.
+
+        Рассуждающая модель без выключателя тратит весь лимит выхода на
+        размышление и возвращает пустой ``content``: замер на Yandex
+        Qwen3.6 — 2205 символов рассуждения, 700 токенов из 700, ответа
+        нет. Способ выключения зависит от провайдера, поэтому он вынесен в
+        настройку, а не привязан к профилю API.
+
+        Проверено на Yandex AI Studio: работают и ``chat_template_kwargs``,
+        и ``reasoning_effort``. Маркер ``/no_think`` в тексте — нет.
+        """
+        control = self.thinking_control
+        if control == "chat_template_kwargs":
             payload["chat_template_kwargs"] = {"enable_thinking": False}
+        elif control == "reasoning_effort":
+            payload["reasoning_effort"] = "none"
         return payload
+
+    @staticmethod
+    def _message_content(data: dict) -> str | None:
+        """Текст ответа, чего бы это ни стоило провайдеру.
+
+        Пустой ``content`` при заполненном ``reasoning_content`` означает,
+        что модель ушла в рассуждение и не начала отвечать. Разбирать
+        рассуждение как ответ нельзя — это не он, — но и молчать о причине
+        не следует: сообщение об ошибке должно называть её прямо.
+        """
+        choice = (data.get("choices") or [{}])[0]
+        message = choice.get("message") or {}
+        content = message.get("content")
+        if content:
+            return content
+        if message.get("reasoning_content"):
+            raise LLMUnavailableError(
+                "модель ушла в рассуждение и не вернула ответ; выключите "
+                "его настройкой LLM_THINKING_CONTROL"
+            )
+        return content
 
     def check_health(self, timeout_s: float = 3.0) -> tuple[bool, str | None]:
         """Быстро проверяет OpenAI-совместимый API без запуска генерации.
@@ -235,7 +277,7 @@ class LLMClient:
             raise LLMUnavailableError(str(exc)) from exc
 
         try:
-            content = data["choices"][0]["message"]["content"]
+            content = self._message_content(data)
             return json.loads(content)
         except (KeyError, IndexError, json.JSONDecodeError) as exc:
             raise LLMUnavailableError(f"некорректный ответ LLM: {exc}") from exc
@@ -272,7 +314,7 @@ class LLMClient:
                     headers=self._headers(),
                 )
                 response.raise_for_status()
-                return response.json()["choices"][0]["message"]["content"]
+                return self._message_content(response.json())
         except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError) as exc:
             raise LLMUnavailableError(str(exc)) from exc
 
@@ -343,9 +385,7 @@ class LLMClient:
                             headers=self._headers(),
                         )
                         response.raise_for_status()
-                        content = response.json()["choices"][0]["message"][
-                            "content"
-                        ]
+                        content = self._message_content(response.json())
             except TimeoutError as exc:
                 # Ожидание места, а не отказ модели: этап должен сказать
                 # правду о перегрузке, а не о недоступности.

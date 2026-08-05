@@ -38,7 +38,9 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
       LLM_AUTH_SCHEME: ${LLM_AUTH_SCHEME:-bearer}
       LLM_PROJECT_ID: ${LLM_PROJECT_ID:-}
-      LLM_REQUEST_PROFILE: ${LLM_REQUEST_PROFILE:-llama_cpp}
+      # Чем выключается режим рассуждения. Без выключателя модель тратит
+      # весь лимит выхода на размышление и возвращает пустой ответ.
+      LLM_THINKING_CONTROL: ${LLM_THINKING_CONTROL:-chat_template_kwargs}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
       # Должно совпадать с --parallel у llama-server. Воркеров больше, и
@@ -122,7 +124,9 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-not-needed-for-local}
       LLM_AUTH_SCHEME: ${LLM_AUTH_SCHEME:-bearer}
       LLM_PROJECT_ID: ${LLM_PROJECT_ID:-}
-      LLM_REQUEST_PROFILE: ${LLM_REQUEST_PROFILE:-llama_cpp}
+      # Чем выключается режим рассуждения. Без выключателя модель тратит
+      # весь лимит выхода на размышление и возвращает пустой ответ.
+      LLM_THINKING_CONTROL: ${LLM_THINKING_CONTROL:-chat_template_kwargs}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-600}
       LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-12288}
       # Должно совпадать с --parallel у llama-server. Воркеров больше, и

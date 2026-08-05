@@ -84,19 +84,36 @@ Backend не зависит от конкретного облачного пр�
 задайте в локальном `.env` (не коммитьте настоящий ключ):
 
 ```env
-LLM_BASE_URL=https://ai.api.cloud.yandex.net/v1
-LLM_MODEL=gpt://<folder_ID>/qwen3.6-35b-a3b
+LLM_BASE_URL=https://llm.api.cloud.yandex.net/v1
+LLM_MODEL=gpt://<folder_ID>/qwen3.6-35b-a3b/latest
 LLM_API_KEY=<API_key>
 LLM_AUTH_SCHEME=api-key
 LLM_PROJECT_ID=<folder_ID>
-LLM_REQUEST_PROFILE=openai_compatible
+LLM_THINKING_CONTROL=chat_template_kwargs
+LLM_PARALLEL_SLOTS=8
 ```
 
 `LLM_AUTH_SCHEME=api-key` формирует `Authorization: Api-Key ...`, а
-`LLM_PROJECT_ID` — заголовок `OpenAI-Project`. Профиль `openai_compatible` не
-отправляет облаку специфичный для llama.cpp параметр `chat_template_kwargs`.
-Локальная конфигурация использует значения `bearer`, пустой project и профиль
-`llama_cpp`.
+`LLM_PROJECT_ID` — заголовок `OpenAI-Project`. Локальная конфигурация
+использует `bearer` и пустой project.
+
+`LLM_THINKING_CONTROL` обязателен для рассуждающих моделей. Замер на
+Qwen3.6 в AI Studio без него: 2205 символов рассуждения, 700 выходных
+токенов из 700, `content` пустой, `finish_reason: length`. Работают
+`chat_template_kwargs` и `reasoning_effort`; маркер `/no_think` в тексте
+запроса — нет. Значение `none` оставлено для моделей без такого режима.
+
+`LLM_PARALLEL_SLOTS` в облаке нужно поднимать: он ограничивает число
+одновременных вызовов и введён под очередь одного llama-server. У облака
+такой очереди нет, и единица здесь просто отменяет параллельность.
+
+Список доступных моделей каталога:
+
+```bash
+curl -s https://llm.api.cloud.yandex.net/v1/models \
+  -H "Authorization: Api-Key $LLM_API_KEY" \
+  -H "OpenAI-Project: $LLM_PROJECT_ID"
+```
 
 Существующий structured output остаётся совместимым: Chat Completions получает
 `response_format.type=json_schema`, переданную JSON Schema и `strict=true`.
@@ -392,7 +409,7 @@ worker автоматически возвращает её в очередь (�
 ## Переменные окружения
 
 См. `.env.example`. Ключевые: `DATABASE_URL`, `REDIS_URL`, `LLM_BASE_URL`,
-`LLM_MODEL`, `LLM_AUTH_SCHEME`, `LLM_PROJECT_ID`, `LLM_REQUEST_PROFILE`,
+`LLM_MODEL`, `LLM_AUTH_SCHEME`, `LLM_PROJECT_ID`, `LLM_THINKING_CONTROL`,
 `PUBCHEM_BASE_URL`. Для настроек каналов, сохранённых через
 интерфейс, задайте отдельный `INTEGRATION_ENCRYPTION_KEY`. Если он пуст,
 используется `AUTH_SECRET_KEY`; менять применённый ключ без переноса данных

@@ -53,10 +53,12 @@ class Settings(BaseSettings):
     # llama-server сохраняет Bearer и не требует project header.
     llm_auth_scheme: Literal["bearer", "api-key"] = Field(default="bearer")
     llm_project_id: str = Field(default="")
-    # Только профиль llama_cpp отправляет его нестандартные параметры запроса.
-    llm_request_profile: Literal["llama_cpp", "openai_compatible"] = Field(
-        default="llama_cpp"
-    )
+    # Рассуждающая модель без выключателя тратит весь лимит выхода на
+    # размышление и возвращает пустой ответ. Способ выключения зависит от
+    # провайдера, поэтому это отдельная настройка.
+    llm_thinking_control: Literal[
+        "chat_template_kwargs", "reasoning_effort", "none"
+    ] = Field(default="chat_template_kwargs")
     llm_timeout_s: int = Field(default=600)
     # Размер контекста llama-server (--ctx-size). Backend сам ужимает
     # передаваемые страницы под этот бюджет, поэтому запрос не может

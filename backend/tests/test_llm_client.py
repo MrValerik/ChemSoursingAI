@@ -102,7 +102,7 @@ def test_openai_cloud_headers_payload_and_structured_json(monkeypatch):
         api_key="cloud-secret",
         auth_scheme="api-key",
         project_id="folder-id",
-        request_profile="openai_compatible",
+        thinking_control="none",
         timeout_s=1,
     )
 
@@ -129,6 +129,9 @@ def test_openai_cloud_headers_payload_and_structured_json(monkeypatch):
         }
         for call in _Client.calls
     )
+    # Выключатель рассуждения — отдельная настройка, а не свойство
+    # облачного профиля: замер показал, что Yandex принимает
+    # chat_template_kwargs. Здесь он выключен явно.
     assert all("chat_template_kwargs" not in payload for payload in _Client.payloads)
     json_payload = _Client.payloads[-1]
     assert json_payload["response_format"] == {
