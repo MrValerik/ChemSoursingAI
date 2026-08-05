@@ -432,6 +432,151 @@ def test_failed_search_returns_trace_id(client, monkeypatch):
     assert all(attempt["status"] == "failed" for attempt in trace["search_attempts"])
 
 
+def test_blocked_search_provider_stops_after_the_first_query(client, monkeypatch):
+    """Один 403 не должен превращаться в несколько минут одинаковых пауз."""
+    from app.connectors.web_search import SearchSourceBlocked
+
+    buyer = _auth(client, "ivanov")
+    _mock_search_agents(monkeypatch, '"Aspirin" "50-78-2" manufacturer')
+    calls = 0
+
+    def blocked_search(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise SearchSourceBlocked("HTTP 403")
+
+    monkeypatch.setattr("app.api.supplier_search.search_web", blocked_search)
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "country": "China"},
+    )
+
+    assert response.status_code == 502
+    assert calls == 1
+
+
+def test_fallback_plan_keeps_the_buyers_grade_instead_of_pubchem_iupac_name():
+    from app.api.supplier_search import (
+        SubstanceIdentity,
+        SupplierSearchRequest,
+        _fallback_search_plan,
+    )
+
+    data = SupplierSearchRequest(
+        cas="7631-86-9",
+        name="Colloidal silicon dioxide (fumed silica; Aerosil grade)",
+        country="Китай",
+    )
+    identity = SubstanceIdentity(
+        status="unverified",
+        canonical_name="dioxosilane",
+        search_names=["dioxosilane", "Silica"],
+        substance_type="single_substance",
+    )
+
+    plan = _fallback_search_plan(data, identity)
+    assert plan
+    assert all("Colloidal silicon dioxide" in item.query for item in plan)
+    assert all("dioxosilane" not in item.query for item in plan)
+
+
+def test_search_without_cas_skips_pubchem_and_uses_product_name(
+    client, monkeypatch
+):
+    """Смесь без CAS должна пройти весь этап поиска, а не упасть до выдачи."""
+    buyer = _auth(client, "ivanov")
+
+    def pubchem_must_not_run(*args, **kwargs):
+        raise AssertionError("PubChem must not be called without CAS")
+
+    def planner(self, **kwargs):
+        assert kwargs["schema_name"] == "supplier_search_plan"
+        assert "CAS не указан" in kwargs["system_prompt"]
+        return {
+            "queries": [
+                {
+                    "query": "C12-C15 fatty alcohol blend manufacturer China",
+                    "language": "en",
+                    "purpose": "manufacturer",
+                    "source_type": "web",
+                    "priority": 1,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.PubChemConnector.verify_cas",
+        pubchem_must_not_run,
+    )
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json", planner
+    )
+    monkeypatch.setattr(
+        "app.api.supplier_search.search_web",
+        lambda query, limit: [
+            {
+                "title": "C12-C15 Fatty Alcohol Blend Manufacturer",
+                "url": "https://fatty-alcohol.example.cn/products/c12-c15",
+                "snippet": "Factory producing C12-C15 fatty alcohol blends in China",
+            }
+        ],
+    )
+
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={
+            "cas": None,
+            "name": "C12-C15 fatty alcohol blend",
+            "country": "Китай",
+            "identification_method": "spec",
+            "specification": "C12-C15 distribution required",
+            "limit": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["substance_lookup"]["outcome"] == "not_applicable"
+    assert payload["identity"]["substance_type"] == "mixture"
+    assert payload["results"]
+    assert all("None" not in query for query in payload["queries_used"])
+
+
+def test_analog_fallback_plan_keeps_reference_and_equivalence_terms():
+    from app.api.supplier_search import (
+        SubstanceIdentity,
+        SupplierSearchRequest,
+        _fallback_search_plan,
+    )
+
+    data = SupplierSearchRequest(
+        cas=None,
+        name="Silicone Elastomer Blend",
+        country="Китай",
+        identification_method="analog",
+        analog_reference="DOWSIL 9045",
+        specification="cyclopentasiloxane dimethicone crosspolymer",
+    )
+    identity = SubstanceIdentity(
+        status="unverified",
+        canonical_name="Silicone Elastomer Blend",
+        search_names=["Silicone Elastomer Blend"],
+        substance_type="trade_name",
+    )
+
+    plan = _fallback_search_plan(data, identity)
+    assert plan
+    assert any("equivalent" in item.query for item in plan)
+    assert any(
+        "Silicone Elastomer Blend" in item.query
+        and "cyclopentasiloxane" in item.query.casefold()
+        and "DOWSIL 9045" not in item.query
+        for item in plan
+    )
+
+
 def test_supplier_search_deduplicates_results_by_domain(client, monkeypatch):
     buyer = _auth(client, "ivanov")
     _mock_search_agents(

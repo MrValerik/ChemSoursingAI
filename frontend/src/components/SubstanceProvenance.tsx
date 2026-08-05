@@ -48,6 +48,11 @@ interface OutcomeCopy {
 }
 
 const OUTCOMES: Record<VerificationOutcome, OutcomeCopy> = {
+  not_applicable: {
+    tone: "tone-neutral",
+    title: "Проверка не требуется",
+    text: "У запроса нет CAS-номера, а по названию справочник вещество не опознаёт. Так закупают смеси, рецептуры и промышленные продукты — предмет закупки задан аналогом или спецификацией.",
+  },
   confirmed: {
     tone: "tone-ok",
     title: "Вещество подтверждено",

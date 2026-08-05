@@ -12,7 +12,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.connectors.pubchem import PubChemConnector
 from app.connectors.web_page import fetch_web_page
-from app.connectors.web_search import get_search_provider, search_web
+from app.connectors.web_search import (
+    SearchSourceBlocked,
+    get_search_provider,
+    search_web,
+)
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.extraction.llm_client import (
@@ -65,8 +69,10 @@ from app.services.intermediaries import active_domains, split_by_intermediary
 from app.services.page_facts import (
     build_highlights,
     cas_quote,
+    find_cas_numbers,
     find_document_mentions,
     looks_like_role_keyword_stuffing,
+    looks_like_third_party_production_claim,
     mentions_substance,
     page_cas_match,
 )
@@ -74,6 +80,7 @@ from app.services.supplier_scoring import SELF_DECLARED_ONLY_FLAG, score_supplie
 from app.services.supplier_verification import apply_supplier_verification
 from app.services.supplier_sources import (
     SourceKind,
+    analog_product_description,
     build_search_queries,
     is_china,
     is_india,
@@ -81,6 +88,7 @@ from app.services.supplier_sources import (
     minimum_query_count,
     source_kind,
     source_priority,
+    specification_search_terms,
 )
 
 router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
@@ -160,6 +168,11 @@ class SupplierSearchRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=255)
     country: str = Field(default="Китай", max_length=100)
     search_scope: SearchScope = "manufacturers"
+    identification_method: Literal["cas", "analog", "spec"] = "cas"
+    analog_reference: str | None = Field(default=None, max_length=255)
+    analog_variations: list[str] = Field(default_factory=list, max_length=10)
+    specification: str | None = Field(default=None, max_length=4000)
+    application: str | None = Field(default=None, max_length=1000)
     additional_instructions: str | None = Field(default=None, max_length=4000)
     limit: int = Field(default=5, ge=1, le=20)
     catalog_preferred_name: str | None = Field(default=None, max_length=255)
@@ -226,8 +239,13 @@ class SupplierSearchResultInput(BaseModel):
 
 class SupplierQualificationRequest(BaseModel):
     search_run_id: int | None = Field(default=None, ge=1)
-    cas: str = Field(..., min_length=3, max_length=20)
+    cas: str | None = Field(default=None, min_length=3, max_length=20)
     name: str = Field(..., min_length=2, max_length=255)
+    identification_method: Literal["cas", "analog", "spec"] = "cas"
+    analog_reference: str | None = Field(default=None, max_length=255)
+    analog_variations: list[str] = Field(default_factory=list, max_length=10)
+    specification: str | None = Field(default=None, max_length=4000)
+    application: str | None = Field(default=None, max_length=1000)
     country: str | None = Field(default=None, max_length=100)
     additional_instructions: str | None = Field(default=None, max_length=4000)
     expert_notes: str | None = Field(default=None, max_length=4000)
@@ -519,11 +537,24 @@ def _identity_system_prompt(prompt: PromptTemplate) -> str:
     )
 
 
-def _search_planner_prompt(prompt: PromptTemplate) -> str:
+def _search_planner_prompt(
+    prompt: PromptTemplate, data: SupplierSearchRequest
+) -> str:
+    anchor_rule = (
+        "Каждый запрос обязан содержать CAS дословно."
+        if data.cas
+        else (
+            "CAS не указан. Каждый запрос обязан содержать дословно эталон "
+            "аналога либо переданное функциональное имя/композиционный якорь."
+            if data.identification_method == "analog"
+            else "CAS не указан. Каждый запрос обязан содержать дословно одно из названий identity."
+        )
+    )
     return (
         prompt.system_prompt
-        + "\n\nСоставь до восьми независимых поисковых запросов. Каждый запрос "
-        "обязан содержать CAS дословно. Используй только названия из "
+        + "\n\nСоставь до восьми независимых поисковых запросов. "
+        + anchor_rule
+        + " Используй только названия из "
         "переданного identity, не придумывай компании и URL. Покрой поиск "
         "производителя, продукта и документов; для Китая добавь китайский "
         "запрос. excluded_supplier_domains и excluded_supplier_names — уже "
@@ -533,15 +564,37 @@ def _search_planner_prompt(prompt: PromptTemplate) -> str:
     )
 
 
-def _qualification_system_prompt(prompt: PromptTemplate | None) -> str:
+def _qualification_system_prompt(
+    prompt: PromptTemplate | None,
+    *,
+    has_cas: bool = True,
+    identification_method: str = "cas",
+) -> str:
     base_prompt = (
         prompt.system_prompt
         if prompt
         else "Оцени поставщиков химического сырья только по переданным свидетельствам."
     )
+    identity_rule = (
+        "Точный CAS является главным якорем идентичности. "
+        if has_cas
+        else (
+            "CAS отсутствует. Подтверждай chemical_identity только дословной "
+            "цитатой с названием требуемого продукта, состава, грейда или "
+            "спецификации; само сходство функции не является точным совпадением. "
+        )
+    )
+    if identification_method == "analog":
+        identity_rule += (
+            "Ищется аналог эталонного продукта: не называй альтернативный "
+            "продукт точным эквивалентом без сопоставимых состава и свойств; "
+            "явно добавляй недостающие критерии в missing_evidence. "
+        )
     return (
         base_prompt
-        + "\n\nОтветь на русском языке. Для каждого результата верни ровно одну "
+        + "\n\n"
+        + identity_rule
+        + "Ответь на русском языке. Для каждого результата верни ровно одну "
         "оценку с тем же result_index. Не считай текст сайта независимым "
         "подтверждением: GMP, ISO, CoA и TDS могут иметь статус claimed только "
         "при явном упоминании, иначе not_found. Статус manufacturer допустим "
@@ -566,7 +619,12 @@ def _qualification_system_prompt(prompt: PromptTemplate | None) -> str:
     )
 
 
-def _verification_system_prompt(prompt: PromptTemplate | None) -> str:
+def _verification_system_prompt(
+    prompt: PromptTemplate | None,
+    *,
+    has_cas: bool = True,
+    identification_method: str = "cas",
+) -> str:
     base_prompt = (
         prompt.system_prompt
         if prompt
@@ -575,6 +633,23 @@ def _verification_system_prompt(prompt: PromptTemplate | None) -> str:
             "только по переданным первичным источникам."
         )
     )
+    matching_rule = (
+        "substance_match=exact допустим только при явном совпадении CAS и "
+        "вещества либо требуемого грейда. "
+        if has_cas
+        else (
+            "При отсутствии CAS substance_match=exact допустим только для "
+            "того же дословно названного продукта/грейда с подтверждённой "
+            "спецификацией. "
+        )
+    )
+    if identification_method == "analog":
+        matching_rule = (
+            "Задача ищет замену эталонному торговому продукту. Для другого "
+            "продукта используй substance_match=analogue, даже если функция "
+            "похожа; такой кандидат всегда требует manual_review и не может "
+            "попасть в короткий список автоматически. "
+        )
     return (
         base_prompt
         + "\n\nТы не продолжаешь работу агента квалификации и не должен "
@@ -585,8 +660,8 @@ def _verification_system_prompt(prompt: PromptTemplate | None) -> str:
         "supporting_claim_ids и contradictory_claim_ids могут содержать только "
         "id из validated_claims этого кандидата. Выбирай supporting claim лишь "
         "когда его дословная quote действительно подтверждает твой вывод. "
-        "substance_match=exact допустим только при явном совпадении CAS и "
-        "вещества либо требуемого грейда. supplier_role=manufacturer допустим "
+        + matching_rule
+        + "supplier_role=manufacturer допустим "
         "только при прямом свидетельстве собственного производства или завода. "
         "verification_status=confirmed и recommended_action=shortlist допустимы "
         "только при exact, manufacturer и проверенных claims обоих типов. "
@@ -636,6 +711,8 @@ def _evidence_rejection_reason(
         # строка «Our Gelatin Factory»: завод настоящий, вещество другое.
         if looks_like_role_keyword_stuffing(evidence.quote):
             return "перечисление ролей для поисковика, а не утверждение о производстве"
+        if looks_like_third_party_production_claim(evidence.quote):
+            return "цитата описывает партнёрское или контрактное производство"
         if not mentions_substance(evidence.quote, cas=cas, names=names or []):
             return "цитата о компании вообще, а не об искомом веществе"
     return None
@@ -812,6 +889,36 @@ def _fallback_identity(
     input_name_matches = (
         data.name.casefold() in all_known_names if lookup.get("found") else None
     )
+    if data.identification_method == "analog":
+        substance_type = "trade_name"
+    elif not data.cas and any(
+        marker in data.name.casefold()
+        for marker in (
+            " blend",
+            "mixture",
+            "emulsion",
+            "co-processed",
+            "fluid",
+            "oil",
+        )
+    ):
+        substance_type = "mixture"
+    else:
+        substance_type = "single_substance" if lookup.get("found") else "unknown"
+    if lookup.get("found"):
+        ambiguities: list[str] = []
+    elif not data.cas and data.identification_method == "analog":
+        ambiguities = [
+            "CAS отсутствует; эквивалентность аналога нужно подтвердить по составу, свойствам и применению"
+        ]
+    elif not data.cas:
+        ambiguities = [
+            "CAS отсутствует; идентичность проверяется по названию, составу и спецификации"
+        ]
+    else:
+        ambiguities = [
+            f"PubChem не подтвердил CAS: {lookup.get('error') or 'not_found'}"
+        ]
     return SubstanceIdentity(
         status=(
             "verified"
@@ -823,12 +930,8 @@ def _fallback_identity(
         ),
         search_names=unique_names or [data.name],
         input_name_matches=input_name_matches,
-        substance_type="single_substance" if lookup.get("found") else "unknown",
-        ambiguities=(
-            []
-            if lookup.get("found")
-            else [f"PubChem не подтвердил CAS: {lookup.get('error') or 'not_found'}"]
-        ),
+        substance_type=substance_type,
+        ambiguities=ambiguities,
     )
 
 
@@ -896,7 +999,11 @@ def _fallback_search_plan(
     data: SupplierSearchRequest, identity: SubstanceIdentity
 ) -> list[SearchPlanItem]:
     """Build mandatory Echemi-first and country-specific coverage."""
-    preferred_name = identity.canonical_name or data.name
+    # PubChem описывает молекулу/состав, а заказчик — требуемый товар и грейд.
+    # Для широких CAS это разные уровни: 7631-86-9 вернулся как dioxosilane,
+    # но искать нужно именно colloidal/fumed silica. Экспертное имя из
+    # каталога имеет приоритет, иначе сохраняем исходный запрос закупщика.
+    preferred_name = data.catalog_preferred_name or data.name
     queries = build_search_queries(
         cas=data.cas,
         name=preferred_name,
@@ -904,7 +1011,13 @@ def _fallback_search_plan(
         ai_query=None,
         # Без номера якорем становятся подтверждённые названия, поэтому
         # известные синонимы едут в план запросов, а не только в оценку.
-        synonyms=list(data.known_synonyms or []),
+        synonyms=[
+            *list(data.known_synonyms or []),
+            *list(identity.search_names or []),
+        ],
+        identification_method=data.identification_method,
+        analog_reference=data.analog_reference,
+        specification=data.specification,
     )
     items: list[SearchPlanItem] = []
     for index, query in enumerate(queries):
@@ -953,10 +1066,24 @@ def _merge_search_plans(
     # Запрос обязан содержать якорь предмета поиска, иначе модель уводит
     # план в сторону. С номером якорь — номер, без номера — название:
     # `None in str` не только упало бы, но и сняло бы проверку вовсе.
-    anchor = data.cas or data.name
+    if data.identification_method == "analog" and not data.cas:
+        anchors = [
+            data.analog_reference,
+            data.name,
+            analog_product_description(data.name, data.analog_reference),
+            specification_search_terms(data.specification),
+        ]
+    elif data.identification_method == "spec" and not data.cas:
+        anchors = [
+            data.name,
+            specification_search_terms(data.specification),
+        ]
+    else:
+        anchors = [data.cas or data.name]
+    anchors = [item.casefold() for item in anchors if item and item.strip()]
     for item in ordered_items:
         normalized = item.query.strip()
-        if anchor not in normalized:
+        if not any(anchor in normalized.casefold() for anchor in anchors):
             rejected_count += 1
             continue
         key = normalized.casefold()
@@ -1052,26 +1179,101 @@ def _country_hint(score: int) -> str:
     return "unknown"
 
 
+def _discovery_score(result: dict) -> int:
+    """Приоритет загрузки страницы, не доказательство роли поставщика.
+
+    Поисковая выдача по CAS перемешивает карточки компаний с нормативными PDF,
+    SDS и энциклопедиями. Здесь мы лишь решаем, что открыть раньше; статус
+    производителя по-прежнему выдаётся только после чтения страницы, проверки
+    дословной цитаты и независимого аудита.
+    """
+    parsed = urlparse(str(result.get("url") or ""))
+    path = parsed.path.casefold()
+    text = f'{result.get("title", "")} {result.get("snippet", "")}'.casefold()
+    role_markers = (
+        "manufacturer",
+        "manufactured",
+        "manufacturing",
+        "factory",
+        "producer",
+        "produces",
+        "production capacity",
+        "производитель",
+        "производство",
+        "завод",
+        "生产厂家",
+        "制造商",
+        "厂家",
+        "工厂",
+    )
+    reference_markers = (
+        "safety data sheet",
+        "material safety data sheet",
+        "material composition declaration",
+        "chemical content declaration",
+        "standard 100",
+        "guideline",
+        "regulation",
+        "memorandum",
+        "respirator selection guide",
+    )
+    score = 2 if any(marker in text for marker in role_markers) else 0
+    if any(marker in path for marker in ("/product/", "/products/")):
+        score += 1
+    if path.endswith(".pdf"):
+        score -= 1
+    # SDS и декларации состава часто содержат поля Manufacturer/Supplier.
+    # Это изготовитель электроники или автор документа, а не доказательство
+    # производства искомого сырья, поэтому штраф применяется независимо от
+    # найденного слова роли.
+    if any(marker in text for marker in reference_markers):
+        score -= 4
+    return score
+
+
 def _rank_results(
-    results: list[dict], country: str | None, limit: int
+    results: list[dict],
+    country: str | None,
+    limit: int,
+    *,
+    cas: str | None = None,
 ) -> list[dict]:
     """Оставляет лучшую страницу домена и поднимает признаки нужной страны."""
-    best_by_source: dict[str, tuple[int, int, int, dict]] = {}
+    best_by_source: dict[str, tuple[int, int, int, int, dict]] = {}
+    target_cas = normalize_cas(cas or "")
     for position, result in enumerate(results):
         if is_non_manufacturer_domain(result["url"]):
             # Дистрибьюторы, справочники и маркетплейсы всё равно не пройдут
             # квалификацию: не тратим на них бюджет загрузки страниц.
             continue
+        # Поисковик иногда подмешивает соседний товар: в benchmark диоксида
+        # кремния вторым оказался D-пантенол 81-13-0. Если выдача сама назвала
+        # другой валидный CAS и ни разу не назвала искомый, конфликт уже
+        # детерминирован и страницу незачем загружать. Отсутствие номера не
+        # считается конфликтом и recall не режет.
+        mentioned_cas = find_cas_numbers(
+            f'{result.get("title", "")} {result.get("snippet", "")}'
+        )
+        if target_cas and mentioned_cas and target_cas not in mentioned_cas:
+            continue
         country_score = _country_score(result, country)
+        discovery_score = _discovery_score(result)
         kind = source_kind(result["url"])
         priority = source_priority(kind, country)
         key = _result_key(result["url"])
         previous = best_by_source.get(key)
-        if previous is None or (priority, country_score) > previous[:2]:
-            best_by_source[key] = (priority, country_score, position, result)
+        rank = (priority, discovery_score, country_score)
+        if previous is None or rank > previous[:3]:
+            best_by_source[key] = (
+                priority,
+                discovery_score,
+                country_score,
+                position,
+                result,
+            )
     ranked = sorted(
         best_by_source.values(),
-        key=lambda item: (-item[0], -item[1], item[2]),
+        key=lambda item: (-item[0], -item[1], -item[2], item[3]),
     )
     return [
         {
@@ -1079,7 +1281,7 @@ def _rank_results(
             "country_hint": _country_hint(country_score),
             "source_kind": source_kind(result["url"]),
         }
-        for _, country_score, _, result in ranked[:limit]
+        for _, _, country_score, _, result in ranked[:limit]
     ]
 
 
@@ -1148,6 +1350,11 @@ def enqueue_supplier_search(
             update={
                 "cas": rfq.cas,
                 "name": rfq.name,
+                "identification_method": rfq.identification_method,
+                "analog_reference": rfq.analog_reference,
+                "analog_variations": list(rfq.analog_variations or []),
+                "specification": rfq.specification,
+                "application": rfq.application,
                 "catalog_preferred_name": (
                     substance.preferred_name if substance else None
                 ),
@@ -1262,19 +1469,42 @@ def execute_supplier_search(
     db.commit()
     budget = SearchBudget.from_settings()
 
-    normalized_cas = normalize_cas(data.cas)
+    normalized_cas = normalize_cas(data.cas) if data.cas else None
     lookup_stage, lookup_clock = start_agent_run(
         db,
         search_run=search_run,
         sequence=1,
         agent_slug="substance_lookup",
-        agent_name="Проверка CAS в PubChem",
+        agent_name=(
+            "Проверка CAS в PubChem"
+            if normalized_cas
+            else "Проверка способа идентификации"
+        ),
         execution_type="tool",
         input_payload={"cas": normalized_cas},
     )
-    log_agent_event(lookup_stage, f"Запрашиваю PubChem по CAS {normalized_cas}")
-    db.commit()
-    lookup = PubChemConnector().verify_cas(normalized_cas).as_dict()
+    if normalized_cas:
+        log_agent_event(lookup_stage, f"Запрашиваю PubChem по CAS {normalized_cas}")
+        db.commit()
+        lookup = PubChemConnector().verify_cas(normalized_cas).as_dict()
+    else:
+        lookup = {
+            "cas": None,
+            "found": False,
+            "outcome": "not_applicable",
+            "cid": None,
+            "iupac_name": None,
+            "molecular_formula": None,
+            "molecular_weight": None,
+            "synonyms": [],
+            "source": "not_applicable",
+            "error": None,
+        }
+        log_agent_event(
+            lookup_stage,
+            "CAS не указан; использую название, эталон аналога и спецификацию",
+        )
+        db.commit()
     _raise_if_cancelled(db, search_run)
     if lookup.get("found"):
         log_agent_event(
@@ -1282,7 +1512,7 @@ def execute_supplier_search(
             "PubChem подтвердил вещество: "
             f"{lookup.get('iupac_name') or normalized_cas}",
         )
-    else:
+    elif normalized_cas:
         log_agent_event(
             lookup_stage,
             "PubChem не подтвердил CAS: "
@@ -1291,7 +1521,7 @@ def execute_supplier_search(
         )
     finish_agent_run(lookup_stage, lookup_clock, output_payload=lookup)
     db.commit()
-    if not is_valid_cas(normalized_cas):
+    if normalized_cas and not is_valid_cas(normalized_cas):
         error = "CAS не прошёл проверку формата и контрольной суммы"
         finish_search_run(search_run, error=error)
         db.commit()
@@ -1322,6 +1552,11 @@ def execute_supplier_search(
             "accepted_synonyms": data.known_synonyms,
             "excluded_names": data.excluded_names,
             "specialist_comment": data.catalog_notes,
+            "identification_method": data.identification_method,
+            "analog_reference": data.analog_reference,
+            "analog_variations": data.analog_variations,
+            "specification": data.specification,
+            "application": data.application,
         },
     }
     if identity_prompt and lookup.get("found"):
@@ -1473,7 +1708,7 @@ def execute_supplier_search(
     ai_used = False
     planner_error: str | None = None
     if prompt:
-        base_system_prompt = _search_planner_prompt(prompt)
+        base_system_prompt = _search_planner_prompt(prompt, data)
         planner_input = {
             "identity": identity.model_dump(),
             "cas": normalized_cas,
@@ -1690,6 +1925,19 @@ def execute_supplier_search(
             )
         except SearchRunCancelled:
             raise
+        except SearchSourceBlocked as exc:
+            error = str(exc)
+            search_errors.append(error)
+            search_stop_reason = "source_blocked"
+            finish_search_attempt(attempt, attempt_clock, error=error)
+            log_agent_event(
+                search_stage,
+                "Источник выдачи ограничил доступ; следующие запросы тем же "
+                f"провайдером не выполняю: {error[:160]}",
+                kind="error",
+            )
+            db.commit()
+            break
         except Exception as exc:
             error = str(exc)
             search_errors.append(error)
@@ -1702,7 +1950,12 @@ def execute_supplier_search(
             db.commit()
             continue
         db.commit()
-        current = _rank_results(raw_results, data.country, reserve_limit)
+        current = _rank_results(
+            raw_results,
+            data.country,
+            reserve_limit,
+            cas=data.cas,
+        )
         if _search_coverage_is_sufficient(
             executed_items=executed_items,
             planned_items=planned_queries,
@@ -1780,7 +2033,12 @@ def execute_supplier_search(
                 "цен переключите режим на поиск всех продавцов",
                 kind="warning",
             )
-    ranked_pool = _rank_results(raw_results, data.country, reserve_limit)
+    ranked_pool = _rank_results(
+        raw_results,
+        data.country,
+        reserve_limit,
+        cas=data.cas,
+    )
     results = ranked_pool[: data.limit]
     reserve_results = ranked_pool[data.limit :]
     log_agent_event(
@@ -1893,7 +2151,11 @@ def execute_supplier_qualification(
     )
     # Keep this assignment close to the call: the same effective prompt is
     # persisted below and shown verbatim in the search trace.
-    system_prompt = _qualification_system_prompt(prompt)
+    system_prompt = _qualification_system_prompt(
+        prompt,
+        has_cas=bool(data.cas),
+        identification_method=data.identification_method,
+    )
     budget = SearchBudget.from_settings()
     search_run.status = "fetching_sources"
     db.commit()
@@ -2044,6 +2306,11 @@ def execute_supplier_qualification(
         "chemical": {
             "name": data.name,
             "cas": data.cas,
+            "identification_method": data.identification_method,
+            "analog_reference": data.analog_reference,
+            "analog_variations": data.analog_variations,
+            "specification": data.specification,
+            "application": data.application,
             "country": data.country,
             "user_requirements": data.additional_instructions,
             "specialist_comment": data.expert_notes,
@@ -2456,7 +2723,9 @@ def execute_supplier_qualification(
 
     if verification_candidates:
         verification_system_prompt = _verification_system_prompt(
-            verification_prompt
+            verification_prompt,
+            has_cas=bool(data.cas),
+            identification_method=data.identification_method,
         )
         search_run.status = "verifying"
         db.commit()

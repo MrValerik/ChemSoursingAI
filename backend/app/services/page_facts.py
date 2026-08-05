@@ -251,6 +251,29 @@ _ROLE_WORD_RE = re.compile(
 )
 _MIN_STUFFED_ROLES = 3
 
+# Формулировки, которые прямо отделяют продавца от производства. Они могут
+# стоять рядом с точным CAS и выглядеть убедительно для модели, но говорят о
+# партнёрском/контрактном заводе, а не о собственном изготовлении кандидата.
+_THIRD_PARTY_PRODUCTION_MARKERS = (
+    "associated production base",
+    "associated production bases",
+    "partner factory",
+    "partner factories",
+    "partner manufacturer",
+    "manufacturing partner",
+    "contract manufacturer",
+    "cooperating factory",
+    "sourced from manufacturers",
+    "from our manufacturer",
+    "manufacturer / supplier / principals",
+    "партнерский завод",
+    "партнёрский завод",
+    "контрактный производитель",
+    "合作工厂",
+    "合作生产基地",
+    "代工厂",
+)
+
 
 def looks_like_role_keyword_stuffing(quote: str) -> bool:
     """Перечисление ролей вместо утверждения о производстве.
@@ -265,6 +288,12 @@ def looks_like_role_keyword_stuffing(quote: str) -> bool:
     # Единственное и множественное число одной роли считаем за одну.
     roles = {word.rstrip("s") for word in found}
     return len(roles) >= _MIN_STUFFED_ROLES
+
+
+def looks_like_third_party_production_claim(quote: str) -> bool:
+    """Цитата ссылается на чужое производство, а не на завод кандидата."""
+    lowered = (quote or "").casefold()
+    return any(marker in lowered for marker in _THIRD_PARTY_PRODUCTION_MARKERS)
 
 
 def mentions_substance(quote: str, *, cas: str | None, names: list[str]) -> bool:

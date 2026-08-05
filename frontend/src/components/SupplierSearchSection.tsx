@@ -1391,8 +1391,13 @@ export default function SupplierSearchSection({
                 <div className="content-accordion-body search-identity">
                   <strong>{data.identity.canonical_name || activeName}</strong>
                   <div className="note">
-                    CAS: {activeCas} · справочник:{" "}
-                    {data.substance_lookup.found ? "подтверждён" : "не подтверждён"}
+                    {activeCas
+                      ? `CAS: ${activeCas} · справочник: ${
+                          data.substance_lookup.found
+                            ? "подтверждён"
+                            : "не подтверждён"
+                        }`
+                      : "CAS не указан · поиск по названию, эталону и спецификации"}
                     {data.substance_lookup.molecular_formula
                       ? ` · ${data.substance_lookup.molecular_formula}`
                       : ""}
@@ -1407,7 +1412,7 @@ export default function SupplierSearchSection({
                       Требует внимания: {item}
                     </div>
                   ))}
-                  <div className="identity-decision">
+                  {activeCas && <div className="identity-decision">
                     <div>
                       <strong>Решение специалиста</strong>
                       <p className="note">
@@ -1485,7 +1490,7 @@ export default function SupplierSearchSection({
                         </button>
                       </div>
                     )}
-                  </div>
+                  </div>}
                 </div>
               </details>
               <details className="content-accordion">
@@ -1618,11 +1623,13 @@ export default function SupplierSearchSection({
                               ? "tone-danger"
                               : "tone-neutral"
                         }
-                        label={`CAS: ${CAS_LABELS[result.cas_status]}`}
+                        label={`${activeCas ? "CAS" : "Идентичность"}: ${CAS_LABELS[result.cas_status]}`}
                         explanation={evidenceExplanation(
                           result,
                           "chemical_identity",
-                          `Статус «${CAS_LABELS[result.cas_status]}» показывает, найдено ли на открытой первичной странице точное подтверждение CAS ${activeCas} и вещества.`,
+                          activeCas
+                            ? `Статус «${CAS_LABELS[result.cas_status]}» показывает, найдено ли на открытой первичной странице точное подтверждение CAS ${activeCas} и вещества.`
+                            : `Статус «${CAS_LABELS[result.cas_status]}» показывает, подтверждает ли первичная страница название, состав или требуемый грейд продукта без CAS. Для аналога дополнительно нужно вручную сравнить свойства.`,
                         )}
                       />
                       <EvidenceBadge

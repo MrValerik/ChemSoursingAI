@@ -26,6 +26,8 @@ from app.services.domain_rate_limit import (
 _THROTTLED_STATUSES = {429, 503}
 # Пауза, когда сервис ограничил нас, но Retry-After не прислал.
 _THROTTLED_BACKOFF_S = 10.0
+# Сколько раз пытаться при троттлинге, считая первую попытку.
+_THROTTLE_ATTEMPTS = 2
 
 
 @dataclass
@@ -124,13 +126,22 @@ class PubChemConnector:
         исходящему IP, поэтому пауза общая для всех worker-процессов: каждый
         поиск обращается сюда трижды.
         """
-        wait = reserve_slot(url)
-        if wait > 0:
-            sleep(wait)
-        response = client.get(url)
-        if response.status_code in _THROTTLED_STATUSES:
+        for attempt in range(_THROTTLE_ATTEMPTS):
+            wait = reserve_slot(url)
+            if wait > 0:
+                sleep(wait)
+            response = client.get(url)
+            if response.status_code not in _THROTTLED_STATUSES:
+                return response
             delay = retry_after_seconds(response.headers.get("Retry-After"))
             defer_domain(url, delay or _THROTTLED_BACKOFF_S)
+            # Троттлинг — состояние на секунды, а не свойство вещества.
+            # Без повтора пачка заведённых подряд запросов навсегда осталась
+            # бы непроверенной: закупщик заводит их списком, и первые три
+            # выбирают лимит на всех. Замер: три запроса разом дали два
+            # «сервис недоступен», по одному те же вещества подтвердились.
+            if attempt + 1 < _THROTTLE_ATTEMPTS:
+                sleep(min(delay or _THROTTLED_BACKOFF_S, _THROTTLED_BACKOFF_S))
         return response
 
     def _fetch_cid(self, client: httpx.Client, cas: str) -> int | None:

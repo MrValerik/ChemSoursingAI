@@ -94,7 +94,8 @@ export type VerificationOutcome =
   | "confirmed"
   | "not_found"
   | "invalid_checksum"
-  | "unavailable";
+  | "unavailable"
+  | "not_applicable";
 
 export interface RFQRead {
   id: number;

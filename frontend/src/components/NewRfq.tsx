@@ -84,7 +84,7 @@ export default function NewRfq({ onCreated }: Props) {
     cas: method === "cas" ? cas.trim() : null,
     analog_reference: method === "analog" ? analogReference.trim() : null,
     analog_variations: method === "analog" ? variations : [],
-    specification: method === "spec" ? specification.trim() || null : null,
+    specification: method !== "cas" ? specification.trim() || null : null,
     confirmed_synonyms: synonyms,
     excluded_names: excludedNames,
     name: name.trim(),
@@ -288,14 +288,22 @@ export default function NewRfq({ onCreated }: Props) {
         </>
       )}
 
-      {method === "spec" && (
+      {method !== "cas" && (
         <Field
-          label="Требования к веществу"
-          hint="То, по чему поставщик поймёт, что именно нужно: назначение, ключевые показатели, стандарт."
+          label={method === "analog" ? "Критерии эквивалентности" : "Требования к веществу"}
+          hint={
+            method === "analog"
+              ? "Состав, INCI, активное содержание и другие показатели, которые аналог обязан повторять."
+              : "То, по чему поставщик поймёт, что именно нужно: назначение, ключевые показатели, стандарт."
+          }
         >
           <Textarea
             maxLength={4000}
-            placeholder="Например: неионогенный загуститель для шампуня, вязкость 4000–6000 сП, pH 5–7"
+            placeholder={
+              method === "analog"
+                ? "Например: INCI Silicone Quaternium-16 (and) Undeceth-11; активное содержание 22%; pH 6–8"
+                : "Например: неионогенный загуститель для шампуня, вязкость 4000–6000 сП, pH 5–7"
+            }
             value={specification}
             onChange={(event) => setSpecification(event.target.value)}
           />

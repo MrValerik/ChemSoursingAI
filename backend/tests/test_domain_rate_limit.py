@@ -13,7 +13,7 @@ from sqlalchemy.exc import OperationalError
 from app.connectors import pubchem as pubchem_module
 from app.connectors import web_search as web_search_module
 from app.connectors.pubchem import PubChemConnector
-from app.connectors.web_search import search_web
+from app.connectors.web_search import SearchSourceBlocked, search_web
 from app.core.db import SessionLocal, engine
 from app.main import app
 from app.models import DomainRateSlot
@@ -170,7 +170,7 @@ def test_search_web_defers_the_engine_after_a_throttled_response(
 
     monkeypatch.setattr(web_search_module.httpx, "Client", _ThrottledClient)
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(SearchSourceBlocked):
         search_web("aspirin manufacturer")
 
     assert deferred and deferred[0][1] == 42.0, (

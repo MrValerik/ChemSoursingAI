@@ -25,9 +25,11 @@ _INDIA_REGISTRY_DOMAINS = (
 NON_MANUFACTURER_DOMAINS = (
     # Дистрибьюторы реактивов и лабораторных химикатов.
     "sigmaaldrich.com",
+    "sigmaaldrich.cn",
     "merckmillipore.com",
     "merckgroup.com",
     "thermofisher.com",
+    "thermofisher.cn",
     "fishersci.com",
     "fishersci.co.uk",
     "vwr.com",
@@ -42,6 +44,8 @@ NON_MANUFACTURER_DOMAINS = (
     "santacruzbio.com",
     "abcam.com",
     "bocsci.com",
+    "chemscene.com",
+    "pharmaffiliates.com",
     # Продавцы фармакопейных стандартов.
     "usp.org",
     "edqm.eu",
@@ -56,11 +60,38 @@ NON_MANUFACTURER_DOMAINS = (
     "commonchemistry.cas.org",
     "guidechem.com",
     "chemicalbook.com",
+    "chem960.com",
+    "chemball.cn",
+    "bio-equip.cn",
+    "b2bdata.baidu.com",
+    "globalsources.com",
+    "cphi-online.com",
+    "pharmaexcipients.com",
+    "tracxn.com",
+    "barentz-na.com",
+    "specialchem.com",
+    "ulprospector.com",
+    "lookpolymers.com",
+    "univarsolutions.com",
+    "cmstudioplus.com",
+    "daltosur.com",
+    "volza.com",
+    "iajps.com",
     "chemnet.com",
     "lookchem.com",
     "molbase.com",
     "chemblink.com",
     "chemeo.com",
+    # Нормативные и испытательные сайты, где CAS встречается внутри списков,
+    # SDS и руководств, но это не карточка производителя сырья. На лёгком
+    # benchmark заказчика такие PDF вытесняли сайты компаний из первых пяти.
+    "oecd.org",
+    "roadmaptozero.com",
+    "intertek.com",
+    "intertek.com.cn",
+    "hohenstein.cn",
+    "sist.org.cn",
+    "gdpepe.edu.cn",
     # Маркетплейсы общего назначения и агрегаторы объявлений.
     "alibaba.com",
     "aliexpress.com",
@@ -84,6 +115,22 @@ NON_MANUFACTURER_DOMAINS = (
 
 def is_non_manufacturer_domain(url: str) -> bool:
     """Домен заведомо не является производителем искомого вещества."""
+    # У конкретного завода может не быть собственного сайта: его единственная
+    # первичная страница живёт как магазин на площадке. Такой URL нельзя
+    # потерять только из-за домена, иначе правило split_by_intermediary о
+    # storefront никогда не доживёт до ранжирования.
+    from app.services.intermediaries import (
+        DEFAULT_INTERMEDIARIES,
+        is_intermediary,
+        marketplace_page_kind,
+    )
+
+    intermediary_domains = {domain for domain, _, _ in DEFAULT_INTERMEDIARIES}
+    if (
+        is_intermediary(url, intermediary_domains)
+        and marketplace_page_kind(url) == "storefront"
+    ):
+        return False
     hostname = (urlparse(url).hostname or "").lower().removeprefix("www.")
     if not hostname:
         return False
@@ -243,6 +290,96 @@ _MAX_NAME_ALTERNATIVES = 3
 _MAX_QUOTED_WORDS = 3
 
 
+def _query_base_name(name: str) -> str:
+    """Главное товарное имя без пояснения закупщика в скобках.
+
+    Скобки в реальном файле содержат либо полезное уточнение, либо служебное
+    «grade not specified». Оба варианта нельзя делать единственным якорем:
+    сайты называют товар ``Poloxamer 407``, а не повторяют комментарий из
+    карточки закупки.
+    """
+    base, separator, _ = (name or "").partition("(")
+    cleaned = base.strip() if separator else (name or "").strip()
+    return cleaned or (name or "").strip()
+
+
+def analog_product_description(name: str, reference: str | None) -> str:
+    """Функциональное имя продукта без торгового эталона в начале строки."""
+    cleaned_name = _query_base_name(name)
+    cleaned_reference = (reference or "").strip()
+    if cleaned_reference and cleaned_name.casefold().startswith(
+        cleaned_reference.casefold()
+    ):
+        description = cleaned_name[len(cleaned_reference) :].strip(" -–—")
+        if description:
+            return description
+    if cleaned_name.casefold() == cleaned_reference.casefold():
+        # Реальные выгрузки часто кладут всю торговую строку сразу в оба поля:
+        # ``DOWSIL 5-7113 Silicone Quat Microemulsion``. Первый токен здесь —
+        # марка, следующий код с цифрой — каталожный продукт; всё после него
+        # остаётся полезным функциональным поисковым якорем. Короткие хвосты
+        # вроде ``ABIL 45 ME`` не расшифровываем: это было бы домыслом.
+        tokens = cleaned_name.split()
+        for index, token in enumerate(tokens[1:4], start=1):
+            if any(char.isdigit() for char in token):
+                remainder = tokens[index + 1 :]
+                if len(remainder) >= 2 or (
+                    len(remainder) == 1 and len(remainder[0]) > 5
+                ):
+                    return " ".join(remainder)
+                break
+        return ""
+    return cleaned_name
+
+
+def specification_search_terms(specification: str | None) -> str:
+    """Короткий композиционный якорь из начала пользовательской спецификации."""
+    head = (specification or "").split(";", 1)[0].strip()
+    if head.casefold().startswith("inci "):
+        head = head[5:].strip(": ")
+    return " ".join(head.replace("(and)", " ").split())
+
+
+def _has_searchable_qualifier(name: str) -> bool:
+    """Нужно ли сделать отдельный запрос с пояснением в скобках."""
+    _, separator, qualifier = (name or "").partition("(")
+    if not separator:
+        return False
+    lowered = qualifier.casefold()
+    return not any(
+        marker in lowered
+        for marker in (
+            "not specified",
+            "not separated",
+            "не указан",
+            "не определен",
+            "не определён",
+            "не разделен",
+            "не разделён",
+            "не разделены",
+        )
+    )
+
+
+def _explicit_form_variants(name: str) -> list[str]:
+    """Безопасные отдельные ветки для явно перечисленных форм вещества.
+
+    ``free base or sulfate form not separated`` означает неопределённость
+    закупки, а не одну длинную товарную фразу. Основной запрос уже покрывает
+    свободное основание; здесь добавляется только явно названная соль. Никакие
+    не указанные катионы или формы функция не придумывает.
+    """
+    base, separator, qualifier = (name or "").partition("(")
+    if not separator:
+        return []
+    lowered = qualifier.rstrip(") ").casefold()
+    variants: list[str] = []
+    for spelling in ("sulfate", "sulphate"):
+        if f"or {spelling}" in lowered:
+            variants.append(f"{base.strip()} {spelling}")
+    return variants
+
+
 def _is_quotable(name: str) -> bool:
     """Годится ли название в точную фразу."""
     return 0 < len(name.split()) <= _MAX_QUOTED_WORDS
@@ -292,6 +429,9 @@ def build_search_queries(
     country: str | None,
     ai_query: str | None,
     synonyms: list[str] | None = None,
+    identification_method: str = "cas",
+    analog_reference: str | None = None,
+    specification: str | None = None,
 ) -> list[str]:
     """Build an Echemi-first plan followed by regional verification sources.
 
@@ -305,13 +445,62 @@ def build_search_queries(
     profile = market_profile(country)
     localised = profile.country_term or country
     country_term = f" {localised}" if localised else ""
+    if identification_method == "analog" and (analog_reference or name).strip():
+        reference_name = (analog_reference or name).strip()
+        reference = _name_group(reference_name, None)
+        product_terms = analog_product_description(name, reference_name)
+        composition_terms = specification_search_terms(specification)
+        functional_subject = (
+            f'"{product_terms}"' if _is_quotable(product_terms) else product_terms
+        )
+        candidates: list[str | None] = []
+        if is_china(country):
+            candidates.append(
+                f"{reference} (替代品 OR 同等品) (生产厂家 OR 工厂) 中国"
+            )
+        candidates.extend(
+            [
+                f"{reference} (equivalent OR alternative OR substitute) "
+                f"{profile.role_terms}{country_term}",
+                (
+                    f"{functional_subject} {composition_terms} "
+                    f"{profile.role_terms}{country_term}"
+                    if functional_subject and composition_terms
+                    else None
+                ),
+                (
+                    f"{reference} {functional_subject} "
+                    f"{profile.role_terms}{country_term}"
+                    if functional_subject
+                    else None
+                ),
+                (
+                    f"{composition_terms} {profile.role_terms}{country_term}"
+                    if composition_terms
+                    else None
+                ),
+                (
+                    f"{reference} (equivalent OR substitute) "
+                    f"{profile.role_terms} {profile.site_scope}"
+                    if profile.site_scope
+                    else None
+                ),
+                ai_query,
+                f"{reference} INCI composition TDS alternative{country_term}",
+            ]
+        )
+        unique: list[str] = []
+        for query in candidates:
+            normalized = (query or "").strip()
+            if normalized and normalized not in unique:
+                unique.append(normalized)
+        return unique
     # Якорь запроса: с номером — название и номер вместе, без номера —
     # группа равнозначных названий.
-    group = _name_group(name, synonyms)
-    quoted_name = f'"{name}"' if _is_quotable(name) else name
+    base_name = _query_base_name(name)
+    group = _name_group(base_name, synonyms)
+    quoted_name = f'"{base_name}"' if _is_quotable(base_name) else base_name
     subject = f'{quoted_name} "{cas}"' if cas else group
-    # Короткий якорь для запросов, где раньше стоял один номер.
-    identifier = f'"{cas}"' if cas else group
     # Отдельных запросов к торговой площадке больше нет: в режиме поиска
     # изготовителей её карточки всё равно откладываются, а в режиме «все
     # продавцы» она находится обычным запросом. Два места в плане из восьми
@@ -328,17 +517,36 @@ def build_search_queries(
     if is_china(country):
         # Китайский запрос поднял Perstorp и Shin-Nakamura, которых
         # английский не показал ни разу.
-        candidates.append(f"{identifier} (生产厂家 OR 工厂) 中国")
+        candidates.append(f"{subject} (生产厂家 OR 工厂) 中国")
 
     candidates.append(f"{subject} {profile.role_terms}{country_term}")
 
+    for variant in _explicit_form_variants(name):
+        variant_subject = f'"{variant}"' if _is_quotable(variant) else variant
+        candidates.append(
+            f"{variant_subject} {profile.role_terms}{country_term}"
+        )
+
+    if identification_method == "spec":
+        specification_terms = specification_search_terms(specification)
+        if specification_terms:
+            candidates.extend(
+                [
+                    f"{subject} {specification_terms} "
+                    f"{profile.role_terms}{country_term}",
+                    f"{specification_terms} {profile.role_terms}{country_term}",
+                ]
+            )
+
     # Длинное название в кавычки не попало — даём ему отдельный заход
     # обычными словами, иначе оно вообще не участвует в поиске.
-    if not _is_quotable(name):
+    if _has_searchable_qualifier(name):
         candidates.append(f"{name} {profile.role_terms}{country_term}")
+    elif not _is_quotable(base_name):
+        candidates.append(f"{base_name} {profile.role_terms}{country_term}")
 
     if profile.site_scope:
-        candidates.append(f"{identifier} {profile.role_terms} {profile.site_scope}")
+        candidates.append(f"{subject} {profile.role_terms} {profile.site_scope}")
 
     candidates.extend(
         [

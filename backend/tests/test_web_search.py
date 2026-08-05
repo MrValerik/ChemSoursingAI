@@ -121,6 +121,33 @@ def test_search_web_raises_on_a_silently_blocked_response(monkeypatch):
     assert deferred, "заблокировавший источник должен быть отложен для всех процессов"
 
 
+def test_duckduckgo_http_block_is_a_source_failure(monkeypatch):
+    """403 нельзя отдавать как общий HTTP-сбой и повторять весь план с паузами."""
+    monkeypatch.setattr(web_search, "reserve_slot", lambda url, *a, **k: 0.0)
+    deferred: list[str] = []
+    monkeypatch.setattr(
+        web_search, "defer_domain", lambda url, delay: deferred.append(url)
+    )
+
+    class _BlockedClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, params=None):
+            return httpx.Response(403, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(web_search.httpx, "Client", _BlockedClient)
+    with pytest.raises(SearchSourceBlocked, match="HTTP 403"):
+        DuckDuckGoHtmlProvider().search("urea", 8)
+    assert deferred
+
+
 def test_default_provider_is_the_keyless_html_search():
     provider = get_search_provider()
     assert provider.name == "duckduckgo_html"

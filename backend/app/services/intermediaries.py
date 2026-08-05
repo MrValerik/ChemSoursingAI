@@ -31,6 +31,10 @@ DEFAULT_INTERMEDIARIES: list[tuple[str, str, str]] = [
     ("globalsources.com", "Global Sources", "marketplace"),
     ("weiku.com", "Weiku", "marketplace"),
     ("chemicalbook.com", "ChemicalBook", "catalog"),
+    ("chem960.com", "960 Chemical", "catalog"),
+    ("chemball.cn", "Chemball", "catalog"),
+    ("bio-equip.cn", "Bio-Equip", "marketplace"),
+    ("b2bdata.baidu.com", "Baidu B2B Data", "reference"),
     ("guidechem.com", "Guidechem", "catalog"),
     ("lookchem.com", "LookChem", "catalog"),
     ("molbase.com", "Molbase", "catalog"),
@@ -44,6 +48,17 @@ DEFAULT_INTERMEDIARIES: list[tuple[str, str, str]] = [
     ("pharmacompass.com", "PharmaCompass", "catalog"),
     ("chemicalregister.com", "ChemicalRegister", "catalog"),
     ("volza.com", "Volza", "reference"),
+    ("cphi-online.com", "CPHI Online", "marketplace"),
+    ("pharmaexcipients.com", "Pharma Excipients", "reference"),
+    ("tracxn.com", "Tracxn", "reference"),
+    ("barentz-na.com", "Barentz", "distributor"),
+    ("specialchem.com", "SpecialChem", "catalog"),
+    ("ulprospector.com", "UL Prospector", "catalog"),
+    ("lookpolymers.com", "LookPolymers", "reference"),
+    ("univarsolutions.com", "Univar Solutions", "distributor"),
+    ("cmstudioplus.com", "CM Studio Plus", "catalog"),
+    ("daltosur.com", "Daltosur", "distributor"),
+    ("iajps.com", "IAJPS", "reference"),
     ("zauba.com", "Zauba", "reference"),
     ("zoominfo.com", "ZoomInfo", "reference"),
     ("linkedin.com", "LinkedIn", "reference"),
@@ -125,6 +140,21 @@ _STOREFRONT_PATHS = (
     "/shop-",
     "/seller/",
     "/manufacturer/",
+    "/factory/",
+)
+
+# Только эти площадки действительно выделяют страницу одной компании.
+# Универсальное правило по пути ``/company/`` ошибочно сохраняло LinkedIn и
+# справочные сайты как будто это магазин производителя.
+_STOREFRONT_LABELS = frozenset(
+    {
+        "made-in-china",
+        "alibaba",
+        "lookchem",
+        "guidechem",
+        "chemball",
+        "echemi",
+    }
 )
 
 
@@ -145,6 +175,8 @@ def marketplace_page_kind(url: str) -> str:
     host = normalize_domain(url)
     parts = [part for part in host.split(".") if part]
     label = domain_label(host)
+    if label not in _STOREFRONT_LABELS:
+        return "listing"
     if label in parts:
         prefix = parts[: parts.index(label)]
         if any(part not in _GENERIC_SUBDOMAINS for part in prefix):

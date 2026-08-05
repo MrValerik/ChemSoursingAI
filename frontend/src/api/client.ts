@@ -588,7 +588,7 @@ export const api = {
 
   qualifySuppliers: (payload: {
     search_run_id?: number;
-    cas: string;
+    cas: string | null;
     name: string;
     country?: string | null;
     additional_instructions?: string | null;

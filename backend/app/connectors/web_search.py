@@ -130,6 +130,10 @@ class DuckDuckGoHtmlProvider:
                 # всем процессам, иначе соседний worker продолжит стучаться.
                 delay = retry_after_seconds(response.headers.get("Retry-After"))
                 defer_domain(_SEARCH_URL, delay or _THROTTLED_BACKOFF_S)
+                raise SearchSourceBlocked(
+                    "DuckDuckGo ограничил доступ к выдаче "
+                    f"(HTTP {response.status_code})"
+                )
             response.raise_for_status()
         results = parse_search_results(response.text, limit)
         if looks_blocked(response.text, len(results)):

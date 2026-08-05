@@ -2,7 +2,7 @@
 // Что показать, решает адрес: /requests, /requests/new, /requests/:rfqId[/:tab].
 
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, userErrorMessage } from "../api/client";
 import type { RFQRead } from "../api/types";
 import NewRfq from "./NewRfq";
@@ -11,11 +11,12 @@ import RfqDetail from "./RfqDetail";
 
 export default function RfqWorkspace() {
   const { rfqId } = useParams();
+  const { pathname } = useLocation();
   const navigate = useNavigate();
   const [selected, setSelected] = useState<RFQRead | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isNew = rfqId === "new";
+  const isNew = pathname === "/requests/new";
   const openedId = !isNew && rfqId ? Number(rfqId) : null;
 
   useEffect(() => {

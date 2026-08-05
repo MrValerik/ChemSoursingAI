@@ -820,6 +820,46 @@ def test_search_job_is_bound_to_rfq_and_uses_its_substance(client):
     assert [item["id"] for item in listed] == [run_id]
 
 
+def test_analog_search_job_inherits_reference_and_specification(client):
+    buyer = _auth(client, "ivanov")
+    rfq = client.post(
+        "/rfq?verify=false",
+        headers=buyer,
+        json={
+            "identification_method": "analog",
+            "cas": None,
+            "name": "Silicone Elastomer Blend",
+            "analog_reference": "DOWSIL 9045",
+            "analog_variations": ["manufacturer"],
+            "specification": "cyclopentasiloxane dimethicone crosspolymer",
+            "incoterms": ["CIP"],
+        },
+    ).json()
+
+    response = client.post(
+        f"/supplier-search/jobs?rfq_id={rfq['id']}",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Wrong request body",
+            "country": "Китай",
+        },
+    )
+
+    assert response.status_code == 202
+    trace = client.get(
+        f"/search-runs/{response.json()['search_run_id']}", headers=buyer
+    ).json()
+    payload = trace["input_payload"]
+    assert payload["cas"] is None
+    assert payload["identification_method"] == "analog"
+    assert payload["analog_reference"] == "DOWSIL 9045"
+    assert payload["analog_variations"] == ["manufacturer"]
+    assert payload["specification"] == (
+        "cyclopentasiloxane dimethicone crosspolymer"
+    )
+
+
 def test_buyer_cannot_enqueue_search_for_another_users_rfq(client):
     head = _auth(client, "petrova")
     rfq = client.post(

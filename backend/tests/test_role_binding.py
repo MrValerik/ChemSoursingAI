@@ -21,6 +21,7 @@ from app.services.intermediaries import (
 )
 from app.services.page_facts import (
     looks_like_role_keyword_stuffing,
+    looks_like_third_party_production_claim,
     mentions_substance,
 )
 
@@ -44,6 +45,14 @@ def test_role_listing_is_not_a_claim():
 def test_a_real_production_claim_survives():
     assert looks_like_role_keyword_stuffing(REAL_QUOTE) is False
     assert looks_like_role_keyword_stuffing("We are a manufacturer of ESBO") is False
+
+
+def test_a_partner_factory_is_not_the_candidates_factory():
+    quote = (
+        "Adipic Acid CAS 124-04-9: On-Spot QC in our APPROVED associated "
+        "production bases"
+    )
+    assert looks_like_third_party_production_claim(quote) is True
 
 
 def test_singular_and_plural_count_once():
@@ -117,6 +126,14 @@ def test_a_genuine_production_claim_is_accepted():
     assert _reason(REAL_QUOTE) is None
 
 
+def test_a_third_party_production_claim_is_rejected():
+    quote = (
+        "Epoxidized Soybean Oil ESBO CAS 8013-07-8 is inspected in our "
+        "associated production bases"
+    )
+    assert _reason(quote) is not None
+
+
 def test_other_claim_types_are_untouched():
     """Правило про роль не должно мешать доказывать страну или документы."""
     assert _reason("Guangzhou, China", claim_type="country") is None
@@ -138,6 +155,14 @@ def test_a_listing_page_stays_a_listing():
     ) == "listing"
     assert marketplace_page_kind("https://www.lookchem.cn/cas_8013-07-8.html") == "listing"
     assert marketplace_page_kind("https://china.guidechem.com/cas/2014.html") == "listing"
+    assert marketplace_page_kind("https://www.chemball.cn/search/chemical_list") == "listing"
+    assert marketplace_page_kind("https://www.linkedin.com/company/x") == "listing"
+
+
+def test_a_chemball_factory_page_is_a_storefront():
+    assert marketplace_page_kind(
+        "https://www.chemball.cn/factory/qrrybz/product/124-04-9.html"
+    ) == "storefront"
 
 
 def test_language_and_mirror_prefixes_are_not_company_names():
