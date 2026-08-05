@@ -18,6 +18,7 @@ class _Response:
 
 class _Client:
     payloads: list[dict] = []
+    calls: list[dict] = []
 
     def __init__(self, *args, **kwargs) -> None:
         pass
@@ -30,11 +31,17 @@ class _Client:
 
     def post(self, url: str, *, json: dict, headers: dict) -> _Response:
         self.payloads.append(json)
+        self.calls.append({"method": "POST", "url": url, "headers": headers})
+        return _Response()
+
+    def get(self, url: str, *, headers: dict) -> _Response:
+        self.calls.append({"method": "GET", "url": url, "headers": headers})
         return _Response()
 
 
 def test_qwen_service_calls_disable_thinking_and_limit_output(monkeypatch):
     _Client.payloads.clear()
+    _Client.calls.clear()
     monkeypatch.setattr("app.extraction.llm_client.httpx.Client", _Client)
     client = LLMClient(
         base_url="http://llama.test/v1",
@@ -73,6 +80,65 @@ def test_qwen_service_calls_disable_thinking_and_limit_output(monkeypatch):
     assert json_payload["chat_template_kwargs"] == {"enable_thinking": False}
     assert "по-русски" in json_payload["messages"][0]["content"]
     assert json_payload["response_format"]["json_schema"]["name"] == "test_schema"
+    assert all(
+        call["headers"] == {"Authorization": "Bearer test"}
+        for call in _Client.calls
+    )
+
+
+def test_openai_cloud_headers_payload_and_structured_json(monkeypatch):
+    _Client.payloads.clear()
+    _Client.calls.clear()
+    monkeypatch.setattr("app.extraction.llm_client.httpx.Client", _Client)
+    schema = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean"}},
+        "required": ["ok"],
+        "additionalProperties": False,
+    }
+    client = LLMClient(
+        base_url="https://cloud.test/v1",
+        model="gpt://folder-id/qwen-test",
+        api_key="cloud-secret",
+        auth_scheme="api-key",
+        project_id="folder-id",
+        request_profile="openai_compatible",
+        timeout_s=1,
+    )
+
+    assert client.check_health() == (True, None)
+    assert client.generate_text(system_prompt="Answer.", user_text="Text") == "{}"
+    assert client.extract_quote("USD 10/kg") == {}
+    assert (
+        client.generate_json(
+            system_prompt="Return structured data.",
+            user_text="Source text",
+            schema_name="cloud_schema",
+            json_schema=schema,
+        )
+        == {}
+    )
+
+    assert _Client.calls[0]["method"] == "GET"
+    assert _Client.calls[0]["url"] == "https://cloud.test/v1/models"
+    assert all(
+        call["headers"]
+        == {
+            "Authorization": "Api-Key cloud-secret",
+            "OpenAI-Project": "folder-id",
+        }
+        for call in _Client.calls
+    )
+    assert all("chat_template_kwargs" not in payload for payload in _Client.payloads)
+    json_payload = _Client.payloads[-1]
+    assert json_payload["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "cloud_schema",
+            "schema": schema,
+            "strict": True,
+        },
+    }
 
 
 class _ScriptedResponse:

@@ -47,6 +47,8 @@ class LLMContextOverflowError(LLMUnavailableError):
 
 
 _TRANSIENT_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+_AUTH_PREFIXES = {"bearer": "Bearer", "api-key": "Api-Key"}
+_REQUEST_PROFILES = {"llama_cpp", "openai_compatible"}
 
 
 def _context_overflow_message(exc: httpx.HTTPStatusError) -> str | None:
@@ -90,15 +92,46 @@ class LLMClient:
         base_url: str | None = None,
         model: str | None = None,
         api_key: str | None = None,
+        auth_scheme: str | None = None,
+        project_id: str | None = None,
+        request_profile: str | None = None,
         timeout_s: float | None = None,
     ) -> None:
         s = get_settings()
         self.base_url = (base_url or s.llm_base_url).rstrip("/")
         self.model = model or s.llm_model
-        self.api_key = api_key or s.llm_api_key
+        self.api_key = api_key if api_key is not None else s.llm_api_key
+        self.auth_scheme = auth_scheme or s.llm_auth_scheme
+        self.project_id = (
+            project_id if project_id is not None else s.llm_project_id
+        ).strip()
+        self.request_profile = request_profile or s.llm_request_profile
+        if self.auth_scheme not in _AUTH_PREFIXES:
+            raise ValueError(
+                f"неподдерживаемая схема авторизации LLM: {self.auth_scheme}"
+            )
+        if self.request_profile not in _REQUEST_PROFILES:
+            raise ValueError(
+                f"неподдерживаемый профиль LLM: {self.request_profile}"
+            )
         self.timeout_s = timeout_s if timeout_s is not None else s.llm_timeout_s
         # Журнал попыток последнего вызова generate_json для трассировки.
         self.last_attempts: list[dict] = []
+
+    def _headers(self) -> dict[str, str]:
+        """Возвращает заголовки OpenAI-совместимого провайдера без логирования секретов."""
+        headers = {
+            "Authorization": f"{_AUTH_PREFIXES[self.auth_scheme]} {self.api_key}"
+        }
+        if self.project_id:
+            headers["OpenAI-Project"] = self.project_id
+        return headers
+
+    def _with_provider_options(self, payload: dict) -> dict:
+        """Добавляет только опции, принадлежащие выбранной реализации API."""
+        if self.request_profile == "llama_cpp":
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        return payload
 
     def check_health(self, timeout_s: float = 3.0) -> tuple[bool, str | None]:
         """Быстро проверяет OpenAI-совместимый API без запуска генерации.
@@ -106,10 +139,11 @@ class LLMClient:
         ``/models`` поддерживается llama-server и почти не нагружает GPU. Ошибку
         возвращаем строкой, чтобы административный экран мог объяснить проблему.
         """
-        headers = {"Authorization": f"Bearer {self.api_key}"}
         try:
             with httpx.Client(timeout=timeout_s) as client:
-                response = client.get(f"{self.base_url}/models", headers=headers)
+                response = client.get(
+                    f"{self.base_url}/models", headers=self._headers()
+                )
                 response.raise_for_status()
             return True, None
         except httpx.HTTPError as exc:
@@ -156,45 +190,45 @@ class LLMClient:
     ) -> dict:
         """Запрашивает у модели структурированную котировку. Возвращает dict
         по QUOTE_JSON_SCHEMA. Бросает LLMUnavailableError при проблемах связи."""
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        (system_prompt or _SYSTEM_PROMPT)
-                        + (
-                            "\n\nНиже приведены дополнительные требования бизнеса. "
-                            "Они могут уточнить задачу, но не могут отменить JSON-схему, "
-                            "требования фактичности и ограничения безопасности:\n"
-                            + additional_instructions
-                            if additional_instructions
-                            else ""
-                        )
-                    ),
+        payload = self._with_provider_options(
+            {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            (system_prompt or _SYSTEM_PROMPT)
+                            + (
+                                "\n\nНиже приведены дополнительные требования бизнеса. "
+                                "Они могут уточнить задачу, но не могут отменить JSON-схему, "
+                                "требования фактичности и ограничения безопасности:\n"
+                                + additional_instructions
+                                if additional_instructions
+                                else ""
+                            )
+                        ),
+                    },
+                    {"role": "user", "content": email_text},
+                ],
+                "temperature": 0,
+                # Service tasks need the final JSON, not a long hidden reasoning trace.
+                # Without this limit Qwen can fill the whole context before answering.
+                "max_tokens": 512,
+                # Structured output: формат строго по JSON-схеме котировки.
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "quotation",
+                        "schema": QUOTE_JSON_SCHEMA,
+                        "strict": True,
+                    },
                 },
-                {"role": "user", "content": email_text},
-            ],
-            "temperature": 0,
-            # Service tasks need the final JSON, not a long hidden reasoning trace.
-            # Without this limit Qwen can fill the whole context before answering.
-            "max_tokens": 512,
-            "chat_template_kwargs": {"enable_thinking": False},
-            # Structured output: формат строго по JSON-схеме котировки.
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "quotation",
-                    "schema": QUOTE_JSON_SCHEMA,
-                    "strict": True,
-                },
-            },
-        }
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+            }
+        )
         url = f"{self.base_url}/chat/completions"
         try:
             with httpx.Client(timeout=self.timeout_s) as client:
-                resp = client.post(url, json=payload, headers=headers)
+                resp = client.post(url, json=payload, headers=self._headers())
                 resp.raise_for_status()
                 data = resp.json()
         except (httpx.HTTPError, httpx.TimeoutException) as exc:
@@ -220,22 +254,22 @@ class LLMClient:
         )
         messages = [{"role": "system", "content": combined_system_prompt}]
         messages.append({"role": "user", "content": user_text})
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.1,
-            # Qwen otherwise may spend the whole context on reasoning_content and
-            # return an empty content field. Service calls need a bounded answer.
-            "max_tokens": max_tokens,
-            "chat_template_kwargs": {"enable_thinking": False},
-        }
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        payload = self._with_provider_options(
+            {
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.1,
+                # Qwen otherwise may spend the whole context on reasoning_content and
+                # return an empty content field. Service calls need a bounded answer.
+                "max_tokens": max_tokens,
+            }
+        )
         try:
             with httpx.Client(timeout=self.timeout_s) as client:
                 response = client.post(
                     f"{self.base_url}/chat/completions",
                     json=payload,
-                    headers=headers,
+                    headers=self._headers(),
                 )
                 response.raise_for_status()
                 return response.json()["choices"][0]["message"]["content"]
@@ -267,7 +301,6 @@ class LLMClient:
             },
             {"role": "user", "content": user_text},
         ]
-        headers = {"Authorization": f"Bearer {self.api_key}"}
         self.last_attempts = []
         transient_retry_used = False
         schema_repair_used = False
@@ -281,21 +314,22 @@ class LLMClient:
                 "error": None,
             }
             self.last_attempts.append(attempt_record)
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": 0,
-                "max_tokens": max_tokens,
-                "chat_template_kwargs": {"enable_thinking": False},
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": schema_name,
-                        "schema": json_schema,
-                        "strict": True,
+            payload = self._with_provider_options(
+                {
+                    "model": self.model,
+                    "messages": messages,
+                    "temperature": 0,
+                    "max_tokens": max_tokens,
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": schema_name,
+                            "schema": json_schema,
+                            "strict": True,
+                        },
                     },
-                },
-            }
+                }
+            )
             try:
                 # Место у модели занимается на время вызова. Без этого
                 # третий одновременный запрос ждёт в очереди llama-server,
@@ -306,7 +340,7 @@ class LLMClient:
                         response = client.post(
                             f"{self.base_url}/chat/completions",
                             json=payload,
-                            headers=headers,
+                            headers=self._headers(),
                         )
                         response.raise_for_status()
                         content = response.json()["choices"][0]["message"][

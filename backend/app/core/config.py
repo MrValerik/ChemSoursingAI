@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     llm_base_url: str = Field(default="http://127.0.0.1:8080/v1")
     llm_model: str = Field(default="Qwen_Qwen3.5-27B-Q4_K_M")
     llm_api_key: str = Field(default="not-needed-for-local")
+    # Yandex AI Studio использует Api-Key и OpenAI-Project; локальный
+    # llama-server сохраняет Bearer и не требует project header.
+    llm_auth_scheme: Literal["bearer", "api-key"] = Field(default="bearer")
+    llm_project_id: str = Field(default="")
+    # Только профиль llama_cpp отправляет его нестандартные параметры запроса.
+    llm_request_profile: Literal["llama_cpp", "openai_compatible"] = Field(
+        default="llama_cpp"
+    )
     llm_timeout_s: int = Field(default=600)
     # Размер контекста llama-server (--ctx-size). Backend сам ужимает
     # передаваемые страницы под этот бюджет, поэтому запрос не может

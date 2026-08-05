@@ -78,6 +78,32 @@ HTTPS также 443). SSH-порт 22 ограничьте вашим IP.
 Без LLM конвейер извлечения работает на правилах (fallback) — система остаётся
 работоспособной.
 
+### Подключение облачной LLM через OpenAI-совместимый API
+
+Backend не зависит от конкретного облачного провайдера. Для Yandex AI Studio
+задайте в локальном `.env` (не коммитьте настоящий ключ):
+
+```env
+LLM_BASE_URL=https://ai.api.cloud.yandex.net/v1
+LLM_MODEL=gpt://<folder_ID>/qwen3.6-35b-a3b
+LLM_API_KEY=<API_key>
+LLM_AUTH_SCHEME=api-key
+LLM_PROJECT_ID=<folder_ID>
+LLM_REQUEST_PROFILE=openai_compatible
+```
+
+`LLM_AUTH_SCHEME=api-key` формирует `Authorization: Api-Key ...`, а
+`LLM_PROJECT_ID` — заголовок `OpenAI-Project`. Профиль `openai_compatible` не
+отправляет облаку специфичный для llama.cpp параметр `chat_template_kwargs`.
+Локальная конфигурация использует значения `bearer`, пустой project и профиль
+`llama_cpp`.
+
+Существующий structured output остаётся совместимым: Chat Completions получает
+`response_format.type=json_schema`, переданную JSON Schema и `strict=true`.
+Health-check использует стандартный `GET /v1/models` с теми же заголовками
+авторизации. Для Yandex API-ключ должен иметь права на выполнение моделей и их
+просмотр; ключ, созданный в AI Studio, выдаётся с нужными областями доступа.
+
 ## 3. Обновление локального репозитория
 
 Из чистой ветки `main`:
@@ -366,7 +392,8 @@ worker автоматически возвращает её в очередь (�
 ## Переменные окружения
 
 См. `.env.example`. Ключевые: `DATABASE_URL`, `REDIS_URL`, `LLM_BASE_URL`,
-`LLM_MODEL`, `PUBCHEM_BASE_URL`. Для настроек каналов, сохранённых через
+`LLM_MODEL`, `LLM_AUTH_SCHEME`, `LLM_PROJECT_ID`, `LLM_REQUEST_PROFILE`,
+`PUBCHEM_BASE_URL`. Для настроек каналов, сохранённых через
 интерфейс, задайте отдельный `INTEGRATION_ENCRYPTION_KEY`. Если он пуст,
 используется `AUTH_SECRET_KEY`; менять применённый ключ без переноса данных
 нельзя, иначе сохранённые пароли и токены перестанут расшифровываться.
