@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.connectors.email import EmailConnector
 from app.connectors.whatsapp import WhatsAppConnector
+from app.core.config import get_settings
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.models import CommunicationTestMessage, CommunicationTestRun, User
 from app.schemas.integration import (
@@ -67,6 +68,31 @@ _TRAILING_TEST_NOTE_RE = re.compile(
 
 class CommunicationTestError(RuntimeError):
     """Безопасная ошибка теста, пригодная для показа администратору."""
+
+
+def _communication_test_llm_client() -> LLMClient:
+    """Возвращает выделенную облачную модель песочницы или локальный fallback."""
+    settings = get_settings()
+    profile = {
+        "base_url": settings.communication_test_llm_base_url.strip(),
+        "model": settings.communication_test_llm_model.strip(),
+        "api_key": settings.communication_test_llm_api_key.strip(),
+    }
+    if not any(profile.values()):
+        return LLMClient()
+    if not all(profile.values()):
+        raise LLMUnavailableError(
+            "профиль нейросети тестового общения заполнен не полностью"
+        )
+    return LLMClient(
+        base_url=profile["base_url"],
+        model=profile["model"],
+        api_key=profile["api_key"],
+        auth_scheme=settings.communication_test_llm_auth_scheme,
+        project_id=settings.communication_test_llm_project_id,
+        thinking_control=settings.communication_test_llm_thinking_control,
+        timeout_s=settings.communication_test_llm_timeout_s,
+    )
 
 
 def _plain_text_message(value: str) -> str:
@@ -202,10 +228,10 @@ def _generate_reply(
     stage: str,
     llm: LLMClient | None,
 ) -> str:
-    client = llm or LLMClient()
-    run.model = getattr(client, "model", None)
-    db.commit()
     try:
+        client = llm or _communication_test_llm_client()
+        run.model = getattr(client, "model", None)
+        db.commit()
         reply = _plain_text_message(
             client.generate_text(
                 system_prompt=(
@@ -220,13 +246,14 @@ def _generate_reply(
     except LLMUnavailableError as exc:
         run.status = "llm_error"
         run.error = (
-            "Локальная нейросеть недоступна или вернула некорректный ответ"
+            "Нейросеть тестового общения недоступна "
+            "или вернула некорректный ответ"
         )
         db.commit()
         raise CommunicationTestError(run.error) from exc
     if not reply:
         run.status = "llm_error"
-        run.error = "Локальная нейросеть вернула пустой ответ"
+        run.error = "Нейросеть тестового общения вернула пустой ответ"
         db.commit()
         raise CommunicationTestError(run.error)
     return reply

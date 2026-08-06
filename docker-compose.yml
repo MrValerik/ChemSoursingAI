@@ -51,6 +51,15 @@ services:
       # третий одновременный вызов ждёт в очереди сервера, превышает
       # таймаут и возвращается как «модель недоступна».
       LLM_PARALLEL_SLOTS: ${LLM_PARALLEL_SLOTS:-2}
+      # Песочница общения использует отдельную облачную модель. Пустой профиль
+      # оставляет локальную разработку на основном LLM без облачного ключа.
+      COMMUNICATION_TEST_LLM_BASE_URL: ${COMMUNICATION_TEST_LLM_BASE_URL:-}
+      COMMUNICATION_TEST_LLM_MODEL: ${COMMUNICATION_TEST_LLM_MODEL:-}
+      COMMUNICATION_TEST_LLM_API_KEY: ${COMMUNICATION_TEST_LLM_API_KEY:-}
+      COMMUNICATION_TEST_LLM_AUTH_SCHEME: ${COMMUNICATION_TEST_LLM_AUTH_SCHEME:-api-key}
+      COMMUNICATION_TEST_LLM_PROJECT_ID: ${COMMUNICATION_TEST_LLM_PROJECT_ID:-}
+      COMMUNICATION_TEST_LLM_THINKING_CONTROL: ${COMMUNICATION_TEST_LLM_THINKING_CONTROL:-chat_template_kwargs}
+      COMMUNICATION_TEST_LLM_TIMEOUT_S: ${COMMUNICATION_TEST_LLM_TIMEOUT_S:-600}
       # Источник поисковой выдачи и бюджеты этапа. Без явной передачи сюда
       # настройки из .env до контейнера не доходят и молча берутся из кода.
       SEARCH_PROVIDER: ${SEARCH_PROVIDER:-duckduckgo_html}

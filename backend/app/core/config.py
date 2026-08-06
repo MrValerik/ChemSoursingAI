@@ -71,6 +71,20 @@ class Settings(BaseSettings):
     # превысить контекст модели даже при неверной настройке сервиса.
     llm_context_tokens: int = Field(default=12288)
 
+    # --- Выделенная LLM для администраторского тестирования общения ---
+    # Пустой профиль сохраняет удобный локальный fallback на основной LLM.
+    # В production задаётся отдельный облачный OpenAI-совместимый профиль,
+    # чтобы смена модели поиска не возвращала песочницу на старую модель.
+    communication_test_llm_base_url: str = Field(default="")
+    communication_test_llm_model: str = Field(default="")
+    communication_test_llm_api_key: str = Field(default="")
+    communication_test_llm_auth_scheme: str = Field(default="api-key")
+    communication_test_llm_project_id: str = Field(default="")
+    communication_test_llm_thinking_control: str = Field(
+        default="chat_template_kwargs"
+    )
+    communication_test_llm_timeout_s: int = Field(default=600, ge=1)
+
     # --- Email-коннектор (IMAP/SMTP) ---
     # demo сохраняет безопасное поведение без внешней отправки; live включает SMTP.
     email_delivery_mode: Literal["demo", "live"] = Field(default="demo")
