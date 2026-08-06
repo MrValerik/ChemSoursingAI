@@ -232,16 +232,6 @@
           "kind": "distributor",
           "evidence": "Фармдистрибьютор.",
           "confidence": "industry_knowledge"
-        },
-        {
-          "name": "Витрина Hebei Chuanghai на made-in-china",
-          "aliases": [
-            "Chuanghai"
-          ],
-          "domain": "chuanghaitech.en.made-in-china.com",
-          "kind": "marketplace",
-          "evidence": "Витрина площадки, а не сайт компании.",
-          "confidence": "verified"
         }
       ],
       "unresolved": [
@@ -252,6 +242,10 @@
         {
           "domain": "ottokemi.com",
           "note": "Otto Chemie — производит лабораторную химию, но по карбомеру возможна фасовка"
+        },
+        {
+          "domain": "chuanghaitech.en.made-in-china.com",
+          "note": "Hebei Chuanghai — магазин компании на площадке, роль не проверялась"
         }
       ]
     },
@@ -399,26 +393,6 @@
           "kind": "marketplace",
           "evidence": "Список экспонентов выставки, не сайт компании.",
           "confidence": "verified"
-        },
-        {
-          "name": "Витрина Zhengzhou Gesee на made-in-china",
-          "aliases": [
-            "Gesee"
-          ],
-          "domain": "geseetech.en.made-in-china.com",
-          "kind": "marketplace",
-          "evidence": "Витрина площадки.",
-          "confidence": "verified"
-        },
-        {
-          "name": "Витрина Dalian Fuchang на made-in-china",
-          "aliases": [
-            "Fuchang"
-          ],
-          "domain": "made-in-china.com",
-          "kind": "marketplace",
-          "evidence": "Showroom площадки.",
-          "confidence": "verified"
         }
       ],
       "unresolved": [
@@ -429,6 +403,14 @@
         {
           "domain": "haoreagent.cn",
           "note": "Shen Zhen Reagent Biotechnology — роль неясна"
+        },
+        {
+          "domain": "geseetech.en.made-in-china.com",
+          "note": "Zhengzhou Gesee — магазин компании на площадке, роль не проверялась"
+        },
+        {
+          "domain": "made-in-china.com",
+          "note": "Dalian Fuchang — showroom компании на площадке, роль не проверялась"
         }
       ]
     },
@@ -728,17 +710,6 @@
           "confidence": "verified"
         },
         {
-          "name": "Zhangjiagang Free Trade Zone Megawide Chemical",
-          "aliases": [
-            "Megawide",
-            "megawidechem"
-          ],
-          "domain": "made-in-china.com",
-          "kind": "marketplace",
-          "evidence": "Найден только витриной на made-in-china, собственный сайт в выдачу не попал.",
-          "confidence": "verified"
-        },
-        {
           "name": "Tianjin Gnee Biotech",
           "aliases": [
             "Gnee",
@@ -748,6 +719,12 @@
           "kind": "trader",
           "evidence": "Заявляет «мы завод» без единого подтверждения: адрес — 25-й этаж бизнес-центра в Аньяне, ни площадки, ни мощности, ни оборудования. Система пропустила его в короткий список.",
           "confidence": "verified"
+        }
+      ],
+      "unresolved": [
+        {
+          "domain": "made-in-china.com",
+          "note": "Dalian Fuchang — showroom компании на площадке, роль не проверялась"
         }
       ]
     }

@@ -64,6 +64,21 @@ DEFAULT_INTERMEDIARIES: list[tuple[str, str, str]] = [
     ("linkedin.com", "LinkedIn", "reference"),
     ("facebook.com", "Facebook", "reference"),
     ("wikipedia.org", "Wikipedia", "reference"),
+    # Встречены в прогонах 58-71 и попали в кандидаты как «не определён»:
+    # реестр их не знал, и страница площадки шла наравне с сайтом завода.
+    ("app17.com", "App17", "marketplace"),
+    ("b2brazil.com", "B2Brazil", "marketplace"),
+    ("kitairu.net", "Kitairu", "marketplace"),
+    ("alu.cn", "Alu.cn", "marketplace"),
+    ("gys.cn", "Gys.cn", "marketplace"),
+    ("21food.cn", "21food", "marketplace"),
+    ("aipage.com", "Aipage B2B Data", "reference"),
+    ("chinacoat.net", "ChinaCoat", "reference"),
+    ("yellowpages.com.vn", "Yellow Pages Vietnam", "reference"),
+    ("blogspot.com", "Blogspot", "reference"),
+    ("med-life.cn", "Med-Life", "catalog"),
+    ("gewhatman.cn", "Gewhatman", "catalog"),
+    ("haoreagent.cn", "Hao Reagent", "catalog"),
 ]
 
 

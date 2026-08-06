@@ -67,7 +67,12 @@ from app.services.supplier_search_continuation import (
     supplier_exclusions,
 )
 from app.services.supplier_registry import register_qualified_candidate
-from app.services.intermediaries import active_domains, split_by_intermediary
+from app.services.intermediaries import (
+    active_domains,
+    is_intermediary,
+    marketplace_page_kind,
+    split_by_intermediary,
+)
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
     build_highlights,
@@ -270,7 +275,11 @@ class SupplierQualificationRequest(BaseModel):
 
 
 EvidenceStatus = Literal["claimed", "not_found", "contradicted"]
-SupplierKind = Literal["manufacturer", "distributor", "unknown"]
+# «Витрина площадки» — это не роль компании, а вид найденной страницы, и
+# определяется он по адресу, а не суждением модели. Без этого значения
+# перечень продавцов на made-in-china получал статус «не определён»
+# наравне с настоящим заводом, чья роль просто не доказана.
+SupplierKind = Literal["manufacturer", "distributor", "marketplace", "unknown"]
 CasStatus = Literal["confirmed", "mentioned", "not_found", "mismatch"]
 CountryStatus = Literal["claimed", "likely", "not_found", "mismatch"]
 ClaimType = Literal[
@@ -920,9 +929,21 @@ def _inject_deterministic_evidence(
 def _apply_evidence_gates(
     qualification: SupplierQualification,
     evidence_items: list[dict],
+    *,
+    page_url: str = "",
+    intermediary_domains: set[str] | None = None,
 ) -> dict:
     """Prevent high-confidence labels without a validated atomic source."""
     payload = qualification.model_dump(exclude={"evidence"})
+    # Перечень продавцов на площадке — не компания, и роль ему приписывать
+    # нечего. Замер по эталону: 18 из 21 ошибки классификации приходились
+    # на «не определён», и добрая половина из них были такие страницы.
+    # Магазин одной компании внутри площадки под это правило не подпадает:
+    # он называет предприятие, и судить о нём надо по содержанию.
+    if page_url and is_intermediary(page_url, intermediary_domains or set()):
+        if marketplace_page_kind(page_url) != "storefront":
+            payload["supplier_type"] = "marketplace"
+            return payload
     supported = {
         item["claim_type"]
         for item in evidence_items
@@ -2353,6 +2374,10 @@ def execute_supplier_qualification(
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
 
+    # Реестр площадок нужен и здесь, а не только при отсеве выдачи: статус
+    # контрагента ставится на этом этапе, и перечень продавцов на площадке
+    # должен называться площадкой, а не «не определён».
+    intermediary_domains = active_domains(db)
     search_run = (
         db.get(SearchRun, data.search_run_id)
         if data.search_run_id is not None
@@ -2849,7 +2874,12 @@ def execute_supplier_qualification(
             continue
         evidence_items = validated_evidence.get(index, [])
         qualification_payload = _apply_evidence_gates(
-            qualification, evidence_items
+            qualification,
+            evidence_items,
+            page_url=(
+                data.results[index].url if index < len(data.results) else ""
+            ),
+            intermediary_domains=intermediary_domains,
         )
         score = score_supplier(qualification_payload, evidence_items)
         qualification_payload["llm_confidence"] = qualification.confidence
