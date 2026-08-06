@@ -136,10 +136,28 @@ def apply_supplier_verification(
             missing_gates.append("нет точного соответствия вещества")
         if verification.supplier_role != "manufacturer":
             missing_gates.append("роль производителя не подтверждена")
+        # Решение самого аудитора. Раньше эти два условия блокировали
+        # кандидата, но в объяснение не попадали: у Anhui Liwei прошли все
+        # структурные проверки, аудитор выбрал needs_review, и закупщик
+        # видел «Короткий список заблокирован до ручной проверки» без
+        # единого слова о причине.
+        if verification.verification_status != "confirmed":
+            missing_gates.append(
+                f"аудитор не подтвердил кандидата ({verification.verification_status})"
+            )
+        if verification.recommended_action != "shortlist":
+            missing_gates.append(
+                f"аудитор рекомендует {verification.recommended_action}"
+            )
         if not _REQUIRED_SHORTLIST_CLAIMS.issubset(supported_types):
             missing_gates.append("не выбраны обязательные проверенные claims")
         if invalid_claim_ids:
             missing_gates.append("аудитор сослался на недопустимые claims")
+        if _CRITICAL_CLAIMS & contradicted_types:
+            contradicted_names = ", ".join(
+                sorted(_CRITICAL_CLAIMS & contradicted_types)
+            )
+            missing_gates.append(f"цитата опровергает: {contradicted_names}")
         gate_reason = (
             "Короткий список заблокирован: " + "; ".join(missing_gates)
             if missing_gates

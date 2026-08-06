@@ -185,6 +185,38 @@ def test_structural_conditions_still_block_the_shortlist():
     )
 
 
+def test_the_auditors_own_verdict_is_named_in_the_reason():
+    """Иначе закупщик видит отказ без причины.
+
+    У Anhui Liwei в прогоне 60 прошли все структурные проверки: вещество
+    exact, роль manufacturer, цитаты обоих обязательных типов на месте.
+    Аудитор выбрал needs_review — и это единственное, что закрыло ворота,
+    но в объяснении не было ни слова: «Короткий список заблокирован до
+    ручной проверки».
+    """
+    verification = SupplierVerification(
+        result_index=0,
+        substance_match="exact",
+        supplier_role="manufacturer",
+        verification_status="needs_review",
+        recommended_action="manual_review",
+        confidence=80,
+        reason="Страница не показывает подтверждения собственного завода.",
+        supporting_claim_ids=[11, 12],
+        contradictory_claim_ids=[],
+        missing_evidence=[],
+    )
+
+    result = apply_supplier_verification(
+        _base_result(), verification, _evidence()
+    )
+
+    gate_reason = result["verification"]["gate_reason"]
+    assert result["shortlist_eligible"] is False
+    assert "needs_review" in gate_reason
+    assert "manual_review" in gate_reason
+
+
 def test_unavailable_verifier_safely_blocks_shortlist():
     result = apply_supplier_verification(
         _base_result(),
