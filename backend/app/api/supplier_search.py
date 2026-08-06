@@ -1,6 +1,7 @@
 """Поиск кандидатов-поставщиков с доказательствами из открытых источников."""
 
 import json
+import re
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -70,6 +71,7 @@ from app.services.intermediaries import active_domains, split_by_intermediary
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
     build_highlights,
+    find_company_names,
     find_production_facts,
     cas_quote,
     find_cas_numbers,
@@ -1416,6 +1418,55 @@ def _rank_results(
     ]
 
 
+_MAX_COMPANY_FOLLOW_UPS = 3
+
+
+def _company_site_plan_items(
+    results: list[dict],
+    *,
+    country: str | None,
+    limit: int = _MAX_COMPANY_FOLLOW_UPS,
+) -> list[SearchPlanItem]:
+    """Имена компаний из выдачи — в запросы к их собственным сайтам.
+
+    Заводы многотоннажной химии не оптимизируют страницы под «вещество +
+    manufacturer»: у них корпоративные сайты, а не карточки товара. Зато
+    их имена стоят в отраслевых обзорах, и обзоры в выдачу попадают.
+
+    Замер по эталону: из четырёх известных производителей адипиновой
+    кислоты нашёлся один, при том что в выдаче упоминались двое. Обзор
+    полезен не как источник поставщика, а как источник имени — по имени
+    собственный сайт находится сразу.
+    """
+    text = "\n".join(
+        f"{item.get('title') or ''}\n{item.get('snippet') or ''}"
+        for item in results
+    )
+    known_hosts = " ".join(_domain_key(item.get("url", "")) for item in results)
+    items: list[SearchPlanItem] = []
+    for name in find_company_names(text):
+        if len(items) >= limit:
+            break
+        # Компанию, чей сайт уже в выдаче, второй раз искать незачем.
+        compact = re.sub(r"[^0-9a-z]+", "", name.casefold())
+        if len(compact) >= 6 and compact[:12] in known_hosts.replace("-", ""):
+            continue
+        chinese = any("一" <= char <= "鿿" for char in name)
+        query = f'"{name}" 官网' if chinese else f'"{name}" official site'
+        if len(query) < 5 or len(query) > 500:
+            continue
+        items.append(
+            SearchPlanItem(
+                query=query,
+                language="zh" if chinese else "en",
+                purpose="manufacturer",
+                source_type="official_site",
+                priority=2,
+            )
+        )
+    return items
+
+
 def _search_coverage_is_sufficient(
     *,
     executed_items: list[SearchPlanItem],
@@ -2009,7 +2060,31 @@ def execute_supplier_search(
     reserve_limit = min(max(data.limit * 3, data.limit + 5), 60)
     fetch_limit = min(reserve_limit * 2, 20)
     search_stop_reason: str | None = None
-    for plan_item in planned_queries:
+    # Рабочий список, а не сам план: во второй заход в него дописываются
+    # запросы к сайтам компаний, чьи имена стали известны только из уже
+    # полученной выдачи. План остаётся исходным — по нему считается
+    # покрытие обязательных источников.
+    worklist = list(planned_queries)
+    second_wave_done = False
+
+    def _add_company_follow_ups() -> bool:
+        nonlocal second_wave_done
+        second_wave_done = True
+        extra = _company_site_plan_items(raw_results, country=data.country)
+        if not extra:
+            return False
+        worklist.extend(extra)
+        names = ", ".join(item.query for item in extra)
+        log_agent_event(
+            search_stage,
+            "Добираю собственные сайты компаний, названных в выдаче: " + names,
+        )
+        return True
+
+    position = 0
+    while position < len(worklist):
+        plan_item = worklist[position]
+        position += 1
         budget_refusal = budget.refuse_query()
         if budget_refusal is not None:
             search_stop_reason = budget_refusal
@@ -2093,13 +2168,21 @@ def execute_supplier_search(
             reserve_limit,
             cas=data.cas,
         )
-        if _search_coverage_is_sufficient(
+        coverage_reached = _search_coverage_is_sufficient(
             executed_items=executed_items,
             planned_items=planned_queries,
             country=data.country,
             ranked_results=current,
             limit=reserve_limit,
-        ):
+        )
+        # Второй заход делается и при достаточном покрытии тоже. Именно
+        # там, где кандидатов уже набралось, они чаще всего оказываются
+        # торговыми домами, а завод стоит рядом в обзоре и остаётся
+        # ненайденным.
+        if (coverage_reached or position >= len(worklist)) and not second_wave_done:
+            if _add_company_follow_ups():
+                continue
+        if coverage_reached:
             search_stop_reason = STOP_COVERAGE_SUFFICIENT
             log_agent_event(
                 search_stage,
@@ -2107,7 +2190,7 @@ def execute_supplier_search(
                 f"собрано кандидатов: {len(current)} — завершаю поиск досрочно",
             )
             break
-    else:
+    if search_stop_reason is None:
         search_stop_reason = STOP_PLAN_EXHAUSTED
         log_agent_event(search_stage, "План запросов исчерпан полностью")
 

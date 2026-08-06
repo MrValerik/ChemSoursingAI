@@ -1,0 +1,66 @@
+"""Второй заход поиска: от имени компании к её собственному сайту.
+
+Замер по эталону: из четырёх известных производителей адипиновой кислоты
+система нашла одного. При этом в выдаче упоминались двое — просто обзор,
+где стоит имя завода, сам поставщиком не является, и кандидатом не
+становился. Имя из обзора и есть недостающее звено.
+"""
+
+import os
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_company_follow_up.db")
+
+from app.api.supplier_search import _company_site_plan_items
+
+
+def _result(title: str = "", snippet: str = "", url: str = "https://x.cn/a") -> dict:
+    return {"title": title, "snippet": snippet, "url": url}
+
+
+def test_a_name_from_a_review_becomes_a_query_for_its_own_site():
+    results = [
+        _result(
+            title="Обзор рынка адипиновой кислоты",
+            snippet="华鲁恒升产能 32 万吨, Shandong Quark Chemical Co., Ltd тоже в списке",
+            url="https://review.example.com/adipic",
+        )
+    ]
+
+    items = _company_site_plan_items(results, country="Китай")
+
+    queries = [item.query for item in items]
+    assert '"华鲁恒升" 官网' in queries
+    assert '"Shandong Quark Chemical Co., Ltd" official site' in queries
+
+
+def test_the_language_follows_the_name():
+    results = [_result(snippet="华鲁恒升产能 32 万吨")]
+    item = _company_site_plan_items(results, country="Китай")[0]
+    assert item.language == "zh"
+    assert item.source_type == "official_site"
+    assert item.purpose == "manufacturer"
+
+
+def test_a_company_already_in_the_results_is_not_searched_again():
+    """Её сайт уже в выдаче — второй запрос ничего не добавит."""
+    results = [
+        _result(
+            title="Shandong Quark Chemical Co., Ltd",
+            url="https://shandongquark.com/adipic-acid",
+        )
+    ]
+
+    assert _company_site_plan_items(results, country="Китай") == []
+
+
+def test_the_number_of_follow_ups_is_bounded():
+    """Каждый запрос стоит денег и слота бюджета."""
+    snippet = " ".join(
+        f"Company Number{n} Chemical Co., Ltd" for n in range(10)
+    )
+    items = _company_site_plan_items([_result(snippet=snippet)], country="Китай")
+    assert len(items) <= 3
+
+
+def test_an_empty_result_set_asks_nothing():
+    assert _company_site_plan_items([], country="Китай") == []

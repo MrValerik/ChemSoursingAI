@@ -259,6 +259,35 @@ def test_company_names_are_recognised_by_their_legal_tail():
     assert all("adipic acid production" not in name for name in names)
 
 
+def test_a_chinese_brand_without_a_legal_tail_is_still_a_name():
+    """Отраслевой обзор пишет марку без «有限公司».
+
+    В прогоне 62 по адипиновой кислоте 华鲁恒升 стоял в выдаче и не
+    извлекался: регулярка требовала юридического хвоста, а рядом стояло
+    только слово о мощности. Из четырёх известных производителей нашёлся
+    один.
+    """
+    from app.services.page_facts import find_company_names
+
+    names = find_company_names("华鲁恒升产能达到 32 万吨，神马 年产 47 万吨")
+
+    assert "华鲁恒升" in names
+    assert "神马" in names
+
+
+def test_a_link_fragment_does_not_glue_itself_to_the_name():
+    """«...-1999492502.html Tangshan Zhonghao Co., Ltd» — не имя компании."""
+    from app.services.page_facts import find_company_names
+
+    text = (
+        "Food-Acidity-Regulators-Adipic-Acid-CAS-124-04-9-1999492502.html "
+        "Tangshan Zhonghao Chemical Co., Ltd"
+    )
+    names = find_company_names(text)
+
+    assert names == ["Tangshan Zhonghao Chemical Co., Ltd"]
+
+
 def test_market_research_names_are_skipped():
     """«Market Report Corp» — не завод, а издатель отчёта."""
     from app.services.page_facts import find_company_names

@@ -383,6 +383,29 @@ _NOT_A_COMPANY = (
     "database",
 )
 _MAX_COMPANY_NAMES = 20
+# Отраслевой обзор называет завод одной маркой, без «有限公司»: «华鲁恒升
+# 产能», «神马 年产». Замер по адипиновой кислоте: 华鲁恒升 стоял в выдаче
+# и не извлекался, потому что юридического хвоста рядом не было.
+_PRODUCTION_WORDS = "产能|年产|生产企业|生产厂家|龙头企业|装置"
+_COMPANY_CN_BRAND_RE = re.compile(
+    rf"([一-鿿]{{2,8}})\s*(?:{_PRODUCTION_WORDS})"
+)
+# Куски ссылок и имена файлов попадали в имя компании целиком:
+# «Food-Acidity-Regulators-...-1999492502.html Tangshan Zhonghao Co., Ltd».
+_LOOKS_LIKE_URL_PART = re.compile(r"\.(?:html?|php|aspx)\b|://|\d{6,}")
+_MAX_NAME_TOKEN_CHARS = 24
+
+
+def _cleaned_company_name(name: str) -> str | None:
+    """Отбрасывает служебный мусор, приклеившийся к имени слева."""
+    tokens = [
+        token
+        for token in name.split()
+        if not _LOOKS_LIKE_URL_PART.search(token)
+        and len(token) <= _MAX_NAME_TOKEN_CHARS
+    ]
+    cleaned = " ".join(tokens).strip(" .,-")
+    return cleaned or None
 
 
 def find_company_names(text: str) -> list[str]:
@@ -399,11 +422,18 @@ def find_company_names(text: str) -> list[str]:
     """
     found: list[str] = []
     seen: set[str] = set()
-    for pattern in (_COMPANY_RE, _COMPANY_CN_RE):
+    for pattern in (_COMPANY_RE, _COMPANY_CN_RE, _COMPANY_CN_BRAND_RE):
         for match in pattern.finditer(text or ""):
-            name = " ".join(match.group(0).split()).strip(" .,")
+            # У марки без юридического хвоста берётся первая группа: сам
+            # производственный термин частью имени не является.
+            raw = match.group(1) if pattern is _COMPANY_CN_BRAND_RE else match.group(0)
+            name = _cleaned_company_name(" ".join((raw or "").split()))
+            if not name:
+                continue
             key = name.casefold()
-            if not name or key in seen or len(name) < 6:
+            # Иероглифическое имя плотнее латинского: «华鲁恒升» — четыре знака.
+            minimum = 2 if _COMPANY_CN_RE.search(name) or pattern is _COMPANY_CN_BRAND_RE else 6
+            if key in seen or len(name) < minimum:
                 continue
             if any(word in key for word in _NOT_A_COMPANY):
                 continue
