@@ -70,6 +70,7 @@ from app.services.intermediaries import active_domains, split_by_intermediary
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
     build_highlights,
+    find_production_facts,
     cas_quote,
     find_cas_numbers,
     find_document_mentions,
@@ -278,6 +279,8 @@ ClaimType = Literal[
     "iso",
     "coa",
     "tds",
+    "production_capacity",
+    "production_site",
 ]
 ClaimSupport = Literal["supports", "contradicts"]
 
@@ -393,6 +396,8 @@ _QUALIFICATION_SCHEMA = {
                                         "iso",
                                         "coa",
                                         "tds",
+                                        "production_capacity",
+                                        "production_site",
                                     ],
                                 },
                                 "claim_value": {
@@ -885,6 +890,23 @@ def _inject_deterministic_evidence(
                     source_document_id=source.id,
                     claim_type=claim_type,
                     claim_value=f"{claim_type.upper()} упомянут на странице",
+                    support_status="supports",
+                    quote=quote,
+                )
+            )
+
+        for claim_type, quote in find_production_facts(text).items():
+            if claim_type in present or len(quote) < MIN_QUOTE_CHARS:
+                continue
+            additions.append(
+                QualificationEvidence(
+                    source_document_id=source.id,
+                    claim_type=claim_type,
+                    claim_value=(
+                        "Мощность указана на странице"
+                        if claim_type == "production_capacity"
+                        else "Собственная производственная площадка указана на странице"
+                    ),
                     support_status="supports",
                     quote=quote,
                 )

@@ -436,6 +436,64 @@ def find_document_mentions(text: str) -> dict[str, str]:
     return mentions
 
 
+# Мощность и производственная база. Это то, что завод о себе пишет, а
+# перекупщик обычно не пишет: цифру годового выпуска, площадь цеха, год
+# пуска линии. В поисковых запросах эти слова уже показали себя — они
+# доводили до настоящих производителей там, где «manufacturer» приводил
+# к торговым домам. Здесь они читаются со страницы как факт.
+_CAPACITY_RE = re.compile(
+    r"("
+    r"年产\s*[\d.,]+|产能[^。\n]{0,20}?[\d.,]+\s*(?:万吨|吨|吨/年)"
+    r"|[\d.,]+\s*(?:万吨|吨/年)"
+    r"|annual\s+(?:production\s+)?(?:capacity|output|production)\s*"
+    r"(?:of|is|:)?\s*[\d.,]+"
+    r"|[\d.,]+\s*(?:metric\s+)?(?:tons?|tonnes?|mt)\s*(?:per|/|a)\s*(?:year|annum)"
+    r"|production\s+capacity\s*(?:of|is|:)?\s*[\d.,]+"
+    r")",
+    re.IGNORECASE,
+)
+# Собственная производственная площадка: не цифра, но и не заявление
+# «мы производитель» — это проверяемая деталь.
+_PLANT_RE = re.compile(
+    r"(生产基地|生产车间|自有工厂|我们的工厂"
+    r"|own\s+(?:factory|plant|production\s+base)"
+    r"|production\s+base|manufacturing\s+base"
+    r"|(?:factory|plant)\s+(?:covers|area|address|located)"
+    r"|covers\s+an\s+area\s+of)",
+    re.IGNORECASE,
+)
+
+
+def find_production_facts(text: str) -> dict[str, str]:
+    """Мощность и производственная база с дословной строкой страницы.
+
+    Служит второй опорой короткого списка вместо упоминания документа.
+    Замер по 129 кандидатам: хоть какое-то упоминание CoA, TDS, ISO или
+    GMP есть лишь у 34%, и ни одно из них не подтверждено — по нашему же
+    правилу сайт продавца сертификат не подтверждает. При этом документы
+    у заказчика приходят перепиской за 2–4 дня после контакта, то есть
+    требовать их на этапе поиска значит требовать несуществующего.
+
+    Привязки к веществу здесь не требуется: за неё отвечают отдельные
+    доказательства идентичности и роли, а мощность говорит о компании.
+    """
+    facts: dict[str, str] = {}
+    for claim, pattern in (
+        ("production_capacity", _CAPACITY_RE),
+        ("production_site", _PLANT_RE),
+    ):
+        for raw in (text or "").splitlines():
+            line = raw.strip()
+            if not line or len(line) > _MAX_LINE_CHARS:
+                continue
+            if len(line) < MIN_QUOTE_CHARS:
+                continue
+            if pattern.search(line):
+                facts[claim] = line
+                break
+    return facts
+
+
 def cas_quote(text: str, cas: str) -> str | None:
     """Дословная строка страницы, содержащая искомый номер.
 
