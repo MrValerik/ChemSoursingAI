@@ -132,6 +132,59 @@ def test_verifier_cannot_confirm_with_unverified_quote():
     assert result["verification"]["invalid_claim_ids"] == [12]
 
 
+def test_a_zero_self_score_does_not_block_a_confirmed_candidate():
+    """Балл аудитора — сведение для человека, а не условие ворот.
+
+    Промпт не объяснял шкалу, и модель ставила ноль во всех 102 оценках.
+    Пока балл входил в условия, короткий список не открылся ни разу:
+    двенадцати кандидатам мешал только он.
+    """
+    verification = SupplierVerification(
+        result_index=0,
+        substance_match="exact",
+        supplier_role="manufacturer",
+        verification_status="confirmed",
+        recommended_action="shortlist",
+        confidence=0,
+        reason="CAS и собственное производство подтверждены цитатами.",
+        supporting_claim_ids=[11, 12],
+        contradictory_claim_ids=[],
+        missing_evidence=[],
+    )
+
+    result = apply_supplier_verification(
+        _base_result(), verification, _evidence()
+    )
+
+    assert result["shortlist_eligible"] is True
+    assert result["verification"]["confidence"] == 0
+
+
+def test_structural_conditions_still_block_the_shortlist():
+    """Снят один барьер, а не все: роль по-прежнему обязана быть доказана."""
+    verification = SupplierVerification(
+        result_index=0,
+        substance_match="exact",
+        supplier_role="distributor",
+        verification_status="confirmed",
+        recommended_action="shortlist",
+        confidence=95,
+        reason="Компания перепродаёт чужой продукт.",
+        supporting_claim_ids=[11, 12],
+        contradictory_claim_ids=[],
+        missing_evidence=[],
+    )
+
+    result = apply_supplier_verification(
+        _base_result(), verification, _evidence()
+    )
+
+    assert result["shortlist_eligible"] is False
+    assert "роль производителя не подтверждена" in (
+        result["verification"]["gate_reason"]
+    )
+
+
 def test_unavailable_verifier_safely_blocks_shortlist():
     result = apply_supplier_verification(
         _base_result(),

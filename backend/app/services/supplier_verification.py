@@ -99,13 +99,17 @@ def apply_supplier_verification(
         or verification.substance_match == "mismatch"
         or "chemical_identity" in contradicted_types
     )
+    # Балл аудитора сюда не входит намеренно. Он не привязан ни к чему
+    # проверяемому: промпт не объяснял шкалу, и модель ставила ноль во
+    # всех 102 оценках, из-за чего короткий список не открылся ни разу.
+    # Условия ниже опираются на структурные факты и проверенные цитаты —
+    # их можно оспорить, посмотрев на страницу.
     confirmed = (
         base_eligible
         and verification.verification_status == "confirmed"
         and verification.recommended_action == "shortlist"
         and verification.substance_match == "exact"
         and verification.supplier_role == "manufacturer"
-        and verification.confidence >= 70
         and _REQUIRED_SHORTLIST_CLAIMS.issubset(supported_types)
         and not (_CRITICAL_CLAIMS & contradicted_types)
         and not invalid_claim_ids
@@ -132,8 +136,6 @@ def apply_supplier_verification(
             missing_gates.append("нет точного соответствия вещества")
         if verification.supplier_role != "manufacturer":
             missing_gates.append("роль производителя не подтверждена")
-        if verification.confidence < 70:
-            missing_gates.append("уверенность аудитора ниже 70")
         if not _REQUIRED_SHORTLIST_CLAIMS.issubset(supported_types):
             missing_gates.append("не выбраны обязательные проверенные claims")
         if invalid_claim_ids:

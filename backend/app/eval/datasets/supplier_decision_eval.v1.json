@@ -316,9 +316,9 @@
       "expected": { "status": "needs_review", "shortlist_eligible": false }
     },
     {
-      "id": "low-confidence-abstains",
-      "title": "Уверенность аудитора ниже порога уходит на ручную проверку",
-      "category": "process_negative",
+      "id": "low-confidence-does-not-block",
+      "title": "Низкий балл аудитора не мешает, когда факты на месте",
+      "category": "true_positive",
       "safety_critical": false,
       "qualified_result": {
         "company_name": "Hunan Applied Chemistry Co.",
@@ -357,7 +357,7 @@
         "contradictory_claim_ids": [],
         "missing_evidence": []
       },
-      "expected": { "status": "needs_review", "shortlist_eligible": false }
+      "expected": { "status": "confirmed", "shortlist_eligible": true }
     },
     {
       "id": "contradicted-identity-rejected",
