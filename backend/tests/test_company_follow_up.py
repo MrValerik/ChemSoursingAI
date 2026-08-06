@@ -62,5 +62,27 @@ def test_the_number_of_follow_ups_is_bounded():
     assert len(items) <= 3
 
 
+def test_a_brand_from_a_capacity_review_outranks_a_trading_house():
+    """Лимит второго захода мал, и тратить его надо на заводы.
+
+    На прогоне 66 он ушёл на Shandong Quark, Jinan Finer и
+    «聊城润恒化工贸易» — торговый дом. 华鲁恒升 стоял в том же тексте и
+    остался неспрошенным.
+    """
+    results = [
+        _result(
+            snippet=(
+                "华鲁恒升产能 32 万吨. Shandong Quark Chemical Co., Ltd, "
+                "Jinan Finer Chemical Co., Ltd, 聊城润恒化工贸易有限公司"
+            )
+        )
+    ]
+
+    queries = [item.query for item in _company_site_plan_items(results, country="Китай")]
+
+    assert queries[0] == '"华鲁恒升" 官网'
+    assert all("贸易" not in query for query in queries)
+
+
 def test_an_empty_result_set_asks_nothing():
     assert _company_site_plan_items([], country="Китай") == []
