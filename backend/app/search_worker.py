@@ -30,6 +30,7 @@ from app.extraction.llm_client import (
     LLMUnavailableError,
 )
 from app.models import SearchRun, User
+from app.models.search_trace import AgentRun
 from app.services.search_lease import (
     LeaseHeartbeat,
     LeaseLost,
@@ -72,6 +73,25 @@ def _error_text(exc: Exception) -> str:
             return str(detail.get("message") or detail)
         return str(detail)
     return str(exc)
+
+
+def _close_running_stages(db: Session, run_id: int, error: str) -> None:
+    """Помечает незавершённые этапы упавшего прогона.
+
+    Прогон падает целиком, а этап, на котором это случилось, оставался в
+    состоянии «Выполняется»: в трассе он крутился вечно, и по ней нельзя
+    было понять, где именно всё оборвалось.
+    """
+    stages = db.scalars(
+        select(AgentRun).where(
+            AgentRun.search_run_id == run_id,
+            AgentRun.status == "running",
+        )
+    ).all()
+    for stage in stages:
+        stage.status = "failed"
+        stage.error = error[:2000]
+        stage.completed_at = utc_now()
 
 
 def _has_context_overflow(exc: BaseException) -> bool:
@@ -416,6 +436,7 @@ def _execute_claimed_job(
                 failed_run.status = "failed"
                 failed_run.error = _error_text(exc)
                 failed_run.completed_at = utc_now()
+                _close_running_stages(db, run_id, failed_run.error)
                 release_lease(failed_run)
                 db.commit()
             if isinstance(exc, SearchRunCancelled):

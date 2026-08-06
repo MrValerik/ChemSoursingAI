@@ -16,7 +16,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test_output_truncation.db")
 
 import pytest
 
-from app.api.supplier_search import _qualify_batch
+from app.api.supplier_search import _qualify_batch, _verify_batch
 from app.extraction.llm_client import (
     LLMOutputTruncatedError,
     LLMUnavailableError,
@@ -50,15 +50,16 @@ def test_a_complete_answer_passes():
 class _Llm:
     """Модель, которая обрывается на пакетах длиннее заданного."""
 
-    def __init__(self, limit: int) -> None:
+    def __init__(self, limit: int, items_key: str = "sources") -> None:
         self.limit = limit
+        self.items_key = items_key
         self.calls: list[int] = []
         self.last_attempts: list[dict] = []
 
     def generate_json(self, *, user_text: str, **kw) -> dict:
         import json
 
-        sources = json.loads(user_text)["sources"]
+        sources = json.loads(user_text)[self.items_key]
         self.calls.append(len(sources))
         if len(sources) > self.limit:
             raise LLMOutputTruncatedError("не поместился")
@@ -95,6 +96,37 @@ def test_a_single_source_that_does_not_fit_is_reported():
     llm = _Llm(limit=0)
     with pytest.raises(LLMOutputTruncatedError):
         _qualify_batch(llm, system_prompt="p", batch_payload=_payload(1))
+
+
+# --- тот же обрыв у аудитора ---
+
+
+def _candidates(count: int) -> dict:
+    return {
+        "chemical": {"name": "x"},
+        "candidates": [{"result_index": i} for i in range(count)],
+    }
+
+
+def test_the_auditor_splits_its_batch_too():
+    """Аудитор получает тот же текст страниц и обрывается по тем же причинам.
+
+    Дробления у него не было, и на адипиновой кислоте обрыв уносил весь
+    прогон — уже после пройденной оценки.
+    """
+    llm = _Llm(limit=1, items_key="candidates")
+    splits: list[int] = []
+
+    out = _verify_batch(
+        llm,
+        system_prompt="p",
+        batch_payload=_candidates(2),
+        on_split=splits.append,
+    )
+
+    assert [r["result_index"] for r in out["results"]] == [0, 1]
+    assert llm.calls == [2, 1, 1]
+    assert splits == [1]
 
 
 def test_a_batch_that_fits_is_not_split():

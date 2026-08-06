@@ -725,6 +725,61 @@ def _evidence_rejection_reason(
     return None
 
 
+def _batch_with_halving(
+    llm: LLMClient,
+    *,
+    system_prompt: str,
+    batch_payload: dict,
+    items_key: str,
+    schema_name: str,
+    json_schema: dict,
+    on_split=None,
+) -> dict:
+    """Спрашивает модель про пакет, дробя его, если ответ не поместился.
+
+    Обрыв по лимиту выхода воспроизводится при каждой попытке: повторять
+    тот же запрос бессмысленно. Помогает укоротить вход, поэтому пакет
+    делится пополам, а ответы половин склеиваются.
+
+    Замер на облачной Qwen3.6: пакет с 9789 символами входа обрывался, а
+    его половины по 5000 проходили. Соседние пакеты того же прогона на
+    5626 и 5093 символах проходили сразу.
+    """
+    items = batch_payload.get(items_key) or []
+    try:
+        return llm.generate_json(
+            system_prompt=system_prompt,
+            user_text=json.dumps(batch_payload, ensure_ascii=False),
+            schema_name=schema_name,
+            json_schema=json_schema,
+            max_tokens=get_settings().llm_max_output_tokens,
+        )
+    except LLMOutputTruncatedError:
+        if len(items) < 2:
+            # Дробить больше нечего: один элемент и так не помещается.
+            raise
+        middle = len(items) // 2
+        if on_split is not None:
+            on_split(middle)
+        merged: list[dict] = []
+        for half in (items[:middle], items[middle:]):
+            part = dict(batch_payload)
+            part[items_key] = half
+            answer = _batch_with_halving(
+                llm,
+                system_prompt=system_prompt,
+                batch_payload=part,
+                items_key=items_key,
+                schema_name=schema_name,
+                json_schema=json_schema,
+                on_split=on_split,
+            )
+            results = answer.get("results") if isinstance(answer, dict) else None
+            if isinstance(results, list):
+                merged.extend(results)
+        return {"results": merged}
+
+
 def _qualify_batch(
     llm: LLMClient,
     *,
@@ -732,45 +787,41 @@ def _qualify_batch(
     batch_payload: dict,
     on_split=None,
 ) -> dict:
-    """Оценивает пакет источников, дробя его, если ответ не поместился.
+    """Оценивает пакет источников, дробя его при обрыве ответа."""
+    return _batch_with_halving(
+        llm,
+        system_prompt=system_prompt,
+        batch_payload=batch_payload,
+        items_key="sources",
+        schema_name="supplier_qualification",
+        json_schema=_QUALIFICATION_SCHEMA,
+        on_split=on_split,
+    )
 
-    Обрыв по лимиту выхода воспроизводится при каждой попытке: повторять
-    тот же запрос бессмысленно. Помогает укоротить вход, поэтому пакет
-    делится пополам, а оценки половин склеиваются.
 
-    Замер на облачной Qwen3.6: пакет с 9789 символами входа обрывался, а
-    его половины по 5000 проходили. Соседние пакеты того же прогона на
-    5626 и 5093 символах проходили сразу.
+def _verify_batch(
+    llm: LLMClient,
+    *,
+    system_prompt: str,
+    batch_payload: dict,
+    on_split=None,
+) -> dict:
+    """Перепроверяет пакет кандидатов, дробя его при обрыве ответа.
+
+    Аудитору достаётся тот же текст страниц, что и оценке, поэтому он
+    обрывается по тем же причинам. Раньше дробления здесь не было и обрыв
+    уносил весь прогон: на адипиновой кислоте этап падал с «ответ не
+    поместился в лимит выхода», уже пройдя оценку.
     """
-    sources = batch_payload.get("sources") or []
-    try:
-        return llm.generate_json(
-            system_prompt=system_prompt,
-            user_text=json.dumps(batch_payload, ensure_ascii=False),
-            schema_name="supplier_qualification",
-            json_schema=_QUALIFICATION_SCHEMA,
-            max_tokens=get_settings().llm_max_output_tokens,
-        )
-    except LLMOutputTruncatedError:
-        if len(sources) < 2:
-            # Дробить больше нечего: один источник и так не помещается.
-            raise
-        middle = len(sources) // 2
-        if on_split is not None:
-            on_split(middle)
-        merged: list[dict] = []
-        for half in (sources[:middle], sources[middle:]):
-            part = dict(batch_payload, sources=half)
-            answer = _qualify_batch(
-                llm,
-                system_prompt=system_prompt,
-                batch_payload=part,
-                on_split=on_split,
-            )
-            results = answer.get("results") if isinstance(answer, dict) else None
-            if isinstance(results, list):
-                merged.extend(results)
-        return {"results": merged}
+    return _batch_with_halving(
+        llm,
+        system_prompt=system_prompt,
+        batch_payload=batch_payload,
+        items_key="candidates",
+        schema_name="supplier_verification",
+        json_schema=SUPPLIER_VERIFICATION_JSON_SCHEMA,
+        on_split=on_split,
+    )
 
 
 def _inject_deterministic_evidence(
@@ -2809,7 +2860,7 @@ def execute_supplier_qualification(
             ),
             model=llm.model,
             temperature=0,
-            max_tokens=1024,
+            max_tokens=get_settings().llm_max_output_tokens,
         )
         db.commit()
         try:
@@ -2846,18 +2897,19 @@ def execute_supplier_qualification(
                     "подтвердить, отклонить или отправить на ручную проверку",
                 )
                 db.commit()
-                raw_batch = llm.generate_json(
+                raw_batch = _verify_batch(
+                    llm,
                     system_prompt=verification_system_prompt,
-                    user_text=json.dumps(
-                        {
-                            "chemical": verification_input["chemical"],
-                            "candidates": batch_candidates,
-                        },
-                        ensure_ascii=False,
+                    batch_payload={
+                        "chemical": verification_input["chemical"],
+                        "candidates": batch_candidates,
+                    },
+                    on_split=lambda size: log_agent_event(
+                        verification_run,
+                        "Ответ не поместился в лимит выхода; "
+                        f"делю пакет и перепроверяю по {size}",
+                        kind="warning",
                     ),
-                    schema_name="supplier_verification",
-                    json_schema=SUPPLIER_VERIFICATION_JSON_SCHEMA,
-                    max_tokens=1024,
                 )
                 _raise_if_cancelled(db, search_run)
                 verification_raw_batches.append(raw_batch)
@@ -2896,6 +2948,21 @@ def execute_supplier_qualification(
                 db.commit()
             else:
                 verification_stop_reason = STOP_BATCHES_COMPLETED
+        except LLMOutputTruncatedError:
+            # Пакет уже поделён до одного кандидата, и ответ всё равно не
+            # помещается. Прогон при этом цел: непроверенные кандидаты
+            # уходят на ручную проверку через ворота ниже.
+            verification_error = (
+                "Независимая проверка не выполнена: ответ аудитора не "
+                "поместился в лимит выхода даже по одному кандидату"
+            )
+            verification_llm_attempts.extend(llm.last_attempts)
+            log_agent_event(
+                verification_run,
+                "Ответ аудитора обрывается и на одном кандидате; "
+                "непроверенные кандидаты уходят на ручную проверку",
+                kind="error",
+            )
         except LLMUnavailableError as exc:
             verification_error = (
                 "Независимая проверка не выполнена: "
