@@ -27,7 +27,10 @@ from urllib.parse import urlparse
 
 DATASET_DIR = Path(__file__).resolve().parent / "datasets"
 
-_KINDS = {"manufacturer", "distributor", "trader", "marketplace"}
+# Площадки среди игроков не значатся намеренно: их не надо находить, их
+# надо не пускать в кандидаты. Пока они лежали в known_players, включение
+# отсева читалось замером как падение полноты.
+_KINDS = {"manufacturer", "distributor", "trader"}
 _CATEGORIES = {"with_cas", "trade_name", "plain_name"}
 _CONFIDENCE = {"verified", "industry_knowledge"}
 
@@ -164,6 +167,9 @@ class SubstanceReport:
     found: list[tuple[str, str, str]] = field(default_factory=list)
     missed: list[str] = field(default_factory=list)
     unlabelled: list[tuple[str, str]] = field(default_factory=list)
+    # Площадки, всё же попавшие в кандидатов: это не потеря полноты, а
+    # протечка отсева, и считать её надо отдельно.
+    leaked_marketplaces: list[str] = field(default_factory=list)
 
     @property
     def recall(self) -> float:
@@ -184,8 +190,20 @@ def score_substance(
         category=substance["category"],
         known_total=len(players),
     )
+    filtered_hosts = {
+        (item.get("domain") or "").casefold()
+        for item in (substance.get("should_be_filtered") or [])
+    }
     matched_names: set[str] = set()
     for candidate in candidates:
+        host = host_of(candidate.get("url", ""))
+        if host and any(
+            host == domain or host.endswith("." + domain)
+            for domain in filtered_hosts
+            if domain
+        ):
+            report.leaked_marketplaces.append(host)
+            continue
         player = match_player(candidate, players)
         if player is None:
             report.unlabelled.append(
@@ -216,11 +234,12 @@ def score_substance(
 def format_report(reports: list[SubstanceReport]) -> str:
     """Человекочитаемый отчёт: полнота, статусы и что размечать дальше."""
     lines: list[str] = []
-    known = found = correct = 0
+    known = found = correct = leaked = 0
     for report in reports:
         known += report.known_total
         found += len(report.found)
         correct += report.correct_kinds
+        leaked += len(report.leaked_marketplaces)
         lines.append(
             f"=== {report.substance_id} [{report.category}] "
             f"найдено {len(report.found)} из {report.known_total}"
@@ -232,7 +251,10 @@ def format_report(reports: list[SubstanceReport]) -> str:
             lines.append(f"  - не найден: {name}")
         for name, host in report.unlabelled:
             lines.append(f"  ? вне эталона: {name} ({host})")
+        for host in report.leaked_marketplaces:
+            lines.append(f"  x площадка в кандидатах: {host}")
     lines.append("")
     lines.append(f"полнота: {found} из {known}")
     lines.append(f"верный статус: {correct} из {found}")
+    lines.append(f"площадок просочилось: {leaked}")
     return "\n".join(lines)

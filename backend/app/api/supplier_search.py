@@ -81,6 +81,7 @@ from app.services.page_facts import (
     cas_quote,
     find_cas_numbers,
     find_document_mentions,
+    looks_like_page_title,
     looks_like_role_keyword_stuffing,
     looks_like_third_party_production_claim,
     mentions_substance,
@@ -397,6 +398,13 @@ _QUALIFICATION_SCHEMA = {
                                     "type": "integer",
                                     "minimum": 1,
                                 },
+                                # production_capacity и production_site
+                                # модели недоступны намеренно. Открыв их,
+                                # мы получили «мощность» вида «Package:
+                                # 25KG/1000KG Bag» и «Quantity: 20-23MTS/
+                                # 20`FCL» — фасовку и загрузку контейнера.
+                                # Годовой выпуск читает регулярка, и она
+                                # мешок с заводом не путает.
                                 "claim_type": {
                                     "type": "string",
                                     "enum": [
@@ -407,8 +415,6 @@ _QUALIFICATION_SCHEMA = {
                                         "iso",
                                         "coa",
                                         "tds",
-                                        "production_capacity",
-                                        "production_site",
                                     ],
                                 },
                                 "claim_value": {
@@ -737,6 +743,8 @@ def _evidence_rejection_reason(
         # строка «Our Gelatin Factory»: завод настоящий, вещество другое.
         if looks_like_role_keyword_stuffing(evidence.quote):
             return "перечисление ролей для поисковика, а не утверждение о производстве"
+        if looks_like_page_title(evidence.quote):
+            return "заголовок страницы, а не утверждение о производстве"
         if looks_like_third_party_production_claim(evidence.quote):
             return "цитата описывает партнёрское или контрактное производство"
         if not mentions_substance(evidence.quote, cas=cas, names=names or []):

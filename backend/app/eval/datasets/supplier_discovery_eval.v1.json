@@ -1,12 +1,11 @@
 {
   "dataset_version": "v1",
-  "purpose": "Эталон для замера поиска контрагентов: кого система обязана найти и кем он на самом деле является.",
+  "purpose": "Эталон для замера поиска контрагентов: кого система обязана найти и кем он на самом деле является. Отдельно — страницы площадок, которые она обязана НЕ пускать в кандидаты.",
   "note": "Набор известных игроков, а не полный рынок. Полнота меряется как доля найденных из известных; кандидаты вне набора выводятся отдельным списком для ручной разметки и пополнения эталона. Спорные случаи не размечаются наугад, а лежат в unresolved: неверная метка портит замер сильнее, чем отсутствующая.",
   "kinds": {
     "manufacturer": "Производит вещество сам: есть завод, мощность, производственная площадка.",
     "distributor": "Официально распространяет чужой продукт: авторизация, склад, представительство.",
-    "trader": "Перепродаёт без своего производства и без авторизации.",
-    "marketplace": "Витрина площадки, а не сайт компании: made-in-china, alibaba, echemi и подобные."
+    "trader": "Перепродаёт без своего производства и без авторизации."
   },
   "confidence": {
     "verified": "Подтверждено ссылкой, открытой при составлении набора.",
@@ -126,14 +125,6 @@
           "kind": "distributor",
           "evidence": "Дистрибьютор химии и растворителей.",
           "confidence": "industry_knowledge"
-        },
-        {
-          "name": "Витрина b2bdata",
-          "aliases": [],
-          "domain": "b2bdata.aipage.com",
-          "kind": "marketplace",
-          "evidence": "Рейтинговая страница B2B-агрегатора, не сайт компании.",
-          "confidence": "verified"
         }
       ],
       "unresolved": [
@@ -148,6 +139,13 @@
         {
           "domain": "sfcc.com.cn",
           "note": "日出实业集团 — роль неясна"
+        }
+      ],
+      "should_be_filtered": [
+        {
+          "domain": "b2bdata.aipage.com",
+          "name": "Витрина b2bdata",
+          "evidence": "Рейтинговая страница B2B-агрегатора, не сайт компании."
         }
       ]
     },
@@ -361,38 +359,6 @@
           "kind": "distributor",
           "evidence": "Стандартные образцы и реактивы.",
           "confidence": "industry_knowledge"
-        },
-        {
-          "name": "Витрина app17",
-          "aliases": [],
-          "domain": "app17.com",
-          "kind": "marketplace",
-          "evidence": "B2B-каталог.",
-          "confidence": "verified"
-        },
-        {
-          "name": "Витрина b2brazil",
-          "aliases": [],
-          "domain": "b2brazil.com",
-          "kind": "marketplace",
-          "evidence": "Страница компании на площадке.",
-          "confidence": "verified"
-        },
-        {
-          "name": "Витрина chemball",
-          "aliases": [],
-          "domain": "chemball.cn",
-          "kind": "marketplace",
-          "evidence": "Площадка.",
-          "confidence": "verified"
-        },
-        {
-          "name": "Каталог выставки chinacoat",
-          "aliases": [],
-          "domain": "chinacoat.net",
-          "kind": "marketplace",
-          "evidence": "Список экспонентов выставки, не сайт компании.",
-          "confidence": "verified"
         }
       ],
       "unresolved": [
@@ -411,6 +377,28 @@
         {
           "domain": "made-in-china.com",
           "note": "Dalian Fuchang — showroom компании на площадке, роль не проверялась"
+        }
+      ],
+      "should_be_filtered": [
+        {
+          "domain": "app17.com",
+          "name": "Витрина app17",
+          "evidence": "B2B-каталог."
+        },
+        {
+          "domain": "b2brazil.com",
+          "name": "Витрина b2brazil",
+          "evidence": "Страница компании на площадке."
+        },
+        {
+          "domain": "chemball.cn",
+          "name": "Витрина chemball",
+          "evidence": "Площадка."
+        },
+        {
+          "domain": "chinacoat.net",
+          "name": "Каталог выставки chinacoat",
+          "evidence": "Список экспонентов выставки, не сайт компании."
         }
       ]
     },
@@ -473,22 +461,6 @@
           "kind": "distributor",
           "evidence": "Каталог сырья от разных производителей.",
           "confidence": "industry_knowledge"
-        },
-        {
-          "name": "Витрина alu.cn",
-          "aliases": [],
-          "domain": "m.alu.cn",
-          "kind": "marketplace",
-          "evidence": "Площадка.",
-          "confidence": "verified"
-        },
-        {
-          "name": "Витрина gys.cn",
-          "aliases": [],
-          "domain": "m.gys.cn",
-          "kind": "marketplace",
-          "evidence": "Площадка.",
-          "confidence": "verified"
         }
       ],
       "unresolved": [
@@ -503,6 +475,18 @@
         {
           "domain": "tnjchem.com",
           "note": "TNJ Chemical — сайт заявляет производство, но профиль похож на поставщика; доказательств ни за, ни против"
+        }
+      ],
+      "should_be_filtered": [
+        {
+          "domain": "m.alu.cn",
+          "name": "Витрина alu.cn",
+          "evidence": "Площадка."
+        },
+        {
+          "domain": "m.gys.cn",
+          "name": "Витрина gys.cn",
+          "evidence": "Площадка."
         }
       ]
     },
@@ -634,24 +618,18 @@
           "kind": "manufacturer",
           "evidence": "Заявляет собственное производство силиконов; подробностей о площадке на странице нет.",
           "confidence": "industry_knowledge"
-        },
+        }
+      ],
+      "should_be_filtered": [
         {
-          "name": "Блог Betely на blogspot",
-          "aliases": [
-            "Betely"
-          ],
           "domain": "betelychina.blogspot.com",
-          "kind": "marketplace",
-          "evidence": "Запись в блоге, а не сайт компании.",
-          "confidence": "verified"
+          "name": "Блог Betely на blogspot",
+          "evidence": "Запись в блоге, а не сайт компании."
         },
         {
-          "name": "Витрина kitairu",
-          "aliases": [],
           "domain": "kitairu.net",
-          "kind": "marketplace",
-          "evidence": "Российская B2B-площадка; найденная страница вообще про приборы измерения температуры.",
-          "confidence": "verified"
+          "name": "Витрина kitairu",
+          "evidence": "Российская B2B-площадка; найденная страница вообще про приборы измерения температуры."
         }
       ]
     },

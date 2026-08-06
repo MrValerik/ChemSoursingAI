@@ -60,6 +60,47 @@ def test_singular_and_plural_count_once():
     assert looks_like_role_keyword_stuffing("supplier, suppliers, supplier") is False
 
 
+# --- заголовок страницы ---
+
+
+def test_a_page_title_does_not_prove_production():
+    """«Manufacturer» в теге title написан для поисковика.
+
+    На прогоне 72 Shandong Aojin получил статус производителя по строке
+    «China Adipic Acid Manufacturer and Supplier | AOJIN». На той же
+    странице он перечисляет марки, которые перепродаёт: Hualu, Huafeng,
+    Shenma. Сама оценка это заметила и написала в красных флагах, но
+    статус всё равно поставила.
+    """
+    from app.services.page_facts import looks_like_page_title
+
+    assert looks_like_page_title("China Adipic Acid Manufacturer and Supplier | AOJIN")
+    assert looks_like_page_title(
+        "Behenyl dimethylamine, DMA22 factory and manufacturers | Kerui Chemicals"
+    )
+
+
+def test_an_ordinary_sentence_is_not_a_title():
+    """Правило узкое: именные фразы без разделителя не трогаем.
+
+    Иначе вместе с перекупщиками отсеются настоящие заводы — у Anhui
+    Liwei роль доказывалась именно такой строкой.
+    """
+    from app.services.page_facts import looks_like_page_title
+
+    assert not looks_like_page_title(
+        "Octadecyl-Behenyl Dimethyl Amine Manufacturer in China"
+    )
+    assert not looks_like_page_title("We produce adipic acid at our own plant")
+    assert not looks_like_page_title("年产 20000 吨己二酸生产线")
+
+
+def test_a_separator_without_a_role_word_is_not_a_title():
+    from app.services.page_facts import looks_like_page_title
+
+    assert not looks_like_page_title("Adipic acid | 99.7% | 25 kg bag")
+
+
 # --- привязка к веществу ---
 
 

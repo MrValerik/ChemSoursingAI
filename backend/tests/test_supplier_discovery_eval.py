@@ -32,13 +32,35 @@ def test_dataset_loads_and_covers_all_three_categories():
 def test_every_player_carries_a_kind_and_a_confidence():
     for substance in load_dataset("v1")["substances"]:
         for player in substance["known_players"]:
-            assert player["kind"] in {
-                "manufacturer",
-                "distributor",
-                "trader",
-                "marketplace",
-            }
+            assert player["kind"] in {"manufacturer", "distributor", "trader"}
             assert player["confidence"] in {"verified", "industry_knowledge"}
+
+
+def test_a_filtered_marketplace_is_not_counted_as_a_miss():
+    """Отсев площадок — требуемое поведение, а не потеря полноты."""
+    substance = {
+        "id": "проба",
+        "category": "with_cas",
+        "known_players": [
+            {"name": "Завод", "aliases": [], "domain": "factory.cn",
+             "kind": "manufacturer", "confidence": "verified"},
+        ],
+        "should_be_filtered": [{"domain": "made-in-china.com", "name": "Витрина"}],
+    }
+
+    report = score_substance(
+        substance,
+        [
+            {"company_name": "Завод", "url": "https://factory.cn/p",
+             "supplier_type": "manufacturer"},
+            {"company_name": "Кто-то", "url": "https://www.made-in-china.com/x"},
+        ],
+    )
+
+    assert len(report.found) == 1
+    assert report.missed == []
+    assert report.unlabelled == []
+    assert report.leaked_marketplaces == ["made-in-china.com"]
 
 
 def test_a_missing_version_is_reported():

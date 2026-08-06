@@ -281,6 +281,47 @@ _THIRD_PARTY_PRODUCTION_MARKERS = (
 )
 
 
+# Разделители, которыми в заголовке страницы отбивают имя бренда:
+# «China Adipic Acid Manufacturer and Supplier | AOJIN».
+_TITLE_SEPARATORS = ("|", "｜", " – ", " — ", " :: ", " » ")
+_ROLE_NOUNS = (
+    "manufacturer",
+    "manufacturers",
+    "supplier",
+    "suppliers",
+    "factory",
+    "factories",
+    "производитель",
+    "поставщик",
+    "生产厂家",
+    "厂家",
+    "供应商",
+)
+
+
+def looks_like_page_title(quote: str) -> bool:
+    """Заголовок страницы с именем бренда после разделителя.
+
+    «China Adipic Acid Manufacturer and Supplier | AOJIN» — это тег title,
+    написанный для поисковика. Слово «Manufacturer» там стоит потому, что
+    его ищут, а не потому, что у компании есть завод: на той же странице
+    Shandong Aojin перечисляет марки, которые перепродаёт — Hualu, Huafeng,
+    Shenma. Проверка по эталону показала, что дистрибьютор получил статус
+    производителя именно по такой строке.
+
+    Правило намеренно узкое. Обычная фраза «Octadecyl-Behenyl Dimethyl
+    Amine Manufacturer in China» под него не подпадает: разделителя нет, а
+    отбрасывать все именные конструкции значило бы терять настоящие заводы.
+    """
+    text = (quote or "").strip()
+    if not text:
+        return False
+    if not any(separator in text for separator in _TITLE_SEPARATORS):
+        return False
+    low = text.casefold()
+    return any(noun in low for noun in _ROLE_NOUNS)
+
+
 def looks_like_role_keyword_stuffing(quote: str) -> bool:
     """Перечисление ролей вместо утверждения о производстве.
 
