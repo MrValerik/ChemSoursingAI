@@ -168,6 +168,18 @@ def create(
                         else None
                     ),
                     "country": country,
+                    # Способ идентификации и всё, что к нему прилагается.
+                    # Форма их собирает, карточка запроса хранит, а поиск
+                    # до этой правки не получал: кнопка «Создать запрос и
+                    # начать поиск» строила payload вручную и молча теряла
+                    # их. Поиск аналога при этом не падал — он выполнялся
+                    # как обычный поиск по названию, и по результату это
+                    # было незаметно.
+                    "identification_method": rfq.identification_method,
+                    "analog_reference": rfq.analog_reference,
+                    "analog_variations": list(rfq.analog_variations or []),
+                    "specification": rfq.specification,
+                    "application": rfq.application,
                     "additional_instructions": (
                         data.additional_instructions.strip()
                         if data.additional_instructions

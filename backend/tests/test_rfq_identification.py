@@ -18,7 +18,12 @@ from pydantic import ValidationError
 # Модуль ранжирования при импорте создаёт engine.
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_rfq_identification.db")
 
+from fastapi.testclient import TestClient
+
 from app.connectors.pubchem import SubstanceInfo
+from app.core.db import SessionLocal
+from app.main import app
+from app.models import RFQ, SearchRun
 from app.schemas.rfq import RFQCreate
 from app.services.cas import suggest_check_digit
 from app.services.rfq_builder import RFQInput, build_rfq
@@ -86,6 +91,65 @@ def test_wrong_check_digit_names_the_correct_number():
     with pytest.raises(ValidationError) as exc:
         RFQCreate(**_create(cas="107-43-8"))
     assert "107-43-7" in str(exc.value)
+
+
+# --- способ идентификации доезжает до поиска ---
+
+
+def test_the_analog_setup_reaches_the_queued_search():
+    """Форма собирает, карточка хранит — поиск обязан это получить.
+
+    Кнопка «Создать запрос и начать поиск» строила payload прогона
+    вручную и теряла способ идентификации вместе с эталоном. Поиск
+    аналога при этом не падал: он выполнялся как обычный поиск по
+    названию, и по результату подмена была незаметна. Прогон 57 по
+    Dowsil 556 ушёл именно так.
+    """
+    with TestClient(app) as client:
+        token = client.post(
+            "/auth/login", json={"username": "ivanov", "password": "demo123"}
+        ).json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post(
+            "/rfq?verify=false&start_search=true",
+            json={
+                "name": "Dowsil 556 Cosmetic Grade Fluid",
+                "incoterms": ["CIP"],
+                "search_countries": ["Китай"],
+                "identification_method": "analog",
+                "analog_reference": "Dowsil 556 Cosmetic Grade Fluid",
+                "analog_variations": ["manufacturer", "purity"],
+                "specification": "INCI Phenyl Trimethicone",
+                "application": "Косметика",
+            },
+            headers=headers,
+        )
+        assert created.status_code == 201
+        rfq_id = created.json()["id"]
+
+        with SessionLocal() as db:
+            run = (
+                db.query(SearchRun)
+                .filter(SearchRun.rfq_id == rfq_id)
+                .order_by(SearchRun.id.desc())
+                .first()
+            )
+            payload = run.input_payload
+            run_id = run.id
+
+    assert payload["identification_method"] == "analog"
+    assert payload["analog_reference"] == "Dowsil 556 Cosmetic Grade Fluid"
+    assert payload["analog_variations"] == ["manufacturer", "purity"]
+    assert payload["specification"] == "INCI Phenyl Trimethicone"
+    assert payload["application"] == "Косметика"
+
+    # База у тестов общая, а прогон в очереди заберёт себе чужой worker.
+    # Удаления карточки мало: у прогона внешний ключ обнуляется, а сам он
+    # остаётся в очереди.
+    with SessionLocal() as db:
+        db.delete(db.get(SearchRun, run_id))
+        db.delete(db.get(RFQ, rfq_id))
+        db.commit()
 
 
 # --- письмо поставщику ---
