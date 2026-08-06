@@ -125,11 +125,13 @@ def finish_agent_run(
 ) -> None:
     if llm is not None:
         # Расход токенов этапа. Считать стоимость иначе можно только
-        # повтором вызовов, то есть заплатив за замер второй раз.
-        agent_run.prompt_tokens = getattr(llm, "prompt_tokens", None) or None
-        agent_run.completion_tokens = (
-            getattr(llm, "completion_tokens", None) or None
-        )
+        # повтором вызовов, то есть заплатив за замер второй раз. Берётся
+        # прирост, а не весь счётчик: клиент живёт дольше одного этапа.
+        take = getattr(llm, "take_usage", None)
+        if callable(take):
+            prompt, completion = take()
+            agent_run.prompt_tokens = prompt or None
+            agent_run.completion_tokens = completion or None
     agent_run.output_payload = output_payload
     agent_run.raw_output_payload = raw_output_payload
     agent_run.parsed_output_payload = parsed_output_payload

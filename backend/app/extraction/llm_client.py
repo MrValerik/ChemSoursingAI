@@ -140,6 +140,11 @@ class LLMClient:
         # Неудачные попытки тоже стоят денег, поэтому учитываются.
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        # Сколько уже записано в трассу. Один клиент обслуживает несколько
+        # этапов подряд, поэтому этапу принадлежит не весь счётчик, а
+        # прирост с прошлой записи.
+        self._taken_prompt_tokens = 0
+        self._taken_completion_tokens = 0
 
     def _headers(self) -> dict[str, str]:
         """Возвращает заголовки OpenAI-совместимого провайдера без логирования секретов."""
@@ -174,6 +179,20 @@ class LLMClient:
         usage = data.get("usage") or {}
         self.prompt_tokens += usage.get("prompt_tokens") or 0
         self.completion_tokens += usage.get("completion_tokens") or 0
+
+    def take_usage(self) -> tuple[int, int]:
+        """Отдаёт расход с прошлого вызова и запоминает новую отметку.
+
+        Оценка и аудит работают на одном клиенте, поэтому запись полного
+        счётчика приписывала аудиту ещё и чужой расход: на прогоне 55 у
+        него стояло 21 778 входных вместо своих 8 658, и по трассе
+        выходило, будто самый дорогой этап — аудит.
+        """
+        prompt = self.prompt_tokens - self._taken_prompt_tokens
+        completion = self.completion_tokens - self._taken_completion_tokens
+        self._taken_prompt_tokens = self.prompt_tokens
+        self._taken_completion_tokens = self.completion_tokens
+        return prompt, completion
 
     @staticmethod
     def _raise_if_truncated(data: dict) -> None:
