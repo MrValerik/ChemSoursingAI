@@ -158,6 +158,14 @@
           "kind": "manufacturer",
           "evidence": "Около 100 тыс. т/год.",
           "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Zhejiang Jiaao Enprotech",
+          "aliases": ["Jiaao", "嘉澳环保", "jiaaoplasticizers"],
+          "domain": "jiaaoplasticizers.com",
+          "kind": "manufacturer",
+          "evidence": "Публичная компания, общая мощность свыше 120 тыс. т/год, ESBO зарегистрирован в REACH. Найден вторым заходом на прогоне 69 — в первую версию эталона не попал по моему упущению.",
+          "confidence": "verified"
         }
       ]
     },
