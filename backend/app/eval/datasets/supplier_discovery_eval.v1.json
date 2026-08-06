@@ -1,7 +1,7 @@
 {
   "dataset_version": "v1",
   "purpose": "Эталон для замера поиска контрагентов: кого система обязана найти и кем он на самом деле является.",
-  "note": "Набор известных игроков, а не полный рынок. Полнота меряется как доля найденных из известных; кандидаты вне набора выводятся отдельным списком для ручной разметки и пополнения эталона.",
+  "note": "Набор известных игроков, а не полный рынок. Полнота меряется как доля найденных из известных; кандидаты вне набора выводятся отдельным списком для ручной разметки и пополнения эталона. Спорные случаи не размечаются наугад, а лежат в unresolved: неверная метка портит замер сильнее, чем отсутствующая.",
   "kinds": {
     "manufacturer": "Производит вещество сам: есть завод, мощность, производственная площадка.",
     "distributor": "Официально распространяет чужой продукт: авторизация, склад, представительство.",
@@ -22,7 +22,11 @@
       "known_players": [
         {
           "name": "Shenma Industry",
-          "aliases": ["Shenma", "神马", "Shenma Nylon Chemical"],
+          "aliases": [
+            "Shenma",
+            "神马",
+            "Shenma Nylon Chemical"
+          ],
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Крупнейший производитель адипиновой кислоты в Китае, около 470 тыс. т/год.",
@@ -30,7 +34,11 @@
         },
         {
           "name": "Hualu Hengsheng",
-          "aliases": ["Hualu-Hengsheng", "华鲁恒升", "Shandong Hualu Hengsheng"],
+          "aliases": [
+            "Hualu-Hengsheng",
+            "华鲁恒升",
+            "Shandong Hualu Hengsheng"
+          ],
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Около 326 тыс. т/год.",
@@ -38,7 +46,10 @@
         },
         {
           "name": "Liaoyang Petrochemical",
-          "aliases": ["辽阳石化", "Liaoyang Petrochemical Company"],
+          "aliases": [
+            "辽阳石化",
+            "Liaoyang Petrochemical Company"
+          ],
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Около 140 тыс. т/год.",
@@ -46,11 +57,97 @@
         },
         {
           "name": "Chongqing Huafeng Chemical",
-          "aliases": ["重庆华峰化工", "Huafeng Chemical", "华峰"],
+          "aliases": [
+            "重庆华峰化工",
+            "Huafeng Chemical",
+            "华峰"
+          ],
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Найден прогоном 62, на странице указана мощность.",
           "confidence": "verified"
+        },
+        {
+          "name": "Shandong Aojin Chemical Technology",
+          "aliases": [
+            "Aojin",
+            "aojinchem"
+          ],
+          "domain": "aojinchem.com",
+          "kind": "distributor",
+          "evidence": "Импорт-экспорт, внутренняя торговля и логистика; склады в портах. Перепродаёт марки Haili, Hualu, Yangmei, Huafeng, Tianzhou, Shenma. Своего производства на сайте нет.",
+          "confidence": "verified"
+        },
+        {
+          "name": "MarChem",
+          "aliases": [
+            "马可化学"
+          ],
+          "domain": "marchem.com.cn",
+          "kind": "manufacturer",
+          "evidence": "Раздел «Our Factory», адрес производства в Циндао.",
+          "confidence": "verified"
+        },
+        {
+          "name": "InvivoChem",
+          "aliases": [],
+          "domain": "invivochem.cn",
+          "kind": "distributor",
+          "evidence": "Поставщик исследовательских реактивов.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Selleck Chemicals",
+          "aliases": [
+            "Selleck"
+          ],
+          "domain": "selleck.cn",
+          "kind": "distributor",
+          "evidence": "Поставщик реактивов для исследований.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Acmec (Jizhi Biochemical)",
+          "aliases": [
+            "Acmec",
+            "吉至生化"
+          ],
+          "domain": "acmec.com.cn",
+          "kind": "distributor",
+          "evidence": "Реактивный каталог.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Consolidated Chemicals and Solvents",
+          "aliases": [
+            "Consolidated Chemical"
+          ],
+          "domain": "consolidated-chemical.com",
+          "kind": "distributor",
+          "evidence": "Дистрибьютор химии и растворителей.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Витрина b2bdata",
+          "aliases": [],
+          "domain": "b2bdata.aipage.com",
+          "kind": "marketplace",
+          "evidence": "Рейтинговая страница B2B-агрегатора, не сайт компании.",
+          "confidence": "verified"
+        }
+      ],
+      "unresolved": [
+        {
+          "domain": "zhengxingxincailiao.com",
+          "note": "山东正兴新材料 — «новые материалы», роль неясна"
+        },
+        {
+          "domain": "pules.cn",
+          "note": "Jiangsu Pules Bio-tech — роль неясна"
+        },
+        {
+          "domain": "sfcc.com.cn",
+          "note": "日出实业集团 — роль неясна"
         }
       ]
     },
@@ -63,7 +160,10 @@
       "known_players": [
         {
           "name": "Lubrizol",
-          "aliases": ["Carbopol", "Lubrizol Advanced Materials"],
+          "aliases": [
+            "Carbopol",
+            "Lubrizol Advanced Materials"
+          ],
           "domain": "lubrizol.com",
           "kind": "manufacturer",
           "evidence": "Carbopol — отраслевой эталон карбомера.",
@@ -71,7 +171,10 @@
         },
         {
           "name": "SNF",
-          "aliases": ["SNF Group", "SNF Floerger"],
+          "aliases": [
+            "SNF Group",
+            "SNF Floerger"
+          ],
           "domain": "snf.com",
           "kind": "manufacturer",
           "evidence": "Производитель полиакрилатов.",
@@ -79,7 +182,10 @@
         },
         {
           "name": "Anhui Newman Fine Chemicals",
-          "aliases": ["Newman Fine Chemical", "安徽纽曼精细化工"],
+          "aliases": [
+            "Newman Fine Chemical",
+            "安徽纽曼精细化工"
+          ],
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Найден прогоном 47.",
@@ -87,11 +193,65 @@
         },
         {
           "name": "Guangzhou Tinci Materials",
-          "aliases": ["Tinci", "天赐材料"],
+          "aliases": [
+            "Tinci",
+            "天赐材料"
+          ],
           "domain": "tinci.com",
           "kind": "manufacturer",
           "evidence": "Китайский производитель косметического сырья.",
           "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Sinobio Chemistry",
+          "aliases": [
+            "Sinobio"
+          ],
+          "domain": "sinobiochemistry.com",
+          "kind": "manufacturer",
+          "evidence": "Два производства в Китае, площадка в Цзянси около 68 000 кв. м, непрерывное производство с системой DCS.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Mubychem Group",
+          "aliases": [
+            "Muby Chemicals",
+            "Mubychem"
+          ],
+          "domain": "mubychem.com",
+          "kind": "manufacturer",
+          "evidence": "Несколько площадок в западной Индии, cGMP и GLP, ISO-9001, REACH.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Шэньчжэньская 优普惠药品",
+          "aliases": [
+            "优普惠"
+          ],
+          "domain": "youpuhui.com",
+          "kind": "distributor",
+          "evidence": "Фармдистрибьютор.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Витрина Hebei Chuanghai на made-in-china",
+          "aliases": [
+            "Chuanghai"
+          ],
+          "domain": "chuanghaitech.en.made-in-china.com",
+          "kind": "marketplace",
+          "evidence": "Витрина площадки, а не сайт компании.",
+          "confidence": "verified"
+        }
+      ],
+      "unresolved": [
+        {
+          "domain": "myuchem.com",
+          "note": "MyuChem — роль неясна"
+        },
+        {
+          "domain": "ottokemi.com",
+          "note": "Otto Chemie — производит лабораторную химию, но по карбомеру возможна фасовка"
         }
       ]
     },
@@ -104,7 +264,10 @@
       "known_players": [
         {
           "name": "Evonik",
-          "aliases": ["AEROSIL", "Evonik Industries"],
+          "aliases": [
+            "AEROSIL",
+            "Evonik Industries"
+          ],
           "domain": "evonik.com",
           "kind": "manufacturer",
           "evidence": "AEROSIL — эталонная марка пирогенного диоксида кремния.",
@@ -112,7 +275,10 @@
         },
         {
           "name": "Cabot Corporation",
-          "aliases": ["CAB-O-SIL", "Cabot"],
+          "aliases": [
+            "CAB-O-SIL",
+            "Cabot"
+          ],
           "domain": "cabotcorp.com",
           "kind": "manufacturer",
           "evidence": "CAB-O-SIL.",
@@ -120,7 +286,10 @@
         },
         {
           "name": "Wacker Chemie",
-          "aliases": ["HDK", "Wacker"],
+          "aliases": [
+            "HDK",
+            "Wacker"
+          ],
           "domain": "wacker.com",
           "kind": "manufacturer",
           "evidence": "HDK.",
@@ -128,11 +297,138 @@
         },
         {
           "name": "Tokuyama",
-          "aliases": ["Tokuyama Corporation", "REOLOSIL"],
+          "aliases": [
+            "Tokuyama Corporation",
+            "REOLOSIL"
+          ],
           "domain": null,
           "kind": "manufacturer",
           "evidence": "REOLOSIL.",
           "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Jinsha Precipitated Silica Manufacturing",
+          "aliases": [
+            "Jinsha",
+            "jksilicas"
+          ],
+          "domain": "jksilicas.com",
+          "kind": "manufacturer",
+          "evidence": "Производственная линия, промзона Гаоша, Шасянь, Фуцзянь. Внимание: делает осаждённый диоксид кремния, а не коллоидный — тот же номер CAS, другой продукт.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Hangzhou Leap Chem",
+          "aliases": [
+            "Leap Chem",
+            "LEAPCHEM"
+          ],
+          "domain": "leapchem.com",
+          "kind": "trader",
+          "evidence": "Услуги закупки, финальной инспекции и аудита, заказной синтез — снабжение и контроль, а не собственное производство.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Ataman Chemicals",
+          "aliases": [
+            "Ataman"
+          ],
+          "domain": "atamanchemicals.com",
+          "kind": "distributor",
+          "evidence": "Турецкий дистрибьютор химии.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "UPI global",
+          "aliases": [
+            "UPIglobal",
+            "upichem"
+          ],
+          "domain": "upichem.com",
+          "kind": "distributor",
+          "evidence": "Слово distributor в адресе страницы и в описании.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Chemzip",
+          "aliases": [],
+          "domain": "chemzip.cn",
+          "kind": "trader",
+          "evidence": "Онлайн-перепродажа химии.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Canspec",
+          "aliases": [
+            "上海创赛",
+            "Shanghai Chuangsai"
+          ],
+          "domain": "canspec.cn",
+          "kind": "distributor",
+          "evidence": "Стандартные образцы и реактивы.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Витрина app17",
+          "aliases": [],
+          "domain": "app17.com",
+          "kind": "marketplace",
+          "evidence": "B2B-каталог.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Витрина b2brazil",
+          "aliases": [],
+          "domain": "b2brazil.com",
+          "kind": "marketplace",
+          "evidence": "Страница компании на площадке.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Витрина chemball",
+          "aliases": [],
+          "domain": "chemball.cn",
+          "kind": "marketplace",
+          "evidence": "Площадка.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Каталог выставки chinacoat",
+          "aliases": [],
+          "domain": "chinacoat.net",
+          "kind": "marketplace",
+          "evidence": "Список экспонентов выставки, не сайт компании.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Витрина Zhengzhou Gesee на made-in-china",
+          "aliases": [
+            "Gesee"
+          ],
+          "domain": "geseetech.en.made-in-china.com",
+          "kind": "marketplace",
+          "evidence": "Витрина площадки.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Витрина Dalian Fuchang на made-in-china",
+          "aliases": [
+            "Fuchang"
+          ],
+          "domain": "made-in-china.com",
+          "kind": "marketplace",
+          "evidence": "Showroom площадки.",
+          "confidence": "verified"
+        }
+      ],
+      "unresolved": [
+        {
+          "domain": "jeiferpharm.com",
+          "note": "Nanjing Ruisheng Pharmaceutical — страница отдала 404"
+        },
+        {
+          "domain": "haoreagent.cn",
+          "note": "Shen Zhen Reagent Biotechnology — роль неясна"
         }
       ]
     },
@@ -145,7 +441,10 @@
       "known_players": [
         {
           "name": "Hairma Chemicals",
-          "aliases": ["Hairma", "海马"],
+          "aliases": [
+            "Hairma",
+            "海马"
+          ],
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Около 300 тыс. т/год, крупнейший в мире. Собственного сайта нет — проверка полноты на трудном случае.",
@@ -153,7 +452,10 @@
         },
         {
           "name": "Guangzhou Xinjinlong Chemical",
-          "aliases": ["Xinjinlong", "新金龙"],
+          "aliases": [
+            "Xinjinlong",
+            "新金龙"
+          ],
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Около 100 тыс. т/год.",
@@ -161,11 +463,64 @@
         },
         {
           "name": "Zhejiang Jiaao Enprotech",
-          "aliases": ["Jiaao", "嘉澳环保", "jiaaoplasticizers"],
+          "aliases": [
+            "Jiaao",
+            "嘉澳环保",
+            "jiaaoplasticizers"
+          ],
           "domain": "jiaaoplasticizers.com",
           "kind": "manufacturer",
           "evidence": "Публичная компания, общая мощность свыше 120 тыс. т/год, ESBO зарегистрирован в REACH. Найден вторым заходом на прогоне 69 — в первую версию эталона не попал по моему упущению.",
           "confidence": "verified"
+        },
+        {
+          "name": "Shanghai Sunwise Chemical",
+          "aliases": [
+            "Sunwise",
+            "Sunwisechem"
+          ],
+          "domain": "sunwisechem.com",
+          "kind": "manufacturer",
+          "evidence": "Раздел производства, фотографии цеха, CoA на партию перед отгрузкой.",
+          "confidence": "verified"
+        },
+        {
+          "name": "RawSource",
+          "aliases": [],
+          "domain": "rawsource.com",
+          "kind": "distributor",
+          "evidence": "Каталог сырья от разных производителей.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Витрина alu.cn",
+          "aliases": [],
+          "domain": "m.alu.cn",
+          "kind": "marketplace",
+          "evidence": "Площадка.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Витрина gys.cn",
+          "aliases": [],
+          "domain": "m.gys.cn",
+          "kind": "marketplace",
+          "evidence": "Площадка.",
+          "confidence": "verified"
+        }
+      ],
+      "unresolved": [
+        {
+          "domain": "jsdengfeng.com",
+          "note": "Jiangsu Dengfeng Chemical — сайт не открылся, ошибка TLS"
+        },
+        {
+          "domain": "keyingchemical.com",
+          "note": "Keying Chemical — роль неясна"
+        },
+        {
+          "domain": "tnjchem.com",
+          "note": "TNJ Chemical — сайт заявляет производство, но профиль похож на поставщика; доказательств ни за, ни против"
         }
       ]
     },
@@ -178,7 +533,10 @@
       "known_players": [
         {
           "name": "Evonik",
-          "aliases": ["TEGO Sorb", "Evonik Industries"],
+          "aliases": [
+            "TEGO Sorb",
+            "Evonik Industries"
+          ],
           "domain": "evonik.com",
           "kind": "manufacturer",
           "evidence": "TEGO Sorb — рицинолеат цинка для дезодорантов.",
@@ -186,7 +544,9 @@
         },
         {
           "name": "Acme Synthetic Chemicals",
-          "aliases": ["Acme Synthetic"],
+          "aliases": [
+            "Acme Synthetic"
+          ],
           "domain": "acmesynthetic.com",
           "kind": "manufacturer",
           "evidence": "Заявленная мощность 300 т/год, описан способ получения из оксида цинка и рицинолевой кислоты.",
@@ -202,7 +562,9 @@
         },
         {
           "name": "DangTong Biological",
-          "aliases": ["DangTong"],
+          "aliases": [
+            "DangTong"
+          ],
           "domain": "dangtongbiological.com",
           "kind": "trader",
           "evidence": "Формулировка «processing and selling», признаков собственного производства нет.",
@@ -223,7 +585,11 @@
       "known_players": [
         {
           "name": "Dow",
-          "aliases": ["Dow Inc.", "Dow Chemical", "DOWSIL"],
+          "aliases": [
+            "Dow Inc.",
+            "Dow Chemical",
+            "DOWSIL"
+          ],
           "domain": "dow.com",
           "kind": "manufacturer",
           "evidence": "Владелец марки, INCI Phenyl Trimethicone, CAS 70131-69-0.",
@@ -231,7 +597,10 @@
         },
         {
           "name": "Qingdao Hengda Chemical New Material",
-          "aliases": ["Hengda", "hengdasilane"],
+          "aliases": [
+            "Hengda",
+            "hengdasilane"
+          ],
           "domain": "hengdasilane.com",
           "kind": "manufacturer",
           "evidence": "Phenyl Trimethicone CAS 70131-69-0, опубликована вязкость 20,8 мм²/с.",
@@ -239,7 +608,9 @@
         },
         {
           "name": "Topsilicone",
-          "aliases": ["TPD-556"],
+          "aliases": [
+            "TPD-556"
+          ],
           "domain": "topsilicone.com",
           "kind": "manufacturer",
           "evidence": "Грейд TPD-556 — прямой эквивалент 556-го.",
@@ -247,7 +618,10 @@
         },
         {
           "name": "Silicorex",
-          "aliases": ["Silico PC19826", "PC19826"],
+          "aliases": [
+            "Silico PC19826",
+            "PC19826"
+          ],
           "domain": "silicorex.com",
           "kind": "manufacturer",
           "evidence": "Phenyl Trimethicone CAS 70131-69-0.",
@@ -263,10 +637,38 @@
         },
         {
           "name": "Univar Solutions",
-          "aliases": ["Univar"],
+          "aliases": [
+            "Univar"
+          ],
           "domain": "univarsolutions.com",
           "kind": "distributor",
           "evidence": "Страница дистрибуции DOWSIL 556.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Wesilicone",
+          "aliases": [],
+          "domain": "wesilicone.com",
+          "kind": "manufacturer",
+          "evidence": "Заявляет собственное производство силиконов; подробностей о площадке на странице нет.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Блог Betely на blogspot",
+          "aliases": [
+            "Betely"
+          ],
+          "domain": "betelychina.blogspot.com",
+          "kind": "marketplace",
+          "evidence": "Запись в блоге, а не сайт компании.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Витрина kitairu",
+          "aliases": [],
+          "domain": "kitairu.net",
+          "kind": "marketplace",
+          "evidence": "Российская B2B-площадка; найденная страница вообще про приборы измерения температуры.",
           "confidence": "verified"
         }
       ]
@@ -284,7 +686,10 @@
       "known_players": [
         {
           "name": "Kao Chemicals",
-          "aliases": ["Kao Chemicals Europe", "Kao Corporation"],
+          "aliases": [
+            "Kao Chemicals Europe",
+            "Kao Corporation"
+          ],
           "domain": "kaochemicals-eu.com",
           "kind": "manufacturer",
           "evidence": "N,N-Dimethyl Behenylamine в каталоге; Kao — мировой производитель жирных аминов.",
@@ -292,7 +697,10 @@
         },
         {
           "name": "Shandong Kerui Chemicals",
-          "aliases": ["Kerui Chemicals", "DMA22"],
+          "aliases": [
+            "Kerui Chemicals",
+            "DMA22"
+          ],
           "domain": "keruichemical.com",
           "kind": "manufacturer",
           "evidence": "Behenyl Dimethylamine DMA22, указана собственная площадка.",
@@ -300,7 +708,9 @@
         },
         {
           "name": "BLIT Chemical",
-          "aliases": ["BLIT"],
+          "aliases": [
+            "BLIT"
+          ],
           "domain": "blitchem.com",
           "kind": "manufacturer",
           "evidence": "Behenyl Dimethylamine DMA22 CAS 21542-96-1, есть CoA и TDS.",
@@ -308,7 +718,10 @@
         },
         {
           "name": "Anhui Liwei Chemical",
-          "aliases": ["Liwei Chemical", "nj-finechem"],
+          "aliases": [
+            "Liwei Chemical",
+            "nj-finechem"
+          ],
           "domain": "nj-finechem.com",
           "kind": "manufacturer",
           "evidence": "Octadecyl-Behenyl Dimethyl Amine, заявлен статус производителя, есть CoA и ISO.",
@@ -316,10 +729,24 @@
         },
         {
           "name": "Zhangjiagang Free Trade Zone Megawide Chemical",
-          "aliases": ["Megawide", "megawidechem"],
+          "aliases": [
+            "Megawide",
+            "megawidechem"
+          ],
           "domain": "made-in-china.com",
           "kind": "marketplace",
           "evidence": "Найден только витриной на made-in-china, собственный сайт в выдачу не попал.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Tianjin Gnee Biotech",
+          "aliases": [
+            "Gnee",
+            "Gneebio"
+          ],
+          "domain": "gneechemical.com",
+          "kind": "trader",
+          "evidence": "Заявляет «мы завод» без единого подтверждения: адрес — 25-й этаж бизнес-центра в Аньяне, ни площадки, ни мощности, ни оборудования. Система пропустила его в короткий список.",
           "confidence": "verified"
         }
       ]
