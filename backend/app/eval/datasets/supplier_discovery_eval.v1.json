@@ -1,0 +1,320 @@
+{
+  "dataset_version": "v1",
+  "purpose": "Эталон для замера поиска контрагентов: кого система обязана найти и кем он на самом деле является.",
+  "note": "Набор известных игроков, а не полный рынок. Полнота меряется как доля найденных из известных; кандидаты вне набора выводятся отдельным списком для ручной разметки и пополнения эталона.",
+  "kinds": {
+    "manufacturer": "Производит вещество сам: есть завод, мощность, производственная площадка.",
+    "distributor": "Официально распространяет чужой продукт: авторизация, склад, представительство.",
+    "trader": "Перепродаёт без своего производства и без авторизации.",
+    "marketplace": "Витрина площадки, а не сайт компании: made-in-china, alibaba, echemi и подобные."
+  },
+  "confidence": {
+    "verified": "Подтверждено ссылкой, открытой при составлении набора.",
+    "industry_knowledge": "Общеизвестный игрок отрасли, ссылка не открывалась. Требует подтверждения."
+  },
+  "substances": [
+    {
+      "id": "adipic-acid",
+      "category": "with_cas",
+      "name": "Adipic acid",
+      "cas": "124-04-9",
+      "country": "Китай",
+      "known_players": [
+        {
+          "name": "Shenma Industry",
+          "aliases": ["Shenma", "神马", "Shenma Nylon Chemical"],
+          "domain": null,
+          "kind": "manufacturer",
+          "evidence": "Крупнейший производитель адипиновой кислоты в Китае, около 470 тыс. т/год.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Hualu Hengsheng",
+          "aliases": ["Hualu-Hengsheng", "华鲁恒升", "Shandong Hualu Hengsheng"],
+          "domain": null,
+          "kind": "manufacturer",
+          "evidence": "Около 326 тыс. т/год.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Liaoyang Petrochemical",
+          "aliases": ["辽阳石化", "Liaoyang Petrochemical Company"],
+          "domain": null,
+          "kind": "manufacturer",
+          "evidence": "Около 140 тыс. т/год.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Chongqing Huafeng Chemical",
+          "aliases": ["重庆华峰化工", "Huafeng Chemical", "华峰"],
+          "domain": null,
+          "kind": "manufacturer",
+          "evidence": "Найден прогоном 62, на странице указана мощность.",
+          "confidence": "verified"
+        }
+      ]
+    },
+    {
+      "id": "carbomer",
+      "category": "with_cas",
+      "name": "Carbomer",
+      "cas": "9003-01-4",
+      "country": "Китай",
+      "known_players": [
+        {
+          "name": "Lubrizol",
+          "aliases": ["Carbopol", "Lubrizol Advanced Materials"],
+          "domain": "lubrizol.com",
+          "kind": "manufacturer",
+          "evidence": "Carbopol — отраслевой эталон карбомера.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "SNF",
+          "aliases": ["SNF Group", "SNF Floerger"],
+          "domain": "snf.com",
+          "kind": "manufacturer",
+          "evidence": "Производитель полиакрилатов.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Anhui Newman Fine Chemicals",
+          "aliases": ["Newman Fine Chemical", "安徽纽曼精细化工"],
+          "domain": null,
+          "kind": "manufacturer",
+          "evidence": "Найден прогоном 47.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Guangzhou Tinci Materials",
+          "aliases": ["Tinci", "天赐材料"],
+          "domain": "tinci.com",
+          "kind": "manufacturer",
+          "evidence": "Китайский производитель косметического сырья.",
+          "confidence": "industry_knowledge"
+        }
+      ]
+    },
+    {
+      "id": "colloidal-silicon-dioxide",
+      "category": "with_cas",
+      "name": "Colloidal silicon dioxide",
+      "cas": "7631-86-9",
+      "country": "Китай",
+      "known_players": [
+        {
+          "name": "Evonik",
+          "aliases": ["AEROSIL", "Evonik Industries"],
+          "domain": "evonik.com",
+          "kind": "manufacturer",
+          "evidence": "AEROSIL — эталонная марка пирогенного диоксида кремния.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Cabot Corporation",
+          "aliases": ["CAB-O-SIL", "Cabot"],
+          "domain": "cabotcorp.com",
+          "kind": "manufacturer",
+          "evidence": "CAB-O-SIL.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Wacker Chemie",
+          "aliases": ["HDK", "Wacker"],
+          "domain": "wacker.com",
+          "kind": "manufacturer",
+          "evidence": "HDK.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Tokuyama",
+          "aliases": ["Tokuyama Corporation", "REOLOSIL"],
+          "domain": null,
+          "kind": "manufacturer",
+          "evidence": "REOLOSIL.",
+          "confidence": "industry_knowledge"
+        }
+      ]
+    },
+    {
+      "id": "epoxidized-soybean-oil",
+      "category": "with_cas",
+      "name": "Epoxidized soybean oil",
+      "cas": "8013-07-8",
+      "country": "Китай",
+      "known_players": [
+        {
+          "name": "Hairma Chemicals",
+          "aliases": ["Hairma", "海马"],
+          "domain": null,
+          "kind": "manufacturer",
+          "evidence": "Около 300 тыс. т/год, крупнейший в мире. Собственного сайта нет — проверка полноты на трудном случае.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Guangzhou Xinjinlong Chemical",
+          "aliases": ["Xinjinlong", "新金龙"],
+          "domain": null,
+          "kind": "manufacturer",
+          "evidence": "Около 100 тыс. т/год.",
+          "confidence": "industry_knowledge"
+        }
+      ]
+    },
+    {
+      "id": "zinc-ricinoleate",
+      "category": "with_cas",
+      "name": "Zinc ricinoleate",
+      "cas": "13040-19-2",
+      "country": "Китай",
+      "known_players": [
+        {
+          "name": "Evonik",
+          "aliases": ["TEGO Sorb", "Evonik Industries"],
+          "domain": "evonik.com",
+          "kind": "manufacturer",
+          "evidence": "TEGO Sorb — рицинолеат цинка для дезодорантов.",
+          "confidence": "industry_knowledge"
+        },
+        {
+          "name": "Acme Synthetic Chemicals",
+          "aliases": ["Acme Synthetic"],
+          "domain": "acmesynthetic.com",
+          "kind": "manufacturer",
+          "evidence": "Заявленная мощность 300 т/год, описан способ получения из оксида цинка и рицинолевой кислоты.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Chemneo",
+          "aliases": [],
+          "domain": "chemneo.com",
+          "kind": "manufacturer",
+          "evidence": "Заявлена пилотная линия до 1,5 т/сутки.",
+          "confidence": "verified"
+        },
+        {
+          "name": "DangTong Biological",
+          "aliases": ["DangTong"],
+          "domain": "dangtongbiological.com",
+          "kind": "trader",
+          "evidence": "Формулировка «processing and selling», признаков собственного производства нет.",
+          "confidence": "verified"
+        }
+      ]
+    },
+    {
+      "id": "dowsil-556",
+      "category": "trade_name",
+      "name": "Dowsil 556 Cosmetic Grade Fluid",
+      "cas": null,
+      "resolves_to": {
+        "inci": "Phenyl Trimethicone",
+        "cas": "70131-69-0"
+      },
+      "country": "Китай",
+      "known_players": [
+        {
+          "name": "Dow",
+          "aliases": ["Dow Inc.", "Dow Chemical", "DOWSIL"],
+          "domain": "dow.com",
+          "kind": "manufacturer",
+          "evidence": "Владелец марки, INCI Phenyl Trimethicone, CAS 70131-69-0.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Qingdao Hengda Chemical New Material",
+          "aliases": ["Hengda", "hengdasilane"],
+          "domain": "hengdasilane.com",
+          "kind": "manufacturer",
+          "evidence": "Phenyl Trimethicone CAS 70131-69-0, опубликована вязкость 20,8 мм²/с.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Topsilicone",
+          "aliases": ["TPD-556"],
+          "domain": "topsilicone.com",
+          "kind": "manufacturer",
+          "evidence": "Грейд TPD-556 — прямой эквивалент 556-го.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Silicorex",
+          "aliases": ["Silico PC19826", "PC19826"],
+          "domain": "silicorex.com",
+          "kind": "manufacturer",
+          "evidence": "Phenyl Trimethicone CAS 70131-69-0.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Safic-Alcan",
+          "aliases": [],
+          "domain": "safic-alcan.com",
+          "kind": "distributor",
+          "evidence": "Каталог Dow в разделе косметики, найден прогоном 58.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Univar Solutions",
+          "aliases": ["Univar"],
+          "domain": "univarsolutions.com",
+          "kind": "distributor",
+          "evidence": "Страница дистрибуции DOWSIL 556.",
+          "confidence": "verified"
+        }
+      ]
+    },
+    {
+      "id": "behenyldimethylamine",
+      "category": "plain_name",
+      "name": "Behenyldimethylamine",
+      "cas": null,
+      "resolves_to": {
+        "cas": "21542-96-1",
+        "note": "Встречается и 93164-85-3 — смесь C18-C22. Название неоднозначно."
+      },
+      "country": "Китай",
+      "known_players": [
+        {
+          "name": "Kao Chemicals",
+          "aliases": ["Kao Chemicals Europe", "Kao Corporation"],
+          "domain": "kaochemicals-eu.com",
+          "kind": "manufacturer",
+          "evidence": "N,N-Dimethyl Behenylamine в каталоге; Kao — мировой производитель жирных аминов.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Shandong Kerui Chemicals",
+          "aliases": ["Kerui Chemicals", "DMA22"],
+          "domain": "keruichemical.com",
+          "kind": "manufacturer",
+          "evidence": "Behenyl Dimethylamine DMA22, указана собственная площадка.",
+          "confidence": "verified"
+        },
+        {
+          "name": "BLIT Chemical",
+          "aliases": ["BLIT"],
+          "domain": "blitchem.com",
+          "kind": "manufacturer",
+          "evidence": "Behenyl Dimethylamine DMA22 CAS 21542-96-1, есть CoA и TDS.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Anhui Liwei Chemical",
+          "aliases": ["Liwei Chemical", "nj-finechem"],
+          "domain": "nj-finechem.com",
+          "kind": "manufacturer",
+          "evidence": "Octadecyl-Behenyl Dimethyl Amine, заявлен статус производителя, есть CoA и ISO.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Zhangjiagang Free Trade Zone Megawide Chemical",
+          "aliases": ["Megawide", "megawidechem"],
+          "domain": "made-in-china.com",
+          "kind": "marketplace",
+          "evidence": "Найден только витриной на made-in-china, собственный сайт в выдачу не попал.",
+          "confidence": "verified"
+        }
+      ]
+    }
+  ]
+}
