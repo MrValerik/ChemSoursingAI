@@ -84,6 +84,58 @@ def test_a_synonym_binds_too():
     assert mentions_substance("We produce ESBO", cas=None, names=["ESBO"])
 
 
+def test_the_same_name_written_apart_still_binds():
+    """Заявка пишет слитно, страница — раздельно. Вещество одно.
+
+    На прогоне 59 по Behenyldimethylamine отклонились все пять цитат о
+    роли производителя, включая «Behenyl dimethylamine, CAS No.
+    21542-96-1, DMA22 factory and manufacturers». Роль не подтвердилась
+    ни у одного кандидата, и короткий список не мог открыться — а без
+    номера так выглядят 170 позиций из списка заказчика.
+    """
+    names = ["Behenyldimethylamine"]
+    for quote in (
+        "Octadecyl-Behenyl Dimethyl Amine Manufacturer in China",
+        "Behenyl dimethylamine， CAS No. 21542-96-1， DMA22 factory",
+        "As an accredited Behenyl Dimethyl Amine factory",
+    ):
+        assert mentions_substance(quote, cas=None, names=names), quote
+
+
+def test_a_reordered_systematic_name_is_a_known_gap():
+    """«N,N-Dimethyl Behenylamine» — то же вещество, но порядок частей иной.
+
+    Сопоставление подстрокой этого не берёт, и честнее это записать, чем
+    делать вид, что случай закрыт. Лечится не кодом, а полем «Другие
+    названия того же вещества»: закупщик или агент кладёт туда вариант,
+    и он становится якорем наравне с основным.
+    """
+    quote = "N,N-Dimethyl Behenylamine production line"
+    assert mentions_substance(quote, cas=None, names=["Behenyldimethylamine"]) is False
+    assert mentions_substance(
+        quote, cas=None, names=["Behenyldimethylamine", "N,N-Dimethyl Behenylamine"]
+    )
+
+
+def test_dropping_separators_does_not_bind_a_different_substance():
+    """Убрали разделители — не значит «совпадает что угодно»."""
+    assert (
+        mentions_substance(
+            "We manufacture Cetearyl alcohol",
+            cas=None,
+            names=["Behenyldimethylamine"],
+        )
+        is False
+    )
+
+
+def test_the_number_binds_through_unicode_dashes():
+    """Китайская вёрстка пишет номер длинным тире."""
+    assert mentions_substance(
+        "己二酸 124–04–9 生产厂家", cas="124-04-9", names=["Adipic acid"]
+    )
+
+
 # --- проверка доказательства целиком ---
 
 

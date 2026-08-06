@@ -302,6 +302,21 @@ def looks_like_third_party_production_claim(quote: str) -> bool:
     return any(marker in lowered for marker in _THIRD_PARTY_PRODUCTION_MARKERS)
 
 
+def _collapsed(value: str) -> str:
+    """Название без разделителей: пробелов, дефисов, скобок и запятых.
+
+    Одно и то же вещество пишут и слитно, и раздельно: заявка говорит
+    «Behenyldimethylamine», страница — «Behenyl Dimethyl Amine». Для
+    поиска это одно слово, для сравнения подстрокой — разные.
+    """
+    return _NAME_SEPARATORS_RE.sub("", value or "").casefold()
+
+
+# _DASHES заканчивается обычным дефисом, поэтому идёт последним: внутри
+# класса дефис между символами читается как диапазон.
+_NAME_SEPARATORS_RE = re.compile(rf"[\s,;·'’`()\[\]{_DASHES}]+")
+
+
 def mentions_substance(quote: str, *, cas: str | None, names: list[str]) -> bool:
     """Говорит ли цитата об искомом веществе, а не о компании вообще.
 
@@ -309,13 +324,28 @@ def mentions_substance(quote: str, *, cas: str | None, names: list[str]) -> bool
     она производит именно это вещество — не подтверждает. На бетаине
     доказательством роли служила строка «Our Gelatin Factory»: завод
     настоящий, вещество другое.
+
+    Разделители при сравнении убираются. Без этого запрос без номера почти
+    всегда терял роль производителя: на Behenyldimethylamine отклонились
+    все пять цитат, включая «Behenyl dimethylamine, CAS No. 21542-96-1,
+    DMA22 factory and manufacturers» — вещество там названо дважды.
     """
     text = (quote or "").casefold()
     if not text:
         return False
-    if cas and normalize_cas(cas).casefold() in text:
+    if cas and page_cas_match(quote, cas):
         return True
-    return any(name.strip().casefold() in text for name in names if name.strip())
+    collapsed_text = _collapsed(quote)
+    for name in names:
+        cleaned = name.strip()
+        if not cleaned:
+            continue
+        if cleaned.casefold() in text:
+            return True
+        collapsed_name = _collapsed(cleaned)
+        if collapsed_name and collapsed_name in collapsed_text:
+            return True
+    return False
 
 
 # Юридические окончания названий компаний. По ним имя завода отличается от
