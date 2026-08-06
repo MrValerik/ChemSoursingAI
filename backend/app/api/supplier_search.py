@@ -1425,6 +1425,7 @@ def _company_site_plan_items(
     results: list[dict],
     *,
     country: str | None,
+    subject_names: list[str] | None = None,
     limit: int = _MAX_COMPANY_FOLLOW_UPS,
 ) -> list[SearchPlanItem]:
     """Имена компаний из выдачи — в запросы к их собственным сайтам.
@@ -1443,10 +1444,25 @@ def _company_site_plan_items(
         for item in results
     )
     known_hosts = " ".join(_domain_key(item.get("url", "")) for item in results)
+    # Само вещество тоже стоит рядом со словом о мощности: «环氧大豆油
+    # 产能» — это не завод, а предмет поиска. На прогоне 67 такие обрывки
+    # заняли два слота из трёх.
+    subject_keys = {
+        re.sub(r"\s+", "", (subject or "").casefold())
+        for subject in (subject_names or [])
+        if subject
+    }
     items: list[SearchPlanItem] = []
     for name in find_company_names(text):
         if len(items) >= limit:
             break
+        compact_name = re.sub(r"\s+", "", name.casefold())
+        if any(
+            compact_name in subject or subject in compact_name
+            for subject in subject_keys
+            if subject
+        ):
+            continue
         # Компанию, чей сайт уже в выдаче, второй раз искать незачем.
         compact = re.sub(r"[^0-9a-z]+", "", name.casefold())
         if len(compact) >= 6 and compact[:12] in known_hosts.replace("-", ""):
@@ -2070,7 +2086,15 @@ def execute_supplier_search(
     def _add_company_follow_ups() -> bool:
         nonlocal second_wave_done
         second_wave_done = True
-        extra = _company_site_plan_items(raw_results, country=data.country)
+        extra = _company_site_plan_items(
+            raw_results,
+            country=data.country,
+            subject_names=[
+                data.name,
+                *(data.known_synonyms or []),
+                *list(identity.search_names or []),
+            ],
+        )
         if not extra:
             return False
         worklist.extend(extra)

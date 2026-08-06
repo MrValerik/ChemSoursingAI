@@ -84,5 +84,31 @@ def test_a_brand_from_a_capacity_review_outranks_a_trading_house():
     assert all("贸易" not in query for query in queries)
 
 
+def test_the_substance_itself_is_not_mistaken_for_a_plant():
+    """«环氧大豆油产能» — мощность по веществу, а не имя завода.
+
+    На прогоне 67 два слота второго захода из трёх ушли на «环氧大豆油»
+    и «湖北环氧大豆油».
+    """
+    results = [_result(snippet="环氧大豆油产能 30 万吨，山东凯瑞产能 5 万吨")]
+
+    queries = [
+        item.query
+        for item in _company_site_plan_items(
+            results,
+            country="Китай",
+            subject_names=["Epoxidized soybean oil", "环氧大豆油"],
+        )
+    ]
+
+    assert all("环氧大豆油" not in query for query in queries)
+
+
+def test_a_regulation_title_is_not_a_company():
+    """«染物综合排放标准» — норматив, занявший слот на прогоне 68."""
+    results = [_result(snippet="染物综合排放标准产能要求")]
+    assert _company_site_plan_items(results, country="Китай") == []
+
+
 def test_an_empty_result_set_asks_nothing():
     assert _company_site_plan_items([], country="Китай") == []
