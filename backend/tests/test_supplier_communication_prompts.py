@@ -2,7 +2,10 @@
 
 import pytest
 
-from app.services.communication_testing import _plain_text_message
+from app.services.communication_testing import (
+    _message_language_matches,
+    _plain_text_message,
+)
 from app.services.supplier_communication_prompts import (
     CHANNEL_INSTRUCTIONS,
     FOLLOWUP_PROMPT,
@@ -84,6 +87,21 @@ This is a test message.
         "Thank you."
     )
     assert "*" not in result
+
+
+@pytest.mark.parametrize(
+    ("generated", "language", "expected"),
+    [
+        ("Здравствуйте, сообщите цену 2000 USD/kg и пришлите CoA.", "ru", True),
+        ("Hello, please provide your price and lead time.", "ru", False),
+        ("Hello, please quote аммиак CAS 7664-41-7.", "en", True),
+        ("Здравствуйте, пришлите цену и срок поставки.", "en", False),
+        ("您好，请提供价格和交货期。", "zh", True),
+        ("Hello, please provide your price.", "zh", False),
+    ],
+)
+def test_message_language_matches_selected_script(generated, language, expected):
+    assert _message_language_matches(generated, language) is expected
 
 
 @pytest.mark.parametrize(

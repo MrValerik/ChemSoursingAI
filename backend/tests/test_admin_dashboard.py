@@ -6,10 +6,11 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test_admin.db")
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.core.db import SessionLocal, engine
 from app.main import app
-from app.models import IntegrationSetting
+from app.models import CommunicationTestRun, IntegrationSetting
 
 
 @pytest.fixture(scope="module")
@@ -380,3 +381,89 @@ def test_communication_testing_preview_and_explicit_delivery(
     assert history.status_code == 200
     assert len(history.json()) >= 3
     assert history.json()[0]["messages"][0]["sender_role"] == "assistant"
+
+
+def test_communication_testing_regenerates_reply_in_selected_language(
+    client, monkeypatch
+):
+    admin = _login(client)
+    generated = iter(
+        (
+            "Hello. Please provide your price and lead time.",
+            "Здравствуйте. Сообщите, пожалуйста, цену и срок поставки.",
+        )
+    )
+    llm_calls = []
+
+    def fake_generate_text(self, **kwargs):
+        llm_calls.append(kwargs)
+        return next(generated)
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        fake_generate_text,
+    )
+
+    response = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "recipient": "",
+            "procurement_context": "50 кг аммиака",
+            "reply_language": "ru",
+            "delivery_mode": "preview",
+            "confirm_external_send": False,
+        },
+        headers=admin,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["generated_reply"].startswith("Здравствуйте")
+    assert len(llm_calls) == 2
+    assert "ОБЯЗАТЕЛЬНЫЙ ЯЗЫК" in llm_calls[0]["additional_instructions"]
+    assert "предыдущая попытка" in llm_calls[1]["additional_instructions"]
+    assert "строго соблюдай язык: русском" in llm_calls[1]["additional_instructions"]
+
+
+def test_communication_testing_stops_send_after_two_wrong_language_replies(
+    client, monkeypatch
+):
+    admin = _login(client)
+    smtp_calls = []
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        lambda self, **kwargs: "Hello. Please provide your price and lead time.",
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.EmailConnector.send",
+        lambda self, **kwargs: smtp_calls.append(kwargs) or "unexpected",
+    )
+
+    response = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "recipient": "owner@example.com",
+            "procurement_context": "50 кг аммиака",
+            "reply_language": "ru",
+            "delivery_mode": "send",
+            "confirm_external_send": True,
+        },
+        headers=admin,
+    )
+
+    assert response.status_code == 503
+    assert "дважды вернула сообщение не на выбранном русском языке" in response.json()[
+        "detail"
+    ]
+    assert smtp_calls == []
+    with SessionLocal() as db:
+        saved = db.scalar(
+            select(CommunicationTestRun).order_by(CommunicationTestRun.id.desc())
+        )
+        assert saved is not None
+        assert saved.status == "llm_error"
+        assert saved.generated_reply is None
+        assert saved.error is not None
+        assert "Отправка остановлена" in saved.error

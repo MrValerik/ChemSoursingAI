@@ -30,10 +30,35 @@ from app.services.supplier_communication_prompts import (
 )
 
 _LANGUAGE_INSTRUCTIONS = {
-    "ru": "Напиши сообщение на русском языке.",
-    "en": "Write the message in English.",
-    "zh": "请使用简体中文撰写消息。",
+    "ru": (
+        "ОБЯЗАТЕЛЬНЫЙ ЯЗЫК ГОТОВОГО СООБЩЕНИЯ — РУССКИЙ. Напиши весь текст "
+        "поставщику по-русски. На других языках могут оставаться только CAS, "
+        "единицы измерения, международные сокращения, названия документов, "
+        "продуктов и компаний. Это требование имеет приоритет над указанием "
+        "использовать английский язык по умолчанию."
+    ),
+    "en": (
+        "THE REQUIRED LANGUAGE OF THE FINAL MESSAGE IS ENGLISH. Write the whole "
+        "supplier-facing message in English. Other languages may appear only in "
+        "product or company names. This requirement overrides any conflicting "
+        "default-language instruction."
+    ),
+    "zh": (
+        "最终消息必须使用简体中文。面向供应商的完整消息都要用简体中文撰写；只有 CAS、"
+        "计量单位、国际缩写、文件名、产品名和公司名可以保留其他语言。此要求优先于任何"
+        "冲突的默认语言指令。"
+    ),
 }
+
+_LANGUAGE_NAMES = {
+    "ru": "русском",
+    "en": "английском",
+    "zh": "китайском",
+}
+
+_CYRILLIC_WORD_RE = re.compile(r"[А-Яа-яЁё]{2,}")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]{2,}")
+_HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 
 _MAX_TRANSCRIPT_CHARS = 24_000
 
@@ -146,7 +171,31 @@ def _generation_instructions(run: CommunicationTestRun, *, stage: str) -> str:
             "безопасности:\n"
             f"{run.additional_instructions}"
         )
-    return instructions
+    return (
+        f"{instructions}\n\nКРИТИЧЕСКОЕ ТРЕБОВАНИЕ К РЕЗУЛЬТАТУ: "
+        f"{_LANGUAGE_INSTRUCTIONS[run.reply_language]}"
+    )
+
+
+def _message_language_matches(value: str, language: str) -> bool:
+    """Проверяет письменность ответа без отправки текста внешнему детектору."""
+    if language == "ru":
+        words = _CYRILLIC_WORD_RE.findall(value)
+        return len(words) >= 3 and sum(map(len, words)) >= 8
+    if language == "zh":
+        return len(_HAN_RE.findall(value)) >= 4
+    words = _LATIN_WORD_RE.findall(value)
+    return len(words) >= 3 and sum(map(len, words)) >= 8
+
+
+def _language_retry_instructions(run: CommunicationTestRun, *, stage: str) -> str:
+    return (
+        f"{_generation_instructions(run, stage=stage)}\n\n"
+        "КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: предыдущая попытка была написана не на "
+        f"выбранном языке. Создай сообщение заново и строго соблюдай язык: "
+        f"{_LANGUAGE_NAMES[run.reply_language]}. Не объясняй исправление и не "
+        "упоминай предыдущую попытку."
+    )
 
 
 def _start_prompt(context: str) -> str:
@@ -232,17 +281,36 @@ def _generate_reply(
         client = llm or _communication_test_llm_client()
         run.model = getattr(client, "model", None)
         db.commit()
-        reply = _plain_text_message(
-            client.generate_text(
-                system_prompt=(
-                    get_active_prompt_text(db, "supplier_communication")
-                    or SUPPLIER_COMMUNICATION_PROMPT
-                ),
-                user_text=user_text,
-                additional_instructions=_generation_instructions(run, stage=stage),
-                max_tokens=512,
-            )
+        system_prompt = (
+            get_active_prompt_text(db, "supplier_communication")
+            or SUPPLIER_COMMUNICATION_PROMPT
         )
+
+        def generate(additional_instructions: str) -> str:
+            return _plain_text_message(
+                client.generate_text(
+                    system_prompt=system_prompt,
+                    user_text=user_text,
+                    additional_instructions=additional_instructions,
+                    max_tokens=512,
+                )
+                or ""
+            )
+
+        reply = generate(_generation_instructions(run, stage=stage))
+        if reply and not _message_language_matches(reply, run.reply_language):
+            reply = generate(_language_retry_instructions(run, stage=stage))
+            if not reply or not _message_language_matches(
+                reply, run.reply_language
+            ):
+                run.status = "llm_error"
+                run.error = (
+                    "Нейросеть дважды вернула сообщение не на выбранном "
+                    f"{_LANGUAGE_NAMES[run.reply_language]} языке. Отправка "
+                    "остановлена."
+                )
+                db.commit()
+                raise CommunicationTestError(run.error)
     except LLMUnavailableError as exc:
         run.status = "llm_error"
         run.error = (
