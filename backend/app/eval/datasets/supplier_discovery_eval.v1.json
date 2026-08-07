@@ -1,7 +1,7 @@
 {
   "dataset_version": "v1",
   "purpose": "Эталон для замера поиска контрагентов: кого система обязана найти и кем он на самом деле является. Отдельно — страницы площадок, которые она обязана НЕ пускать в кандидаты.",
-  "note": "Набор известных игроков, а не полный рынок. Полнота меряется как доля найденных из известных; кандидаты вне набора выводятся отдельным списком для ручной разметки и пополнения эталона. Спорные случаи не размечаются наугад, а лежат в unresolved: неверная метка портит замер сильнее, чем отсутствующая.",
+  "note": "Набор известных игроков, а не полный рынок. Полнота меряется как доля найденных из известных; кандидаты вне набора выводятся отдельным списком для ручной разметки и пополнения эталона. Спорные случаи не размечаются наугад, а лежат в unresolved: неверная метка портит замер сильнее, чем отсутствующая. Марки продуктов в псевдонимах не хранятся: страницу с заголовком «AEROSIL» держит перепродавец, и сопоставление по марке засчитывает владельца бренда найденным там, где его нет.",
   "kinds": {
     "manufacturer": "Производит вещество сам: есть завод, мощность, производственная площадка.",
     "distributor": "Официально распространяет чужой продукт: авторизация, склад, представительство.",
@@ -159,7 +159,6 @@
         {
           "name": "Lubrizol",
           "aliases": [
-            "Carbopol",
             "Lubrizol Advanced Materials"
           ],
           "domain": "lubrizol.com",
@@ -257,7 +256,6 @@
         {
           "name": "Evonik",
           "aliases": [
-            "AEROSIL",
             "Evonik Industries"
           ],
           "domain": "evonik.com",
@@ -268,7 +266,6 @@
         {
           "name": "Cabot Corporation",
           "aliases": [
-            "CAB-O-SIL",
             "Cabot"
           ],
           "domain": "cabotcorp.com",
@@ -279,7 +276,6 @@
         {
           "name": "Wacker Chemie",
           "aliases": [
-            "HDK",
             "Wacker"
           ],
           "domain": "wacker.com",
@@ -290,8 +286,7 @@
         {
           "name": "Tokuyama",
           "aliases": [
-            "Tokuyama Corporation",
-            "REOLOSIL"
+            "Tokuyama Corporation"
           ],
           "domain": null,
           "kind": "manufacturer",
@@ -359,6 +354,17 @@
           "kind": "distributor",
           "evidence": "Стандартные образцы и реактивы.",
           "confidence": "industry_knowledge"
+        },
+        {
+          "name": "HIFULL (Hubei Huifu)",
+          "aliases": [
+            "Hubei Huifu",
+            "湖北汇富"
+          ],
+          "domain": "hifull.net",
+          "kind": "manufacturer",
+          "evidence": "Собственный завод в Ичане, провинция Хубэй; годовой выпуск пирогенного кремнезёма около 12 000 т, фармацевтические грейды HL-200/300/380. Найден прогоном 146 по запросу «AEROSIL (manufacturer OR factory) China» — то есть именно раскрытием марки, а не номером из заявки.",
+          "confidence": "verified"
         }
       ],
       "unresolved": [
@@ -500,7 +506,6 @@
         {
           "name": "Evonik",
           "aliases": [
-            "TEGO Sorb",
             "Evonik Industries"
           ],
           "domain": "evonik.com",
@@ -553,8 +558,7 @@
           "name": "Dow",
           "aliases": [
             "Dow Inc.",
-            "Dow Chemical",
-            "DOWSIL"
+            "Dow Chemical"
           ],
           "domain": "dow.com",
           "kind": "manufacturer",
@@ -584,10 +588,7 @@
         },
         {
           "name": "Silicorex",
-          "aliases": [
-            "Silico PC19826",
-            "PC19826"
-          ],
+          "aliases": [],
           "domain": "silicorex.com",
           "kind": "manufacturer",
           "evidence": "Phenyl Trimethicone CAS 70131-69-0.",
@@ -658,8 +659,7 @@
         {
           "name": "Shandong Kerui Chemicals",
           "aliases": [
-            "Kerui Chemicals",
-            "DMA22"
+            "Kerui Chemicals"
           ],
           "domain": "keruichemical.com",
           "kind": "manufacturer",
