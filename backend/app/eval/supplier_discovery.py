@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from app.services.intermediaries import marketplace_page_kind
+
 DATASET_DIR = Path(__file__).resolve().parent / "datasets"
 
 # Площадки среди игроков не значатся намеренно: их не надо находить, их
@@ -214,12 +216,19 @@ def score_substance(
     }
     matched_names: set[str] = set()
     for candidate in candidates:
-        host = host_of(candidate.get("url", ""))
-        if host and any(
+        url = str(candidate.get("url") or "")
+        host = host_of(url)
+        on_platform = host and any(
             host == domain or host.endswith("." + domain)
             for domain in filtered_hosts
             if domain
-        ):
+        )
+        # Магазин одной компании на домене площадки протечкой не считается.
+        # Продукт держит его прямым источником намеренно: он называет
+        # предприятие. Замер считал площадкой любой адрес на домене и
+        # записывал в протечки «chemball.cn/factory/zimbir/product.html» —
+        # страницу компании, которую сам же код зовёт витриной магазина.
+        if on_platform and marketplace_page_kind(url) != "storefront":
             report.leaked_marketplaces.append(host)
             continue
         player = match_player(candidate, players)

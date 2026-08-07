@@ -102,6 +102,39 @@ def test_a_foreign_player_that_is_found_is_reported_apart():
     assert report.missed == ["Китайский завод"]
 
 
+def test_a_company_shop_on_a_platform_is_not_a_leak():
+    """Продукт держит магазин компании прямым источником намеренно.
+
+    Замер считал площадкой любой адрес на её домене и записывал в
+    протечки «chemball.cn/factory/zimbir/product.html» — страницу
+    компании, которую сам код зовёт витриной магазина.
+    """
+    substance = {
+        "id": "проба",
+        "category": "with_cas",
+        "country": "Китай",
+        "known_players": [
+            {"name": "Завод", "aliases": [], "domain": "factory.cn",
+             "kind": "manufacturer", "confidence": "verified",
+             "country": "Китай"},
+        ],
+        "should_be_filtered": [{"domain": "chemball.cn", "name": "Chemball"}],
+    }
+
+    report = score_substance(
+        substance,
+        [
+            {"company_name": "Магазин компании",
+             "url": "https://www.chemball.cn/factory/zimbir/product.html"},
+            {"company_name": "Перечень",
+             "url": "https://www.chemball.cn/cas/7631-86-9.html"},
+        ],
+    )
+
+    assert report.leaked_marketplaces == ["chemball.cn"]
+    assert len(report.unlabelled) == 1
+
+
 def test_a_filtered_marketplace_is_not_counted_as_a_miss():
     """Отсев площадок — требуемое поведение, а не потеря полноты."""
     substance = {
