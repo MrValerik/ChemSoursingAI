@@ -2118,6 +2118,15 @@ def execute_supplier_search(
     def _add_company_follow_ups() -> bool:
         nonlocal second_wave_done
         second_wave_done = True
+        # Иероглифические имена вещества берём из собственных запросов:
+        # всё, что мы искали сами, — предмет поиска, а не компания. Без
+        # этого второй заход спрашивал «卡波姆树脂 官网», то есть про сам
+        # карбомер: в identity.search_names лежит одна латиница.
+        subject_cjk = [
+            token
+            for query in attempted_queries
+            for token in re.findall(r"[一-鿿]{2,}", query)
+        ]
         extra = _company_site_plan_items(
             raw_results,
             country=data.country,
@@ -2125,6 +2134,7 @@ def execute_supplier_search(
                 data.name,
                 *(data.known_synonyms or []),
                 *list(identity.search_names or []),
+                *subject_cjk,
             ],
         )
         if not extra:

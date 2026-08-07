@@ -545,7 +545,6 @@ def build_search_queries(
     # лидеров рынка, а эти два семейства нашли всех.
     if profile.native_output_query:
         candidates.append(profile.native_output_query.format(subject=subject))
-    candidates.append(f"{subject} {profile.output_terms}{country_term}")
 
     candidates.append(f"{subject} {profile.role_terms}{country_term}")
 
@@ -580,6 +579,18 @@ def build_search_queries(
         candidates.append(f"{name} {profile.role_terms}{country_term}")
     elif not _is_quotable(base_name):
         candidates.append(f"{base_name} {profile.role_terms}{country_term}")
+
+    # Английский запрос о выпуске ушёл из головы плана в хвост. Голова
+    # обязательная, а план ограничен восемью запросами: два запроса о
+    # мощности вытесняли с конца запросы планировщика. На карбомере это
+    # стоило трёх находок — прогон 47 находил Newman и Lubrizol запросами
+    # «COA», «specification», «MSDS», а прогон 115 их уже не делал.
+    #
+    # Тоннаж печатает многотоннажное производство. Для специальной химии
+    # такой запрос почти пуст: у карбомера он дал 2 результата против 9 у
+    # адипиновой кислоты. Родной язык рынка остаётся в голове — он полезен
+    # для обоих, — а английский вариант выполняется, если бюджет позволит.
+    candidates.append(f"{subject} {profile.output_terms}{country_term}")
 
     if profile.site_scope:
         candidates.append(f"{subject} {profile.role_terms} {profile.site_scope}")

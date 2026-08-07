@@ -104,6 +104,27 @@ def test_the_substance_itself_is_not_mistaken_for_a_plant():
     assert all("环氧大豆油" not in query for query in queries)
 
 
+def test_a_chinese_name_of_the_substance_is_filtered_too():
+    """Иероглифическое имя вещества приходит из наших же запросов.
+
+    На прогоне 115 второй заход спросил «卡波姆树脂 官网» — это карбомерная
+    смола, то есть предмет поиска. В identity.search_names лежала одна
+    латиница, и фильтр его не узнал.
+    """
+    results = [_result(snippet="卡波姆树脂产能 5 万吨，山东凯瑞产能 3 万吨")]
+
+    queries = [
+        item.query
+        for item in _company_site_plan_items(
+            results,
+            country="Китай",
+            subject_names=["Carbomer", "卡波姆", "卡波姆树脂"],
+        )
+    ]
+
+    assert all("卡波姆" not in query for query in queries)
+
+
 def test_a_regulation_title_is_not_a_company():
     """«染物综合排放标准» — норматив, занявший слот на прогоне 68."""
     results = [_result(snippet="染物综合排放标准产能要求")]
