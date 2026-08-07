@@ -1439,8 +1439,17 @@ def test_multiple_marketplace_cards_survive_deduplication(client, monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["search_strategy"] == "direct_sites_first"
-    assert payload["results"] == [], "список продавцов не должен тратить бюджет"
-    assert payload["intermediary_results"], "и не должен теряться"
+    # Раньше здесь ожидался пустой результат: площадка не должна тратить
+    # бюджет загрузки. Правило осталось — но только пока есть что грузить
+    # вместо неё. После расширения реестра «вся выдача — площадки» стало
+    # обычным исходом: у карбомера в отсев уходили все 25 ссылок, у Dowsil
+    # все 29, и закупщик не получал ничего. Пустой ответ хуже витрины,
+    # роль которой всё равно будет названа воротами статуса.
+    assert payload["results"], "пустой ответ хуже площадки"
+    assert all(
+        item["url"].startswith("https://www.echemi.com")
+        for item in payload["results"]
+    )
 
     everyone = client.post(
         "/supplier-search",
