@@ -283,7 +283,13 @@ _THIRD_PARTY_PRODUCTION_MARKERS = (
 
 # Разделители, которыми в заголовке страницы отбивают имя бренда:
 # «China Adipic Acid Manufacturer and Supplier | AOJIN».
-_TITLE_SEPARATORS = ("|", "｜", " – ", " — ", " :: ", " » ")
+#
+# Обычный дефис с пробелами добавлен 7 августа 2026: им отбита половина
+# найденных заголовков — «Zinc Ricinoleate Manufacturer & Supplier in China
+# - Echo Chemtech Co., Ltd.», — а правило их пропускало из-за одного
+# отсутствующего символа. Замер по 69 принятым цитатам о роли: отсекает
+# пять, все до одной — шапки товарных страниц.
+_TITLE_SEPARATORS = ("|", "｜", " – ", " — ", " - ", " :: ", " » ")
 _ROLE_NOUNS = (
     "manufacturer",
     "manufacturers",
@@ -291,6 +297,15 @@ _ROLE_NOUNS = (
     "suppliers",
     "factory",
     "factories",
+    # Слова продавца, а не завода. Стоят в шапках того же вида, и по одной
+    # из них — «Top Zinc Ricinoleate Exporter from China - Wholesale
+    # Solutions» — компания получала статус производителя. Список читает
+    # только запрет на заголовок, и только для заявления о производстве,
+    # так что признак торговой роли он не заденет.
+    "exporter",
+    "exporters",
+    "wholesaler",
+    "wholesalers",
     "производитель",
     "поставщик",
     "生产厂家",
@@ -319,7 +334,13 @@ def looks_like_page_title(quote: str) -> bool:
     if not any(separator in text for separator in _TITLE_SEPARATORS):
         return False
     low = text.casefold()
-    return any(noun in low for noun in _ROLE_NOUNS)
+    if not any(noun in low for noun in _ROLE_NOUNS):
+        return False
+    # Та же оговорка, что и у рекламных шапок: строка с годовым выпуском
+    # или собственной площадкой утверждает факт, даже если набрана как
+    # заголовок. Без неё расширенный набор разделителей отбрасывал бы
+    # «Our own factory in Shandong - 20,000 tons per year».
+    return not (_CAPACITY_RE.search(text) or _PLANT_RE.search(text))
 
 
 def looks_like_role_keyword_stuffing(quote: str) -> bool:
@@ -566,6 +587,13 @@ _LEADING_BOILERPLATE = (
     "one of the largest",
     "one of the most professional",
     "one of the professional",
+    # Найдены замером 7 августа 2026 среди принятых цитат о роли: те же
+    # обороты, что и выше, но мимо списка из-за артикля или прилагательного.
+    "one of the most reliable",
+    "one of the most trusted",
+    "one of the most experienced",
+    "a leading manufacturer",
+    "a leading supplier",
     "leading manufacturer and supplier",
     "leading manufacturers and suppliers",
     "professional manufacturer and supplier",

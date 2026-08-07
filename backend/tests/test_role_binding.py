@@ -95,6 +95,51 @@ def test_an_ordinary_sentence_is_not_a_title():
     assert not looks_like_page_title("年产 20000 吨己二酸生产线")
 
 
+def test_a_plain_hyphen_separates_a_title_too():
+    """Один недостающий символ пропускал половину заголовков.
+
+    В списке разделителей были « – » и « — », но не обычный дефис с
+    пробелами — а им отбита шапка «Zinc Ricinoleate Manufacturer &
+    Supplier in China - Echo Chemtech Co., Ltd.». Замер по 69 принятым
+    цитатам о роли: дефис отсекает пять, все до одной — шапки товарных
+    страниц.
+    """
+    from app.services.page_facts import looks_like_page_title
+
+    assert looks_like_page_title(
+        "Zinc Ricinoleate Manufacturer & Supplier in China - Echo Chemtech Co., Ltd."
+    )
+    assert looks_like_page_title(
+        "Top Zinc Ricinoleate Exporter from China - High-Quality Wholesale Solutions"
+    )
+
+
+def test_a_verifiable_detail_survives_the_wider_separator():
+    """Строка с выпуском или площадкой утверждает факт, а не рекламирует.
+
+    Оговорка нужна именно из-за обычного дефиса: он часто стоит внутри
+    обычного предложения, а не только в теге title.
+    """
+    from app.services.page_facts import looks_like_page_title
+
+    assert not looks_like_page_title(
+        "Our own factory in Shandong - annual capacity is 20,000 tons"
+    )
+
+
+def test_the_same_boilerplate_with_an_article_is_caught():
+    """«a Leading Manufacturer» — тот же оборот, что «one of the leading»."""
+    from app.services.page_facts import looks_like_leading_supplier_boilerplate
+
+    assert looks_like_leading_supplier_boilerplate(
+        "a high quality product from Simson Pharma Limited, a Leading Manufacturer"
+    )
+    assert looks_like_leading_supplier_boilerplate(
+        "Foshan Chancheng Chang Jiang Plastic Additives Co., Ltd. is one of the "
+        "most reliable manufacturers and suppliers of epoxidized soybean oil"
+    )
+
+
 def test_a_separator_without_a_role_word_is_not_a_title():
     from app.services.page_facts import looks_like_page_title
 
