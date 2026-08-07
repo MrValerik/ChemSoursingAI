@@ -106,11 +106,28 @@ def test_the_other_number_is_searched_with_the_name():
     assert any("9007-20-9" in q and "Carbomer" in q for q in queries)
 
 
-def test_aliases_do_not_displace_the_mandatory_head():
-    """Добытое агентом полезно, но проверенное вытеснять не должно."""
-    without = _plan(None)
-    with_aliases = _plan(
+def test_the_grade_query_is_reached_before_the_plan_is_cut():
+    """В хвосте марка не работает: план обрезается на восьми запросах.
+
+    Первый прогон это и показал — этап вернул 9007-20-9 и Carbopol, а
+    поиск шёл по-прежнему только по 9003-01-4.
+    """
+    queries = _plan(
         MarketAliases(alternative_cas=["9007-20-9"], grade_names=["Carbopol 940"])
     )
+    grade_position = next(
+        index for index, query in enumerate(queries) if "Carbopol 940" in query
+    )
+    number_position = next(
+        index for index, query in enumerate(queries) if "9007-20-9" in query
+    )
 
-    assert with_aliases[: len(without)] == without
+    assert grade_position < 4, queries[:6]
+    assert number_position < 5, queries[:6]
+
+
+def test_the_market_language_query_still_comes_first():
+    """Голову плана марка занимает не целиком: проверенное идёт раньше."""
+    queries = _plan(MarketAliases(grade_names=["Carbopol 940"]))
+    assert "Carbomer" in queries[0]
+    assert "Carbopol" not in queries[0]

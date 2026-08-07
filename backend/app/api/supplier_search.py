@@ -1276,20 +1276,29 @@ def _fallback_search_plan(
         analog_reference=data.analog_reference,
         specification=data.specification,
     )
-    # Марки и другие номера идут после обязательной головы: они полезны,
-    # но добыты агентом, а не справочником, и вытеснять проверенное ими
-    # нельзя. Марка ищется без номера — в том и смысл: у карбомера номер
-    # из заявки отсекал весь рынок.
+    # Марка и другой номер встают в обязательную голову плана, сразу за
+    # заходом без номера. В хвосте они не работают: план обрезается на
+    # восьми запросах, и первый же прогон показал, что до них очередь не
+    # доходит — этап вернул 9007-20-9 и Carbopol, а искали по-прежнему
+    # только 9003-01-4. Смысл ровно в том, чтобы спросить рынок его
+    # словами, поэтому место им среди обязательных.
     if aliases:
         profile = market_profile(data.country)
         localised = profile.country_term or data.country
         country_term = f" {localised}" if localised else ""
-        for grade in aliases.grade_names[:2]:
+        head: list[str | None] = [
+            f'"{grade}" {profile.role_terms}{country_term}'
+            for grade in aliases.grade_names[:1]
+        ]
+        head += [
+            f'"{data.name}" "{number}" {profile.role_terms}{country_term}'
+            for number in aliases.alternative_cas[:1]
+        ]
+        # Позиция 2 — сразу после запроса на языке рынка и захода без
+        # номера, но до слов о мощности.
+        queries[2:2] = head
+        for grade in aliases.grade_names[1:3]:
             queries.append(f'"{grade}" {profile.role_terms}{country_term}')
-        for number in aliases.alternative_cas[:2]:
-            queries.append(
-                f'"{data.name}" "{number}" {profile.role_terms}{country_term}'
-            )
     items: list[SearchPlanItem] = []
     for index, query in enumerate(queries):
         language: Literal["en", "zh", "ru", "other"] = (
