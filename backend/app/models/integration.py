@@ -81,7 +81,7 @@ class CommunicationTestMessage(Base, TimestampMixin):
         String(32), default="previewed"
     )
     provider_message_id: Mapped[str | None] = mapped_column(
-        String(255), default=None
+        String(255), default=None, unique=True, index=True
     )
 
     run: Mapped["CommunicationTestRun"] = relationship(back_populates="messages")

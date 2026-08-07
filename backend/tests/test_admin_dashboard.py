@@ -310,9 +310,12 @@ def test_communication_testing_preview_and_explicit_delivery(
     )
     assert not_confirmed.status_code == 422
 
+    provider_ids = iter(
+        ("<test-message@example.com>", "<test-followup@example.com>")
+    )
     monkeypatch.setattr(
         "app.services.communication_testing.EmailConnector.send",
-        lambda self, **kwargs: "<test-message@example.com>",
+        lambda self, **kwargs: next(provider_ids),
     )
     sent_email = client.post(
         "/communication-testing",

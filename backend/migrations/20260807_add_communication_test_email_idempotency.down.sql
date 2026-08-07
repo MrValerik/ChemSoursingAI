@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS ix_communication_test_messages_provider_message_id;

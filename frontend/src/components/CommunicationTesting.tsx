@@ -4,19 +4,27 @@ import type { CommunicationTestRun } from "../api/types";
 import { Field, Input, Select, Textarea } from "./ui";
 
 const STATUS_LABELS: Record<string, string> = {
+  classifying: "Проверка ответа поставщика",
   generating: "Нейросеть формирует сообщение",
   previewed: "Диалог активен",
+  sending: "Отправка сообщения",
   sent: "Сообщение отправлено",
+  escalated: "Требуется ответ человека",
   llm_error: "Ошибка нейросети",
   delivery_error: "Ошибка доставки",
+  processing_error: "Ошибка обработки",
 };
 
 const STATUS_TONES: Record<string, string> = {
+  classifying: "tone-info",
   generating: "tone-info",
   previewed: "tone-ok",
+  sending: "tone-info",
   sent: "tone-ok",
+  escalated: "tone-warn",
   llm_error: "tone-warn",
   delivery_error: "tone-warn",
+  processing_error: "tone-warn",
 };
 
 export default function CommunicationTesting() {
@@ -36,11 +44,19 @@ export default function CommunicationTesting() {
   const [error, setError] = useState<string | null>(null);
 
   const loadHistory = async () => {
-    setHistory(await api.listCommunicationTests());
+    const items = await api.listCommunicationTests();
+    setHistory(items);
+    setActive((current) =>
+      current ? (items.find((item) => item.id === current.id) ?? current) : current,
+    );
   };
 
   useEffect(() => {
     loadHistory().catch((reason) => setError(String(reason)));
+    const interval = window.setInterval(() => {
+      loadHistory().catch(() => undefined);
+    }, 5000);
+    return () => window.clearInterval(interval);
   }, []);
 
   const startDialog = async () => {
@@ -230,7 +246,14 @@ export default function CommunicationTesting() {
               onChange={(event) => setInstructions(event.target.value)}
             />
           </Field>
-          {deliveryMode === "send" && (
+          {deliveryMode === "send" && channel === "email" && (
+            <p className="external-action-warning">
+              Первое письмо будет отправлено после подтверждения. Ответы на него
+              проверяются автоматически: по обычным условиям закупки нейросеть
+              продолжит Email-цепочку, а нестандартный вопрос передаст человеку.
+            </p>
+          )}
+          {deliveryMode === "send" && channel === "whatsapp" && (
             <p className="external-action-warning">
               Это реальное внешнее действие. Каждая отправка потребует отдельного
               подтверждения.
@@ -274,7 +297,10 @@ export default function CommunicationTesting() {
                     <span className="communication-message-role">
                       {message.sender_role === "assistant"
                         ? "Нейросеть · покупатель"
-                        : "Вы · поставщик"}
+                        : active.channel === "email" &&
+                            active.delivery_mode === "send"
+                          ? "Поставщик · Email"
+                          : "Вы · поставщик"}
                     </span>
                     <div>{message.content}</div>
                   </div>

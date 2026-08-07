@@ -104,6 +104,16 @@ class Settings(BaseSettings):
     smtp_password: str = Field(default="")
     smtp_use_ssl: bool = Field(default=True)
     smtp_starttls: bool = Field(default=False)
+    # Автоответы относятся только к явно запущенным администратором реальным
+    # тестовым диалогам. По умолчанию worker выключен, чтобы dev/demo никогда
+    # не начинал внешнюю переписку сам.
+    communication_test_email_auto_reply_enabled: bool = Field(default=False)
+    communication_test_email_poll_interval_s: int = Field(
+        default=30, ge=10, le=3600
+    )
+    communication_test_email_poll_batch_size: int = Field(
+        default=20, ge=1, le=100
+    )
 
     # --- WhatsApp Cloud API — этап интеграций ---
     whatsapp_token: str = Field(default="")

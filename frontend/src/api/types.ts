@@ -415,11 +415,15 @@ export interface CommunicationTestRun {
   reply_language: "ru" | "en" | "zh";
   delivery_mode: "preview" | "send";
   status:
+    | "classifying"
     | "generating"
     | "previewed"
+    | "sending"
     | "sent"
+    | "escalated"
     | "llm_error"
-    | "delivery_error";
+    | "delivery_error"
+    | "processing_error";
   provider_message_id: string | null;
   error: string | null;
   created_at: string;
