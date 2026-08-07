@@ -412,7 +412,7 @@ export interface CommunicationTestRun {
   additional_instructions: string | null;
   generated_reply: string | null;
   model: string | null;
-  reply_language: "ru" | "en" | "zh";
+  reply_language: "en";
   delivery_mode: "preview" | "send";
   status:
     | "classifying"
@@ -434,6 +434,7 @@ export interface CommunicationTestMessage {
   id: number;
   sender_role: "assistant" | "supplier";
   content: string;
+  translation_ru: string | null;
   delivery_status: string;
   provider_message_id: string | null;
   created_at: string;

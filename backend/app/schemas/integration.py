@@ -139,10 +139,12 @@ class CommunicationTestCreate(BaseModel):
     procurement_context: str = Field(default="", max_length=8000)
     # Старое имя принимается временно, чтобы не ломать существующих клиентов.
     customer_message: str = Field(default="", max_length=8000)
-    reply_language: Literal["ru", "en", "zh"] = "en"
+    # Внешние переговоры ведутся на английском. Поле оставлено для обратной
+    # совместимости, но иное значение отклоняется на границе API.
+    reply_language: Literal["en"] = "en"
     additional_instructions: str = Field(default="", max_length=2000)
     delivery_mode: Literal["preview", "send"] = "preview"
-    subject: str = Field(default="Тест ChemSource AI", max_length=998)
+    subject: str = Field(default="Request for quotation", max_length=998)
     confirm_external_send: bool = False
 
     @field_validator(
@@ -203,6 +205,7 @@ class CommunicationTestMessageRead(BaseModel):
     id: int
     sender_role: Literal["assistant", "supplier"]
     content: str
+    translation_ru: str | None
     delivery_status: str
     provider_message_id: str | None
     created_at: datetime

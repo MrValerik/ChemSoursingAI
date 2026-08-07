@@ -17,6 +17,7 @@ from app.services.communication_testing import (
     _communication_test_llm_client,
     _continue_prompt,
     _generate_reply,
+    _translate_for_user,
 )
 from app.services.integration_settings import effective_email_settings
 
@@ -211,6 +212,20 @@ def sync_communication_test_email(
                 rfq_cas=None,
                 llm=client,
             )
+            incoming_record = next(
+                (
+                    item
+                    for item in run.messages
+                    if item.provider_message_id == incoming.message_id
+                ),
+                None,
+            )
+            if incoming_record is not None and incoming_record.translation_ru is None:
+                incoming_record.translation_ru = _translate_for_user(
+                    incoming.text,
+                    llm=client,
+                )
+                db.commit()
             if not policy.auto_reply_allowed:
                 _escalate(
                     db,
@@ -232,11 +247,13 @@ def sync_communication_test_email(
                 stage="reply",
                 llm=client,
             )
+            translation_ru = _translate_for_user(reply, llm=client)
 
             outgoing = CommunicationTestMessage(
                 run_id=run.id,
                 sender_role="assistant",
                 content=reply,
+                translation_ru=translation_ru,
                 # Важно сохранить попытку до SMTP: состояние sending означает,
                 # что результат внешней операции мог быть неопределённым.
                 delivery_status="sending",

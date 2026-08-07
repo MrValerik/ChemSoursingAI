@@ -224,6 +224,11 @@ def test_communication_testing_preview_and_explicit_delivery(
 
     def fake_generate_text(self, **kwargs):
         llm_calls.append(kwargs)
+        if "переводчик переписки" in kwargs["system_prompt"]:
+            return (
+                "Здравствуйте. Нам требуется 50 кг аммиака. "
+                "Сообщите цену и предоставьте CoA."
+            )
         if "История диалога" in kwargs["user_text"]:
             return (
                 "**Thank you.** Please also confirm the lead time and Incoterms. "
@@ -263,10 +268,14 @@ def test_communication_testing_preview_and_explicit_delivery(
     assert [message["sender_role"] for message in preview.json()["messages"]] == [
         "assistant"
     ]
-    assert "первое сообщение" in llm_calls[0]["user_text"]
-    assert "лабораторный образец" in llm_calls[0]["system_prompt"]
-    assert "Канал — Email" in llm_calls[0]["additional_instructions"]
-    assert "первый контакт" in llm_calls[0]["additional_instructions"]
+    assert preview.json()["messages"][0]["translation_ru"].startswith("Здравствуйте")
+    dialogue_calls = [
+        item for item in llm_calls if "переводчик переписки" not in item["system_prompt"]
+    ]
+    assert "первое сообщение" in dialogue_calls[0]["user_text"]
+    assert "лабораторный образец" in dialogue_calls[0]["system_prompt"]
+    assert "Канал — Email" in dialogue_calls[0]["additional_instructions"]
+    assert "первый контакт" in dialogue_calls[0]["additional_instructions"]
 
     continued = client.post(
         f"/communication-testing/{preview.json()['id']}/messages",
@@ -283,10 +292,14 @@ def test_communication_testing_preview_and_explicit_delivery(
         "supplier",
         "assistant",
     ]
-    assert "50 кг аммиака" in llm_calls[1]["user_text"]
-    assert "ПОСТАВЩИК_НЕДОВЕРЕННЫЙ" in llm_calls[1]["user_text"]
-    assert "USD 700 per ton" in llm_calls[1]["user_text"]
-    assert "продолжение диалога" in llm_calls[1]["additional_instructions"]
+    dialogue_calls = [
+        item for item in llm_calls if "переводчик переписки" not in item["system_prompt"]
+    ]
+    assert "50 кг аммиака" in dialogue_calls[1]["user_text"]
+    assert "ПОСТАВЩИК_НЕДОВЕРЕННЫЙ" in dialogue_calls[1]["user_text"]
+    assert "USD 700 per ton" in dialogue_calls[1]["user_text"]
+    assert "продолжение диалога" in dialogue_calls[1]["additional_instructions"]
+    assert all(message["translation_ru"] for message in continued.json()["messages"])
 
     buyer = _login(client, "ivanov")
     assert (
@@ -375,7 +388,10 @@ def test_communication_testing_preview_and_explicit_delivery(
     )
     assert sent_whatsapp.status_code == 201
     assert sent_whatsapp.json()["provider_message_id"] == "wamid.test"
-    assert "Канал — WhatsApp" in llm_calls[-1]["additional_instructions"]
+    dialogue_calls = [
+        item for item in llm_calls if "переводчик переписки" not in item["system_prompt"]
+    ]
+    assert "Канал — WhatsApp" in dialogue_calls[-1]["additional_instructions"]
 
     history = client.get("/communication-testing", headers=admin)
     assert history.status_code == 200
@@ -383,12 +399,13 @@ def test_communication_testing_preview_and_explicit_delivery(
     assert history.json()[0]["messages"][0]["sender_role"] == "assistant"
 
 
-def test_communication_testing_regenerates_reply_in_selected_language(
+def test_communication_testing_regenerates_non_english_reply_and_translates_it(
     client, monkeypatch
 ):
     admin = _login(client)
     generated = iter(
         (
+            "Здравствуйте. Сообщите, пожалуйста, цену и срок поставки.",
             "Hello. Please provide your price and lead time.",
             "Здравствуйте. Сообщите, пожалуйста, цену и срок поставки.",
         )
@@ -410,7 +427,6 @@ def test_communication_testing_regenerates_reply_in_selected_language(
             "channel": "email",
             "recipient": "",
             "procurement_context": "50 кг аммиака",
-            "reply_language": "ru",
             "delivery_mode": "preview",
             "confirm_external_send": False,
         },
@@ -418,14 +434,31 @@ def test_communication_testing_regenerates_reply_in_selected_language(
     )
 
     assert response.status_code == 201
-    assert response.json()["generated_reply"].startswith("Здравствуйте")
-    assert len(llm_calls) == 2
-    assert "ОБЯЗАТЕЛЬНЫЙ ЯЗЫК" in llm_calls[0]["additional_instructions"]
+    assert response.json()["generated_reply"].startswith("Hello")
+    assert response.json()["reply_language"] == "en"
+    assert response.json()["messages"][0]["translation_ru"].startswith("Здравствуйте")
+    assert len(llm_calls) == 3
+    assert "REQUIRED LANGUAGE" in llm_calls[0]["additional_instructions"]
     assert "предыдущая попытка" in llm_calls[1]["additional_instructions"]
-    assert "строго соблюдай язык: русском" in llm_calls[1]["additional_instructions"]
+    assert "строго соблюдай язык: английском" in llm_calls[1]["additional_instructions"]
+    assert "ВНУТРЕННИЙ ПЕРЕВОД" in llm_calls[2]["additional_instructions"]
+
+    rejected_language = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "recipient": "",
+            "procurement_context": "50 кг аммиака",
+            "reply_language": "ru",
+            "delivery_mode": "preview",
+            "confirm_external_send": False,
+        },
+        headers=admin,
+    )
+    assert rejected_language.status_code == 422
 
 
-def test_communication_testing_stops_send_after_two_wrong_language_replies(
+def test_communication_testing_stops_send_after_two_non_english_replies(
     client, monkeypatch
 ):
     admin = _login(client)
@@ -433,7 +466,7 @@ def test_communication_testing_stops_send_after_two_wrong_language_replies(
 
     monkeypatch.setattr(
         "app.services.communication_testing.LLMClient.generate_text",
-        lambda self, **kwargs: "Hello. Please provide your price and lead time.",
+        lambda self, **kwargs: "Здравствуйте. Сообщите цену и срок поставки.",
     )
     monkeypatch.setattr(
         "app.services.communication_testing.EmailConnector.send",
@@ -446,7 +479,6 @@ def test_communication_testing_stops_send_after_two_wrong_language_replies(
             "channel": "email",
             "recipient": "owner@example.com",
             "procurement_context": "50 кг аммиака",
-            "reply_language": "ru",
             "delivery_mode": "send",
             "confirm_external_send": True,
         },
@@ -454,7 +486,7 @@ def test_communication_testing_stops_send_after_two_wrong_language_replies(
     )
 
     assert response.status_code == 503
-    assert "дважды вернула сообщение не на выбранном русском языке" in response.json()[
+    assert "дважды вернула сообщение не на выбранном английском языке" in response.json()[
         "detail"
     ]
     assert smtp_calls == []

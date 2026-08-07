@@ -32,9 +32,8 @@ export default function CommunicationTesting() {
   const [recipient, setRecipient] = useState("");
   const [procurementContext, setProcurementContext] = useState("");
   const [supplierMessage, setSupplierMessage] = useState("");
-  const [language, setLanguage] = useState<"ru" | "en" | "zh">("en");
   const [instructions, setInstructions] = useState("");
-  const [subject, setSubject] = useState("Тест ChemSource AI");
+  const [subject, setSubject] = useState("Request for quotation");
   const [deliveryMode, setDeliveryMode] = useState<"preview" | "send">(
     "preview",
   );
@@ -80,10 +79,9 @@ export default function CommunicationTesting() {
         channel,
         recipient: recipient.trim(),
         procurement_context: procurementContext.trim(),
-        reply_language: language,
         additional_instructions: instructions.trim(),
         delivery_mode: deliveryMode,
-        subject: subject.trim() || "Тест ChemSource AI",
+        subject: subject.trim() || "Request for quotation",
         confirm_external_send: live,
       });
       setActive(created);
@@ -132,7 +130,6 @@ export default function CommunicationTesting() {
     setActive(item);
     setChannel(item.channel);
     setProcurementContext(item.procurement_context);
-    setLanguage(item.reply_language);
     setInstructions(item.additional_instructions ?? "");
     setSubject(item.subject);
     setDeliveryMode(item.delivery_mode);
@@ -156,7 +153,8 @@ export default function CommunicationTesting() {
             Администраторская песочница: задайте потребность, выделенная облачная
             нейросеть первой обратится к поставщику, а затем будет отвечать на
             ваши тестовые реплики с учётом всей истории. Фактически использованная
-            модель отображается под диалогом.
+            модель отображается под диалогом. Внешняя переписка ведётся на
+            английском, а сотруднику показывается русский перевод.
           </p>
         </div>
       </div>
@@ -194,16 +192,8 @@ export default function CommunicationTesting() {
                 onChange={(event) => setRecipient(event.target.value)}
               />
             </Field>
-            <Field label="Язык общения">
-              <Select
-                value={language}
-                onChange={(next) => setLanguage(next as "ru" | "en" | "zh")}
-                options={[
-                  { value: "en", label: "Английский" },
-                  { value: "ru", label: "Русский" },
-                  { value: "zh", label: "Китайский" },
-                ]}
-              />
+            <Field label="Язык переговоров">
+              <Input disabled value="Английский · русский перевод в интерфейсе" />
             </Field>
             <Field label="Режим">
               <Select
@@ -302,7 +292,26 @@ export default function CommunicationTesting() {
                           ? "Поставщик · Email"
                           : "Вы · поставщик"}
                     </span>
-                    <div>{message.content}</div>
+                    <div className="communication-message-original">
+                      <span>
+                        {message.sender_role === "assistant"
+                          ? "Английский оригинал"
+                          : "Оригинал поставщика"}
+                      </span>
+                      <div>{message.content}</div>
+                    </div>
+                    {message.translation_ru &&
+                      message.translation_ru !== message.content && (
+                        <div className="communication-message-translation">
+                          <span>Перевод для сотрудника</span>
+                          <div>{message.translation_ru}</div>
+                        </div>
+                      )}
+                    {!message.translation_ru && (
+                      <div className="communication-message-translation unavailable">
+                        Перевод временно недоступен
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -313,10 +322,10 @@ export default function CommunicationTesting() {
               {active.error && <p className="error">{active.error}</p>}
               {canContinue && (
                 <div className="communication-reply">
-                  <Field label="Ваш ответ от лица поставщика">
+                  <Field label="Ответ поставщика (оригинал)">
                     <Textarea
                       rows={4}
-                      placeholder="Напишите ответ поставщика — нейросеть продолжит диалог"
+                      placeholder="Введите английский ответ поставщика — нейросеть продолжит диалог"
                       value={supplierMessage}
                       onChange={(event) => setSupplierMessage(event.target.value)}
                     />

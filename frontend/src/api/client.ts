@@ -506,7 +506,6 @@ export const api = {
     channel: "email" | "whatsapp";
     recipient: string;
     procurement_context: string;
-    reply_language: "ru" | "en" | "zh";
     additional_instructions: string;
     delivery_mode: "preview" | "send";
     subject: string;

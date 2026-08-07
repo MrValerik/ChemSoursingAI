@@ -22,7 +22,11 @@ class FakeLLM:
             "explanation": "Сообщение относится к условиям закупки.",
         }
 
-    def generate_text(self, **_: object) -> str:
+    def generate_text(self, **kwargs: object) -> str:
+        if "переводчик переписки" in str(kwargs.get("system_prompt", "")):
+            if "We can supply" in str(kwargs.get("user_text", "")):
+                return "Мы можем поставить 50 кг по цене 2 USD/кг, MOQ 50 кг."
+            return "Спасибо. Подтвердите, пожалуйста, срок поставки и Incoterm."
         return "Thank you. Please confirm the lead time and Incoterm."
 
 
@@ -147,6 +151,10 @@ def test_standard_reply_is_threaded_and_processed_once(session_factory) -> None:
             "assistant",
         ]
         assert saved.messages[-1].delivery_status == "sent"
+        assert saved.messages[1].translation_ru is not None
+        assert "50 кг" in saved.messages[1].translation_ru
+        assert saved.messages[2].translation_ru is not None
+        assert saved.messages[2].translation_ru.startswith("Спасибо")
 
 
 def test_social_question_escalates_without_sending(session_factory) -> None:

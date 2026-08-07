@@ -128,7 +128,20 @@ def _apply_light_migrations() -> None:
                 conn.execute(
                     text(
                         "ALTER TABLE communication_test_runs ADD COLUMN subject "
-                        "VARCHAR(998) NOT NULL DEFAULT 'Тест ChemSource AI'"
+                        "VARCHAR(998) NOT NULL DEFAULT 'Request for quotation'"
+                    )
+                )
+    if "communication_test_messages" in tables:
+        cols = {
+            c["name"]
+            for c in inspector.get_columns("communication_test_messages")
+        }
+        if "translation_ru" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE communication_test_messages "
+                        "ADD COLUMN translation_ru TEXT"
                     )
                 )
     if "rfqs" in tables:

@@ -41,7 +41,9 @@ class CommunicationTestRun(Base, TimestampMixin):
     channel: Mapped[str] = mapped_column(String(32), index=True)
     recipient_masked: Mapped[str] = mapped_column(String(320))
     procurement_context: Mapped[str] = mapped_column(Text)
-    subject: Mapped[str] = mapped_column(String(998), default="Тест ChemSource AI")
+    subject: Mapped[str] = mapped_column(
+        String(998), default="Request for quotation"
+    )
     # Сохраняется для совместимости со старыми журналами/API. Для новых
     # диалогов содержит последнюю реплику поставщика (до неё — контекст).
     customer_message: Mapped[str] = mapped_column(Text)
@@ -50,7 +52,7 @@ class CommunicationTestRun(Base, TimestampMixin):
     )
     generated_reply: Mapped[str | None] = mapped_column(Text, default=None)
     model: Mapped[str | None] = mapped_column(String(255), default=None)
-    reply_language: Mapped[str] = mapped_column(String(8), default="ru")
+    reply_language: Mapped[str] = mapped_column(String(8), default="en")
     delivery_mode: Mapped[str] = mapped_column(String(16), default="preview")
     status: Mapped[str] = mapped_column(String(32), index=True)
     provider_message_id: Mapped[str | None] = mapped_column(
@@ -77,6 +79,9 @@ class CommunicationTestMessage(Base, TimestampMixin):
     )
     sender_role: Mapped[str] = mapped_column(String(32), index=True)
     content: Mapped[str] = mapped_column(Text)
+    # Русский перевод для внутреннего интерфейса. Оригинал остаётся неизменным
+    # и только он используется в истории модели и внешней отправке.
+    translation_ru: Mapped[str | None] = mapped_column(Text, default=None)
     delivery_status: Mapped[str] = mapped_column(
         String(32), default="previewed"
     )
