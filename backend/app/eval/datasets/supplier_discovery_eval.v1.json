@@ -135,6 +135,30 @@
           "evidence": "Дистрибьютор химии и растворителей.",
           "confidence": "industry_knowledge",
           "country": "США"
+        },
+        {
+          "name": "Henan GP Chemicals",
+          "aliases": [
+            "GP Chemicals",
+            "gpcchem"
+          ],
+          "domain": "gpcchem.com",
+          "kind": "distributor",
+          "country": "Китай",
+          "evidence": "Сам себя называет «the professional and comprehensive distributor of chemical products in China»: закупает и хранит крупные партии у разных поставщиков. О производстве ни слова.",
+          "confidence": "verified"
+        },
+        {
+          "name": "Shandong Xinjiangye Chemical",
+          "aliases": [
+            "Xinjiangye",
+            "新疆业"
+          ],
+          "domain": "xinjiangyechemical.com",
+          "kind": "trader",
+          "country": "Китай",
+          "evidence": "Ни площадки, ни мощности; в «почему мы» — продажи и консультации. Каталог из несвязанных веществ: акриловая кислота, ПВХ, тионилхлорид, этанол, активированный уголь.",
+          "confidence": "verified"
         }
       ],
       "unresolved": [
@@ -149,6 +173,10 @@
         {
           "domain": "sfcc.com.cn",
           "note": "日出实业集团 — роль неясна"
+        },
+        {
+          "domain": "douwin-chem.com",
+          "note": "Shanghai Douwin — «bridge on the industry chain», четыре дочерних общества и раздел «Factory & Warehouse», но ни мощности, ни описания производства. Читается в обе стороны."
         }
       ],
       "should_be_filtered": [
