@@ -70,6 +70,50 @@ def test_standard_procurement_message_may_continue_to_auto_reply():
     assert "supplier_message_untrusted" in llm.calls[0]["user_text"]
 
 
+def test_partial_price_is_explicitly_defined_as_standard_procurement():
+    llm = FakeLlm(
+        result={
+            "route": "auto_reply",
+            "category": "standard_procurement",
+            "explanation": "Поставщик сообщил частичную котировку.",
+        }
+    )
+
+    decision = classify_supplier_message(
+        "Здравствуйте, цена 2000 р за литр",
+        rfq_name="Хлорная кислота, 30 литров",
+        rfq_cas=None,
+        llm=llm,
+    )
+
+    assert decision.auto_reply_allowed is True
+    assert decision.category == "standard_procurement"
+    prompt = llm.calls[0]["system_prompt"]
+    assert "классифицируй тему и риск сообщения, а не его полноту" in prompt
+    assert "цена без CAS, чистоты, валюты" in prompt
+    assert "Здравствуйте, цена 2000 рублей за литр" in prompt
+
+
+def test_sensitive_information_means_request_for_buyers_private_data():
+    llm = FakeLlm(
+        result={
+            "route": "escalate",
+            "category": "sensitive_information",
+            "explanation": "Поставщик просит закрытый список клиентов.",
+        }
+    )
+
+    decision = classify_supplier_message(
+        "Please send us your private customer list.",
+        rfq_name="Substance X",
+        rfq_cas=None,
+        llm=llm,
+    )
+
+    assert decision.auto_reply_allowed is False
+    assert decision.category == "sensitive_information"
+
+
 def test_ambiguous_or_unavailable_classifier_fails_closed():
     malformed = FakeLlm(
         result={
