@@ -58,9 +58,6 @@ def _mock_search_agents(monkeypatch, query: str | None = None, error=None):
     def response(self, **kwargs):
         if error is not None:
             raise error
-        if kwargs["schema_name"] == "market_aliases":
-            # Марки и другие номера — знание агента, и в тестах его нет.
-            return {"alternative_cas": [], "grade_names": []}
         if kwargs["schema_name"] == "substance_identity":
             return {
                 "canonical_name": "2-acetyloxybenzoic acid",
@@ -239,19 +236,12 @@ def test_supplier_search_keeps_source_urls(client, monkeypatch):
     assert [stage["agent_slug"] for stage in trace["agent_runs"]] == [
         "substance_lookup",
         "substance_identity",
-        # Отдельный этап, а не поле идентичности: там правило «только
-        # факты PubChem», здесь агент отвечает из своих знаний.
-        "market_aliases",
         "search_planner",
         "web_search",
     ]
     assert trace["agent_runs"][1]["effective_system_prompt"]
-    planner = next(
-        stage for stage in trace["agent_runs"]
-        if stage["agent_slug"] == "search_planner"
-    )
-    assert planner["effective_system_prompt"]
-    assert planner["output_payload"]["queries"]
+    assert trace["agent_runs"][2]["effective_system_prompt"]
+    assert trace["agent_runs"][2]["output_payload"]["queries"]
     assert trace["search_attempts"][0]["results_payload"][0]["url"].startswith(
         "https://"
     )
@@ -289,9 +279,6 @@ def test_supplier_search_drops_unverified_names_and_queries(client, monkeypatch)
     buyer = _auth(client, "ivanov")
 
     def response(self, **kwargs):
-        if kwargs["schema_name"] == "market_aliases":
-            # Марки и другие номера — знание агента, и в тестах его нет.
-            return {"alternative_cas": [], "grade_names": []}
         if kwargs["schema_name"] == "substance_identity":
             return {
                 "canonical_name": "Invented miracle acid",
@@ -510,8 +497,6 @@ def test_search_without_cas_skips_pubchem_and_uses_product_name(
         raise AssertionError("PubChem must not be called without CAS")
 
     def planner(self, **kwargs):
-        if kwargs["schema_name"] == "market_aliases":
-            return {"alternative_cas": [], "grade_names": []}
         assert kwargs["schema_name"] == "supplier_search_plan"
         assert "CAS не указан" in kwargs["system_prompt"]
         return {
@@ -1601,9 +1586,6 @@ def test_silent_source_failure_is_reported_instead_of_zero_suppliers(
     buyer = _auth(client, "ivanov")
 
     def response(self, **kwargs):
-        if kwargs["schema_name"] == "market_aliases":
-            # Марки и другие номера — знание агента, и в тестах его нет.
-            return {"alternative_cas": [], "grade_names": []}
         if kwargs["schema_name"] == "substance_identity":
             return {
                 "canonical_name": "Urea",

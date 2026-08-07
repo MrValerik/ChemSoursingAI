@@ -64,9 +64,6 @@ def _fresh_settings(monkeypatch):
 
 def _mock_search_agents(monkeypatch):
     def response(self, **kwargs):
-        if kwargs["schema_name"] == "market_aliases":
-            # Марки и другие номера — знание агента, и в тестах его нет.
-            return {"alternative_cas": [], "grade_names": []}
         if kwargs["schema_name"] == "substance_identity":
             return {
                 "canonical_name": "2-acetyloxybenzoic acid",

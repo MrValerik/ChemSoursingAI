@@ -64,19 +64,17 @@ DEFAULT_INTERMEDIARIES: list[tuple[str, str, str]] = [
     ("linkedin.com", "LinkedIn", "reference"),
     ("facebook.com", "Facebook", "reference"),
     ("wikipedia.org", "Wikipedia", "reference"),
-    # Встречены в прогонах 58-71 и попали в кандидаты как «не определён»:
-    # реестр их не знал, и страница площадки шла наравне с сайтом завода.
-    ("app17.com", "App17", "marketplace"),
-    ("b2brazil.com", "B2Brazil", "marketplace"),
-    ("kitairu.net", "Kitairu", "marketplace"),
-    ("alu.cn", "Alu.cn", "marketplace"),
-    ("gys.cn", "Gys.cn", "marketplace"),
-    ("21food.cn", "21food", "marketplace"),
-    ("aipage.com", "Aipage B2B Data", "reference"),
-    ("chinacoat.net", "ChinaCoat", "reference"),
-    ("yellowpages.com.vn", "Yellow Pages Vietnam", "reference"),
-    ("blogspot.com", "Blogspot", "reference"),
 ]
+# Тринадцать площадок, встреченных в прогонах 58-71, отсюда убраны. Они
+# добавлялись, чтобы страницы площадок получали статус «витрина» вместо
+# «не определён», и с этим справились: протечек в замерах не осталось.
+# Но запись в реестре означает ещё и отсев до загрузки, а он оказался
+# разорительным: у карбомера в отсев уходили все 25 найденных ссылок, у
+# Dowsil все 29, и оба вещества давали ноль кандидатов на каждом прогоне.
+# Полнота по эталону упала с 12 из 31 до 7 из 33.
+#
+# Определение статуса по адресу осталось на месте — оно и было целью.
+# Возвращать домены сюда стоит поштучно и с замером до и после.
 # med-life.cn, gewhatman.cn и haoreagent.cn сюда не попали намеренно. Это
 # магазины реактивов со своим сайтом, то есть контрагенты — пусть и
 # перекупщики. Запись в реестр означает не только метку, но и отсев до
