@@ -114,6 +114,10 @@ _MIN_QUERIES_FOR_SOURCE_FAILURE = 2
 
 _QUALIFICATION_BATCH_SIZE = 2
 _VERIFICATION_BATCH_SIZE = 2
+# Сколько кандидатов вообще может прийти на оценку. Номер кандидата —
+# сквозной по всему списку, а не по пакету, и предел на него должен быть
+# отсюда: пакет из двух источников несёт номера вроде 6 и 7.
+MAX_QUALIFICATION_CANDIDATES = 60
 # Максимум текста первичной страницы, который вообще имеет смысл передавать.
 _PAGE_TEXT_HARD_LIMIT = 4000
 
@@ -274,7 +278,7 @@ class SupplierQualificationRequest(BaseModel):
     # быть, а синоним или номер — есть.
     known_synonyms: list[str] = Field(default_factory=list, max_length=50)
     results: list[SupplierSearchResultInput] = Field(
-        ..., min_length=1, max_length=60
+        ..., min_length=1, max_length=MAX_QUALIFICATION_CANDIDATES
     )
 
 
@@ -310,7 +314,15 @@ class QualificationEvidence(BaseModel):
 
 
 class SupplierQualification(BaseModel):
-    result_index: int = Field(..., ge=0, le=4)
+    # Номер кандидата сквозной по всему списку. Предел стоял на четырёх с
+    # тех пор, когда пакетом был весь список из пяти страниц. После
+    # разбиения на пакеты по две страницы шестая и дальше остались без
+    # выразимого номера: замер по прогонам 214–252 — 17 загруженных
+    # страниц из 17 с номером от пяти потеряли оценку целиком, а модель,
+    # которой схема запрещала верный номер, подставляла вместо него
+    # допустимый. От приписывания чужой страницы спасала только сверка
+    # номера с источником.
+    result_index: int = Field(..., ge=0, le=MAX_QUALIFICATION_CANDIDATES - 1)
     company_name: str = Field(..., min_length=1, max_length=255)
     title_ru: str = Field(..., min_length=1, max_length=500)
     summary_ru: str = Field(..., min_length=1, max_length=1200)
@@ -337,7 +349,11 @@ _QUALIFICATION_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "result_index": {"type": "integer", "minimum": 0, "maximum": 4},
+                    "result_index": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": MAX_QUALIFICATION_CANDIDATES - 1,
+                    },
                     "company_name": {
                         "type": "string",
                         "minLength": 1,
