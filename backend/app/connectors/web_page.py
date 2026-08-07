@@ -211,9 +211,19 @@ def _render_jsonld(blocks: list[str]) -> list[str]:
     return lines
 
 
+def _without_nul(value: str) -> str:
+    """Убирает нулевые байты: PostgreSQL их в текстовом поле не хранит.
+
+    Страница с ``\\x00`` в разметке роняла весь прогон при сохранении:
+    «PostgreSQL text fields cannot contain NUL (0x00) bytes». Два прогона
+    из двадцати одного в замере по эталону погибли именно так.
+    """
+    return value.replace("\x00", "") if value else value
+
+
 def extract_page_text(content: str, content_type: str) -> tuple[str | None, str]:
     if content_type == "text/plain":
-        return None, " ".join(content.split())[:MAX_PAGE_TEXT]
+        return None, _without_nul(" ".join(content.split())[:MAX_PAGE_TEXT])
     parser = _TextExtractor()
     parser.feed(content)
     title = " ".join(" ".join(parser.title_parts).split()) or None
@@ -222,7 +232,7 @@ def extract_page_text(content: str, content_type: str) -> tuple[str | None, str]
     # Разметка идёт первой: она компактна и описывает товар точнее, чем
     # окружающая её вёрстка, а до конца страницы обрезка может не дойти.
     text = "\n".join(_render_jsonld(parser.jsonld_parts) + body)
-    return title, html.unescape(text)[:MAX_PAGE_TEXT]
+    return _without_nul(title), _without_nul(html.unescape(text)[:MAX_PAGE_TEXT])
 
 
 def _is_public_address(value: str) -> bool:

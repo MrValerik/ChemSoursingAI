@@ -15,6 +15,29 @@ def _public_resolver(host, port, type):
     return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
 
 
+def test_nul_bytes_are_stripped_from_page_text():
+    """PostgreSQL не хранит \\x00 в текстовом поле, и прогон погибал целиком.
+
+    В замере по эталону два прогона из двадцати одного упали на
+    «PostgreSQL text fields cannot contain NUL (0x00) bytes» при
+    сохранении загруженной страницы.
+    """
+    title, text = extract_page_text(
+        "<html><head><title>Adi\x00pic acid</title></head>"
+        "<body><p>CAS 124-04-9\x00 factory</p></body></html>",
+        "text/html",
+    )
+
+    assert "\x00" not in title
+    assert "\x00" not in text
+    assert "Adipic acid" == title
+
+
+def test_nul_bytes_are_stripped_from_plain_text():
+    _, text = extract_page_text("CAS 124-04-9\x00 factory", "text/plain")
+    assert "\x00" not in text
+
+
 def test_extract_page_text_ignores_executable_content():
     title, text = extract_page_text(
         """
