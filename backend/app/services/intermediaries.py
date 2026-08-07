@@ -76,10 +76,12 @@ DEFAULT_INTERMEDIARIES: list[tuple[str, str, str]] = [
     ("chinacoat.net", "ChinaCoat", "reference"),
     ("yellowpages.com.vn", "Yellow Pages Vietnam", "reference"),
     ("blogspot.com", "Blogspot", "reference"),
-    ("med-life.cn", "Med-Life", "catalog"),
-    ("gewhatman.cn", "Gewhatman", "catalog"),
-    ("haoreagent.cn", "Hao Reagent", "catalog"),
 ]
+# med-life.cn, gewhatman.cn и haoreagent.cn сюда не попали намеренно. Это
+# магазины реактивов со своим сайтом, то есть контрагенты — пусть и
+# перекупщики. Запись в реестр означает не только метку, но и отсев до
+# загрузки, а отсеивать продавца за то, что он продавец, нельзя: в режиме
+# поиска изготовителей его роль решается доказательствами.
 
 
 def normalize_domain(value: str) -> str:
