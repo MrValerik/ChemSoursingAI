@@ -69,7 +69,8 @@ def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
         25
         if supplier_type == "manufacturer" and "manufacturer_role" in supported
         else 5
-        if supplier_type == "distributor" and "manufacturer_role" in supported
+        if supplier_type == "distributor"
+        and {"manufacturer_role", "reseller_role"} & supported
         else 0
     )
     country = 10 if "country" in supported else 0

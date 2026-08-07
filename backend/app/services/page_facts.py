@@ -597,6 +597,51 @@ def looks_like_leading_supplier_boilerplate(quote: str) -> bool:
     return not (_CAPACITY_RE.search(quote) or _PLANT_RE.search(quote))
 
 
+# Самоописание торговой компании. Требуется именно подлежащее «мы» или
+# «компания есть», иначе слово ловится где угодно: в выпадающем списке
+# «тип организации» на форме обратной связи и в вопросе FAQ «вы завод или
+# торговая компания?» — там оно стоит в вопросе, а в ответе значится завод.
+_TRADE_RE = re.compile(
+    r"(authoris?ed\s+(?:distributor|agent|dealer)"
+    r"|official\s+distributor|exclusive\s+distributor"
+    r"|(?:we\s+are|is)\s+(?:an?|the)\s+(?:\w+\s+){0,3}"
+    r"(?:distributor|trader|trading\s+company|trading\s+house)"
+    r"|(?:import\s+and\s+export|domestic\s+trade)[^.]{0,80}"
+    r"(?:supply\s+chain|domestic\s+trade|distribution)"
+    r"|授权代理商|一级代理商|独家代理"
+    r"|我们是[^。]{0,20}(?:经销商|代理商|贸易))",
+    re.IGNORECASE,
+)
+# Строка вопроса, а не утверждения.
+_TRADE_QUESTION_RE = re.compile(r"(are\s+you|\?\s*A\s*[:：]|Q\s*[:：])", re.IGNORECASE)
+
+
+def find_trade_facts(text: str) -> dict[str, str]:
+    """Прямое заявление о перепродаже, дословной строкой страницы.
+
+    Зачем. Роль производителя мы доказывать умеем, а роль торговой
+    компании — нет, и всё недоказанное падало в «не определён». Закупщику
+    такой ответ бесполезен вдвойне: он не знает ни того, что перед ним
+    завод, ни того, что перед ним посредник, хотя страница говорит об
+    этом прямым текстом.
+
+    Замер по сохранённым прогонам 214–252: признак срабатывает на пяти
+    карточках, все пять согласны с эталоном, ни одна не спорит с
+    доказательством производства. Выборка узкая — это одна компания,
+    Shandong Aojin, — поэтому вывод из факта делается только там, где
+    производство не доказано.
+    """
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not (MIN_QUOTE_CHARS <= len(line) <= _MAX_LINE_CHARS):
+            continue
+        if _TRADE_QUESTION_RE.search(line):
+            continue
+        if _TRADE_RE.search(line):
+            return {"reseller_role": line}
+    return {}
+
+
 def find_production_facts(text: str) -> dict[str, str]:
     """Мощность и производственная база с дословной строкой страницы.
 

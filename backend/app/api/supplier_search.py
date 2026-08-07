@@ -78,6 +78,7 @@ from app.services.page_facts import (
     build_highlights,
     find_company_names,
     find_production_facts,
+    find_trade_facts,
     cas_quote,
     find_cas_numbers,
     find_document_mentions,
@@ -295,6 +296,7 @@ ClaimType = Literal[
     "tds",
     "production_capacity",
     "production_site",
+    "reseller_role",
 ]
 ClaimSupport = Literal["supports", "contradicts"]
 
@@ -935,6 +937,19 @@ def _inject_deterministic_evidence(
                 )
             )
 
+        for claim_type, quote in find_trade_facts(text).items():
+            if claim_type in present or len(quote) < MIN_QUOTE_CHARS:
+                continue
+            additions.append(
+                QualificationEvidence(
+                    source_document_id=source.id,
+                    claim_type=claim_type,
+                    claim_value="Компания описывает себя как торговую",
+                    support_status="supports",
+                    quote=quote,
+                )
+            )
+
         qualification.evidence[:0] = additions
 
 
@@ -989,6 +1004,21 @@ def _apply_evidence_gates(
     ):
         payload["supplier_type"] = "unknown"
         flag("Статус производителя не подтверждён проверенной цитатой")
+
+    # Роль торговой компании тоже бывает доказана — прямым самоописанием на
+    # странице. Без этого правила посредник, честно назвавший себя
+    # посредником, попадал в «не определён» наравне с компанией, о которой
+    # не известно ничего: Shandong Aojin пишет о внешней торговле и цепочках
+    # поставок, а мы отвечали закупщику, что роль неизвестна.
+    #
+    # Вывод делается только там, где производство не доказано: завод,
+    # у которого есть и торговое подразделение, остаётся заводом.
+    if (
+        payload["supplier_type"] == "unknown"
+        and "reseller_role" in supported
+        and not (production_proof & supported)
+    ):
+        payload["supplier_type"] = "distributor"
 
     if "chemical_identity" in contradicted:
         payload["cas_status"] = "mismatch"
