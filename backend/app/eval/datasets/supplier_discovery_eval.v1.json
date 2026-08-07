@@ -616,6 +616,16 @@
           "confidence": "industry_knowledge",
           "country": "США",
           "discovered_by": "system_run"
+        },
+        {
+          "name": "RawSource",
+          "aliases": [],
+          "domain": "rawsource.com",
+          "kind": "distributor",
+          "evidence": "Американская площадка снабжения сырьём; тот же контрагент размечен на эпоксидированном соевом масле.",
+          "confidence": "industry_knowledge",
+          "country": "США",
+          "discovered_by": "system_run"
         }
       ],
       "unresolved": [

@@ -201,9 +201,37 @@ def marketplace_page_kind(url: str) -> str:
         if any(part not in _GENERIC_SUBDOMAINS for part in prefix):
             return "storefront"
     path = urlparse(url if "//" in url else f"//{url}").path.casefold()
-    if any(marker in path for marker in _STOREFRONT_PATHS):
-        return "storefront"
+    for marker in _STOREFRONT_PATHS:
+        at = path.find(marker)
+        if at < 0:
+            continue
+        if _names_a_company(path[at + len(marker) :]):
+            return "storefront"
     return "listing"
+
+
+def _names_a_company(tail: str) -> bool:
+    """Что стоит после метки магазина: имя магазина или название товара.
+
+    Метка сама по себе не различает. На echemi путь «/supplier/» ведёт и в
+    магазин компании, и в карточку товара — «/supplier/pd2105281021-zinc-
+    diricinoleate.html», где после метки стоит номер позиции и имя
+    вещества. То же на made-in-china: «/factory/aspirin-drug.html» — это
+    раздел о товаре, а не предприятие.
+
+    Различие видно по форме. Магазин — это каталог: «/factory/qrrybz/»,
+    «/showroom/fusil2019/», и товары лежат внутри него —
+    «/factory/emn7rj/product/…». Карточка товара стоит сразу за меткой
+    отдельной страницей и ничего под собой не имеет. Замер по 12
+    сохранённым адресам с меткой магазина: правило разделяет их все — 8
+    магазинов и 4 товарных страницы, которые до сих пор уходили от отсева.
+    """
+    segments = [part for part in tail.split("/") if part]
+    if not segments:
+        return False
+    if len(segments) > 1:
+        return True
+    return "." not in segments[0]
 
 
 def is_intermediary(url: str, domains: set[str]) -> bool:

@@ -372,6 +372,39 @@ def test_a_listing_page_stays_a_listing():
     assert marketplace_page_kind("https://www.linkedin.com/company/x") == "listing"
 
 
+def test_a_product_card_under_a_shop_path_is_not_a_shop():
+    """Метка магазина сама по себе компанию не называет.
+
+    На echemi путь «/supplier/» ведёт и в магазин, и в карточку товара:
+    «/supplier/pd2105281021-zinc-diricinoleate.html» — номер позиции и имя
+    вещества, никакой компании. То же на made-in-china с
+    «/factory/aspirin-drug.html». Оба уходили от отсева как магазины.
+
+    Различие в форме: магазин — каталог, товар — отдельная страница сразу
+    за меткой. Замер по 12 сохранённым адресам: 8 магазинов, 4 товарных.
+    """
+    assert marketplace_page_kind(
+        "https://www.echemi.com/supplier/pd2105281021-zinc-diricinoleate.html"
+    ) == "listing"
+    assert marketplace_page_kind(
+        "https://ru.made-in-china.com/factory/aspirin-drug.html"
+    ) == "listing"
+
+
+def test_a_shop_catalogue_and_its_pages_stay_a_storefront():
+    """Оговорка не должна съесть настоящие магазины."""
+    assert marketplace_page_kind("https://www.chemball.com/factory/qrrybz/") == "storefront"
+    assert marketplace_page_kind(
+        "https://www.made-in-china.com/showroom/fusil2019/"
+    ) == "storefront"
+    assert marketplace_page_kind(
+        "https://www.chemball.cn/factory/zimbir/product.html"
+    ) == "storefront"
+    assert marketplace_page_kind(
+        "https://m.chemball.com/factory/nqenqi/connect"
+    ) == "storefront"
+
+
 def test_a_chemball_factory_page_is_a_storefront():
     assert marketplace_page_kind(
         "https://www.chemball.cn/factory/qrrybz/product/124-04-9.html"
