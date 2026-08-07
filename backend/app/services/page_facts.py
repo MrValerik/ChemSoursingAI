@@ -627,6 +627,48 @@ def find_production_facts(text: str) -> dict[str, str]:
     return facts
 
 
+# Многоточие, которым модель сокращает длинную цитату.
+_ELLIPSIS_RE = re.compile(r"\.{3}|…")
+# Минимальная длина куска, который имеет смысл проверять отдельно: на
+# коротком обрывке совпадение случайно.
+_MIN_QUOTE_FRAGMENT = 12
+
+
+def _comparable(value: str) -> str:
+    """Текст без разницы в пробелах: перенос строки и пробел равны."""
+    return " ".join((value or "").split())
+
+
+def quote_is_on_page(quote: str, page_text: str) -> bool:
+    """Есть ли цитата на странице — с поправкой на оформление, но не на смысл.
+
+    Требование дословности держит всю систему доказательств, и ослаблять
+    его нельзя. Но половина отказов оказалась не выдумкой модели, а
+    разницей в наборе: из 67 отклонённых цитат 15 отличались только
+    пробелами, 3 — краевыми знаками, 16 были сокращены многоточием, и все
+    их куски стояли на странице. Терялись при этом и нужные факты, вроде
+    «Factory Site Yudu County, Ganzhou, Jiangxi, China».
+
+    Каждое слово по-прежнему обязано быть на странице: у сокращённой
+    цитаты проверяется каждый кусок отдельно. Выдуманного текста это не
+    пропускает — остальные 32 отказа остались отказами.
+    """
+    page = _comparable(page_text)
+    if not page:
+        return False
+    cleaned = _comparable(quote).strip(" .,:;«»\"'")
+    if not cleaned:
+        return False
+    if cleaned in page:
+        return True
+    fragments = [
+        part.strip(" .,:;«»\"'")
+        for part in _ELLIPSIS_RE.split(cleaned)
+    ]
+    fragments = [part for part in fragments if len(part) >= _MIN_QUOTE_FRAGMENT]
+    return bool(fragments) and all(part in page for part in fragments)
+
+
 def cas_quote(text: str, cas: str) -> str | None:
     """Дословная строка страницы, содержащая искомый номер.
 

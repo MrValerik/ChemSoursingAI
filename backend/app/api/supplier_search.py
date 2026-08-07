@@ -84,6 +84,7 @@ from app.services.page_facts import (
     looks_like_leading_supplier_boilerplate,
     looks_like_page_title,
     looks_like_role_keyword_stuffing,
+    quote_is_on_page,
     looks_like_third_party_production_claim,
     mentions_substance,
     page_cas_match,
@@ -735,7 +736,7 @@ def _evidence_rejection_reason(
         return "источник относится к другому кандидату"
     if source.status != "completed" or not source.text_content:
         return "первичная страница не была успешно загружена"
-    if evidence.quote not in source.text_content:
+    if not quote_is_on_page(evidence.quote, source.text_content):
         return "цитата дословно не найдена в сохранённом тексте"
     if evidence.claim_type == "manufacturer_role":
         # Роль производителя обязана относиться к искомому веществу.

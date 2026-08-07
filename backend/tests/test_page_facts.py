@@ -288,6 +288,50 @@ def test_a_link_fragment_does_not_glue_itself_to_the_name():
     assert names == ["Tangshan Zhonghao Chemical Co., Ltd"]
 
 
+def test_a_quote_matches_through_differences_in_spacing():
+    """Из 67 отклонённых цитат 15 отличались только пробелами."""
+    from app.services.page_facts import quote_is_on_page
+
+    page = "Factory Site\n  Yudu County,   Ganzhou, Jiangxi, China\n"
+    assert quote_is_on_page("Factory Site Yudu County, Ganzhou, Jiangxi, China", page)
+
+
+def test_a_shortened_quote_is_checked_piece_by_piece():
+    """Модель сокращает длинную цитату многоточием — куски настоящие."""
+    from app.services.page_facts import quote_is_on_page
+
+    page = (
+        "Pvc polyvinyl chloride nontoxic plasticizer and stabilizer. "
+        "Epoxidized Soybean Oil ESO is finely produced from soybean oil."
+    )
+    assert quote_is_on_page(
+        "Pvc polyvinyl chloride nontoxic plasticizer and stabilize..."
+        "Epoxidized Soybean Oil ESO is finely produced",
+        page,
+    )
+
+
+def test_an_invented_quote_is_still_refused():
+    """Ослабляется оформление, а не требование дословности."""
+    from app.services.page_facts import quote_is_on_page
+
+    page = "We sell adipic acid of the highest quality."
+    assert not quote_is_on_page(
+        "TNJ Chemical is a professional manufacturer and factory in China.",
+        page,
+    )
+
+
+def test_a_shortened_quote_with_an_invented_piece_is_refused():
+    from app.services.page_facts import quote_is_on_page
+
+    page = "Epoxidized Soybean Oil is produced here."
+    assert not quote_is_on_page(
+        "Epoxidized Soybean Oil is produced... with an annual output of 50000 tons",
+        page,
+    )
+
+
 def test_market_research_names_are_skipped():
     """«Market Report Corp» — не завод, а издатель отчёта."""
     from app.services.page_facts import find_company_names
