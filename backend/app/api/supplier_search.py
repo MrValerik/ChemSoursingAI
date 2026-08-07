@@ -81,6 +81,7 @@ from app.services.page_facts import (
     cas_quote,
     find_cas_numbers,
     find_document_mentions,
+    looks_like_leading_supplier_boilerplate,
     looks_like_page_title,
     looks_like_role_keyword_stuffing,
     looks_like_third_party_production_claim,
@@ -745,6 +746,8 @@ def _evidence_rejection_reason(
             return "перечисление ролей для поисковика, а не утверждение о производстве"
         if looks_like_page_title(evidence.quote):
             return "заголовок страницы, а не утверждение о производстве"
+        if looks_like_leading_supplier_boilerplate(evidence.quote):
+            return "самохарактеристика «один из ведущих», а не факт производства"
         if looks_like_third_party_production_claim(evidence.quote):
             return "цитата описывает партнёрское или контрактное производство"
         if not mentions_substance(evidence.quote, cas=cas, names=names or []):

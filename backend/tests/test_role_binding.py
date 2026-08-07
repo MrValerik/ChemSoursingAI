@@ -101,6 +101,51 @@ def test_a_separator_without_a_role_word_is_not_a_title():
     assert not looks_like_page_title("Adipic acid | 99.7% | 25 kg bag")
 
 
+# --- самохарактеристика ---
+
+
+def test_leading_supplier_boilerplate_is_not_production():
+    """Формула, по которой трейдер прошёл в короткий список.
+
+    Tianjin Gnee: «is one of the leading manufacturers and suppliers of
+    99% behenyl dimethyl amine … in China». Предложение связное, вещество
+    названо — прежние проверки его пропускали. Адрес компании при этом
+    25-й этаж бизнес-центра в Аньяне.
+    """
+    from app.services.page_facts import looks_like_leading_supplier_boilerplate
+
+    assert looks_like_leading_supplier_boilerplate(
+        "Tianjin Gnee Biotech Co., Ltd. is one of the leading manufacturers "
+        "and suppliers of 99% behenyl dimethyl amine white color cas "
+        "93164-85-3 in China."
+    )
+    assert looks_like_leading_supplier_boilerplate(
+        "We are a professional manufacturer and supplier of adipic acid"
+    )
+
+
+def test_the_same_words_with_a_verifiable_detail_pass():
+    """Мощность или своя площадка рядом превращают похвальбу в утверждение."""
+    from app.services.page_facts import looks_like_leading_supplier_boilerplate
+
+    assert not looks_like_leading_supplier_boilerplate(
+        "One of the leading manufacturers of adipic acid with an annual "
+        "capacity of 20,000 tons"
+    )
+    assert not looks_like_leading_supplier_boilerplate(
+        "One of the leading suppliers, we have our own factory in Shandong"
+    )
+
+
+def test_a_plain_production_claim_is_untouched():
+    from app.services.page_facts import looks_like_leading_supplier_boilerplate
+
+    assert not looks_like_leading_supplier_boilerplate(
+        "Octadecyl-Behenyl Dimethyl Amine Manufacturer in China"
+    )
+    assert not looks_like_leading_supplier_boilerplate("年产 20000 吨己二酸")
+
+
 # --- привязка к веществу ---
 
 

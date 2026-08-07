@@ -557,6 +557,46 @@ _PLANT_RE = re.compile(
 )
 
 
+# Самая ходовая самохарактеристика торгового сайта. Роли в ней столько
+# же, сколько в слове «лучший»: это позиционирование, а не факт.
+_LEADING_BOILERPLATE = (
+    "one of the leading",
+    "one of the top",
+    "one of the best",
+    "one of the largest",
+    "one of the most professional",
+    "one of the professional",
+    "leading manufacturer and supplier",
+    "leading manufacturers and suppliers",
+    "professional manufacturer and supplier",
+    "professional manufacturers and suppliers",
+    "国内领先",
+    "领先的生产",
+    "知名生产厂家",
+    "один из ведущих",
+)
+
+
+def looks_like_leading_supplier_boilerplate(quote: str) -> bool:
+    """«Один из ведущих производителей и поставщиков X» — не доказательство.
+
+    Tianjin Gnee прошёл в короткий список по строке «Tianjin Gnee Biotech
+    Co., Ltd. is one of the leading manufacturers and suppliers of 99%
+    behenyl dimethyl amine … in China». Предложение связное, вещество
+    названо, номер приведён — прежние проверки его пропускают. Факта о
+    производстве в нём нет: адрес компании — 25-й этаж бизнес-центра.
+
+    Если рядом стоит проверяемая деталь — годовой выпуск или собственная
+    площадка, — это уже утверждение о производстве, и оно проходит.
+    """
+    low = (quote or "").casefold()
+    if not low:
+        return False
+    if not any(marker in low for marker in _LEADING_BOILERPLATE):
+        return False
+    return not (_CAPACITY_RE.search(quote) or _PLANT_RE.search(quote))
+
+
 def find_production_facts(text: str) -> dict[str, str]:
     """Мощность и производственная база с дословной строкой страницы.
 
