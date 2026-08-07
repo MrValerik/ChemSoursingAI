@@ -91,6 +91,7 @@ from app.services.page_facts import (
 from app.services.supplier_scoring import SELF_DECLARED_ONLY_FLAG, score_supplier
 from app.services.supplier_verification import apply_supplier_verification
 from app.services.supplier_sources import (
+    market_profile,
     SourceKind,
     analog_product_description,
     build_search_queries,
@@ -218,6 +219,60 @@ class SubstanceIdentity(BaseModel):
         "single_substance", "mixture", "trade_name", "unknown"
     ] = "unknown"
     ambiguities: list[str] = Field(default_factory=list, max_length=5)
+
+
+class MarketAliases(BaseModel):
+    """Имена и номера, под которыми вещество продаётся, а не описано.
+
+    Отдельно от SubstanceIdentity намеренно. Там правило «только факты
+    PubChem», и на нём держится доверие к названиям. Здесь агент отвечает
+    из собственных знаний, поэтому значения помечаются как «Поиск от
+    ИИ-агента» и подтверждаются человеком, а не принимаются на веру.
+
+    Нужда доказана карбомером: в заявке 9003-01-4 — полиакриловая
+    кислота, а грейд рынка продаётся под 9007-20-9 и марками 940, 980.
+    Ни один из семи известных поставщиков не находился, пока каждый
+    запрос нёс номер из заявки.
+    """
+
+    alternative_cas: list[str] = Field(default_factory=list, max_length=4)
+    grade_names: list[str] = Field(default_factory=list, max_length=6)
+
+
+MARKET_ALIASES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "alternative_cas": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {"type": "string", "maxLength": 20},
+        },
+        "grade_names": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {"type": "string", "maxLength": 80},
+        },
+    },
+    "required": ["alternative_cas", "grade_names"],
+    "additionalProperties": False,
+}
+
+
+def _market_alias_prompt(name: str, cas: str | None) -> str:
+    return (
+        "Ты подбираешь, под какими номерами и марками этот товар продаётся "
+        "поставщикам — не как он описан в справочнике.\n\n"
+        f"Запрос: {name}" + (f", CAS {cas}" if cas else "") + "\n\n"
+        "alternative_cas — другие регистрационные номера CAS, под которыми "
+        "продаётся именно этот товарный грейд. Пример: карбомер заявляют "
+        "как 9003-01-4 (полиакриловая кислота), а косметический грейд "
+        "торгуется под 9007-20-9. Номер приводи целиком, с дефисами.\n"
+        "grade_names — марки и обозначения грейдов, которыми пользуются "
+        "продавцы: «Carbopol 940», «Carbomer 980», «AEROSIL 200».\n\n"
+        "Отвечай только тем, что знаешь как употребимое на рынке. Пустые "
+        "списки — нормальный ответ и лучше выдуманного. Не повторяй номер "
+        "и название из запроса."
+    )
 
 
 class SearchPlanItem(BaseModel):
@@ -1160,8 +1215,45 @@ def _validated_identity(
     )
 
 
+def validated_market_aliases(
+    raw: MarketAliases, *, name: str, cas: str | None
+) -> MarketAliases:
+    """Отсеивает выдуманное: номер обязан пройти контрольную цифру.
+
+    Это и есть защита от фантазии агента. Контрольная цифра CAS считается
+    по самому номеру, поэтому придуманный набор цифр её почти наверняка
+    не проходит, а настоящий проходит всегда. Марка проверяется мягче —
+    у неё контрольной суммы нет, — но повтор запроса отбрасывается: он не
+    добавляет плану ничего нового.
+    """
+    requested = normalize_cas(cas) if cas else None
+    numbers: list[str] = []
+    for candidate in raw.alternative_cas:
+        normalized = normalize_cas(candidate or "")
+        if not normalized or not is_valid_cas(normalized):
+            continue
+        if normalized == requested or normalized in numbers:
+            continue
+        numbers.append(normalized)
+
+    lowered_name = (name or "").strip().casefold()
+    grades: list[str] = []
+    for candidate in raw.grade_names:
+        cleaned = " ".join((candidate or "").split())
+        key = cleaned.casefold()
+        if len(cleaned) < 3 or key == lowered_name:
+            continue
+        if any(key == existing.casefold() for existing in grades):
+            continue
+        grades.append(cleaned)
+
+    return MarketAliases(alternative_cas=numbers, grade_names=grades)
+
+
 def _fallback_search_plan(
-    data: SupplierSearchRequest, identity: SubstanceIdentity
+    data: SupplierSearchRequest,
+    identity: SubstanceIdentity,
+    aliases: MarketAliases | None = None,
 ) -> list[SearchPlanItem]:
     """Build mandatory Echemi-first and country-specific coverage."""
     # PubChem описывает молекулу/состав, а заказчик — требуемый товар и грейд.
@@ -1184,6 +1276,20 @@ def _fallback_search_plan(
         analog_reference=data.analog_reference,
         specification=data.specification,
     )
+    # Марки и другие номера идут после обязательной головы: они полезны,
+    # но добыты агентом, а не справочником, и вытеснять проверенное ими
+    # нельзя. Марка ищется без номера — в том и смысл: у карбомера номер
+    # из заявки отсекал весь рынок.
+    if aliases:
+        profile = market_profile(data.country)
+        localised = profile.country_term or data.country
+        country_term = f" {localised}" if localised else ""
+        for grade in aliases.grade_names[:2]:
+            queries.append(f'"{grade}" {profile.role_terms}{country_term}')
+        for number in aliases.alternative_cas[:2]:
+            queries.append(
+                f'"{data.name}" "{number}" {profile.role_terms}{country_term}'
+            )
     items: list[SearchPlanItem] = []
     for index, query in enumerate(queries):
         language: Literal["en", "zh", "ru", "other"] = (
@@ -1934,6 +2040,74 @@ def execute_supplier_search(
         )
         db.commit()
 
+    # Под каким номером и какой маркой это продают. Отдельный этап, а не
+    # поле идентичности: там правило «только факты PubChem», и смешивать
+    # справочное со знанием агента нельзя — иначе через месяц догадку не
+    # отличить от проверенного.
+    market_aliases = MarketAliases()
+    alias_run, alias_clock = start_agent_run(
+        db,
+        search_run=search_run,
+        sequence=_next_agent_sequence(db, search_run.id),
+        agent_slug="market_aliases",
+        agent_name="Поиск от ИИ-агента: номера и марки рынка",
+        execution_type="llm",
+        input_payload={"name": data.name, "cas": data.cas},
+        model=llm.model,
+        temperature=0,
+        max_tokens=256,
+    )
+    db.commit()
+    try:
+        if budget.refuse_llm_call() is not None:
+            raise LLMUnavailableError("Бюджет LLM-вызовов исчерпан")
+        raw_aliases = llm.generate_json(
+            system_prompt=_market_alias_prompt(data.name, data.cas),
+            user_text=json.dumps(
+                {"name": data.name, "cas": data.cas}, ensure_ascii=False
+            ),
+            schema_name="market_aliases",
+            json_schema=MARKET_ALIASES_SCHEMA,
+            max_tokens=256,
+        )
+        market_aliases = validated_market_aliases(
+            MarketAliases.model_validate(raw_aliases),
+            name=data.name,
+            cas=data.cas,
+        )
+        log_agent_event(
+            alias_run,
+            "Номера: "
+            + (", ".join(market_aliases.alternative_cas) or "нет")
+            + "; марки: "
+            + (", ".join(market_aliases.grade_names) or "нет"),
+        )
+        finish_agent_run(
+            alias_run,
+            alias_clock,
+            llm=llm,
+            output_payload={
+                "aliases": market_aliases.model_dump(),
+                "provenance": "ai_agent",
+            },
+            raw_output_payload=raw_aliases,
+        )
+    except (LLMUnavailableError, LLMOutputTruncatedError, ValidationError) as exc:
+        # Не найти марок — обычный исход, а не отказ: поиск идёт по тому,
+        # что дал заказчик.
+        log_agent_event(
+            alias_run,
+            f"Марки и номера подобрать не удалось: {str(exc)[:160]}",
+            kind="warning",
+        )
+        finish_agent_run(
+            alias_run,
+            alias_clock,
+            llm=llm,
+            output_payload={"aliases": MarketAliases().model_dump()},
+        )
+    db.commit()
+
     search_run.status = "planning"
     db.commit()
     prompt = db.scalar(
@@ -2065,7 +2239,7 @@ def execute_supplier_search(
         )
         db.commit()
 
-    fallback_items = _fallback_search_plan(data, identity)
+    fallback_items = _fallback_search_plan(data, identity, market_aliases)
     planned_queries, rejected_queries = _merge_search_plans(
         data, ai_items, fallback_items
     )
