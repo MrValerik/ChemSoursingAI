@@ -1233,8 +1233,78 @@ def test_qualification_fails_run_when_verified_source_pool_is_exhausted(
     trace = client.get(
         f"/search-runs/{payload['search_run_id']}", headers=buyer
     ).json()
+    # Не открылось вообще ничего — проверять действительно нечего.
     assert trace["status"] == "failed"
-    assert "резерв кандидатов исчерпан" in trace["error"]
+    assert "ни одной первичной страницы" in trace["error"]
+
+
+def test_one_unreachable_page_does_not_void_the_others(client, monkeypatch):
+    """Нехватка источников — частичный результат, а не отказ.
+
+    По карбомеру «доступно 4 из 5» обнуляло четырёх проверенных
+    кандидатов: оценка и аудит по ним уже отработали, а прогон
+    помечался упавшим и в интерфейсе выглядел потерянным.
+    """
+    buyer = _auth(client, "ivanov")
+
+    def fetch(url):
+        if "blocked" in url:
+            raise RuntimeError("page blocked")
+        return FetchedPage(
+            url=url,
+            final_url=url,
+            domain="plant.example",
+            title="Aspirin",
+            content_type="text/html",
+            http_status=200,
+            text="We manufacture Aspirin CAS 50-78-2 at our own plant in China.",
+            content_hash="b" * 64,
+        )
+
+    monkeypatch.setattr("app.api.supplier_search.fetch_web_page", fetch)
+
+    def model(self, **kwargs):
+        if kwargs["schema_name"] == "market_aliases":
+            return {"alternative_cas": [], "grade_names": []}
+        return {"results": []}
+
+    monkeypatch.setattr(
+        "app.api.supplier_search.LLMClient.generate_json", model
+    )
+    response = client.post(
+        "/supplier-search/qualify",
+        headers=buyer,
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "country": "China",
+            "target_count": 2,
+            "results": [
+                {
+                    "title": "Working candidate",
+                    "url": "https://plant.example/aspirin",
+                    "snippet": "Aspirin CAS 50-78-2 manufacturer.",
+                },
+                {
+                    "title": "Blocked candidate",
+                    "url": "https://blocked.example/product",
+                    "snippet": "Aspirin CAS 50-78-2 supplier.",
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_shortfall"] == 1
+    assert payload["verified_source_count"] == 1
+    trace = client.get(
+        f"/search-runs/{payload['search_run_id']}", headers=buyer
+    ).json()
+    assert trace["status"] != "failed"
+    assert not trace["error"]
+    # Нехватка не теряется: закупщик видит её в предупреждении.
+    assert "1 из 2" in payload["warning"]
 
 
 def test_supplier_qualification_batches_five_candidates(client, monkeypatch):

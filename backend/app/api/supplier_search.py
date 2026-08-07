@@ -3119,12 +3119,21 @@ def execute_supplier_qualification(
             }
         )
 
-    shortfall_error = (
-        "Не удалось проверить запрошенное количество поставщиков: "
-        f"доступно первичных источников {len(fetched_sources)} из "
-        f"{requested_supplier_count}. Недоступные сайты исключены, "
-        "резерв кандидатов исчерпан."
+    # Нехватка источников — частичный результат, а не отказ. Прогон
+    # падал целиком из-за одной недоступной страницы: по карбомеру
+    # «доступно 4 из 5» обнуляло четырёх проверенных кандидатов, хотя
+    # оценка и аудит по ним уже отработали. Отказом это остаётся только
+    # тогда, когда не открылось вообще ничего.
+    shortfall_note = (
+        "Проверено первичных источников: "
+        f"{len(fetched_sources)} из {requested_supplier_count}. "
+        "Недоступные сайты исключены, резерв кандидатов исчерпан."
         if source_shortfall
+        else None
+    )
+    shortfall_error = (
+        "Не удалось открыть ни одной первичной страницы: проверять нечего."
+        if not fetched_sources
         else None
     )
     finish_agent_run(
@@ -3172,6 +3181,7 @@ def execute_supplier_qualification(
         policy_output_payload={
             "qualified_results": combined_results,
             "source_shortfall": source_shortfall,
+            "shortfall_note": shortfall_note,
             "shortfall_error": shortfall_error,
         },
     )
@@ -3504,7 +3514,7 @@ def execute_supplier_qualification(
                 if verification_error
                 else ""
             )
-            + (f" {shortfall_error}" if shortfall_error else "")
+            + (f" {shortfall_note}" if shortfall_note else "")
         ),
     }
 
