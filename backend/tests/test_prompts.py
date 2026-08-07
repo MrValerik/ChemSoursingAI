@@ -324,7 +324,13 @@ def test_supplier_search_drops_unverified_names_and_queries(client, monkeypatch)
     payload = result.json()
     assert payload["identity"]["canonical_name"] == "2-acetyloxybenzoic acid"
     assert payload["identity"]["search_names"] == ["Aspirin"]
-    assert all("50-78-2" in item["query"] for item in payload["search_plan"])
+    # Каждый запрос держится за предмет поиска — номером или проверенным
+    # названием. Один заход идёт намеренно без номера: номер в точных
+    # кавычках отсекает рынок, когда рынок пользуется другим номером.
+    assert all(
+        "50-78-2" in item["query"] or "Aspirin" in item["query"]
+        for item in payload["search_plan"]
+    )
     assert all(
         "Invented miracle acid" not in item["query"]
         for item in payload["search_plan"]

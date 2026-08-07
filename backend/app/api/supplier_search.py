@@ -1246,9 +1246,17 @@ def _merge_search_plans(
     else:
         anchors = [data.cas or data.name]
     anchors = [item.casefold() for item in anchors if item and item.strip()]
+    # Якорь проверяется только у запросов модели: она без него уводит план
+    # в сторону. Наши собственные запросы строятся из предмета поиска и в
+    # надзоре не нуждаются — а под общее правило попадал ровно тот из них,
+    # который намеренно идёт без номера. Он собирался и тут же выбрасывался,
+    # то есть не работал ни разу с тех пор, как появился.
+    deterministic = {item.query.strip().casefold() for item in fallback_items}
     for item in ordered_items:
         normalized = item.query.strip()
-        if not any(anchor in normalized.casefold() for anchor in anchors):
+        if normalized.casefold() not in deterministic and not any(
+            anchor in normalized.casefold() for anchor in anchors
+        ):
             rejected_count += 1
             continue
         key = normalized.casefold()

@@ -460,6 +460,62 @@ def test_unspecified_citrate_cation_does_not_invent_a_salt():
     assert all("potassium citrate" not in query.casefold() for query in queries)
 
 
+def test_our_own_query_without_the_number_survives_the_anchor_rule():
+    """Правило якоря надзирает за моделью, а не за нами.
+
+    Запрос без номера собирался и тут же выбрасывался: якорем при наличии
+    CAS был сам номер, а этот запрос идёт без него намеренно. То есть с
+    момента появления он не работал ни разу — на карбомере и на
+    эпоксидированном соевом масле в том числе.
+    """
+    from app.api.supplier_search import (
+        SubstanceIdentity,
+        SupplierSearchRequest,
+        _fallback_search_plan,
+        _merge_search_plans,
+    )
+
+    data = SupplierSearchRequest(name="Carbomer", cas="9003-01-4", country="Китай")
+    identity = SubstanceIdentity(
+        status="verified", canonical_name="Carbomer", search_names=["Carbomer"]
+    )
+    fallback = _fallback_search_plan(data, identity)
+    merged, _ = _merge_search_plans(data, [], fallback)
+
+    without_number = [item for item in merged if "9003-01-4" not in item.query]
+    assert without_number, [item.query for item in merged]
+    assert any("Carbomer" in item.query for item in without_number)
+
+
+def test_a_model_query_without_the_anchor_is_still_rejected():
+    """Модель без якоря уводит план в сторону — надзор остаётся."""
+    from app.api.supplier_search import (
+        SearchPlanItem,
+        SubstanceIdentity,
+        SupplierSearchRequest,
+        _fallback_search_plan,
+        _merge_search_plans,
+    )
+
+    data = SupplierSearchRequest(name="Carbomer", cas="9003-01-4", country="Китай")
+    identity = SubstanceIdentity(
+        status="verified", canonical_name="Carbomer", search_names=["Carbomer"]
+    )
+    stray = SearchPlanItem(
+        query="polyacrylate thickener suppliers worldwide",
+        language="en",
+        purpose="manufacturer",
+        source_type="web",
+        priority=3,
+    )
+    merged, rejected = _merge_search_plans(
+        data, [stray], _fallback_search_plan(data, identity)
+    )
+
+    assert rejected == 1
+    assert all(item.query != stray.query for item in merged)
+
+
 def test_composition_only_query_survives_the_plan_safety_filter():
     from app.api.supplier_search import (
         SubstanceIdentity,
