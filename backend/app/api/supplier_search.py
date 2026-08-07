@@ -909,6 +909,76 @@ def _verify_batch(
     )
 
 
+# Сколько имён со страниц догонять. Каждое стоит запроса и загрузки.
+_MAX_MINED_NAMES = 2
+
+
+def _producer_names_to_chase(
+    fetched_sources: list[dict],
+    candidates: list[SupplierSearchResultInput],
+    *,
+    subject_names: list[str],
+    limit: int = _MAX_MINED_NAMES,
+) -> list[str]:
+    """Имена компаний с прочитанных страниц, которых среди кандидатов нет.
+
+    Страница дистрибьютора называет тех, чьи марки он перепродаёт, — и
+    это чаще всего заводы, которых обычный запрос не находит. Себя,
+    предмет поиска и уже найденных отбрасываем: догонять стоит только
+    незнакомых.
+    """
+    text = "\n".join(str(item.get("page_text") or "") for item in fetched_sources)
+    if not text.strip():
+        return []
+    known = " ".join(
+        f"{candidate.title} {_domain_key(candidate.url)}"
+        for candidate in candidates
+    ).casefold()
+    subjects = [name.strip().casefold() for name in subject_names if name.strip()]
+
+    chosen: list[str] = []
+    for name in find_company_names(text):
+        if len(chosen) >= limit:
+            break
+        key = name.casefold()
+        if any(subject and (key in subject or subject in key) for subject in subjects):
+            continue
+        compact = re.sub(r"[^0-9a-zа-яё一-鿿]+", "", key)
+        if not compact or compact[:10] in known.replace(" ", ""):
+            continue
+        if any(compact == re.sub(r"[^0-9a-zа-яё一-鿿]+", "", c.casefold())
+               for c in chosen):
+            continue
+        chosen.append(name)
+    return chosen
+
+
+def _company_site_candidate(
+    name: str, *, country: str | None
+) -> SupplierSearchResultInput | None:
+    """Первый результат поиска сайта компании, если это не площадка."""
+    chinese = any("一" <= char <= "鿿" for char in name)
+    query = f'"{name}" 官网' if chinese else f'"{name}" official site'
+    try:
+        results = search_web(query, 5)
+    except Exception:  # noqa: BLE001 — поисковик мог отказать
+        return None
+    for item in results or []:
+        url = str(item.get("url") or "")
+        if not url.startswith(("http://", "https://")):
+            continue
+        # Площадку здесь не отсеиваем: реестр знают ворота статуса, и они
+        # назовут её площадкой по общему правилу. Своя проверка тут уже
+        # была написана неверно — реестром служил домен самой ссылки, и
+        # под правило попадало вообще всё.
+        return SupplierSearchResultInput(
+            title=str(item.get("title") or name)[:1000],
+            url=url,
+            snippet=str(item.get("snippet") or "")[:8000],
+        )
+    return None
+
+
 def _inject_deterministic_evidence(
     qualifications: dict[int, SupplierQualification],
     *,
@@ -2765,6 +2835,99 @@ def execute_supplier_qualification(
                 "content_hash": source.content_hash,
                 "error": source.error,
                 "used_as_replacement": index >= requested_supplier_count,
+            }
+        )
+        db.commit()
+
+    # Имена заводов со страниц, которые уже прочитаны. Дистрибьютор
+    # перечисляет, чьи марки он перепродаёт: на странице Shandong Aojin
+    # стоят Hualu, Huafeng и Shenma — три из шести ненайденных по
+    # адипиновой кислоте, и все три держат рынок. В сниппет выдачи этот
+    # перечень не попадает, он в теле страницы.
+    #
+    # Заход делается здесь, а не в поиске: страницы уже загружены и
+    # читать их второй раз незачем. Ищем только тех, кого среди
+    # кандидатов ещё нет.
+    mined_names = _producer_names_to_chase(
+        fetched_sources,
+        candidates,
+        subject_names=[data.name, *(data.known_synonyms or [])],
+    )
+    for name in mined_names:
+        if budget.refuse_query() is not None or budget.refuse_page_fetch() is not None:
+            break
+        candidate = _company_site_candidate(name, country=data.country)
+        if candidate is None:
+            continue
+        index = len(candidates)
+        candidates.append(candidate)
+        log_agent_event(
+            fetch_run,
+            f"Со страницы прочитано имя «{name}»; открываю {_domain_key(candidate.url)}",
+        )
+        source = SourceDocument(
+            search_run_id=search_run.id,
+            agent_run_id=fetch_run.id,
+            url=candidate.url,
+            domain=_domain_key(candidate.url),
+            title=candidate.title,
+            status="running",
+            retrieved_at=utc_now(),
+        )
+        db.add(source)
+        db.flush()
+        source_documents_by_id[source.id] = source
+        source_index_by_id[source.id] = index
+        try:
+            page = fetch_web_page(candidate.url)
+            _raise_if_cancelled(db, search_run)
+            source.final_url = page.final_url
+            source.domain = page.domain
+            source.title = page.title or candidate.title
+            source.content_type = page.content_type
+            source.http_status = page.http_status
+            source.text_content = page.text
+            source.content_hash = page.content_hash
+            source.status = "completed"
+            fetched_sources.append(
+                {
+                    "result_index": index,
+                    "source_document_id": source.id,
+                    "title": candidate.title[:300],
+                    "snippet": candidate.snippet[:900],
+                    "url": candidate.url,
+                    "domain": source.domain,
+                    "source_kind": candidate.source_kind,
+                    "fetch_status": "completed",
+                    "cas_found_on_page": page_cas_match(page.text, data.cas),
+                    "page_text": _compose_page_text(
+                        page.text,
+                        build_highlights(page.text, cas=data.cas),
+                        page_text_limit,
+                    ),
+                    "found_by": "имя со страницы другого кандидата",
+                }
+            )
+        except SearchRunCancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001 — сайт может не открыться
+            source.status = "failed"
+            source.error = str(exc)
+            log_agent_event(
+                fetch_run,
+                f"Сайт «{name}» не открылся: {str(exc)[:100]}",
+                kind="warning",
+            )
+        fetch_summary.append(
+            {
+                "source_document_id": source.id,
+                "url": candidate.url,
+                "source_kind": candidate.source_kind,
+                "status": source.status,
+                "content_hash": source.content_hash,
+                "error": source.error,
+                "used_as_replacement": True,
+                "found_by": "имя со страницы другого кандидата",
             }
         )
         db.commit()
