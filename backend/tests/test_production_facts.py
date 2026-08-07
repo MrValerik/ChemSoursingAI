@@ -96,6 +96,74 @@ def test_capacity_opens_the_shortlist_without_any_document():
     assert score.total >= 70
 
 
+def test_an_own_site_proves_the_role_by_itself():
+    """Мы прочли «наш завод» со страницы и сами же звали роль неизвестной.
+
+    У Shandong Kerui проверен production_site, а статус стоял «не
+    определён»: понижение требовало именно manufacturer_role. Факт,
+    прочитанный регуляркой, крепче прозаического «мы производитель».
+    """
+    from app.api.supplier_search import (
+        SupplierQualification,
+        _apply_evidence_gates,
+    )
+
+    qualification = SupplierQualification(
+        result_index=0,
+        company_name="Shandong Kerui Chemicals",
+        title_ru="Оценка",
+        summary_ru="Описание",
+        supplier_type="manufacturer",
+        cas_status="confirmed",
+        country_status="claimed",
+        gmp_status="not_found",
+        iso_status="not_found",
+        coa_status="not_found",
+        tds_status="not_found",
+        confidence=0,
+        red_flags=[],
+        missing_evidence=[],
+        evidence=[],
+    )
+    payload = _apply_evidence_gates(
+        qualification,
+        [_claim("chemical_identity"), _claim("production_site")],
+    )
+
+    assert payload["supplier_type"] == "manufacturer"
+
+
+def test_documents_alone_still_do_not_prove_the_role():
+    """У дистрибьютора CoA есть тоже — бумага роли не доказывает."""
+    from app.api.supplier_search import (
+        SupplierQualification,
+        _apply_evidence_gates,
+    )
+
+    qualification = SupplierQualification(
+        result_index=0,
+        company_name="Некто",
+        title_ru="Оценка",
+        summary_ru="Описание",
+        supplier_type="manufacturer",
+        cas_status="confirmed",
+        country_status="claimed",
+        gmp_status="not_found",
+        iso_status="not_found",
+        coa_status="claimed",
+        tds_status="not_found",
+        confidence=0,
+        red_flags=[],
+        missing_evidence=[],
+        evidence=[],
+    )
+    payload = _apply_evidence_gates(
+        qualification, [_claim("chemical_identity"), _claim("coa")]
+    )
+
+    assert payload["supplier_type"] == "unknown"
+
+
 def test_a_bare_manufacturer_claim_is_still_not_enough():
     """Снята одна опора, а не все: «мы завод» само по себе не проходит."""
     assessment = {"supplier_type": "manufacturer", "cas_status": "confirmed"}

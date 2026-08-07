@@ -971,7 +971,21 @@ def _apply_evidence_gates(
         if message not in red_flags:
             red_flags.append(message)
 
-    if payload["supplier_type"] == "manufacturer" and "manufacturer_role" not in supported:
+    # Собственная площадка или годовой выпуск — тоже доказательство роли, и
+    # доказательство более крепкое, чем прозаическое «мы производитель»:
+    # эти факты читает регулярка со страницы, а не модель из общих слов.
+    #
+    # Замер: у Shandong Kerui проверен production_site, и статус при этом
+    # стоял «не определён». Мы сами прочли «наш завод в Шаньдуне» — и сами
+    # же отвечали закупщику, что роль неизвестна.
+    production_proof = {
+        "manufacturer_role",
+        "production_capacity",
+        "production_site",
+    }
+    if payload["supplier_type"] == "manufacturer" and not (
+        production_proof & supported
+    ):
         payload["supplier_type"] = "unknown"
         flag("Статус производителя не подтверждён проверенной цитатой")
 
