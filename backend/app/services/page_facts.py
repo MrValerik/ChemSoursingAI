@@ -343,6 +343,39 @@ def looks_like_page_title(quote: str) -> bool:
     return not (_CAPACITY_RE.search(text) or _PLANT_RE.search(text))
 
 
+# Приглашение купить. Слово «завод» в нём стоит как довод в продаже, а не
+# как утверждение о себе, и шаблон одинаков на тысячах товарных страниц.
+_BUY_INVITATION = (
+    "welcome to buy",
+    "welcome to wholesale",
+    "welcome to order",
+    "welcome to purchase",
+    "feel free to buy",
+    "buy bulk",
+    "buy cheap",
+    "buy discount",
+    "欢迎购买",
+    "欢迎订购",
+)
+
+
+def looks_like_purchase_invitation(quote: str) -> bool:
+    """«Welcome to buy bulk adipic acid from our factory» — это призыв купить.
+
+    Единственное, на чём держался статус производителя у Henan GP —
+    подтверждённая эталоном ошибка классификации. Завода за строкой нет:
+    адрес компании на той же странице — 29-й этаж бизнес-центра.
+
+    Замер по 69 принятым цитатам о роли: правило отсекает 11, и все они —
+    один и тот же шаблон в шести написаниях. Оговорка та же, что у шапок:
+    строка с годовым выпуском или собственной площадкой проходит.
+    """
+    low = (quote or "").casefold()
+    if not any(marker in low for marker in _BUY_INVITATION):
+        return False
+    return not (_CAPACITY_RE.search(quote or "") or _PLANT_RE.search(quote or ""))
+
+
 def looks_like_role_keyword_stuffing(quote: str) -> bool:
     """Перечисление ролей вместо утверждения о производстве.
 

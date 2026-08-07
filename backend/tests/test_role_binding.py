@@ -140,6 +140,36 @@ def test_the_same_boilerplate_with_an_article_is_caught():
     )
 
 
+def test_an_invitation_to_buy_does_not_prove_a_factory():
+    """Единственная опора статуса у Henan GP — призыв купить.
+
+    «Welcome to buy bulk adipic acid from our factory» — ошибка
+    классификации, подтверждённая эталоном: эталон знает Henan GP как
+    дистрибьютора, а адрес на той же странице — 29-й этаж бизнес-центра.
+    Замер по 69 принятым цитатам о роли: 11 срабатываний, все — один
+    шаблон в шести написаниях.
+    """
+    from app.services.page_facts import looks_like_purchase_invitation
+
+    assert looks_like_purchase_invitation(
+        "welcome to buy bulk adipic acid from our factory."
+    )
+    assert looks_like_purchase_invitation(
+        "buy bulk epoxidized soybean oil esbo from our factory"
+    )
+
+
+def test_a_real_claim_is_not_an_invitation():
+    from app.services.page_facts import looks_like_purchase_invitation
+
+    assert not looks_like_purchase_invitation(
+        "Douwin has own adipic acid factory with advanced production facility"
+    )
+    assert not looks_like_purchase_invitation(
+        "welcome to buy from our factory with an annual capacity of 20,000 tons"
+    )
+
+
 def test_a_separator_without_a_role_word_is_not_a_title():
     from app.services.page_facts import looks_like_page_title
 
