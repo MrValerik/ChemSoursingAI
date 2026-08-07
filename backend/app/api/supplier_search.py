@@ -2654,17 +2654,23 @@ def execute_supplier_qualification(
     )
     db.commit()
 
+    # Собственный список кандидатов, а не проекция входного. Раньше
+    # result_index означал позицию в data.results, и добавить
+    # кандидата по ходу дела было нельзя: индексы разъезжались.
+    # Список растёт — например, когда со страницы дистрибьютора
+    # прочитано имя завода и его сайт стоит проверить.
+    candidates = list(data.results)
     fetched_sources: list[dict] = []
     fetch_summary: list[dict] = []
     source_documents_by_id: dict[int, SourceDocument] = {}
     source_index_by_id: dict[int, int] = {}
     requested_supplier_count = min(
-        data.target_count or len(data.results),
-        len(data.results),
+        data.target_count or len(candidates),
+        len(candidates),
     )
     fetch_stop_reason: str | None = None
     page_text_limit = _page_text_budget()
-    for index, result in enumerate(data.results):
+    for index, result in enumerate(candidates):
         if len(fetched_sources) >= requested_supplier_count:
             fetch_stop_reason = STOP_TARGET_REACHED
             log_agent_event(
@@ -3049,7 +3055,7 @@ def execute_supplier_qualification(
     fetched_indexes = {
         int(source["result_index"]) for source in fetched_sources
     }
-    for index, source in enumerate(data.results):
+    for index, source in enumerate(candidates):
         if index not in fetched_indexes:
             continue
         qualification = qualifications.get(index)
@@ -3089,7 +3095,7 @@ def execute_supplier_qualification(
             qualification,
             evidence_items,
             page_url=(
-                data.results[index].url if index < len(data.results) else ""
+                candidates[index].url if index < len(candidates) else ""
             ),
             intermediary_domains=intermediary_domains,
         )
@@ -3203,8 +3209,8 @@ def execute_supplier_qualification(
     verification_candidates = [
         {
             "result_index": int(result["result_index"]),
-            "title": data.results[int(result["result_index"])].title[:300],
-            "url": data.results[int(result["result_index"])].url,
+            "title": candidates[int(result["result_index"])].title[:300],
+            "url": candidates[int(result["result_index"])].url,
             "source_document_id": fetched_by_index[
                 int(result["result_index"])
             ]["source_document_id"],
