@@ -36,6 +36,72 @@ def test_every_player_carries_a_kind_and_a_confidence():
             assert player["confidence"] in {"verified", "industry_knowledge"}
 
 
+def test_every_player_carries_a_country():
+    """Без страны полнота считается по всему свету."""
+    for substance in load_dataset("v1")["substances"]:
+        for player in substance["known_players"]:
+            assert player.get("country")
+
+
+def test_recall_is_counted_against_the_country_that_was_asked_for():
+    """Замер требовал от поиска по Китаю немецкого владельца марки.
+
+    Evonik, Cabot, Wacker и Tokuyama стояли в ожиданиях по диоксиду
+    кремния при стране запроса «Китай» и втрое занижали полноту. Игроки
+    остаются в наборе — при поиске по их стране они снова ожидаемы.
+    """
+    substance = {
+        "id": "проба",
+        "category": "with_cas",
+        "country": "Китай",
+        "known_players": [
+            {"name": "Китайский завод", "aliases": [], "domain": "plant.cn",
+             "kind": "manufacturer", "confidence": "verified",
+             "country": "Китай"},
+            {"name": "Немецкий концерн", "aliases": [], "domain": "konzern.de",
+             "kind": "manufacturer", "confidence": "verified",
+             "country": "Германия"},
+        ],
+    }
+
+    report = score_substance(
+        substance,
+        [{"company_name": "Китайский завод", "url": "https://plant.cn/p",
+          "supplier_type": "manufacturer"}],
+    )
+
+    assert report.known_total == 1
+    assert len(report.found) == 1
+    assert report.missed == []
+    assert report.found_abroad == []
+
+
+def test_a_foreign_player_that_is_found_is_reported_apart():
+    """Находка сверх заказанного — не полнота, но и не ошибка."""
+    substance = {
+        "id": "проба",
+        "category": "with_cas",
+        "country": "Китай",
+        "known_players": [
+            {"name": "Китайский завод", "aliases": [], "domain": "plant.cn",
+             "kind": "manufacturer", "confidence": "verified",
+             "country": "Китай"},
+            {"name": "Немецкий концерн", "aliases": [], "domain": "konzern.de",
+             "kind": "manufacturer", "confidence": "verified",
+             "country": "Германия"},
+        ],
+    }
+
+    report = score_substance(
+        substance,
+        [{"company_name": "Немецкий концерн", "url": "https://konzern.de/p"}],
+    )
+
+    assert report.found == []
+    assert report.found_abroad == ["Немецкий концерн (Германия)"]
+    assert report.missed == ["Китайский завод"]
+
+
 def test_a_filtered_marketplace_is_not_counted_as_a_miss():
     """Отсев площадок — требуемое поведение, а не потеря полноты."""
     substance = {

@@ -1,7 +1,7 @@
 {
   "dataset_version": "v1",
   "purpose": "Эталон для замера поиска контрагентов: кого система обязана найти и кем он на самом деле является. Отдельно — страницы площадок, которые она обязана НЕ пускать в кандидаты.",
-  "note": "Набор известных игроков, а не полный рынок. Полнота меряется как доля найденных из известных; кандидаты вне набора выводятся отдельным списком для ручной разметки и пополнения эталона. Спорные случаи не размечаются наугад, а лежат в unresolved: неверная метка портит замер сильнее, чем отсутствующая. Марки продуктов в псевдонимах не хранятся: страницу с заголовком «AEROSIL» держит перепродавец, и сопоставление по марке засчитывает владельца бренда найденным там, где его нет.",
+  "note": "Набор известных игроков, а не полный рынок. Полнота меряется как доля найденных из известных; кандидаты вне набора выводятся отдельным списком для ручной разметки и пополнения эталона. Спорные случаи не размечаются наугад, а лежат в unresolved: неверная метка портит замер сильнее, чем отсутствующая. Марки продуктов в псевдонимах не хранятся: страницу с заголовком «AEROSIL» держит перепродавец, и сопоставление по марке засчитывает владельца бренда найденным там, где его нет. У каждого игрока указана страна: полнота считается по тем, кто отвечает стране запроса. Требовать от поиска по Китаю немецкого владельца марки — значит требовать того, чего запрос не просил.",
   "kinds": {
     "manufacturer": "Производит вещество сам: есть завод, мощность, производственная площадка.",
     "distributor": "Официально распространяет чужой продукт: авторизация, склад, представительство.",
@@ -29,7 +29,8 @@
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Крупнейший производитель адипиновой кислоты в Китае, около 470 тыс. т/год.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Hualu Hengsheng",
@@ -41,7 +42,8 @@
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Около 326 тыс. т/год.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Liaoyang Petrochemical",
@@ -52,7 +54,8 @@
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Около 140 тыс. т/год.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Chongqing Huafeng Chemical",
@@ -64,7 +67,8 @@
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Найден прогоном 62, на странице указана мощность.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Shandong Aojin Chemical Technology",
@@ -75,7 +79,8 @@
           "domain": "aojinchem.com",
           "kind": "distributor",
           "evidence": "Импорт-экспорт, внутренняя торговля и логистика; склады в портах. Перепродаёт марки Haili, Hualu, Yangmei, Huafeng, Tianzhou, Shenma. Своего производства на сайте нет.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "MarChem",
@@ -85,7 +90,8 @@
           "domain": "marchem.com.cn",
           "kind": "manufacturer",
           "evidence": "Раздел «Our Factory», адрес производства в Циндао.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "InvivoChem",
@@ -93,7 +99,8 @@
           "domain": "invivochem.cn",
           "kind": "distributor",
           "evidence": "Поставщик исследовательских реактивов.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Selleck Chemicals",
@@ -103,7 +110,8 @@
           "domain": "selleck.cn",
           "kind": "distributor",
           "evidence": "Поставщик реактивов для исследований.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Acmec (Jizhi Biochemical)",
@@ -114,7 +122,8 @@
           "domain": "acmec.com.cn",
           "kind": "distributor",
           "evidence": "Реактивный каталог.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Consolidated Chemicals and Solvents",
@@ -124,7 +133,8 @@
           "domain": "consolidated-chemical.com",
           "kind": "distributor",
           "evidence": "Дистрибьютор химии и растворителей.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "США"
         }
       ],
       "unresolved": [
@@ -163,8 +173,9 @@
           ],
           "domain": "lubrizol.com",
           "kind": "manufacturer",
-          "evidence": "Carbopol — отраслевой эталон карбомера.",
-          "confidence": "industry_knowledge"
+          "evidence": "Carbopol — отраслевой эталон карбомера. Производство в Китае есть, но в выдачу компания попадает глобальным сайтом, а не китайским.",
+          "confidence": "industry_knowledge",
+          "country": "США"
         },
         {
           "name": "SNF",
@@ -175,7 +186,8 @@
           "domain": "snf.com",
           "kind": "manufacturer",
           "evidence": "Производитель полиакрилатов.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Франция"
         },
         {
           "name": "Anhui Newman Fine Chemicals",
@@ -186,7 +198,8 @@
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Найден прогоном 47.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Guangzhou Tinci Materials",
@@ -197,7 +210,8 @@
           "domain": "tinci.com",
           "kind": "manufacturer",
           "evidence": "Китайский производитель косметического сырья.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Sinobio Chemistry",
@@ -207,7 +221,8 @@
           "domain": "sinobiochemistry.com",
           "kind": "manufacturer",
           "evidence": "Два производства в Китае, площадка в Цзянси около 68 000 кв. м, непрерывное производство с системой DCS.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Mubychem Group",
@@ -218,7 +233,8 @@
           "domain": "mubychem.com",
           "kind": "manufacturer",
           "evidence": "Несколько площадок в западной Индии, cGMP и GLP, ISO-9001, REACH.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Индия"
         },
         {
           "name": "Шэньчжэньская 优普惠药品",
@@ -228,7 +244,8 @@
           "domain": "youpuhui.com",
           "kind": "distributor",
           "evidence": "Фармдистрибьютор.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         }
       ],
       "unresolved": [
@@ -260,8 +277,9 @@
           ],
           "domain": "evonik.com",
           "kind": "manufacturer",
-          "evidence": "AEROSIL — эталонная марка пирогенного диоксида кремния.",
-          "confidence": "industry_knowledge"
+          "evidence": "AEROSIL — эталонная марка пирогенного диоксида кремния. Производство в Китае есть, но в выдачу компания попадает глобальным сайтом, а не китайским.",
+          "confidence": "industry_knowledge",
+          "country": "Германия"
         },
         {
           "name": "Cabot Corporation",
@@ -270,8 +288,9 @@
           ],
           "domain": "cabotcorp.com",
           "kind": "manufacturer",
-          "evidence": "CAB-O-SIL.",
-          "confidence": "industry_knowledge"
+          "evidence": "CAB-O-SIL. Производство в Китае есть, но в выдачу компания попадает глобальным сайтом, а не китайским.",
+          "confidence": "industry_knowledge",
+          "country": "США"
         },
         {
           "name": "Wacker Chemie",
@@ -280,8 +299,9 @@
           ],
           "domain": "wacker.com",
           "kind": "manufacturer",
-          "evidence": "HDK.",
-          "confidence": "industry_knowledge"
+          "evidence": "HDK. Производство в Китае есть, но в выдачу компания попадает глобальным сайтом, а не китайским.",
+          "confidence": "industry_knowledge",
+          "country": "Германия"
         },
         {
           "name": "Tokuyama",
@@ -291,7 +311,8 @@
           "domain": null,
           "kind": "manufacturer",
           "evidence": "REOLOSIL.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Япония"
         },
         {
           "name": "Jinsha Precipitated Silica Manufacturing",
@@ -302,7 +323,8 @@
           "domain": "jksilicas.com",
           "kind": "manufacturer",
           "evidence": "Производственная линия, промзона Гаоша, Шасянь, Фуцзянь. Внимание: делает осаждённый диоксид кремния, а не коллоидный — тот же номер CAS, другой продукт.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Hangzhou Leap Chem",
@@ -313,7 +335,8 @@
           "domain": "leapchem.com",
           "kind": "trader",
           "evidence": "Услуги закупки, финальной инспекции и аудита, заказной синтез — снабжение и контроль, а не собственное производство.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Ataman Chemicals",
@@ -323,7 +346,8 @@
           "domain": "atamanchemicals.com",
           "kind": "distributor",
           "evidence": "Турецкий дистрибьютор химии.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Турция"
         },
         {
           "name": "UPI global",
@@ -334,7 +358,8 @@
           "domain": "upichem.com",
           "kind": "distributor",
           "evidence": "Слово distributor в адресе страницы и в описании.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "США"
         },
         {
           "name": "Chemzip",
@@ -342,7 +367,8 @@
           "domain": "chemzip.cn",
           "kind": "trader",
           "evidence": "Онлайн-перепродажа химии.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Canspec",
@@ -353,7 +379,8 @@
           "domain": "canspec.cn",
           "kind": "distributor",
           "evidence": "Стандартные образцы и реактивы.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "HIFULL (Hubei Huifu)",
@@ -364,7 +391,8 @@
           "domain": "hifull.net",
           "kind": "manufacturer",
           "evidence": "Собственный завод в Ичане, провинция Хубэй; годовой выпуск пирогенного кремнезёма около 12 000 т, фармацевтические грейды HL-200/300/380. Найден прогоном 146 по запросу «AEROSIL (manufacturer OR factory) China» — то есть именно раскрытием марки, а не номером из заявки.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         }
       ],
       "unresolved": [
@@ -424,7 +452,8 @@
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Около 300 тыс. т/год, крупнейший в мире. Собственного сайта нет — проверка полноты на трудном случае.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Guangzhou Xinjinlong Chemical",
@@ -435,7 +464,8 @@
           "domain": null,
           "kind": "manufacturer",
           "evidence": "Около 100 тыс. т/год.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         },
         {
           "name": "Zhejiang Jiaao Enprotech",
@@ -447,7 +477,8 @@
           "domain": "jiaaoplasticizers.com",
           "kind": "manufacturer",
           "evidence": "Публичная компания, общая мощность свыше 120 тыс. т/год, ESBO зарегистрирован в REACH. Найден вторым заходом на прогоне 69 — в первую версию эталона не попал по моему упущению.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Shanghai Sunwise Chemical",
@@ -458,7 +489,8 @@
           "domain": "sunwisechem.com",
           "kind": "manufacturer",
           "evidence": "Раздел производства, фотографии цеха, CoA на партию перед отгрузкой.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "RawSource",
@@ -466,7 +498,8 @@
           "domain": "rawsource.com",
           "kind": "distributor",
           "evidence": "Каталог сырья от разных производителей.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "США"
         }
       ],
       "unresolved": [
@@ -510,8 +543,9 @@
           ],
           "domain": "evonik.com",
           "kind": "manufacturer",
-          "evidence": "TEGO Sorb — рицинолеат цинка для дезодорантов.",
-          "confidence": "industry_knowledge"
+          "evidence": "TEGO Sorb — рицинолеат цинка для дезодорантов. Производство в Китае есть, но в выдачу компания попадает глобальным сайтом, а не китайским.",
+          "confidence": "industry_knowledge",
+          "country": "Германия"
         },
         {
           "name": "Acme Synthetic Chemicals",
@@ -521,7 +555,8 @@
           "domain": "acmesynthetic.com",
           "kind": "manufacturer",
           "evidence": "Заявленная мощность 300 т/год, описан способ получения из оксида цинка и рицинолевой кислоты.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Индия"
         },
         {
           "name": "Chemneo",
@@ -529,7 +564,8 @@
           "domain": "chemneo.com",
           "kind": "manufacturer",
           "evidence": "Заявлена пилотная линия до 1,5 т/сутки.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "DangTong Biological",
@@ -539,7 +575,8 @@
           "domain": "dangtongbiological.com",
           "kind": "trader",
           "evidence": "Формулировка «processing and selling», признаков собственного производства нет.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         }
       ]
     },
@@ -563,7 +600,8 @@
           "domain": "dow.com",
           "kind": "manufacturer",
           "evidence": "Владелец марки, INCI Phenyl Trimethicone, CAS 70131-69-0.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "США"
         },
         {
           "name": "Qingdao Hengda Chemical New Material",
@@ -574,7 +612,8 @@
           "domain": "hengdasilane.com",
           "kind": "manufacturer",
           "evidence": "Phenyl Trimethicone CAS 70131-69-0, опубликована вязкость 20,8 мм²/с.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Topsilicone",
@@ -584,7 +623,8 @@
           "domain": "topsilicone.com",
           "kind": "manufacturer",
           "evidence": "Грейд TPD-556 — прямой эквивалент 556-го.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Silicorex",
@@ -592,7 +632,8 @@
           "domain": "silicorex.com",
           "kind": "manufacturer",
           "evidence": "Phenyl Trimethicone CAS 70131-69-0.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "неизвестно"
         },
         {
           "name": "Safic-Alcan",
@@ -600,7 +641,8 @@
           "domain": "safic-alcan.com",
           "kind": "distributor",
           "evidence": "Каталог Dow в разделе косметики, найден прогоном 58.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Франция"
         },
         {
           "name": "Univar Solutions",
@@ -610,7 +652,8 @@
           "domain": "univarsolutions.com",
           "kind": "distributor",
           "evidence": "Страница дистрибуции DOWSIL 556.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "США"
         },
         {
           "name": "Wesilicone",
@@ -618,7 +661,8 @@
           "domain": "wesilicone.com",
           "kind": "manufacturer",
           "evidence": "Заявляет собственное производство силиконов; подробностей о площадке на странице нет.",
-          "confidence": "industry_knowledge"
+          "confidence": "industry_knowledge",
+          "country": "Китай"
         }
       ],
       "should_be_filtered": [
@@ -654,7 +698,8 @@
           "domain": "kaochemicals-eu.com",
           "kind": "manufacturer",
           "evidence": "N,N-Dimethyl Behenylamine в каталоге; Kao — мировой производитель жирных аминов.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Япония"
         },
         {
           "name": "Shandong Kerui Chemicals",
@@ -664,7 +709,8 @@
           "domain": "keruichemical.com",
           "kind": "manufacturer",
           "evidence": "Behenyl Dimethylamine DMA22, указана собственная площадка.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "BLIT Chemical",
@@ -674,7 +720,8 @@
           "domain": "blitchem.com",
           "kind": "manufacturer",
           "evidence": "Behenyl Dimethylamine DMA22 CAS 21542-96-1, есть CoA и TDS.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Anhui Liwei Chemical",
@@ -685,7 +732,8 @@
           "domain": "nj-finechem.com",
           "kind": "manufacturer",
           "evidence": "Octadecyl-Behenyl Dimethyl Amine, заявлен статус производителя, есть CoA и ISO.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         },
         {
           "name": "Tianjin Gnee Biotech",
@@ -696,7 +744,8 @@
           "domain": "gneechemical.com",
           "kind": "trader",
           "evidence": "Заявляет «мы завод» без единого подтверждения: адрес — 25-й этаж бизнес-центра в Аньяне, ни площадки, ни мощности, ни оборудования. Система пропустила его в короткий список.",
-          "confidence": "verified"
+          "confidence": "verified",
+          "country": "Китай"
         }
       ],
       "unresolved": [

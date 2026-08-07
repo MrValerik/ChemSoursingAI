@@ -83,6 +83,12 @@ def load_dataset(version: str = "v1") -> dict[str, Any]:
                 raise DiscoveryEvalError(
                     f"{substance_id}: не указана достоверность записи."
                 )
+            if not player.get("country"):
+                raise DiscoveryEvalError(
+                    f"{substance_id}: у игрока «{player['name']}» нет страны. "
+                    "Без неё полнота считается по всему свету, а запрос "
+                    "спрашивал одну страну."
+                )
     return dataset
 
 
@@ -170,6 +176,9 @@ class SubstanceReport:
     # Площадки, всё же попавшие в кандидатов: это не потеря полноты, а
     # протечка отсева, и считать её надо отдельно.
     leaked_marketplaces: list[str] = field(default_factory=list)
+    # Найденные за пределами страны запроса. Требовать их нельзя, но и
+    # прятать не за что: находка полезная, просто сверх заказанного.
+    found_abroad: list[str] = field(default_factory=list)
 
     @property
     def recall(self) -> float:
@@ -185,10 +194,19 @@ def score_substance(
 ) -> SubstanceReport:
     """Сверяет кандидатов одного вещества с его известными игроками."""
     players = substance["known_players"]
+    # Запрос спрашивал одну страну — по ней и считается полнота. Игроки
+    # из других стран остаются в наборе: при поиске по их стране они снова
+    # станут ожидаемыми, а найтись могут и сейчас.
+    wanted = (substance.get("country") or "").strip().casefold()
+    in_country = [
+        player
+        for player in players
+        if not wanted or (player.get("country") or "").casefold() == wanted
+    ]
     report = SubstanceReport(
         substance_id=substance["id"],
         category=substance["category"],
-        known_total=len(players),
+        known_total=len(in_country),
     )
     filtered_hosts = {
         (item.get("domain") or "").casefold()
@@ -216,6 +234,11 @@ def score_substance(
         if player["name"] in matched_names:
             continue
         matched_names.add(player["name"])
+        if player not in in_country:
+            report.found_abroad.append(
+                f'{player["name"]} ({player.get("country")})'
+            )
+            continue
         report.found.append(
             (
                 player["name"],
@@ -225,7 +248,7 @@ def score_substance(
         )
     report.missed = [
         player["name"]
-        for player in players
+        for player in in_country
         if player["name"] not in matched_names
     ]
     return report
@@ -234,12 +257,13 @@ def score_substance(
 def format_report(reports: list[SubstanceReport]) -> str:
     """Человекочитаемый отчёт: полнота, статусы и что размечать дальше."""
     lines: list[str] = []
-    known = found = correct = leaked = 0
+    known = found = correct = leaked = abroad = 0
     for report in reports:
         known += report.known_total
         found += len(report.found)
         correct += report.correct_kinds
         leaked += len(report.leaked_marketplaces)
+        abroad += len(report.found_abroad)
         lines.append(
             f"=== {report.substance_id} [{report.category}] "
             f"найдено {len(report.found)} из {report.known_total}"
@@ -251,10 +275,13 @@ def format_report(reports: list[SubstanceReport]) -> str:
             lines.append(f"  - не найден: {name}")
         for name, host in report.unlabelled:
             lines.append(f"  ? вне эталона: {name} ({host})")
+        for name in report.found_abroad:
+            lines.append(f"  + сверх страны запроса: {name}")
         for host in report.leaked_marketplaces:
             lines.append(f"  x площадка в кандидатах: {host}")
     lines.append("")
-    lines.append(f"полнота: {found} из {known}")
+    lines.append(f"полнота по стране запроса: {found} из {known}")
     lines.append(f"верный статус: {correct} из {found}")
+    lines.append(f"найдено сверх страны: {abroad}")
     lines.append(f"площадок просочилось: {leaked}")
     return "\n".join(lines)
