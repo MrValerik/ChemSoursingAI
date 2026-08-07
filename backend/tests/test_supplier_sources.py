@@ -162,6 +162,27 @@ def test_one_query_drops_the_number():
     assert any("Epoxidized soybean oil" in q for q in without_cas)
 
 
+def test_the_query_without_the_number_is_in_the_mandatory_head():
+    """План обрезается по бюджету, и хвост до выполнения не доживает.
+
+    У карбомера в заявке стоит 9003-01-4 — полиакриловая кислота, а
+    косметический грейд рынок продаёт под 9007-20-9 и марками 940, 980.
+    Каждый запрос с номером в точных кавычках отсекал рынок целиком: ни
+    одного из семи известных поставщиков за три прогона. Значит заход без
+    номера обязан попадать в голову плана, а не стоять после неё.
+    """
+    queries = build_search_queries(
+        cas="9003-01-4",
+        name="Carbomer",
+        country="Китай",
+        ai_query=None,
+    )
+    first_without_cas = next(
+        index for index, query in enumerate(queries) if "9003-01-4" not in query
+    )
+    assert first_without_cas < 4, queries[:5]
+
+
 def test_marketplace_no_longer_outranks_a_company_site():
     """Площадка получала восемь баллов и обгоняла сайт завода."""
     assert source_priority("echemi", "Китай") == source_priority("web", "Китай")
