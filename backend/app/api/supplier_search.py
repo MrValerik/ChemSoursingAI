@@ -1313,6 +1313,14 @@ def validated_market_aliases(
         key = cleaned.casefold()
         if len(cleaned) < 3 or key == lowered_name:
             continue
+        # Марка ценна тем, что зовёт товар иначе, чем заявка. «Adipic acid
+        # 99.5%» — то же название с чистотой: выдачу оно не меняет, а место
+        # в обязательной голове плана занимает. Замер: у адипиновой кислоты
+        # такая «марка» вытеснила работавший запрос, и полнота просела.
+        # «Carbopol» рядом с «Carbomer» под правило не подпадает — в том и
+        # смысл раскрытия.
+        if lowered_name and lowered_name in key:
+            continue
         if any(key == existing.casefold() for existing in grades):
             continue
         grades.append(cleaned)

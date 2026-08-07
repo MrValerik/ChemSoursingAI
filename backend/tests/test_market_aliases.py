@@ -73,6 +73,30 @@ def test_the_requested_name_is_not_repeated_as_a_grade():
     assert result.grade_names == ["Carbopol 980"]
 
 
+def test_the_substance_name_with_a_purity_is_not_a_grade():
+    """«Adipic acid 99.5%» — то же название, а место в голове плана занимает.
+
+    На полном замере такая «марка» встала третьим запросом у адипиновой
+    кислоты и вытеснила работавший, а выдачу не изменила.
+    """
+    result = validated_market_aliases(
+        MarketAliases(grade_names=["Adipic acid 99.5%", "Adipic Acid Industrial"]),
+        name="Adipic acid",
+        cas="124-04-9",
+    )
+    assert result.grade_names == []
+
+
+def test_a_real_brand_survives_the_same_rule():
+    """Carbopol не содержит слова «карбомер» — в том и смысл раскрытия."""
+    result = validated_market_aliases(
+        MarketAliases(grade_names=["Carbopol 940", "AEROSIL 200"]),
+        name="Carbomer",
+        cas="9003-01-4",
+    )
+    assert result.grade_names == ["Carbopol 940", "AEROSIL 200"]
+
+
 def test_empty_lists_are_a_normal_answer():
     result = validated_market_aliases(
         MarketAliases(), name="Adipic acid", cas="124-04-9"
