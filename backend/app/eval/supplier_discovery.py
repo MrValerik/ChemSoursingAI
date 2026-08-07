@@ -36,6 +36,14 @@ _KINDS = {"manufacturer", "distributor", "trader"}
 _CATEGORIES = {"with_cas", "trade_name", "plain_name"}
 _CONFIDENCE = {"verified", "industry_knowledge"}
 
+# Откуда игрок попал в эталон. «system_run» — его нашёл наш же поиск, и в
+# счёт полноты он не идёт: иначе замер пополняет числитель и знаменатель
+# одними и теми же именами и хвалит сам себя. В проверке классификации
+# такой игрок участвует наравне с остальными — там вопрос не «нашли ли»,
+# а «верно ли назвали роль», и ответ на него от происхождения не зависит.
+_DISCOVERY = {"independent", "system_run"}
+_DEFAULT_DISCOVERY = "independent"
+
 
 class DiscoveryEvalError(ValueError):
     """Эталон отсутствует или структурно испорчен."""
@@ -90,6 +98,13 @@ def load_dataset(version: str = "v1") -> dict[str, Any]:
                     f"{substance_id}: у игрока «{player['name']}» нет страны. "
                     "Без неё полнота считается по всему свету, а запрос "
                     "спрашивал одну страну."
+                )
+            if player.setdefault("discovered_by", _DEFAULT_DISCOVERY) not in (
+                _DISCOVERY
+            ):
+                raise DiscoveryEvalError(
+                    f"{substance_id}: у игрока «{player['name']}» неизвестное "
+                    "происхождение записи."
                 )
     return dataset
 
@@ -173,6 +188,9 @@ class SubstanceReport:
     category: str
     known_total: int
     found: list[tuple[str, str, str]] = field(default_factory=list)
+    # Игроки, которых в эталон записал наш же поиск. Роль у них проверяется,
+    # но в полноту они не идут — см. _DISCOVERY.
+    found_system: list[tuple[str, str, str]] = field(default_factory=list)
     missed: list[str] = field(default_factory=list)
     unlabelled: list[tuple[str, str]] = field(default_factory=list)
     # Площадки, всё же попавшие в кандидатов: это не потеря полноты, а
@@ -188,7 +206,14 @@ class SubstanceReport:
 
     @property
     def correct_kinds(self) -> int:
-        return sum(expected == actual for _, expected, actual in self.found)
+        return sum(
+            expected == actual
+            for _, expected, actual in (*self.found, *self.found_system)
+        )
+
+    @property
+    def judged_kinds(self) -> int:
+        return len(self.found) + len(self.found_system)
 
 
 def score_substance(
@@ -205,10 +230,16 @@ def score_substance(
         for player in players
         if not wanted or (player.get("country") or "").casefold() == wanted
     ]
+    # Полнота считается только по игрокам, найденным независимо от нас.
+    expected = [
+        player
+        for player in in_country
+        if player.get("discovered_by", _DEFAULT_DISCOVERY) != "system_run"
+    ]
     report = SubstanceReport(
         substance_id=substance["id"],
         category=substance["category"],
-        known_total=len(in_country),
+        known_total=len(expected),
     )
     filtered_hosts = {
         (item.get("domain") or "").casefold()
@@ -248,16 +279,18 @@ def score_substance(
                 f'{player["name"]} ({player.get("country")})'
             )
             continue
-        report.found.append(
-            (
-                player["name"],
-                player["kind"],
-                str(candidate.get("supplier_type") or "unknown"),
-            )
+        hit = (
+            player["name"],
+            player["kind"],
+            str(candidate.get("supplier_type") or "unknown"),
         )
+        if player.get("discovered_by", _DEFAULT_DISCOVERY) == "system_run":
+            report.found_system.append(hit)
+        else:
+            report.found.append(hit)
     report.missed = [
         player["name"]
-        for player in in_country
+        for player in expected
         if player["name"] not in matched_names
     ]
     return report
@@ -266,11 +299,12 @@ def score_substance(
 def format_report(reports: list[SubstanceReport]) -> str:
     """Человекочитаемый отчёт: полнота, статусы и что размечать дальше."""
     lines: list[str] = []
-    known = found = correct = leaked = abroad = 0
+    known = found = correct = judged = leaked = abroad = 0
     for report in reports:
         known += report.known_total
         found += len(report.found)
         correct += report.correct_kinds
+        judged += report.judged_kinds
         leaked += len(report.leaked_marketplaces)
         abroad += len(report.found_abroad)
         lines.append(
@@ -280,6 +314,12 @@ def format_report(reports: list[SubstanceReport]) -> str:
         for name, expected, actual in report.found:
             mark = "  " if expected == actual else " !"
             lines.append(f" {mark} {name}: эталон {expected}, система {actual}")
+        for name, expected, actual in report.found_system:
+            mark = "  " if expected == actual else " !"
+            lines.append(
+                f" {mark} {name}: эталон {expected}, система {actual} "
+                "(в полноту не идёт — запись из нашего же прогона)"
+            )
         for name in report.missed:
             lines.append(f"  - не найден: {name}")
         for name, host in report.unlabelled:
@@ -290,7 +330,7 @@ def format_report(reports: list[SubstanceReport]) -> str:
             lines.append(f"  x площадка в кандидатах: {host}")
     lines.append("")
     lines.append(f"полнота по стране запроса: {found} из {known}")
-    lines.append(f"верный статус: {correct} из {found}")
+    lines.append(f"верный статус: {correct} из {judged}")
     lines.append(f"найдено сверх страны: {abroad}")
     lines.append(f"площадок просочилось: {leaked}")
     return "\n".join(lines)

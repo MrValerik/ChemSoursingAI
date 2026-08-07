@@ -241,6 +241,61 @@ def test_recall_and_kind_accuracy_are_counted_separately():
     assert report.unlabelled == [("Кто-то ещё", "other.com")]
 
 
+def test_a_player_our_own_search_added_does_not_raise_recall():
+    """Иначе замер пополняет числитель и знаменатель одним именем.
+
+    Компании, попавшие в эталон из наших же прогонов, находятся по
+    определению: их туда записали потому, что поиск их вернул. Считать
+    такую находку полнотой значит хвалить себя за собственную запись.
+    Роль у них проверяется наравне со всеми — там вопрос не «нашли ли».
+    """
+    substance = {
+        "id": "проба",
+        "category": "with_cas",
+        "known_players": [
+            {"name": "Независимый", "aliases": [], "domain": "indep.cn",
+             "kind": "manufacturer", "confidence": "verified"},
+            {"name": "Из прогона", "aliases": [], "domain": "ours.cn",
+             "kind": "distributor", "confidence": "verified",
+             "discovered_by": "system_run"},
+        ],
+    }
+    candidates = [
+        {"company_name": "Независимый", "url": "https://indep.cn/p",
+         "supplier_type": "manufacturer"},
+        {"company_name": "Из прогона", "url": "https://ours.cn/p",
+         "supplier_type": "distributor"},
+    ]
+
+    report = score_substance(substance, candidates)
+
+    assert report.known_total == 1
+    assert len(report.found) == 1
+    assert len(report.found_system) == 1
+    assert report.recall == 1.0
+    # Роль проверена у обоих.
+    assert report.correct_kinds == 2
+    assert report.judged_kinds == 2
+
+
+def test_a_missed_player_from_our_own_runs_is_not_a_miss():
+    """Не нашли то, что сами же записали, — не потеря полноты, а шум."""
+    substance = {
+        "id": "проба",
+        "category": "with_cas",
+        "known_players": [
+            {"name": "Из прогона", "aliases": [], "domain": "ours.cn",
+             "kind": "distributor", "confidence": "verified",
+             "discovered_by": "system_run"},
+        ],
+    }
+
+    report = score_substance(substance, [])
+
+    assert report.known_total == 0
+    assert report.missed == []
+
+
 def test_a_candidate_outside_the_set_is_not_an_error():
     """Эталон неполон намеренно: чужак идёт в очередь на разметку."""
     substance = {
