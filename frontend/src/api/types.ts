@@ -262,7 +262,8 @@ export interface SupplierRead {
   linked_requests: {
     rfq_id: number;
     name: string;
-    cas: string;
+    // Номера может не быть: половина списка заказчика — марки и смеси.
+    cas: string | null;
   }[];
   has_coa: boolean;
   has_tds: boolean;

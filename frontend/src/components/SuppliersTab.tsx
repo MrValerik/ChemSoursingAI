@@ -65,6 +65,19 @@ export default function SuppliersTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rfqId]);
 
+  // Таблица показывает контрагентов этого запроса, а не весь справочник.
+  // Реестр общий и растёт от всех прогонов подряд: на стенде в нём 164
+  // компании, тогда как по запросу «Ацетилсалициловая кислота» найдено
+  // пять. Показывая всё, вкладка предлагала написать про аспирин тем, кого
+  // нашли по эпоксидированному соевому маслу.
+  const forThisRequest = useMemo(
+    () =>
+      suppliers.filter((item) =>
+        (item.linked_requests ?? []).some((link) => link.rfq_id === rfqId),
+      ),
+    [suppliers, rfqId],
+  );
+
   const alreadySelected = useMemo(
     () => new Set(recipients.map((r) => r.supplier_id)),
     [recipients],
@@ -148,12 +161,18 @@ export default function SuppliersTab({
     setBusy(true);
     setError(null);
     try {
-      await api.addSupplier({
-        company: newCompany.trim(),
-        type: newType,
-        email: newEmail.trim() || null,
-        whatsapp: newWhatsapp.trim() || null,
-      });
+      // Номер запроса обязателен: без него поставщик заводится в общий
+      // справочник, но с запросом не связывается — и в таблице этого
+      // запроса не появляется вовсе.
+      await api.addSupplier(
+        {
+          company: newCompany.trim(),
+          type: newType,
+          email: newEmail.trim() || null,
+          whatsapp: newWhatsapp.trim() || null,
+        },
+        rfqId,
+      );
       setAddOpen(false);
       setNewCompany("");
       setNewEmail("");
@@ -182,8 +201,9 @@ export default function SuppliersTab({
         </div>
       </div>
       <p className="note">
-        Кандидаты — из реестра поставщиков; веб-сорсинг открытых источников
-        будет подключён на этапе интеграций.
+        Контрагенты этого запроса: найденные поиском по открытым источникам и
+        добавленные вручную. Роль и контакты взяты со страниц компаний и
+        требуют подтверждения перепиской.
       </p>
 
       {addOpen && (
@@ -238,7 +258,7 @@ export default function SuppliersTab({
           </tr>
         </thead>
         <tbody>
-          {suppliers.map((s) => {
+          {forThisRequest.map((s) => {
             const selected = alreadySelected.has(s.id);
             const isChecked = checked.has(s.id);
             const recipient = recipientBySupplier.get(s.id);
@@ -288,6 +308,14 @@ export default function SuppliersTab({
               </tr>
             );
           })}
+          {forThisRequest.length === 0 && (
+            <tr>
+              <td colSpan={7} className="note">
+                По этому запросу контрагентов пока нет. Запустите поиск во
+                вкладке «Поиск поставщиков» или добавьте компанию вручную.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
 
