@@ -1490,15 +1490,18 @@ def test_supplier_search_uses_indian_registries(client, monkeypatch):
     assert any("site:cdsco.gov.in" in query for query in queries)
     assert payload["results"][0]["source_kind"] == "india_registry"
     # Отраслевые реестры — не посредники: они подтверждают производителя, а не
-    # продают. Отсев их не касается, в отличие от списков площадки: страница
-    # вида /produce/cas-… перечисляет многих продавцов и компанию не называет.
-    assert {item["source_kind"] for item in payload["results"]} == {
-        "india_registry"
-    }
-    assert any(
-        "echemi.com" in str(item.get("url"))
-        for item in payload["intermediary_results"]
-    )
+    # продают, и в очереди стоят первыми.
+    #
+    # Площадка идёт следом и только на свободное место. Прежде она
+    # отбрасывалась целиком, и это теряло достижимых поставщиков: страница
+    # вида /produce/cas-… роль не докажет — ворота статуса назовут её
+    # витриной, — но компанию называет и способ связи несёт, а точный ответ
+    # приходит перепиской. ТЗ называет Echemi и источником поставщиков, и
+    # каналом рассылки запросов.
+    kinds = [item["source_kind"] for item in payload["results"]]
+    assert kinds[0] == "india_registry"
+    assert set(kinds) <= {"india_registry", "echemi"}
+    assert any("echemi.com" in str(item.get("url")) for item in payload["results"])
 
 
 def test_supplier_search_covers_documents_and_chinese_before_early_stop(

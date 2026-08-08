@@ -73,6 +73,7 @@ from app.services.intermediaries import (
     marketplace_page_kind,
     split_by_intermediary,
 )
+from app.services.contacts import find_contacts, has_contacts
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
     build_highlights,
@@ -777,6 +778,38 @@ def _evidence_rejection_reason(
         if not mentions_substance(evidence.quote, cas=cas, names=names or []):
             return "цитата о компании вообще, а не об искомом веществе"
     return None
+
+
+def _fetch_contacts_from_link(
+    url: str,
+    *,
+    budget,
+    run,
+    into: dict[str, list[str]],
+) -> str | None:
+    """Догружает раздел «контакты» и дополняет ими найденное.
+
+    Одна загрузка на кандидата и только там, где на основной странице
+    связи не нашлось. Отказ бюджета или недоступная страница — не ошибка
+    прогона: карточка просто останется без контакта, как и была.
+    """
+    if budget.refuse_page_fetch() is not None:
+        return None
+    try:
+        page = fetch_web_page(url)
+    except Exception as exc:
+        log_agent_event(
+            run,
+            f"Раздел «контакты» {_domain_key(url)} не открылся: {str(exc)[:90]}",
+            kind="warning",
+        )
+        return None
+    for kind, values in find_contacts(page.text).items():
+        into.setdefault(kind, [])
+        for value in values:
+            if value not in into[kind]:
+                into[kind].append(value)
+    return url if into else None
 
 
 def _batch_with_halving(
@@ -2445,6 +2478,25 @@ def execute_supplier_search(
                 "ссылок с площадок, иначе кандидатов не будет вовсе",
                 kind="warning",
             )
+        elif intermediary_results and len(raw_results) < data.limit:
+            # Свободные места добираются площадками. Прямой сайт площадка не
+            # вытесняет никогда — берётся только то, что осталось бы пустым.
+            #
+            # Роль страница площадки не доказывает и доказывать не будет:
+            # ворота статуса назовут её витриной. Но компанию она называет и
+            # способ связи несёт, а точный ответ «завод вы или посредник»
+            # приходит перепиской. ТЗ называет Echemi и источником
+            # поставщиков, и каналом рассылки запросов, так что выбрасывать
+            # такие ссылки целиком значит терять достижимых поставщиков.
+            free = data.limit - len(raw_results)
+            topped_up = intermediary_results[:free]
+            raw_results = [*raw_results, *topped_up]
+            intermediary_results = intermediary_results[len(topped_up) :]
+            log_agent_event(
+                search_stage,
+                f"Свободные места добраны площадками: {len(topped_up)}. "
+                "Роль они не докажут, но дадут имя компании и связь",
+            )
         if not raw_results:
             log_agent_event(
                 search_stage,
@@ -2661,6 +2713,20 @@ def execute_supplier_qualification(
             # маркетинговой части, и префикс страницы до неё не достаёт.
             highlights = build_highlights(page.text, cas=data.cas)
             cas_on_page = page_cas_match(page.text, data.cas)
+            # Способ связи — то, ради чего затевается весь поиск: точный
+            # ответ «завод вы или посредник» приходит перепиской, а не со
+            # страницы. Если на товарной странице связи нет, догружаем
+            # раздел «контакты»: замер по 136 карточкам дал контакт у 92, а
+            # ссылку на такой раздел — у 125.
+            contacts = find_contacts(page.text)
+            contact_source_url: str | None = None
+            if not has_contacts(contacts) and page.contact_links:
+                contact_source_url = _fetch_contacts_from_link(
+                    page.contact_links[0],
+                    budget=budget,
+                    run=fetch_run,
+                    into=contacts,
+                )
             fetched_sources.append(
                 {
                     "result_index": index,
@@ -2674,11 +2740,26 @@ def execute_supplier_qualification(
                     # Детерминированный факт, а не мнение модели: номер либо
                     # присутствует на странице, либо нет.
                     "cas_found_on_page": cas_on_page,
+                    "contacts": contacts,
+                    "contacts_source_url": contact_source_url or result.url,
                     "page_text": _compose_page_text(
                         page.text, highlights, page_text_limit
                     ),
                 }
             )
+            if contacts:
+                log_agent_event(
+                    fetch_run,
+                    "Способы связи со страницы "
+                    + (
+                        f"{_domain_key(contact_source_url)} (раздел «контакты»): "
+                        if contact_source_url
+                        else f"{source.domain}: "
+                    )
+                    + ", ".join(
+                        f"{kind} {len(values)}" for kind, values in contacts.items()
+                    ),
+                )
             log_agent_event(
                 fetch_run,
                 f"Страница {source.domain} сохранена: "
@@ -2997,6 +3078,17 @@ def execute_supplier_qualification(
     fetched_indexes = {
         int(source["result_index"]) for source in fetched_sources
     }
+    # Контакты снимаются на этапе загрузки и живут при источнике; в карточку
+    # их надо перенести по номеру кандидата. Они не зависят от того, вынесла
+    # ли модель вердикт: даже у карточки без оценки должно остаться, куда
+    # написать.
+    contacts_by_index = {
+        int(source["result_index"]): {
+            "contacts": source.get("contacts") or {},
+            "contacts_source_url": source.get("contacts_source_url") or "",
+        }
+        for source in fetched_sources
+    }
     for index, source in enumerate(candidates):
         if index not in fetched_indexes:
             continue
@@ -3005,6 +3097,7 @@ def execute_supplier_qualification(
             combined_results.append(
                 {
                     **source.model_dump(),
+                    **contacts_by_index.get(index, {}),
                     "result_index": index,
                     "company_name": source.title[:255],
                     "title_ru": source.title,
@@ -3062,6 +3155,7 @@ def execute_supplier_qualification(
         combined_results.append(
             {
                 **source.model_dump(),
+                **contacts_by_index.get(index, {}),
                 **qualification_payload,
                 "evidence": evidence_items,
             }

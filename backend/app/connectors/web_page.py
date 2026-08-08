@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import html
 import ipaddress
+import re
 import socket
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -71,6 +72,10 @@ class FetchedPage:
     # Крупная страница обрезается, а не отбрасывается: для оценки поставщика
     # хватает начала документа.
     truncated: bool = False
+    # Ссылки на раздел «контакты». Нужны, когда на самой странице связи нет:
+    # адреса в сохранённый текст не попадают, а HTML к тому времени уже
+    # разобран и выброшен.
+    contact_links: tuple[str, ...] = ()
 
 
 # Поля schema.org, которые несут смысл для карточки поставщика. Остальное
@@ -235,6 +240,86 @@ def extract_page_text(content: str, content_type: str) -> tuple[str | None, str]
     return _without_nul(title), _without_nul(html.unescape(text)[:MAX_PAGE_TEXT])
 
 
+# Адреса и подписи ссылок, за которыми лежит страница контактов.
+_CONTACT_HREF_RE = re.compile(
+    r"(contact|contacts|contact-us|contactus|about-us|aboutus|reach-us"
+    r"|lianxi|contactos|kontakt)", re.IGNORECASE
+)
+_CONTACT_TEXT_RE = re.compile(
+    r"(contact\s*us|contact|get\s+in\s+touch|reach\s+us|联系我们|联系方式"
+    r"|contactez|kontakt)", re.IGNORECASE
+)
+# Ссылки на разделы, которые лишь похожи на контактные, но ими не являются.
+_CONTACT_SKIP_RE = re.compile(
+    r"(mailto:|tel:|javascript:|#|/news/|/blog/|/product)", re.IGNORECASE
+)
+_MAX_CONTACT_LINKS = 3
+
+
+def find_contact_links(content: str, base_url: str) -> tuple[str, ...]:
+    """Ссылки на страницу контактов, вытащенные из разметки.
+
+    Нужны потому, что связь есть не на каждой товарной странице: замер по
+    136 сохранённым карточкам дал контакт у 92, а ссылку на раздел
+    «контакты» — у 125. Одна догрузка по такой ссылке закрывает
+    большинство оставшихся, и это надёжнее, чем угадывать адрес вида
+    «/contact.html»: у половины китайских сайтов он другой.
+
+    Ссылки берутся из HTML, пока он ещё есть: в сохранённый текст
+    страницы адреса не попадают.
+    """
+    parser = _LinkExtractor()
+    try:
+        parser.feed(content)
+    except Exception:  # разметка бывает битой, и это не повод падать
+        pass
+    found: list[str] = []
+    for href, label in parser.links:
+        if _CONTACT_SKIP_RE.search(href):
+            continue
+        if not (_CONTACT_HREF_RE.search(href) or _CONTACT_TEXT_RE.search(label)):
+            continue
+        absolute = urljoin(base_url, href)
+        if not absolute.lower().startswith(("http://", "https://")):
+            continue
+        if absolute == base_url or absolute in found:
+            continue
+        found.append(absolute)
+        if len(found) >= _MAX_CONTACT_LINKS:
+            break
+    return tuple(found)
+
+
+class _LinkExtractor(HTMLParser):
+    """Пары «адрес ссылки, её подпись»."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.links: list[tuple[str, str]] = []
+        self._href: str | None = None
+        self._label: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        href = dict(attrs).get("href") or ""
+        self._href = href.strip()
+        self._label = []
+
+    def handle_data(self, data: str) -> None:
+        if self._href is not None:
+            self._label.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "a" or self._href is None:
+            return
+        label = " ".join("".join(self._label).split())
+        if self._href:
+            self.links.append((self._href, label))
+        self._href = None
+        self._label = []
+
+
 def _is_public_address(value: str) -> bool:
     address = ipaddress.ip_address(value)
     return not (
@@ -345,6 +430,11 @@ def _fetch_once(
                     text=text,
                     content_hash=hashlib.sha256(raw).hexdigest(),
                     truncated=truncated,
+                    contact_links=(
+                        find_contact_links(content, str(response.url))
+                        if content_type != "text/plain"
+                        else ()
+                    ),
                 )
     raise PageFetchError("Источник не удалось загрузить")
 
