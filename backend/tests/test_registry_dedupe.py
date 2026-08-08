@@ -85,6 +85,18 @@ def test_a_short_name_gets_no_key():
     assert company_key("ABC") is None
 
 
+def test_a_placeholder_name_gets_no_key():
+    """Две нераспознанные компании — это две компании, а не одна.
+
+    В реестре нашлись две записи «Неизвестно»: по имени они слились бы в
+    одну строку и утащили бы с собой чужие связи с запросами.
+    """
+    assert company_key("Неизвестно") is None
+    assert company_key("Не указано") is None
+    assert company_key("Unknown") is None
+    assert company_key("Поставщик") is None
+
+
 # --- схлопывание ---
 
 

@@ -24,6 +24,17 @@ _LEGAL_TAILS = (
 # Короткое имя после нормализации слишком легко совпадает случайно.
 _MIN_KEY_LENGTH = 5
 
+# Заглушки вместо имени. Две нераспознанные компании — это две разные
+# компании, и схлопывать их в одну нельзя: в реестре нашлись две записи
+# «Неизвестно», которые слились бы в одну строку с чужими связями.
+_PLACEHOLDER_KEYS = frozenset(
+    {
+        "неизвестно", "неуказано", "неопределено", "неприменимо",
+        "безимени", "unknown", "notspecified", "notapplicable", "none",
+        "na", "nan", "supplier", "поставщик", "manufacturer",
+    }
+)
+
 
 def company_key(name: str) -> str | None:
     """Имя компании без регистра, разделителей и юридических хвостов.
@@ -43,7 +54,9 @@ def company_key(name: str) -> str | None:
             if collapsed.endswith(tail) and len(collapsed) > len(tail) + 2:
                 collapsed = collapsed[: -len(tail)]
                 changed = True
-    return collapsed[:255] if len(collapsed) >= _MIN_KEY_LENGTH else None
+    if len(collapsed) < _MIN_KEY_LENGTH or collapsed in _PLACEHOLDER_KEYS:
+        return None
+    return collapsed[:255]
 
 
 def _attach_contacts(
