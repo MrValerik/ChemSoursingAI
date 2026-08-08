@@ -13,6 +13,11 @@ const callbackUrl = process.env.WHATSAPP_WEB_CALLBACK_URL || "";
 const dataDir = process.env.WHATSAPP_WEB_DATA_DIR || "/data";
 const eventFile = path.join(dataDir, "events", "pending.json");
 const callbackTimeoutMs = Number(process.env.WHATSAPP_WEB_CALLBACK_TIMEOUT_MS || 15000);
+const proxyServer = String(process.env.WHATSAPP_WEB_PROXY_SERVER || "").trim();
+const initRetryMs = Math.max(
+  5000,
+  Number(process.env.WHATSAPP_WEB_INIT_RETRY_MS || 15000),
+);
 
 let client = null;
 let state = "stopped";
@@ -24,6 +29,8 @@ let lastError = null;
 let clientState = null;
 let loadingPercent = null;
 let initializing = null;
+let retryTimer = null;
+let shouldRun = Boolean(serviceToken);
 let pendingEvents = [];
 let flushing = false;
 
@@ -70,10 +77,36 @@ function statusPayload() {
       : 0,
     client_state: clientState,
     loading_percent: loadingPercent,
+    proxy_configured: Boolean(proxyServer),
     account,
     pending_events: pendingEvents.length,
     error: lastError,
   };
+}
+
+function safeInitializationError(error) {
+  const detail = String(error && error.message ? error.message : error || "");
+  if (/ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED/i.test(detail)) {
+    return "proxy_connection_failed";
+  }
+  if (/ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN/i.test(detail)) {
+    return "whatsapp_web_dns_failed";
+  }
+  if (/timeout|ERR_TIMED_OUT|UND_ERR_CONNECT_TIMEOUT/i.test(detail)) {
+    return proxyServer
+      ? "whatsapp_web_proxy_timeout"
+      : "whatsapp_web_connection_timeout";
+  }
+  return "whatsapp_web_initialization_failed";
+}
+
+function scheduleInitializationRetry() {
+  if (!shouldRun || retryTimer) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (shouldRun && !client) void startClient().catch(() => {});
+  }, initRetryMs);
+  retryTimer.unref();
 }
 
 async function flushEvents() {
@@ -137,6 +170,13 @@ async function createClient() {
   if (client) return client;
   state = "initializing";
   lastError = null;
+  const browserArgs = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-quic",
+  ];
+  if (proxyServer) browserArgs.push(`--proxy-server=${proxyServer}`);
   const instance = new Client({
     authStrategy: new LocalAuth({ clientId: "chemsource", dataPath: path.join(dataDir, "auth") }),
     deviceName: "ChemSource",
@@ -144,7 +184,7 @@ async function createClient() {
     puppeteer: {
       executablePath: process.env.CHROME_BIN || "/usr/bin/chromium",
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      args: browserArgs,
     },
   });
   instance.on("qr", async (qr) => {
@@ -194,10 +234,18 @@ async function createClient() {
   });
   instance.on("message", (message) => void queueIncoming(message));
   client = instance;
-  initializing = instance.initialize().catch((error) => {
-    state = "error";
-    lastError = error && error.name ? error.name : "initialization_failed";
-    client = null;
+  initializing = instance.initialize().catch(async (error) => {
+    if (!shouldRun) {
+      state = "stopped";
+    } else {
+      state = "error";
+      lastError = safeInitializationError(error);
+    }
+    if (client === instance) client = null;
+    try { await instance.destroy(); } catch (_destroyError) {
+      // The browser may already be closed after a failed navigation.
+    }
+    scheduleInitializationRetry();
     return null;
   }).finally(() => { initializing = null; });
   return instance;
@@ -253,6 +301,7 @@ app.post("/pairing-code/cancel", async (_req, res) => {
 });
 app.post("/connect", async (_req, res) => {
   try {
+    shouldRun = true;
     void startClient().catch(() => {});
     return res.status(202).json(statusPayload());
   } catch (_error) {
@@ -260,6 +309,11 @@ app.post("/connect", async (_req, res) => {
   }
 });
 app.post("/disconnect", async (_req, res) => {
+  shouldRun = false;
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
   const instance = client;
   client = null;
   qrDataUrl = null;
@@ -292,6 +346,6 @@ app.post("/messages", async (req, res) => {
 });
 
 app.listen(port, "0.0.0.0", () => {
-  if (serviceToken) void createClient().catch(() => {});
+  if (serviceToken) void startClient().catch(() => {});
 });
 setInterval(() => void flushEvents(), 15000).unref();

@@ -413,6 +413,7 @@ export interface WhatsAppWebStatus {
   pairing_code_expires_in_seconds: number;
   client_state: string | null;
   loading_percent: number | null;
+  proxy_configured: boolean;
   account: string | null;
   pending_events: number;
   error: string | null;

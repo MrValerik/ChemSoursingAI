@@ -22,6 +22,23 @@ type WhatsAppForm = Omit<
   | "web_gateway_available"
 >;
 
+function whatsappWebErrorMessage(status: WhatsAppWebStatus): string | null {
+  if (!status.error) return null;
+  const messages: Record<string, string> = {
+    proxy_connection_failed:
+      "Не удалось подключиться к настроенному прокси. Проверьте Xray и VLESS-конфигурацию.",
+    whatsapp_web_proxy_timeout:
+      "Прокси не смог открыть web.whatsapp.com. Проверьте доступность VLESS-сервера.",
+    whatsapp_web_connection_timeout:
+      "Сервер не может открыть web.whatsapp.com напрямую. Настройте прокси или VPN.",
+    whatsapp_web_dns_failed:
+      "Не удалось определить адрес web.whatsapp.com. Проверьте DNS и прокси.",
+    whatsapp_web_initialization_failed:
+      "WhatsApp Web не загрузился. Шлюз автоматически повторяет подключение.",
+  };
+  return messages[status.error] ?? `Ошибка WhatsApp Web: ${status.error}`;
+}
+
 export default function IntegrationSettingsPanel() {
   const [email, setEmail] = useState<EmailIntegration | null>(null);
   const [whatsapp, setWhatsApp] = useState<WhatsAppIntegration | null>(null);
@@ -285,7 +302,14 @@ export default function IntegrationSettingsPanel() {
       }
       let status = await api.connectWhatsAppWeb();
       setWebStatus(status);
-      for (let attempt = 0; attempt < 12 && !status.ready && !status.qr_available; attempt += 1) {
+      for (
+        let attempt = 0;
+        attempt < 30 &&
+        !status.ready &&
+        !status.qr_available &&
+        status.state !== "error";
+        attempt += 1
+      ) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
         status = await api.getWhatsAppWebStatus();
         setWebStatus(status);
@@ -293,7 +317,7 @@ export default function IntegrationSettingsPanel() {
       if (status.qr_available) {
         setWebQr((await api.getWhatsAppWebQr()).qr_data_url);
       }
-      setError(null);
+      setError(whatsappWebErrorMessage(status));
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -329,10 +353,11 @@ export default function IntegrationSettingsPanel() {
       let status = await api.connectWhatsAppWeb();
       for (
         let attempt = 0;
-        attempt < 12 &&
+        attempt < 30 &&
         !status.ready &&
         !status.qr_available &&
-        status.state !== "pairing_code";
+        status.state !== "pairing_code" &&
+        status.state !== "error";
         attempt += 1
       ) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
@@ -341,6 +366,12 @@ export default function IntegrationSettingsPanel() {
       if (status.ready) {
         setWebStatus(status);
         setError("WhatsApp уже подключён");
+        return;
+      }
+      const connectionError = whatsappWebErrorMessage(status);
+      if (connectionError) {
+        setWebStatus(status);
+        setError(connectionError);
         return;
       }
       const result = await api.createWhatsAppWebPairingCode(webPhoneNumber);
@@ -705,6 +736,12 @@ export default function IntegrationSettingsPanel() {
                   ? ` · загрузка ${webStatus.loading_percent}%`
                   : ""}
                 {webStatus.pending_events ? ` · очередь ${webStatus.pending_events}` : ""}
+              </p>
+            )}
+            {webStatus && whatsappWebErrorMessage(webStatus) && (
+              <p className="error" role="alert">
+                {whatsappWebErrorMessage(webStatus)}
+                {webStatus.proxy_configured ? " Прокси включён." : " Прокси не настроен."}
               </p>
             )}
             {!webStatus?.ready && (

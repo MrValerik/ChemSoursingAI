@@ -137,6 +137,7 @@ class WhatsAppWebStatusRead(BaseModel):
     pairing_code_expires_in_seconds: int = 0
     client_state: str | None = None
     loading_percent: int | None = None
+    proxy_configured: bool = False
     account: str | None = None
     pending_events: int = 0
     error: str | None = None

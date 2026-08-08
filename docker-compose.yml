@@ -216,6 +216,14 @@ services:
       db:
         condition: service_healthy
 
+  xray:
+    image: ghcr.io/xtls/xray-core:26.7.28
+    profiles: ["whatsapp-vless"]
+    restart: unless-stopped
+    command: ["run", "-config", "/etc/xray/config.json"]
+    volumes:
+      - ${WHATSAPP_XRAY_CONFIG_PATH:-./data/xray/config.json}:/etc/xray/config.json:ro
+
   whatsapp-web:
     build: ./whatsapp-web
     restart: unless-stopped
@@ -225,6 +233,8 @@ services:
       WHATSAPP_WEB_CALLBACK_URL: http://backend:8000/internal/whatsapp-web/events
       WHATSAPP_WEB_DATA_DIR: /data
       WHATSAPP_WEB_CALLBACK_TIMEOUT_MS: ${WHATSAPP_WEB_CALLBACK_TIMEOUT_MS:-15000}
+      WHATSAPP_WEB_PROXY_SERVER: ${WHATSAPP_WEB_PROXY_SERVER:-}
+      WHATSAPP_WEB_INIT_RETRY_MS: ${WHATSAPP_WEB_INIT_RETRY_MS:-15000}
     volumes:
       - whatsapp_web_data:/data
     depends_on:
