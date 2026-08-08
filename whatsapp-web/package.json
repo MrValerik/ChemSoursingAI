@@ -6,8 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check message-id.js",
-    "test": "node --test message-id.test.js"
+    "check": "node --check server.js && node --check message-id.js && node --check session-files.js",
+    "test": "node --test message-id.test.js session-files.test.js"
   },
   "engines": {
     "node": ">=18"

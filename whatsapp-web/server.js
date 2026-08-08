@@ -10,6 +10,7 @@ const {
   normalizedPendingEvent,
   providerMessageId,
 } = require("./message-id");
+const { removeStaleChromiumLocks } = require("./session-files");
 
 const port = Number(process.env.PORT || 3000);
 const serviceToken = process.env.WHATSAPP_WEB_SERVICE_TOKEN || "";
@@ -180,6 +181,7 @@ async function createClient() {
   if (client) return client;
   state = "initializing";
   lastError = null;
+  removeStaleChromiumLocks(path.join(dataDir, "auth", "session-chemsource"));
   const browserArgs = [
     "--no-sandbox",
     "--disable-setuid-sandbox",
