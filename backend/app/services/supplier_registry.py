@@ -5,9 +5,77 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import RfqSupplierLink, SearchRun, Supplier
+from app.models import Manager, RfqSupplierLink, SearchRun, Supplier
 from app.models.enums import SupplierType
 from app.services.search_trace import utc_now
+
+# Сколько контактов одной компании имеет смысл заводить. Больше — это уже
+# не отдел продаж, а разбор чужого списка рассылки.
+_MAX_MANAGERS = 3
+
+
+def _attach_contacts(
+    db: Session,
+    *,
+    supplier: Supplier,
+    result: dict,
+    substance: str,
+) -> None:
+    """Заводит контакты компании, снятые со страницы при загрузке.
+
+    Без этого поставщик попадал в «Отобранные поставщики» без канала
+    связи, а галочку в таблице поставить нельзя: канал берётся из
+    контактов менеджера. То есть поиск доводил до компании и на этом
+    останавливался, хотя почта и телефон лежали в уже загруженной
+    странице — связь нашлась у 93 карточек из 136.
+
+    Контакты страницы площадки не берутся: там указан отдел продаж самой
+    площадки, а не компании, и письмо ушло бы не туда.
+    """
+    if result.get("supplier_type") == "marketplace":
+        return
+    contacts = result.get("contacts") or {}
+    emails = [str(value).strip() for value in contacts.get("emails") or []]
+    whatsapp = [str(value).strip() for value in contacts.get("whatsapp") or []]
+    if not emails and not whatsapp:
+        return
+
+    # Читаем из базы, а не из supplier.managers: связь после вставки в той
+    # же сессии остаётся прежней, и повторный прогон заводил контакт заново.
+    existing = db.scalars(
+        select(Manager).where(Manager.supplier_id == supplier.id)
+    ).all()
+    known_emails = {(manager.email or "").casefold() for manager in existing}
+    known_whatsapp = {(manager.whatsapp or "").strip() for manager in existing}
+    offered = [substance] if substance else None
+
+    added = 0
+    for email in emails:
+        if added >= _MAX_MANAGERS or not email or email.casefold() in known_emails:
+            continue
+        db.add(
+            Manager(
+                supplier_id=supplier.id,
+                email=email[:255],
+                # WhatsApp приписывается первому контакту: страница даёт
+                # один номер на компанию, а не на человека.
+                whatsapp=(whatsapp[0][:64] if whatsapp and added == 0 else None),
+                offered_substances=offered,
+            )
+        )
+        known_emails.add(email.casefold())
+        added += 1
+
+    if added == 0 and whatsapp and whatsapp[0] not in known_whatsapp:
+        # Почты нет, но написать всё равно есть куда.
+        db.add(
+            Manager(
+                supplier_id=supplier.id,
+                whatsapp=whatsapp[0][:64],
+                offered_substances=offered,
+            )
+        )
+    db.flush()
 
 
 def register_qualified_candidate(
@@ -81,6 +149,13 @@ def register_qualified_candidate(
                 set(supplier.certificates or []).union(certificates)
             )
         supplier.last_checked_at = utc_now()
+
+    _attach_contacts(
+        db,
+        supplier=supplier,
+        result=result,
+        substance=str((search_run.input_payload or {}).get("name") or "").strip(),
+    )
 
     link = db.scalar(
         select(RfqSupplierLink).where(
