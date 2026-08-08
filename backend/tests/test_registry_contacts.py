@@ -146,6 +146,58 @@ def test_a_marketplace_page_gives_no_contact(client):
         assert db.query(Manager).filter(Manager.supplier_id == supplier.id).count() == 0
 
 
+def test_the_platform_own_address_is_not_the_company_contact(client):
+    """На витрине рядом с почтой компании стоит почта самой площадки.
+
+    Наполнение реестра приписало service@chemball.com сразу трём разным
+    китайским заводам — письмо ушло бы владельцу каталога. При этом
+    собственный адрес компании на той же витрине брать надо: так нашлись
+    info@jshonon.com и ethan@fuaochem.com.
+    """
+    with SessionLocal() as db:
+        run = _run(db, "https://www.chemball.cn/factory/abc/product.html")
+        supplier = register_qualified_candidate(
+            db,
+            search_run=run,
+            result=_result(
+                "https://www.chemball.cn/factory/abc/product.html",
+                "Ляньюньган Хэнмао",
+                contacts={
+                    "emails": ["service@chemball.com", "sales@hengmao.cn"],
+                },
+            ),
+        )
+        db.commit()
+
+        emails = {
+            m.email
+            for m in db.query(Manager).filter(Manager.supplier_id == supplier.id)
+        }
+        assert emails == {"sales@hengmao.cn"}
+
+
+def test_a_company_keeps_its_own_address_on_its_own_site(client):
+    """Правило про площадку не должно трогать собственный сайт."""
+    with SessionLocal() as db:
+        run = _run(db, "https://www.gpcchem.com/adipic-acid.html")
+        supplier = register_qualified_candidate(
+            db,
+            search_run=run,
+            result=_result(
+                "https://www.gpcchem.com/adipic-acid.html",
+                "Дзета Кемикал",
+                contacts={"emails": ["santo@gpcchem.com"]},
+            ),
+        )
+        db.commit()
+
+        emails = {
+            m.email
+            for m in db.query(Manager).filter(Manager.supplier_id == supplier.id)
+        }
+        assert emails == {"santo@gpcchem.com"}
+
+
 def test_a_page_without_contacts_registers_the_company_anyway(client):
     """Компанию нашли — запись должна быть, просто без канала."""
     with SessionLocal() as db:

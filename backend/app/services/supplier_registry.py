@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Manager, RfqSupplierLink, SearchRun, Supplier
 from app.models.enums import SupplierType
+from app.services.intermediaries import active_domains, domain_label, is_intermediary
 from app.services.search_trace import utc_now
 
 # Сколько контактов одной компании имеет смысл заводить. Больше — это уже
@@ -59,6 +61,28 @@ def company_key(name: str) -> str | None:
     return collapsed[:255]
 
 
+def _is_platform_own_address(email: str, page_url: str, platforms: set[str]) -> bool:
+    """Это адрес хозяина площадки, а не компании на её витрине.
+
+    Витрина компании на площадке — законный источник: у Jiangsu Honon так
+    нашёлся info@jshonon.com, у Qingdao Fuao — ethan@fuaochem.com, оба на
+    собственных доменах. Но рядом на той же странице стоит почта самой
+    площадки, и наполнение реестра приписало service@chemball.com сразу
+    трём разным китайским заводам. Письмо ушло бы владельцу каталога.
+
+    Правило действует только на страницах площадок. На собственном сайте
+    компании почта и должна быть на его домене, и трогать её нельзя.
+    """
+    if not is_intermediary(page_url, platforms):
+        return False
+    page_label = domain_label(
+        (urlparse(page_url if "//" in page_url else f"//{page_url}").hostname or "")
+        .casefold()
+    )
+    mail_host = email.rpartition("@")[2].casefold()
+    return bool(page_label) and bool(mail_host) and page_label in mail_host
+
+
 def _attach_contacts(
     db: Session,
     *,
@@ -82,6 +106,13 @@ def _attach_contacts(
     contacts = result.get("contacts") or {}
     emails = [str(value).strip() for value in contacts.get("emails") or []]
     whatsapp = [str(value).strip() for value in contacts.get("whatsapp") or []]
+    platforms = active_domains(db)
+    page_url = str(result.get("url") or "")
+    emails = [
+        email
+        for email in emails
+        if not _is_platform_own_address(email, page_url, platforms)
+    ]
     if not emails and not whatsapp:
         return
 
