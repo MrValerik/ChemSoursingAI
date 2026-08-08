@@ -677,6 +677,43 @@ _TRADE_RE = re.compile(
 _TRADE_QUESTION_RE = re.compile(r"(are\s+you|\?\s*A\s*[:：]|Q\s*[:：])", re.IGNORECASE)
 
 
+# Обороты отраслевого обзора. Одного слова «market» мало: оно стоит и на
+# обычной товарной странице.
+_MARKET_TEXT_RE = re.compile(
+    r"(market\s+(?:size|share|report|analysis|research|outlook|overview|forecast)"
+    r"|\bCAGR\b|forecast\s+period|market\s+is\s+(?:projected|expected|estimated)"
+    r"|key\s+players|competitive\s+landscape"
+    r"|объ[её]м\s+рынка|анализ\s+рынка|市场规模|市场分析|行业报告)",
+    re.IGNORECASE,
+)
+# Раздел сайта, где лежат статьи, а не карточки товара.
+_ARTICLE_PATH_RE = re.compile(
+    r"/(report|reports|news|blog|article|articles|insight|insights|press|market)"
+    r"[-/]",
+    re.IGNORECASE,
+)
+_MIN_MARKET_PHRASES = 2
+
+
+def looks_like_market_report(url: str, text: str) -> bool:
+    """Страница про рынок, а не про компанию.
+
+    Отчёт «potassium sorbate market» на straitsresearch.com перечислял
+    ведущих игроков, модель взяла оттуда имя Henan GP Chemicals, а
+    контакты снялись со страницы — и в реестре появился «Henan GP» с
+    почтой исследовательского агентства. Письмо по ней ушло бы не тому.
+
+    Требуются оба признака сразу. Замер по 1305 сохранённым страницам:
+    вместе они дают 7 попаданий, и все семь — настоящие обзоры рынка. По
+    одним оборотам сработало бы ещё 21, среди них живые заводы: у
+    Shandong Xinjiangye, который стоит в эталоне производителем, таких
+    оборотов шесть.
+    """
+    if not _ARTICLE_PATH_RE.search(url or ""):
+        return False
+    return len(_MARKET_TEXT_RE.findall(text or "")) >= _MIN_MARKET_PHRASES
+
+
 def find_trade_facts(text: str) -> dict[str, str]:
     """Прямое заявление о перепродаже, дословной строкой страницы.
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,6 +14,36 @@ from app.services.search_trace import utc_now
 # Сколько контактов одной компании имеет смысл заводить. Больше — это уже
 # не отдел продаж, а разбор чужого списка рассылки.
 _MAX_MANAGERS = 3
+
+_SEPARATORS_RE = re.compile(r"[^0-9a-zA-Zа-яА-ЯёЁ一-鿿]+")
+# Юридические хвосты компанию не различают, а сравнению мешают.
+_LEGAL_TAILS = (
+    "coltd", "co", "ltd", "limited", "inc", "llc", "gmbh", "corporation",
+    "corp", "group", "company", "plc", "sa", "bv", "pvt", "ag", "kg",
+)
+# Короткое имя после нормализации слишком легко совпадает случайно.
+_MIN_KEY_LENGTH = 5
+
+
+def company_key(name: str) -> str | None:
+    """Имя компании без регистра, разделителей и юридических хвостов.
+
+    По нему одна компания, найденная на своём сайте и на двух площадках,
+    остаётся одной строкой. Замер по реестру: 182 поставщика при 159
+    различных компаниях — 23 лишние строки, Hangzhou Leap Chem четырьмя
+    записями, Jiangsu Honon и TNJ Chemical тремя. Контакт при этом
+    садился только на одну из них, и в таблице отбора остальные были
+    бесполезны.
+    """
+    collapsed = _SEPARATORS_RE.sub("", name or "").casefold()
+    changed = True
+    while changed:
+        changed = False
+        for tail in _LEGAL_TAILS:
+            if collapsed.endswith(tail) and len(collapsed) > len(tail) + 2:
+                collapsed = collapsed[: -len(tail)]
+                changed = True
+    return collapsed[:255] if len(collapsed) >= _MIN_KEY_LENGTH else None
 
 
 def _attach_contacts(
@@ -92,10 +124,32 @@ def register_qualified_candidate(
     if not source_url:
         return None
 
+    # Обзор рынка компанию не представляет. Отчёт «potassium sorbate
+    # market» перечислял ведущих игроков, модель взяла оттуда имя Henan GP
+    # Chemicals, а контакты снялись со страницы — в реестре появился
+    # «Henan GP» с почтой исследовательского агентства, и письмо по ней
+    # ушло бы не тому.
+    if result.get("is_market_report"):
+        return None
+
     stored_source = source_url[:255]
+    company = str(
+        result.get("company_name") or result.get("title") or source_url
+    ).strip()
+    key = company_key(company)
+
     supplier = db.scalar(
         select(Supplier).where(Supplier.source == stored_source).limit(1)
     )
+    if supplier is None and key:
+        # Та же компания, найденная на другой странице: на своём сайте, на
+        # витрине площадки и в каталоге. Адрес разный, компания одна.
+        supplier = db.scalar(
+            select(Supplier)
+            .where(Supplier.company_key == key)
+            .order_by(Supplier.id)
+            .limit(1)
+        )
     supplier_kind = result.get("supplier_type")
     mapped_type = (
         SupplierType(supplier_kind)
@@ -116,11 +170,9 @@ def register_qualified_candidate(
     ]
 
     if supplier is None:
-        company = str(
-            result.get("company_name") or result.get("title") or source_url
-        ).strip()
         supplier = Supplier(
             company=company[:255],
+            company_key=key,
             country=(search_run.input_payload or {}).get("country"),
             type=mapped_type,
             reputation=(
@@ -138,6 +190,10 @@ def register_qualified_candidate(
         db.add(supplier)
         db.flush()
     else:
+        # Записи, заведённые до появления ключа, получают его при первой же
+        # встрече — иначе они так и останутся отдельными строками.
+        if supplier.company_key is None and key:
+            supplier.company_key = key
         if evidence_score is not None:
             supplier.evidence_score = max(
                 supplier.evidence_score or 0, evidence_score

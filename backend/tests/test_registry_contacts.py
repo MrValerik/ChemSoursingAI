@@ -47,12 +47,14 @@ def _run(db, url: str):
     )
 
 
-def _result(url: str, **overrides) -> dict:
+def _result(url: str, company: str = "Пример Кемикал", **overrides) -> dict:
+    # Имя у каждого случая своё: дедупликация идёт по имени компании,
+    # и одинаковые имена схлопнулись бы в одну запись.
     result = {
         "result_index": 0,
         "url": url,
         "title": "Adipic acid supplier",
-        "company_name": "Пример Кемикал",
+        "company_name": company,
         "supplier_type": "manufacturer",
         "confidence": 70,
         "gmp_status": "not_found",
@@ -72,6 +74,7 @@ def test_contacts_from_the_page_become_a_channel(client):
             search_run=run,
             result=_result(
                 "https://example-a.cn/adipic",
+                "Альфа Кемикал",
                 contacts={
                     "emails": ["sales@example-a.cn"],
                     "whatsapp": ["+8615000000001"],
@@ -93,6 +96,7 @@ def test_a_second_run_does_not_duplicate_the_contact(client):
         run = _run(db, "https://example-b.cn/adipic")
         payload = _result(
             "https://example-b.cn/adipic",
+            "Бета Кемикал",
             contacts={"emails": ["info@example-b.cn"]},
         )
         supplier = register_qualified_candidate(db, search_run=run, result=payload)
@@ -111,6 +115,7 @@ def test_whatsapp_alone_is_still_a_way_to_write(client):
             search_run=run,
             result=_result(
                 "https://example-c.cn/adipic",
+                "Гамма Кемикал",
                 contacts={"whatsapp": ["+8615000000002"]},
             ),
         )
@@ -131,6 +136,7 @@ def test_a_marketplace_page_gives_no_contact(client):
             search_run=run,
             result=_result(
                 "https://www.echemi.com/produce/x.html",
+                "Дельта Кемикал",
                 supplier_type="marketplace",
                 contacts={"emails": ["service@echemi.com"]},
             ),
@@ -145,7 +151,7 @@ def test_a_page_without_contacts_registers_the_company_anyway(client):
     with SessionLocal() as db:
         run = _run(db, "https://example-d.cn/adipic")
         supplier = register_qualified_candidate(
-            db, search_run=run, result=_result("https://example-d.cn/adipic")
+            db, search_run=run, result=_result("https://example-d.cn/adipic", "Эпсилон Кемикал")
         )
         db.commit()
 

@@ -85,6 +85,7 @@ from app.services.page_facts import (
     find_cas_numbers,
     find_document_mentions,
     looks_like_leading_supplier_boilerplate,
+    looks_like_market_report,
     looks_like_page_title,
     looks_like_purchase_invitation,
     looks_like_role_keyword_stuffing,
@@ -2740,6 +2741,10 @@ def execute_supplier_qualification(
                     # Детерминированный факт, а не мнение модели: номер либо
                     # присутствует на странице, либо нет.
                     "cas_found_on_page": cas_on_page,
+                    # Обзор рынка компанию не представляет: имена в нём чужие.
+                    "is_market_report": looks_like_market_report(
+                        page.final_url or result.url, page.text
+                    ),
                     "contacts": contacts,
                     "contacts_source_url": contact_source_url or result.url,
                     "page_text": _compose_page_text(
@@ -3086,6 +3091,7 @@ def execute_supplier_qualification(
         int(source["result_index"]): {
             "contacts": source.get("contacts") or {},
             "contacts_source_url": source.get("contacts_source_url") or "",
+            "is_market_report": bool(source.get("is_market_report")),
         }
         for source in fetched_sources
     }

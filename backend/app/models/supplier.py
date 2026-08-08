@@ -22,6 +22,10 @@ class Supplier(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     company: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Имя без регистра, разделителей и юридических хвостов. По нему одна
+    # компания, найденная на своём сайте и на двух площадках, остаётся
+    # одной строкой, а не тремя.
+    company_key: Mapped[str | None] = mapped_column(String(255), index=True)
     city: Mapped[str | None] = mapped_column(String(120))
     country: Mapped[str | None] = mapped_column(String(120))
     type: Mapped[SupplierType | None] = mapped_column(SAEnum(SupplierType))

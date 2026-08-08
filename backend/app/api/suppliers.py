@@ -51,6 +51,7 @@ from app.services.integration_settings import (
     effective_whatsapp_settings,
 )
 from app.services.rfq_service import render_rfq_text
+from app.services.supplier_registry import company_key
 
 router = APIRouter(tags=["suppliers"], dependencies=[Depends(get_current_user)])
 
@@ -203,6 +204,7 @@ def add_supplier(
     if supplier is None:
         supplier = Supplier(
             company=data.company.strip(),
+            company_key=company_key(data.company),
             country=data.country,
             type=data.type,
             reputation=data.reputation,
