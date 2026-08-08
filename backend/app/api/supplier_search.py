@@ -76,6 +76,7 @@ from app.services.intermediaries import (
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
     build_highlights,
+    find_address_facts,
     find_company_names,
     find_production_facts,
     find_trade_facts,
@@ -302,6 +303,7 @@ ClaimType = Literal[
     "production_capacity",
     "production_site",
     "reseller_role",
+    "office_address",
 ]
 ClaimSupport = Literal["supports", "contradicts"]
 
@@ -956,6 +958,19 @@ def _inject_deterministic_evidence(
                 )
             )
 
+        for claim_type, quote in find_address_facts(text).items():
+            if claim_type in present or len(quote) < MIN_QUOTE_CHARS:
+                continue
+            additions.append(
+                QualificationEvidence(
+                    source_document_id=source.id,
+                    claim_type=claim_type,
+                    claim_value="Адрес компании — офис в бизнес-центре",
+                    support_status="supports",
+                    quote=quote,
+                )
+            )
+
         for claim_type, quote in find_trade_facts(text).items():
             if claim_type in present or len(quote) < MIN_QUOTE_CHARS:
                 continue
@@ -1018,11 +1033,34 @@ def _apply_evidence_gates(
         "production_capacity",
         "production_site",
     }
-    if payload["supplier_type"] == "manufacturer" and not (
-        production_proof & supported
-    ):
-        payload["supplier_type"] = "unknown"
-        flag("Статус производителя не подтверждён проверенной цитатой")
+    # Проверяемая деталь против заявления о себе. Первое читает регулярка
+    # со страницы, второе компания пишет о себе сама.
+    hard_proof = {"production_capacity", "production_site"}
+
+    if payload["supplier_type"] == "manufacturer":
+        if hard_proof & supported:
+            pass
+        elif not (production_proof & supported):
+            payload["supplier_type"] = "unknown"
+            flag("Статус производителя не подтверждён проверенной цитатой")
+        elif "office_address" in supported:
+            # Заявление «мы производитель» против физического адреса.
+            # Руководства по проверке поставщиков сходятся на том, что
+            # завод стоит в промзоне, а посредник — в бизнес-центре, и
+            # что самоназвание роли не доказывает ни в какой
+            # формулировке. Замер по 136 сохранённым карточкам: номер
+            # государственной лицензии нашёлся у одной, выпуск или
+            # площадка — у шести, а офисный адрес — у 62. Доказывать
+            # производство по таким страницам нечем, опровергать есть чем.
+            #
+            # Понижаем до «не определён», а не объявляем посредником:
+            # контактный адрес в подвале страницы бывает и торговым
+            # офисом настоящего завода, решает регистрационный.
+            payload["supplier_type"] = "unknown"
+            flag(
+                "Адрес компании — офис в бизнес-центре, а признаков "
+                "собственного производства на странице нет"
+            )
 
     # Роль торговой компании тоже бывает доказана — прямым самоописанием на
     # странице. Без этого правила посредник, честно назвавший себя
@@ -1032,10 +1070,14 @@ def _apply_evidence_gates(
     #
     # Вывод делается только там, где производство не доказано: завод,
     # у которого есть и торговое подразделение, остаётся заводом.
+    #
+    # Сверяется здесь проверяемая деталь, а не заявление: если компания
+    # называет себя и заводом, и торговым домом, а доказан только второй,
+    # то доказан второй.
     if (
         payload["supplier_type"] == "unknown"
         and "reseller_role" in supported
-        and not (production_proof & supported)
+        and not (hard_proof & supported)
     ):
         payload["supplier_type"] = "distributor"
 

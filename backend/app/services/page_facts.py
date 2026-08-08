@@ -703,6 +703,52 @@ def find_trade_facts(text: str) -> dict[str, str]:
     return {}
 
 
+# Адрес в промышленной зоне. Завод стоит в промзоне или отдельным
+# корпусом — так пишут все руководства по проверке поставщиков.
+_PLANT_ADDRESS_RE = re.compile(
+    r"(工业园|化工园|经济开发区|工业区|产业园|高新区"
+    r"|industrial\s+(?:park|zone|area|estate)"
+    r"|(?:economic|technological)\s+development\s+zone"
+    r"|chemical\s+(?:park|industrial))",
+    re.IGNORECASE,
+)
+# Адрес в бизнес-центре: этаж, комната, офис, башня. Посредник сидит в
+# офисе, и это единственный признак, которого на этих страницах много.
+_OFFICE_ADDRESS_RE = re.compile(
+    r"(\d+(?:st|nd|rd|th)\s+floor|floor\s*\d+|room\s*\d+|suite\s*\d+"
+    r"|\bplaza\b|\bbusiness\s+(?:center|centre|building)\b"
+    r"|写字楼|大厦|商务楼|办公楼)",
+    re.IGNORECASE,
+)
+
+
+def find_address_facts(text: str) -> dict[str, str]:
+    """Офисный адрес компании — дословной строкой страницы.
+
+    Производство по этим страницам доказывать нечем: замер по 136
+    карточкам прогонов 214–264 дал ровно один номер государственной
+    лицензии и шесть упоминаний выпуска или площадки. Зато опровергать
+    есть чем — офисный адрес нашёлся у 62 карточек, и у 27 из 50 нынешних
+    «производителей» он стоит при полном отсутствии производственных
+    фактов: Henan GP на 29-м этаже, Echo Chemtech в комнате 1602,
+    Shanghai Douwin на 16-м.
+
+    Возвращается только офисный адрес и только тогда, когда на странице
+    нигде нет признаков промзоны: у завода в промышленном парке вполне
+    бывает и номер корпуса, и это не повод его понижать.
+    """
+    body = text or ""
+    if _PLANT_ADDRESS_RE.search(body):
+        return {}
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not (MIN_QUOTE_CHARS <= len(line) <= _MAX_LINE_CHARS):
+            continue
+        if _OFFICE_ADDRESS_RE.search(line):
+            return {"office_address": line}
+    return {}
+
+
 def find_production_facts(text: str) -> dict[str, str]:
     """Мощность и производственная база с дословной строкой страницы.
 
