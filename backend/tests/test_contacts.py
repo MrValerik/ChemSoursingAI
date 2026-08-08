@@ -50,6 +50,23 @@ def test_tracker_and_template_mail_is_dropped():
     assert find_contacts(text) == {}
 
 
+def test_a_word_glued_to_the_domain_is_cut_off():
+    """При извлечении текста соседние слова слипаются.
+
+    На странице Tianjin Gnee адрес вышел как
+    «inquiry@gneebio.comPhone»: регулярка приняла «comPhone» за доменную
+    зону, и письмо ушло бы в никуда.
+    """
+    assert find_contacts("Email: inquiry@gneebio.comPhone: +8615664088227")[
+        "emails"
+    ] == ["inquiry@gneebio.com"]
+
+
+def test_a_normal_address_is_left_alone():
+    for address in ("sales@foodchem.cn", "INFO@BOYLE.COM", "a.b@mail.hifull.co.uk"):
+        assert find_contacts(f"mail {address} end")["emails"] == [address]
+
+
 def test_a_neighbouring_label_is_not_a_value():
     """В блоке контактов подписи идут вплотную.
 

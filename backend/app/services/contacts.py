@@ -64,6 +64,24 @@ _LABEL_ONLY = frozenset(
 )
 
 
+# Переход строчной буквы в заглавную внутри доменной зоны. При извлечении
+# текста соседние слова слипаются, и адрес выходит вида
+# «inquiry@gneebio.comPhone»: регулярка честно приняла «comPhone» за зону.
+_GLUED_TAIL_RE = re.compile(r"([a-z])([A-Z])")
+
+
+def _trim_glued_tail(email: str) -> str:
+    """Отрезает слово, прилипшее к доменной зоне."""
+    local, _, domain = email.rpartition("@")
+    if not local or "." not in domain:
+        return email
+    head, _, tld = domain.rpartition(".")
+    match = _GLUED_TAIL_RE.search(tld)
+    if match is None:
+        return email
+    return f"{local}@{head}.{tld[: match.start() + 1]}"
+
+
 def _clean(values: list[str]) -> list[str]:
     seen: list[str] = []
     for value in values:
@@ -87,7 +105,7 @@ def find_contacts(text: str) -> dict[str, list[str]]:
 
     emails = _clean(
         [
-            value
+            _trim_glued_tail(value)
             for value in _EMAIL_RE.findall(body)
             if not _JUNK_MAIL_RE.search(value)
         ]
