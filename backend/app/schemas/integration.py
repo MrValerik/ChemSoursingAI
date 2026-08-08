@@ -133,6 +133,10 @@ class WhatsAppWebStatusRead(BaseModel):
     state: str
     ready: bool = False
     qr_available: bool = False
+    pairing_code_available: bool = False
+    pairing_code_expires_in_seconds: int = 0
+    client_state: str | None = None
+    loading_percent: int | None = None
     account: str | None = None
     pending_events: int = 0
     error: str | None = None
@@ -140,6 +144,26 @@ class WhatsAppWebStatusRead(BaseModel):
 
 class WhatsAppWebQrRead(BaseModel):
     qr_data_url: str
+
+
+class WhatsAppWebPairingCodeCreate(BaseModel):
+    phone_number: str = Field(min_length=8, max_length=32)
+
+    @field_validator("phone_number", mode="before")
+    @classmethod
+    def validate_phone_number(cls, value: object) -> str:
+        cleaned = str(value or "").strip()
+        digits = re.sub(r"\D", "", cleaned)
+        if not 8 <= len(digits) <= 15:
+            raise ValueError(
+                "Номер WhatsApp должен содержать 8–15 цифр с кодом страны"
+            )
+        return digits
+
+
+class WhatsAppWebPairingCodeRead(BaseModel):
+    pairing_code: str = Field(min_length=8, max_length=16)
+    expires_in_seconds: int = Field(ge=1, le=300)
 
 
 class IntegrationConnectionRead(BaseModel):

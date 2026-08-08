@@ -89,3 +89,33 @@ def test_web_gateway_status_and_send_text():
         "to": "79000000000",
         "body": "Hello",
     }
+
+
+def test_web_gateway_pairing_code_is_requested_without_storing_phone():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/pairing-code":
+            return httpx.Response(
+                200,
+                json={"pairing_code": "ABCD1234", "expires_in_seconds": 180},
+            )
+        return httpx.Response(200, json={"state": "qr", "ready": False})
+
+    settings = get_settings().model_copy(
+        update={
+            "whatsapp_transport": "web",
+            "whatsapp_web_base_url": "http://gateway:3000",
+            "whatsapp_web_service_token": "gateway-secret",
+        }
+    )
+    connector = WhatsAppConnector(settings, transport=httpx.MockTransport(handler))
+
+    result = connector.web_pairing_code("+7 (900) 000-00-00")
+    assert result == {"pairing_code": "ABCD1234", "expires_in_seconds": 180}
+    assert json.loads(requests[0].content) == {"phone_number": "79000000000"}
+    assert connector.web_cancel_pairing_code()["state"] == "qr"
+
+    with pytest.raises(WhatsAppConfigurationError):
+        connector.web_pairing_code("123")

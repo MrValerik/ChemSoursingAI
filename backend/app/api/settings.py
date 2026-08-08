@@ -29,6 +29,8 @@ from app.schemas.integration import (
     WhatsAppIntegrationRead,
     WhatsAppIntegrationUpdate,
     WhatsAppWebQrRead,
+    WhatsAppWebPairingCodeCreate,
+    WhatsAppWebPairingCodeRead,
     WhatsAppWebStatusRead,
 )
 from app.services.integration_settings import (
@@ -360,6 +362,33 @@ def whatsapp_web_qr(
     response.headers["Cache-Control"] = "no-store"
     try:
         return WhatsAppWebQrRead(qr_data_url=_web_connector(db).web_qr())
+    except (WhatsAppConfigurationError, WhatsAppDeliveryError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post(
+    "/integrations/whatsapp/web/pairing-code",
+    response_model=WhatsAppWebPairingCodeRead,
+)
+def whatsapp_web_pairing_code(
+    payload: WhatsAppWebPairingCodeCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return _web_connector(db).web_pairing_code(payload.phone_number)
+    except (WhatsAppConfigurationError, WhatsAppDeliveryError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post(
+    "/integrations/whatsapp/web/pairing-code/cancel",
+    response_model=WhatsAppWebStatusRead,
+)
+def whatsapp_web_cancel_pairing_code(db: Session = Depends(get_db)) -> dict:
+    try:
+        return _web_connector(db).web_cancel_pairing_code()
     except (WhatsAppConfigurationError, WhatsAppDeliveryError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

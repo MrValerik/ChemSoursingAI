@@ -33,6 +33,7 @@ import type {
   UserRead,
   WhatsAppIntegration,
   WhatsAppWebQr,
+  WhatsAppWebPairingCode,
   WhatsAppWebStatus,
   ExtractedQuote,
   QuotationRead,
@@ -512,6 +513,21 @@ export const api = {
 
   getWhatsAppWebQr: () =>
     request<WhatsAppWebQr>(`/settings/integrations/whatsapp/web/qr`),
+
+  createWhatsAppWebPairingCode: (phoneNumber: string) =>
+    request<WhatsAppWebPairingCode>(
+      `/settings/integrations/whatsapp/web/pairing-code`,
+      {
+        method: "POST",
+        body: JSON.stringify({ phone_number: phoneNumber }),
+      },
+    ),
+
+  cancelWhatsAppWebPairingCode: () =>
+    request<WhatsAppWebStatus>(
+      `/settings/integrations/whatsapp/web/pairing-code/cancel`,
+      { method: "POST" },
+    ),
 
   disconnectWhatsAppWeb: () =>
     request<WhatsAppWebStatus>(

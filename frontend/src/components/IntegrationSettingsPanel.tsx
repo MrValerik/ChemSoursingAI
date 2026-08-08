@@ -32,6 +32,9 @@ export default function IntegrationSettingsPanel() {
   const [whatsappToken, setWhatsAppToken] = useState("");
   const [webStatus, setWebStatus] = useState<WhatsAppWebStatus | null>(null);
   const [webQr, setWebQr] = useState<string | null>(null);
+  const [webPhoneNumber, setWebPhoneNumber] = useState("");
+  const [webPairingCode, setWebPairingCode] = useState<string | null>(null);
+  const [webPairingExpires, setWebPairingExpires] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<IntegrationConnectionResult | null>(null);
@@ -77,6 +80,49 @@ export default function IntegrationSettingsPanel() {
   useEffect(() => {
     load().catch((reason) => setError(String(reason)));
   }, []);
+
+  useEffect(() => {
+    if (
+      whatsappForm?.transport !== "web" ||
+      !whatsapp?.web_gateway_available ||
+      webStatus?.ready
+    ) {
+      return undefined;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const status = await api.getWhatsAppWebStatus();
+        if (cancelled) return;
+        setWebStatus(status);
+        setWebPairingExpires(status.pairing_code_expires_in_seconds);
+        if (!status.pairing_code_available) {
+          setWebPairingCode(null);
+        }
+        if (status.ready || status.state === "authenticated") {
+          setWebPairingCode(null);
+          setWebQr(null);
+        } else if (status.qr_available && !status.pairing_code_available) {
+          const qr = await api.getWhatsAppWebQr();
+          if (!cancelled) setWebQr(qr.qr_data_url);
+        } else if (!status.qr_available) {
+          setWebQr(null);
+        }
+      } catch (_reason) {
+        // Ручные действия показывают ошибки; фоновый опрос не засоряет интерфейс.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    whatsappForm?.transport,
+    whatsapp?.web_gateway_available,
+    webStatus?.ready,
+  ]);
 
   const saveEmail = async () => {
     if (!emailForm) return;
@@ -218,6 +264,9 @@ export default function IntegrationSettingsPanel() {
       } else if (!status.qr_available) {
         setWebQr(null);
       }
+      if (status.ready || status.state === "authenticated") {
+        setWebPairingCode(null);
+      }
       setError(null);
     } catch (reason) {
       setError(String(reason));
@@ -229,7 +278,11 @@ export default function IntegrationSettingsPanel() {
   const connectWhatsAppWeb = async () => {
     setBusy("whatsapp-web-connect");
     setWebQr(null);
+    setWebPairingCode(null);
     try {
+      if (webStatus?.pairing_code_available) {
+        await api.cancelWhatsAppWebPairingCode();
+      }
       let status = await api.connectWhatsAppWeb();
       setWebStatus(status);
       for (let attempt = 0; attempt < 12 && !status.ready && !status.qr_available; attempt += 1) {
@@ -254,6 +307,61 @@ export default function IntegrationSettingsPanel() {
     try {
       setWebStatus(await api.disconnectWhatsAppWeb());
       setWebQr(null);
+      setWebPairingCode(null);
+      setWebPairingExpires(0);
+      setError(null);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const createWhatsAppWebPairingCode = async () => {
+    if (!webPhoneNumber.trim()) {
+      setError("Укажите номер WhatsApp с кодом страны");
+      return;
+    }
+    setBusy("whatsapp-web-pairing-code");
+    setWebQr(null);
+    setWebPairingCode(null);
+    try {
+      let status = await api.connectWhatsAppWeb();
+      for (
+        let attempt = 0;
+        attempt < 12 &&
+        !status.ready &&
+        !status.qr_available &&
+        status.state !== "pairing_code";
+        attempt += 1
+      ) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        status = await api.getWhatsAppWebStatus();
+      }
+      if (status.ready) {
+        setWebStatus(status);
+        setError("WhatsApp уже подключён");
+        return;
+      }
+      const result = await api.createWhatsAppWebPairingCode(webPhoneNumber);
+      setWebPairingCode(result.pairing_code);
+      setWebPairingExpires(result.expires_in_seconds);
+      setWebPhoneNumber("");
+      setWebStatus(await api.getWhatsAppWebStatus());
+      setError(null);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cancelWhatsAppWebPairingCode = async () => {
+    setBusy("whatsapp-web-pairing-cancel");
+    try {
+      setWebStatus(await api.cancelWhatsAppWebPairingCode());
+      setWebPairingCode(null);
+      setWebPairingExpires(0);
       setError(null);
     } catch (reason) {
       setError(String(reason));
@@ -592,13 +700,66 @@ export default function IntegrationSettingsPanel() {
               <p className={webStatus.ready ? "success" : "note"}>
                 Состояние: {webStatus.state}
                 {webStatus.account ? ` · номер ${webStatus.account}` : ""}
+                {webStatus.client_state ? ` · WhatsApp ${webStatus.client_state}` : ""}
+                {webStatus.loading_percent !== null
+                  ? ` · загрузка ${webStatus.loading_percent}%`
+                  : ""}
                 {webStatus.pending_events ? ` · очередь ${webStatus.pending_events}` : ""}
               </p>
+            )}
+            {!webStatus?.ready && (
+              <div className="settings-stack whatsapp-pairing-panel">
+                <h3>Подключение по номеру — рекомендуется</h3>
+                <p className="note">
+                  Введите номер подключаемого WhatsApp с кодом страны. Номер
+                  используется только для запроса временного кода и не сохраняется.
+                </p>
+                <div className="settings-grid">
+                  <Field label="Номер WhatsApp" hint="Например: +7 900 000-00-00">
+                    <Input
+                      autoComplete="tel"
+                      inputMode="tel"
+                      placeholder="+7 900 000-00-00"
+                      value={webPhoneNumber}
+                      onChange={(event) => setWebPhoneNumber(event.target.value)}
+                    />
+                  </Field>
+                </div>
+                <div className="actions">
+                  <button
+                    disabled={busy !== null || !whatsapp.web_gateway_available}
+                    onClick={() => void createWhatsAppWebPairingCode()}
+                  >
+                    Получить код привязки
+                  </button>
+                  {webPairingCode && (
+                    <button
+                      className="secondary"
+                      disabled={busy !== null}
+                      onClick={() => void cancelWhatsAppWebPairingCode()}
+                    >
+                      Отменить код
+                    </button>
+                  )}
+                </div>
+                {webPairingCode && (
+                  <div className="whatsapp-pairing-code" aria-live="polite">
+                    <span className="note">Временный код</span>
+                    <strong>{webPairingCode.replace(/(.{4})(?=.)/g, "$1 ")}</strong>
+                    <span className="note">
+                      Действует ещё примерно {webPairingExpires} секунд. На телефоне:
+                      WhatsApp → Связанные устройства → Привязка устройства →
+                      Привязать по номеру телефона.
+                    </span>
+                  </div>
+                )}
+              </div>
             )}
             {webQr && (
               <div>
                 <p className="note">
-                  WhatsApp → Связанные устройства → Привязка устройства
+                  Запасной способ: QR обновляется автоматически каждые несколько
+                  секунд. WhatsApp → Связанные устройства → Привязка устройства.
                 </p>
                 <img
                   src={webQr}
@@ -614,7 +775,7 @@ export default function IntegrationSettingsPanel() {
                 disabled={busy !== null || !whatsapp.web_gateway_available}
                 onClick={() => void connectWhatsAppWeb()}
               >
-                Создать QR-код
+                Показать QR-код
               </button>
               <button
                 className="secondary"

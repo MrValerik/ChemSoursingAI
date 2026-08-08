@@ -216,6 +216,48 @@ def test_integration_settings_encrypt_secrets_and_require_admin(client, monkeypa
     assert client.get("/communication-testing", headers=buyer).status_code == 403
 
 
+def test_whatsapp_pairing_code_is_admin_only_and_not_cached(client, monkeypatch):
+    admin = _login(client)
+
+    class FakeWebConnector:
+        def web_pairing_code(self, phone_number: str) -> dict:
+            assert phone_number == "79000000000"
+            return {"pairing_code": "ABCD1234", "expires_in_seconds": 180}
+
+    monkeypatch.setattr(
+        "app.api.settings._web_connector", lambda _db: FakeWebConnector()
+    )
+    response = client.post(
+        "/settings/integrations/whatsapp/web/pairing-code",
+        json={"phone_number": "+7 (900) 000-00-00"},
+        headers=admin,
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "pairing_code": "ABCD1234",
+        "expires_in_seconds": 180,
+    }
+    assert response.headers["cache-control"] == "no-store"
+
+    buyer = _login(client, "ivanov")
+    assert (
+        client.post(
+            "/settings/integrations/whatsapp/web/pairing-code",
+            json={"phone_number": "+7 (900) 000-00-00"},
+            headers=buyer,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/settings/integrations/whatsapp/web/pairing-code",
+            json={"phone_number": "123"},
+            headers=admin,
+        ).status_code
+        == 422
+    )
+
+
 def test_communication_testing_preview_and_explicit_delivery(
     client, monkeypatch
 ):

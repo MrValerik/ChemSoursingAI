@@ -409,6 +409,10 @@ export interface WhatsAppWebStatus {
   state: string;
   ready: boolean;
   qr_available: boolean;
+  pairing_code_available: boolean;
+  pairing_code_expires_in_seconds: number;
+  client_state: string | null;
+  loading_percent: number | null;
   account: string | null;
   pending_events: number;
   error: string | null;
@@ -416,6 +420,11 @@ export interface WhatsAppWebStatus {
 
 export interface WhatsAppWebQr {
   qr_data_url: string;
+}
+
+export interface WhatsAppWebPairingCode {
+  pairing_code: string;
+  expires_in_seconds: number;
 }
 
 export interface CommunicationTestRun {

@@ -17,8 +17,12 @@ const callbackTimeoutMs = Number(process.env.WHATSAPP_WEB_CALLBACK_TIMEOUT_MS ||
 let client = null;
 let state = "stopped";
 let qrDataUrl = null;
+let pairingCode = null;
+let pairingCodeExpiresAt = 0;
 let account = null;
 let lastError = null;
+let clientState = null;
+let loadingPercent = null;
 let initializing = null;
 let pendingEvents = [];
 let flushing = false;
@@ -52,10 +56,20 @@ function authorize(req, res, next) {
 }
 
 function statusPayload() {
+  if (pairingCodeExpiresAt && pairingCodeExpiresAt <= Date.now()) {
+    pairingCode = null;
+    pairingCodeExpiresAt = 0;
+  }
   return {
     state,
     ready: state === "ready",
     qr_available: Boolean(qrDataUrl),
+    pairing_code_available: Boolean(pairingCode),
+    pairing_code_expires_in_seconds: pairingCodeExpiresAt
+      ? Math.max(0, Math.ceil((pairingCodeExpiresAt - Date.now()) / 1000))
+      : 0,
+    client_state: clientState,
+    loading_percent: loadingPercent,
     account,
     pending_events: pendingEvents.length,
     error: lastError,
@@ -125,6 +139,8 @@ async function createClient() {
   lastError = null;
   const instance = new Client({
     authStrategy: new LocalAuth({ clientId: "chemsource", dataPath: path.join(dataDir, "auth") }),
+    deviceName: "ChemSource",
+    browserName: "Chrome",
     puppeteer: {
       executablePath: process.env.CHROME_BIN || "/usr/bin/chromium",
       headless: true,
@@ -132,19 +148,50 @@ async function createClient() {
     },
   });
   instance.on("qr", async (qr) => {
-    state = "qr";
+    if (!pairingCode) state = "qr";
     account = null;
     qrDataUrl = await QRCode.toDataURL(qr, { errorCorrectionLevel: "M", margin: 2, width: 360 });
   });
-  instance.on("authenticated", () => { state = "authenticated"; qrDataUrl = null; });
+  instance.on("code", (code) => {
+    pairingCode = String(code || "");
+    pairingCodeExpiresAt = Date.now() + 180000;
+    state = "pairing_code";
+    qrDataUrl = null;
+  });
+  instance.on("loading_screen", (percent) => {
+    loadingPercent = Number.isFinite(Number(percent)) ? Number(percent) : null;
+  });
+  instance.on("change_state", (nextState) => {
+    clientState = nextState ? String(nextState) : null;
+  });
+  instance.on("authenticated", () => {
+    state = "authenticated";
+    qrDataUrl = null;
+    pairingCode = null;
+    pairingCodeExpiresAt = 0;
+  });
   instance.on("ready", () => {
     state = "ready";
     qrDataUrl = null;
+    pairingCode = null;
+    pairingCodeExpiresAt = 0;
+    loadingPercent = 100;
     account = instance.info && instance.info.wid ? instance.info.wid.user : null;
     void flushEvents();
   });
-  instance.on("auth_failure", () => { state = "auth_failure"; lastError = "authentication_failed"; });
-  instance.on("disconnected", () => { state = "disconnected"; account = null; });
+  instance.on("auth_failure", () => {
+    state = "auth_failure";
+    lastError = "authentication_failed";
+    pairingCode = null;
+    pairingCodeExpiresAt = 0;
+  });
+  instance.on("disconnected", (reason) => {
+    state = "disconnected";
+    clientState = reason ? String(reason) : null;
+    account = null;
+    pairingCode = null;
+    pairingCodeExpiresAt = 0;
+  });
   instance.on("message", (message) => void queueIncoming(message));
   client = instance;
   initializing = instance.initialize().catch((error) => {
@@ -172,6 +219,38 @@ app.get("/qr", (_req, res) => {
   if (!qrDataUrl) return res.status(404).json({ detail: "qr_not_available" });
   return res.json({ qr_data_url: qrDataUrl });
 });
+app.post("/pairing-code", async (req, res) => {
+  const phoneNumber = String(req.body.phone_number || "").replace(/\D/g, "");
+  if (phoneNumber.length < 8 || phoneNumber.length > 15) {
+    return res.status(422).json({ detail: "invalid_phone_number" });
+  }
+  if (!client || !client.pupPage || state === "ready") {
+    return res.status(409).json({ detail: "whatsapp_not_waiting_for_pairing" });
+  }
+  try {
+    const code = await client.requestPairingCode(phoneNumber, false, 600000);
+    pairingCode = String(code || "");
+    pairingCodeExpiresAt = Date.now() + 180000;
+    state = "pairing_code";
+    qrDataUrl = null;
+    lastError = null;
+    return res.json({ pairing_code: pairingCode, expires_in_seconds: 180 });
+  } catch (_error) {
+    lastError = "pairing_code_failed";
+    return res.status(502).json({ detail: "pairing_code_failed" });
+  }
+});
+app.post("/pairing-code/cancel", async (_req, res) => {
+  pairingCode = null;
+  pairingCodeExpiresAt = 0;
+  if (client && typeof client.cancelPairingCode === "function") {
+    try { await client.cancelPairingCode(); } catch (_error) {
+      return res.status(502).json({ detail: "pairing_code_cancel_failed" });
+    }
+  }
+  state = "qr";
+  return res.json(statusPayload());
+});
 app.post("/connect", async (_req, res) => {
   try {
     void startClient().catch(() => {});
@@ -184,7 +263,11 @@ app.post("/disconnect", async (_req, res) => {
   const instance = client;
   client = null;
   qrDataUrl = null;
+  pairingCode = null;
+  pairingCodeExpiresAt = 0;
   account = null;
+  clientState = null;
+  loadingPercent = null;
   state = "stopped";
   if (instance) {
     try { await instance.logout(); } catch (_error) { await instance.destroy().catch(() => {}); }

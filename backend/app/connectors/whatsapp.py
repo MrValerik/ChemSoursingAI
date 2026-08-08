@@ -106,6 +106,29 @@ class WhatsAppConnector:
             raise WhatsAppDeliveryError("QR-код WhatsApp Web ещё не готов")
         return value
 
+    def web_pairing_code(self, phone_number: str) -> dict[str, Any]:
+        recipient = re.sub(r"\D", "", phone_number)
+        if not 8 <= len(recipient) <= 15:
+            raise WhatsAppConfigurationError(
+                "Номер WhatsApp должен содержать 8–15 цифр с кодом страны"
+            )
+        data = self._web_request(
+            "POST", "/pairing-code", payload={"phone_number": recipient}
+        )
+        code = data.get("pairing_code")
+        expires = data.get("expires_in_seconds")
+        if not isinstance(code, str) or not code:
+            raise WhatsAppDeliveryError(
+                "WhatsApp Web gateway не вернул код привязки"
+            )
+        return {
+            "pairing_code": code,
+            "expires_in_seconds": int(expires or 180),
+        }
+
+    def web_cancel_pairing_code(self) -> dict[str, Any]:
+        return self._web_request("POST", "/pairing-code/cancel")
+
     def web_disconnect(self) -> dict[str, Any]:
         return self._web_request("POST", "/disconnect")
 
@@ -120,6 +143,9 @@ class WhatsAppConnector:
                 "ready": bool(data.get("ready")),
                 "account": str(data["account"]) if data.get("account") else None,
                 "qr_available": bool(data.get("qr_available")),
+                "pairing_code_available": bool(
+                    data.get("pairing_code_available")
+                ),
                 "pending_events": int(data.get("pending_events") or 0),
             }
         try:
