@@ -11,6 +11,7 @@ const {
   providerMessageId,
 } = require("./message-id");
 const { removeStaleChromiumLocks } = require("./session-files");
+const { resolveSenderNumber } = require("./sender-number");
 
 const port = Number(process.env.PORT || 3000);
 const serviceToken = process.env.WHATSAPP_WEB_SERVICE_TOKEN || "";
@@ -158,13 +159,8 @@ async function queueIncoming(message) {
     from.endsWith("@g.us") ||
     from === "status@broadcast"
   ) return;
-  let sender = from.replace(/@(c|s)\.us$/, "");
-  try {
-    const contact = await message.getContact();
-    sender = String(contact.number || contact.id && contact.id.user || sender);
-  } catch (_error) {
-    // The raw sender is still usable for classic phone-number chat IDs.
-  }
+  const sender = await resolveSenderNumber(message, client);
+  if (!sender) return;
   const event = {
     event: "message",
     message_id: providerMessageId(message) || "",

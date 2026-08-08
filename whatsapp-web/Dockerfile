@@ -16,7 +16,7 @@ RUN npm config set registry https://registry.npmmirror.com \
 COPY package*.json ./
 RUN npm install --omit=dev --ignore-scripts=false \
     && npm cache clean --force
-COPY server.js message-id.js session-files.js ./
+COPY server.js message-id.js session-files.js sender-number.js ./
 
 RUN mkdir -p /data/auth /data/events && chown -R node:node /app /data
 USER node
