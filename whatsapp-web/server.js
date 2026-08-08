@@ -6,6 +6,10 @@ const path = require("path");
 const express = require("express");
 const QRCode = require("qrcode");
 const { Client, LocalAuth } = require("whatsapp-web.js");
+const {
+  normalizedPendingEvent,
+  providerMessageId,
+} = require("./message-id");
 
 const port = Number(process.env.PORT || 3000);
 const serviceToken = process.env.WHATSAPP_WEB_SERVICE_TOKEN || "";
@@ -114,6 +118,11 @@ async function flushEvents() {
   flushing = true;
   try {
     while (pendingEvents.length > 0) {
+      const normalized = normalizedPendingEvent(pendingEvents[0]);
+      if (normalized !== pendingEvents[0]) {
+        pendingEvents[0] = normalized;
+        persistEvents();
+      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), callbackTimeoutMs);
       try {
@@ -155,13 +164,14 @@ async function queueIncoming(message) {
   } catch (_error) {
     // The raw sender is still usable for classic phone-number chat IDs.
   }
-  pendingEvents.push({
+  const event = {
     event: "message",
-    message_id: String(message.id && message.id._serialized || ""),
+    message_id: providerMessageId(message) || "",
     from: sender,
     body: String(message.body).slice(0, 8000),
     timestamp: Number(message.timestamp || Math.floor(Date.now() / 1000)),
-  });
+  };
+  pendingEvents.push(normalizedPendingEvent(event));
   persistEvents();
   void flushEvents();
 }
@@ -339,7 +349,8 @@ app.post("/messages", async (req, res) => {
     const registered = await client.isRegisteredUser(`${recipient}@c.us`);
     if (!registered) return res.status(422).json({ detail: "recipient_not_registered" });
     const message = await client.sendMessage(`${recipient}@c.us`, body.slice(0, 4096));
-    return res.status(201).json({ message_id: message.id._serialized });
+    const messageId = providerMessageId(message) || `web-out-${crypto.randomUUID()}`;
+    return res.status(201).json({ message_id: messageId });
   } catch (_error) {
     return res.status(502).json({ detail: "delivery_failed" });
   }

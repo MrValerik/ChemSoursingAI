@@ -43,6 +43,19 @@ jobs:
       - run: npm run build
         working-directory: frontend
 
+  whatsapp-web:
+    name: WhatsApp Web gateway tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm run check
+        working-directory: whatsapp-web
+      - run: npm test
+        working-directory: whatsapp-web
+
   operations:
     name: Deployment checks
     runs-on: ubuntu-latest
