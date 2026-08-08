@@ -115,12 +115,16 @@ class Settings(BaseSettings):
         default=20, ge=1, le=100
     )
 
-    # --- WhatsApp Cloud API — этап интеграций ---
+    # --- WhatsApp: официальный Cloud API или изолированный WhatsApp Web gateway ---
+    whatsapp_transport: Literal["cloud_api", "web"] = Field(default="cloud_api")
     whatsapp_token: str = Field(default="")
     whatsapp_phone_id: str = Field(default="")
     whatsapp_api_base_url: str = Field(default="https://graph.facebook.com")
     whatsapp_api_version: str = Field(default="v23.0")
     whatsapp_timeout_s: int = Field(default=30)
+    # Секрет и адрес gateway задаются только окружением и никогда не сохраняются через UI.
+    whatsapp_web_base_url: str = Field(default="http://whatsapp-web:3000")
+    whatsapp_web_service_token: str = Field(default="")
 
     # --- PubChem ---
     pubchem_base_url: str = Field(

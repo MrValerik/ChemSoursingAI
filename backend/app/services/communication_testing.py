@@ -26,6 +26,7 @@ from app.services.integration_settings import (
     effective_whatsapp_settings,
     mask_recipient,
 )
+from app.services.communication_recipient import protect_recipient, recipient_key
 from app.services.prompt_service import get_active_prompt_text
 from app.services.supplier_communication_prompts import (
     CHANNEL_INSTRUCTIONS,
@@ -461,6 +462,16 @@ def run_communication_test(
             mask_recipient(payload.channel, payload.recipient)
             if payload.recipient
             else "не задан"
+        ),
+        recipient_key=(
+            recipient_key(payload.channel, payload.recipient)
+            if payload.delivery_mode == "send" and payload.recipient
+            else None
+        ),
+        recipient_ciphertext=(
+            protect_recipient(payload.recipient)
+            if payload.delivery_mode == "send" and payload.recipient
+            else None
         ),
         procurement_context=context,
         subject=payload.subject,

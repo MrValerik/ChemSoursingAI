@@ -32,6 +32,8 @@ import type {
   UserAdminRead,
   UserRead,
   WhatsAppIntegration,
+  WhatsAppWebQr,
+  WhatsAppWebStatus,
   ExtractedQuote,
   QuotationRead,
   RFQListItem,
@@ -481,6 +483,7 @@ export const api = {
 
   updateWhatsAppIntegration: (payload: {
     enabled: boolean;
+    transport: "cloud_api" | "web";
     phone_id: string;
     access_token?: string | null;
     api_base_url: string;
@@ -496,6 +499,23 @@ export const api = {
   checkWhatsAppIntegration: () =>
     request<IntegrationConnectionResult>(
       `/settings/integrations/whatsapp/check`,
+      { method: "POST" },
+    ),
+
+  getWhatsAppWebStatus: () =>
+    request<WhatsAppWebStatus>(`/settings/integrations/whatsapp/web/status`),
+
+  connectWhatsAppWeb: () =>
+    request<WhatsAppWebStatus>(`/settings/integrations/whatsapp/web/connect`, {
+      method: "POST",
+    }),
+
+  getWhatsAppWebQr: () =>
+    request<WhatsAppWebQr>(`/settings/integrations/whatsapp/web/qr`),
+
+  disconnectWhatsAppWeb: () =>
+    request<WhatsAppWebStatus>(
+      `/settings/integrations/whatsapp/web/disconnect`,
       { method: "POST" },
     ),
 

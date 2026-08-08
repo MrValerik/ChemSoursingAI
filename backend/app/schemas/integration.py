@@ -79,6 +79,7 @@ class EmailIntegrationRead(BaseModel):
 
 class WhatsAppIntegrationUpdate(BaseModel):
     enabled: bool = False
+    transport: Literal["cloud_api", "web"] = "cloud_api"
     phone_id: str = ""
     access_token: str | None = Field(default=None, max_length=4096)
     api_base_url: str = "https://graph.facebook.com"
@@ -119,6 +120,8 @@ class WhatsAppIntegrationRead(BaseModel):
     enabled: bool
     configured: bool
     source: Literal["database", "environment"]
+    transport: Literal["cloud_api", "web"]
+    web_gateway_available: bool
     phone_id: str
     token_set: bool
     api_base_url: str
@@ -126,11 +129,32 @@ class WhatsAppIntegrationRead(BaseModel):
     timeout_s: int
 
 
+class WhatsAppWebStatusRead(BaseModel):
+    state: str
+    ready: bool = False
+    qr_available: bool = False
+    account: str | None = None
+    pending_events: int = 0
+    error: str | None = None
+
+
+class WhatsAppWebQrRead(BaseModel):
+    qr_data_url: str
+
+
 class IntegrationConnectionRead(BaseModel):
     channel: Literal["email", "whatsapp"]
     ok: bool
     message: str
-    details: dict[str, str | bool | None] = Field(default_factory=dict)
+    details: dict[str, str | bool | int | None] = Field(default_factory=dict)
+
+
+class WhatsAppWebEvent(BaseModel):
+    event: Literal["message"]
+    message_id: str = Field(min_length=1, max_length=255)
+    from_number: str = Field(alias="from", min_length=1, max_length=64)
+    body: str = Field(min_length=1, max_length=8000)
+    timestamp: int
 
 
 class CommunicationTestCreate(BaseModel):

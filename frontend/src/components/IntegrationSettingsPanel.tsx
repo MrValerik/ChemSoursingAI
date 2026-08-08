@@ -4,6 +4,7 @@ import type {
   EmailIntegration,
   IntegrationConnectionResult,
   WhatsAppIntegration,
+  WhatsAppWebStatus,
 } from "../api/types";
 import { Field, Input, Select } from "./ui";
 
@@ -14,7 +15,11 @@ type EmailForm = Omit<
 
 type WhatsAppForm = Omit<
   WhatsAppIntegration,
-  "channel" | "configured" | "source" | "token_set"
+  | "channel"
+  | "configured"
+  | "source"
+  | "token_set"
+  | "web_gateway_available"
 >;
 
 export default function IntegrationSettingsPanel() {
@@ -25,6 +30,8 @@ export default function IntegrationSettingsPanel() {
   const [smtpPassword, setSmtpPassword] = useState("");
   const [imapPassword, setImapPassword] = useState("");
   const [whatsappToken, setWhatsAppToken] = useState("");
+  const [webStatus, setWebStatus] = useState<WhatsAppWebStatus | null>(null);
+  const [webQr, setWebQr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<IntegrationConnectionResult | null>(null);
@@ -56,11 +63,15 @@ export default function IntegrationSettingsPanel() {
     });
     setWhatsAppForm({
       enabled: whatsappData.enabled,
+      transport: whatsappData.transport,
       phone_id: whatsappData.phone_id,
       api_base_url: whatsappData.api_base_url,
       api_version: whatsappData.api_version,
       timeout_s: whatsappData.timeout_s,
     });
+    if (whatsappData.transport === "web" && whatsappData.web_gateway_available) {
+      api.getWhatsAppWebStatus().then(setWebStatus).catch(() => setWebStatus(null));
+    }
   };
 
   useEffect(() => {
@@ -103,7 +114,9 @@ export default function IntegrationSettingsPanel() {
     if (
       whatsappForm.enabled &&
       !window.confirm(
-        "Включить WhatsApp Cloud API? Сообщения будут передаваться через инфраструктуру Meta после явной команды отправки.",
+        whatsappForm.transport === "web"
+          ? "Включить неофициальное подключение WhatsApp Web? Оно может нарушать правила WhatsApp и привести к блокировке номера."
+          : "Включить WhatsApp Cloud API? Сообщения будут передаваться через инфраструктуру Meta после явной команды отправки.",
       )
     ) {
       return;
@@ -187,6 +200,60 @@ export default function IntegrationSettingsPanel() {
           ? await api.checkEmailIntegration()
           : await api.checkWhatsAppIntegration();
       setResult(checked);
+      setError(null);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const refreshWhatsAppWeb = async (withQr = true) => {
+    setBusy("whatsapp-web-status");
+    try {
+      const status = await api.getWhatsAppWebStatus();
+      setWebStatus(status);
+      if (withQr && status.qr_available) {
+        setWebQr((await api.getWhatsAppWebQr()).qr_data_url);
+      } else if (!status.qr_available) {
+        setWebQr(null);
+      }
+      setError(null);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const connectWhatsAppWeb = async () => {
+    setBusy("whatsapp-web-connect");
+    setWebQr(null);
+    try {
+      let status = await api.connectWhatsAppWeb();
+      setWebStatus(status);
+      for (let attempt = 0; attempt < 12 && !status.ready && !status.qr_available; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        status = await api.getWhatsAppWebStatus();
+        setWebStatus(status);
+      }
+      if (status.qr_available) {
+        setWebQr((await api.getWhatsAppWebQr()).qr_data_url);
+      }
+      setError(null);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const disconnectWhatsAppWeb = async () => {
+    if (!window.confirm("Отключить связанную сессию WhatsApp Web? Потребуется новый QR-код.")) return;
+    setBusy("whatsapp-web-disconnect");
+    try {
+      setWebStatus(await api.disconnectWhatsAppWeb());
+      setWebQr(null);
       setError(null);
     } catch (reason) {
       setError(String(reason));
@@ -434,16 +501,35 @@ export default function IntegrationSettingsPanel() {
       <div className="panel">
         <div className="tab-toolbar">
           <div>
-            <h2>WhatsApp Cloud API</h2>
+            <h2>WhatsApp</h2>
             <p className="note">
-              Канал передаёт сообщения через Meta. Свободный текст принимается
-              провайдером только в открытом 24-часовом окне общения.
+              Cloud API — официальный вариант Meta. WhatsApp Web подключает
+              обычный номер через связанное устройство и может привести к
+              блокировке аккаунта.
             </p>
           </div>
           <span className={`badge ${whatsapp.configured ? "tone-ok" : "tone-warn"}`}>
             {whatsapp.configured ? "настроен" : "не настроен"}
           </span>
         </div>
+        <Field label="Способ подключения">
+          <Select
+            value={whatsappForm.transport}
+            onChange={(value) => {
+              setWhatsAppForm({
+                ...whatsappForm,
+                transport: value as "cloud_api" | "web",
+                enabled: false,
+              });
+              setWebQr(null);
+            }}
+            options={[
+              { value: "cloud_api", label: "Cloud API (официальный)" },
+              { value: "web", label: "WhatsApp Web (для тестирования)" },
+            ]}
+          />
+        </Field>
+        {whatsappForm.transport === "cloud_api" ? (
         <div className="settings-grid">
           <Field label="Phone Number ID">
             <Input
@@ -490,6 +576,63 @@ export default function IntegrationSettingsPanel() {
             />
           </Field>
         </div>
+        ) : (
+          <div className="settings-stack">
+            <p className="note warning-text">
+              Используйте отдельный номер. QR-код доступен только администраторам;
+              сессия хранится на сервере в закрытом Docker-томе. Это неофициальная
+              автоматизация WhatsApp Web без гарантий стабильности.
+            </p>
+            {!whatsapp.web_gateway_available && (
+              <p className="error">
+                На сервере не задан WHATSAPP_WEB_SERVICE_TOKEN.
+              </p>
+            )}
+            {webStatus && (
+              <p className={webStatus.ready ? "success" : "note"}>
+                Состояние: {webStatus.state}
+                {webStatus.account ? ` · номер ${webStatus.account}` : ""}
+                {webStatus.pending_events ? ` · очередь ${webStatus.pending_events}` : ""}
+              </p>
+            )}
+            {webQr && (
+              <div>
+                <p className="note">
+                  WhatsApp → Связанные устройства → Привязка устройства
+                </p>
+                <img
+                  src={webQr}
+                  alt="QR-код подключения WhatsApp Web"
+                  width={280}
+                  height={280}
+                />
+              </div>
+            )}
+            <div className="actions">
+              <button
+                className="secondary"
+                disabled={busy !== null || !whatsapp.web_gateway_available}
+                onClick={() => void connectWhatsAppWeb()}
+              >
+                Создать QR-код
+              </button>
+              <button
+                className="secondary"
+                disabled={busy !== null || !whatsapp.web_gateway_available}
+                onClick={() => void refreshWhatsAppWeb(true)}
+              >
+                Обновить состояние и QR
+              </button>
+              <button
+                className="secondary"
+                disabled={busy !== null || !webStatus?.ready}
+                onClick={() => void disconnectWhatsAppWeb()}
+              >
+                Отключить сессию
+              </button>
+            </div>
+          </div>
+        )}
         <div className="settings-checks">
           <label>
             <input
@@ -514,8 +657,9 @@ export default function IntegrationSettingsPanel() {
             disabled={busy !== null || !whatsapp.configured}
             onClick={() => void check("whatsapp")}
           >
-            Проверить Phone Number ID
+            Проверить подключение
           </button>
+          {whatsappForm.transport === "cloud_api" && (
           <button
             className="secondary"
             disabled={busy !== null || !whatsapp.token_set}
@@ -523,6 +667,7 @@ export default function IntegrationSettingsPanel() {
           >
             Удалить токен
           </button>
+          )}
         </div>
       </div>
     </div>

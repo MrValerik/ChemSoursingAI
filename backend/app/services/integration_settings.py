@@ -39,6 +39,7 @@ _EMAIL_FIELDS = {
     "imap_folder",
 }
 _WHATSAPP_FIELDS = {
+    "whatsapp_transport",
     "whatsapp_token",
     "whatsapp_phone_id",
     "whatsapp_api_base_url",
@@ -72,6 +73,21 @@ def _decrypt(value: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise IntegrationSettingsError("Некорректный формат настроек канала")
     return payload
+
+
+def encrypt_secret(value: str) -> str:
+    """Шифрует отдельное чувствительное значение для хранения в БД."""
+    return _fernet().encrypt(value.encode("utf-8")).decode("ascii")
+
+
+def decrypt_secret(value: str) -> str:
+    """Расшифровывает отдельное чувствительное значение из БД."""
+    try:
+        return _fernet().decrypt(value.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError, UnicodeDecodeError) as exc:
+        raise IntegrationSettingsError(
+            "Сохранённое значение не удалось расшифровать"
+        ) from exc
 
 
 def get_saved_setting(
@@ -140,7 +156,11 @@ def effective_whatsapp_settings(
     enabled = (
         row.enabled
         if row is not None
-        else bool(effective.whatsapp_token and effective.whatsapp_phone_id)
+        else (
+            bool(effective.whatsapp_web_service_token)
+            if effective.whatsapp_transport == "web"
+            else bool(effective.whatsapp_token and effective.whatsapp_phone_id)
+        )
     )
     return effective, enabled, "database" if row is not None else "environment"
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from email.utils import parseaddr
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
@@ -28,6 +28,8 @@ from app.schemas.integration import (
     IntegrationConnectionRead,
     WhatsAppIntegrationRead,
     WhatsAppIntegrationUpdate,
+    WhatsAppWebQrRead,
+    WhatsAppWebStatusRead,
 )
 from app.services.integration_settings import (
     effective_email_settings,
@@ -77,6 +79,8 @@ def _whatsapp_read(db: Session) -> WhatsAppIntegrationRead:
         enabled=enabled,
         configured=WhatsAppConnector(s).configured,
         source=source,
+        transport=s.whatsapp_transport,
+        web_gateway_available=bool(s.whatsapp_web_service_token),
         phone_id=s.whatsapp_phone_id,
         token_set=bool(s.whatsapp_token),
         api_base_url=s.whatsapp_api_base_url,
@@ -114,7 +118,9 @@ def channels_status(db: Session = Depends(get_db)) -> list[dict]:
         },
         {
             "channel": "whatsapp",
-            "title": "WhatsApp Cloud API",
+            "title": (
+                "WhatsApp Web" if whatsapp.transport == "web" else "WhatsApp Cloud API"
+            ),
             "configured": whatsapp.configured,
             "status": (
                 "включён"
@@ -126,6 +132,7 @@ def channels_status(db: Session = Depends(get_db)) -> list[dict]:
             "details": {
                 "phone_id": whatsapp.phone_id or None,
                 "api_version": whatsapp.api_version,
+                "transport": whatsapp.transport,
                 "source": whatsapp.source,
             },
         },
@@ -263,6 +270,7 @@ def update_whatsapp_integration(
         else current.whatsapp_token
     )
     config = {
+        "whatsapp_transport": payload.transport,
         "whatsapp_token": token,
         "whatsapp_phone_id": payload.phone_id,
         "whatsapp_api_base_url": payload.api_base_url,
@@ -274,7 +282,11 @@ def update_whatsapp_integration(
     ).configured:
         raise HTTPException(
             status_code=422,
-            detail="Для включения WhatsApp укажите токен и Phone Number ID",
+            detail=(
+                "WhatsApp Web gateway не настроен на сервере"
+                if payload.transport == "web"
+                else "Для включения WhatsApp укажите токен и Phone Number ID"
+            ),
         )
     save_setting(
         db,
@@ -300,6 +312,63 @@ def check_whatsapp_integration(
     return IntegrationConnectionRead(
         channel="whatsapp",
         ok=True,
-        message="WhatsApp Cloud API подтвердил Phone Number ID",
+        message=(
+            "WhatsApp Web gateway доступен"
+            if settings.whatsapp_transport == "web"
+            else "WhatsApp Cloud API подтвердил Phone Number ID"
+        ),
         details=details,
     )
+
+
+def _web_connector(db: Session) -> WhatsAppConnector:
+    settings, _, _ = effective_whatsapp_settings(db)
+    if settings.whatsapp_transport != "web":
+        settings = settings.model_copy(update={"whatsapp_transport": "web"})
+    connector = WhatsAppConnector(settings)
+    if not connector.configured:
+        raise HTTPException(
+            status_code=503, detail="WhatsApp Web gateway не настроен на сервере"
+        )
+    return connector
+
+
+@router.get(
+    "/integrations/whatsapp/web/status", response_model=WhatsAppWebStatusRead
+)
+def whatsapp_web_status(db: Session = Depends(get_db)) -> dict:
+    try:
+        return _web_connector(db).web_status()
+    except (WhatsAppConfigurationError, WhatsAppDeliveryError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post(
+    "/integrations/whatsapp/web/connect", response_model=WhatsAppWebStatusRead
+)
+def whatsapp_web_connect(db: Session = Depends(get_db)) -> dict:
+    try:
+        return _web_connector(db).web_connect()
+    except (WhatsAppConfigurationError, WhatsAppDeliveryError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/integrations/whatsapp/web/qr", response_model=WhatsAppWebQrRead)
+def whatsapp_web_qr(
+    response: Response, db: Session = Depends(get_db)
+) -> WhatsAppWebQrRead:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return WhatsAppWebQrRead(qr_data_url=_web_connector(db).web_qr())
+    except (WhatsAppConfigurationError, WhatsAppDeliveryError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post(
+    "/integrations/whatsapp/web/disconnect", response_model=WhatsAppWebStatusRead
+)
+def whatsapp_web_disconnect(db: Session = Depends(get_db)) -> dict:
+    try:
+        return _web_connector(db).web_disconnect()
+    except (WhatsAppConfigurationError, WhatsAppDeliveryError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

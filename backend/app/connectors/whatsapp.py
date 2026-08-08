@@ -1,8 +1,9 @@
-"""WhatsApp Cloud API connector with bounded, explicit outbound actions."""
+"""WhatsApp connector with Cloud API and an isolated Web gateway transport."""
 
 from __future__ import annotations
 
 import re
+from typing import Any
 
 import httpx
 
@@ -10,11 +11,11 @@ from app.core.config import Settings, get_settings
 
 
 class WhatsAppConfigurationError(RuntimeError):
-    """Cloud API credentials or recipient are missing or malformed."""
+    """WhatsApp credentials, gateway, or recipient are missing or malformed."""
 
 
 class WhatsAppDeliveryError(RuntimeError):
-    """Meta rejected the request or the connector could not reach the API."""
+    """The selected WhatsApp transport rejected or could not process a request."""
 
 
 class WhatsAppConnector:
@@ -28,30 +29,99 @@ class WhatsAppConnector:
         self.transport = transport
 
     @property
+    def is_web(self) -> bool:
+        return self.settings.whatsapp_transport == "web"
+
+    @property
     def configured(self) -> bool:
+        if self.is_web:
+            return bool(
+                self.settings.whatsapp_web_base_url
+                and self.settings.whatsapp_web_service_token
+            )
         return bool(
             self.settings.whatsapp_token and self.settings.whatsapp_phone_id
         )
 
     @property
     def _phone_url(self) -> str:
-        s = self.settings
-        base = s.whatsapp_api_base_url.rstrip("/")
-        version = s.whatsapp_api_version.strip("/")
-        return f"{base}/{version}/{s.whatsapp_phone_id}"
+        base = self.settings.whatsapp_api_base_url.rstrip("/")
+        version = self.settings.whatsapp_api_version.strip("/")
+        return f"{base}/{version}/{self.settings.whatsapp_phone_id}"
 
     @property
     def _headers(self) -> dict[str, str]:
+        token = (
+            self.settings.whatsapp_web_service_token
+            if self.is_web
+            else self.settings.whatsapp_token
+        )
         return {
-            "Authorization": f"Bearer {self.settings.whatsapp_token}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
 
-    def check_health(self) -> dict[str, str | bool | None]:
-        if not self.configured:
+    def _web_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not self.settings.whatsapp_web_service_token:
             raise WhatsAppConfigurationError(
-                "WhatsApp не настроен: укажите токен и Phone Number ID"
+                "WhatsApp Web gateway не настроен на сервере"
             )
+        try:
+            with httpx.Client(
+                timeout=self.settings.whatsapp_timeout_s,
+                transport=self.transport,
+            ) as client:
+                response = client.request(
+                    method,
+                    f"{self.settings.whatsapp_web_base_url.rstrip('/')}{path}",
+                    headers=self._headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise WhatsAppDeliveryError(
+                "WhatsApp Web gateway недоступен или отклонил запрос"
+            ) from exc
+        if not isinstance(data, dict):
+            raise WhatsAppDeliveryError("WhatsApp Web gateway вернул неверный ответ")
+        return data
+
+    def web_status(self) -> dict[str, Any]:
+        return self._web_request("GET", "/status")
+
+    def web_connect(self) -> dict[str, Any]:
+        return self._web_request("POST", "/connect")
+
+    def web_qr(self) -> str:
+        data = self._web_request("GET", "/qr")
+        value = data.get("qr_data_url")
+        if not isinstance(value, str) or not value.startswith("data:image/png;base64,"):
+            raise WhatsAppDeliveryError("QR-код WhatsApp Web ещё не готов")
+        return value
+
+    def web_disconnect(self) -> dict[str, Any]:
+        return self._web_request("POST", "/disconnect")
+
+    def check_health(self) -> dict[str, str | bool | int | None]:
+        if not self.configured:
+            raise WhatsAppConfigurationError("WhatsApp не настроен")
+        if self.is_web:
+            data = self.web_status()
+            return {
+                "transport": "web",
+                "state": str(data.get("state") or "unknown"),
+                "ready": bool(data.get("ready")),
+                "account": str(data["account"]) if data.get("account") else None,
+                "qr_available": bool(data.get("qr_available")),
+                "pending_events": int(data.get("pending_events") or 0),
+            }
         try:
             with httpx.Client(
                 timeout=self.settings.whatsapp_timeout_s,
@@ -69,15 +139,14 @@ class WhatsAppConnector:
                 "WhatsApp Cloud API не подтвердил подключение"
             ) from exc
         return {
+            "transport": "cloud_api",
             "display_phone_number": data.get("display_phone_number"),
             "verified_name": data.get("verified_name"),
         }
 
     def send_text(self, *, to_number: str, body: str) -> str:
         if not self.configured:
-            raise WhatsAppConfigurationError(
-                "WhatsApp не настроен: укажите токен и Phone Number ID"
-            )
+            raise WhatsAppConfigurationError("WhatsApp не настроен")
         recipient = re.sub(r"\D", "", to_number)
         if not 8 <= len(recipient) <= 15:
             raise WhatsAppConfigurationError(
@@ -86,15 +155,23 @@ class WhatsAppConnector:
         text = body.strip()
         if not text:
             raise WhatsAppConfigurationError("Текст сообщения пуст")
+        if self.is_web:
+            data = self._web_request(
+                "POST", "/messages", payload={"to": recipient, "body": text[:4096]}
+            )
+            message_id = data.get("message_id")
+            if not message_id:
+                raise WhatsAppDeliveryError(
+                    "WhatsApp Web gateway не подтвердил отправку сообщения"
+                )
+            return str(message_id)
+
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
             "to": recipient,
             "type": "text",
-            "text": {
-                "preview_url": False,
-                "body": text[:4096],
-            },
+            "text": {"preview_url": False, "body": text[:4096]},
         }
         try:
             with httpx.Client(

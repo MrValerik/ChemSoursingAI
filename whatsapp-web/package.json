@@ -1,0 +1,19 @@
+{
+  "name": "chemsource-whatsapp-web-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated WhatsApp Web gateway for ChemSource AI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "4.21.2",
+    "qrcode": "1.5.4",
+    "whatsapp-web.js": "1.34.7"
+  }
+}

@@ -131,6 +131,20 @@ def _apply_light_migrations() -> None:
                         "VARCHAR(998) NOT NULL DEFAULT 'Request for quotation'"
                     )
                 )
+            if "recipient_key" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE communication_test_runs ADD COLUMN "
+                        "recipient_key VARCHAR(64)"
+                    )
+                )
+            if "recipient_ciphertext" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE communication_test_runs ADD COLUMN "
+                        "recipient_ciphertext TEXT"
+                    )
+                )
     if "communication_test_messages" in tables:
         cols = {
             c["name"]

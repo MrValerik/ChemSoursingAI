@@ -18,6 +18,7 @@ ChemSoursingAI/
 │   ├── tests/                # pytest: API, бизнес-правила и интеграционные контракты
 │   └── scripts/              # локальный сквозной demo-поток
 ├── frontend/                 # L1: SPA — рабочее место специалиста (React + TS)
+├── whatsapp-web/             # изолированный неофициальный Web gateway (Node/Chromium)
 ├── ml/                       # резерв под отдельные ИИ-артефакты и eval
 ├── data/
 │   └── synthetic/            # синтетический корпус писем для отладки без боевых доступов
@@ -25,7 +26,7 @@ ChemSoursingAI/
 ├── .github/workflows/        # обязательные CI-проверки GitHub Actions
 ├── deploy/                   # systemd, миграции и автоматическое обновление ВМ
 ├── docs/                     # продуктовая, архитектурная и эксплуатационная документация
-├── docker-compose.yml        # Postgres, Redis, backend и frontend
+├── docker-compose.yml        # Postgres, Redis, backend, workers, WhatsApp gateway и frontend
 └── AGENTS.md                 # постоянные цели и правила работы Codex
 ```
 
@@ -74,5 +75,5 @@ ChemSoursingAI/
 - объектное хранилище и антивирусная обработка вложений;
 - OCR/vision-конвейер;
 - pgvector/RAG и golden-датасет реальных писем;
-- входящий webhook WhatsApp, коннекторы WeChat и Echemi;
+- входящий webhook официального WhatsApp Cloud API, коннекторы WeChat и Echemi;
 - Kubernetes и полный стек метрик/трейсов.

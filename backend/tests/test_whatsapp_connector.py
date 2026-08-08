@@ -56,3 +56,36 @@ def test_send_rejects_invalid_recipient_before_network():
     connector = WhatsAppConnector(_settings())
     with pytest.raises(WhatsAppConfigurationError):
         connector.send_text(to_number="123", body="Hello")
+
+
+def test_web_gateway_status_and_send_text():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.headers["authorization"] == "Bearer gateway-secret"
+        if request.url.path == "/status":
+            return httpx.Response(
+                200,
+                json={"state": "ready", "ready": True, "account": "79000000000"},
+            )
+        return httpx.Response(201, json={"message_id": "web-message-1"})
+
+    settings = get_settings().model_copy(
+        update={
+            "whatsapp_transport": "web",
+            "whatsapp_web_base_url": "http://gateway:3000",
+            "whatsapp_web_service_token": "gateway-secret",
+        }
+    )
+    connector = WhatsAppConnector(settings, transport=httpx.MockTransport(handler))
+
+    assert connector.check_health()["ready"] is True
+    assert connector.send_text(to_number="+7 900 000-00-00", body="Hello") == (
+        "web-message-1"
+    )
+    assert [request.url.path for request in requests] == ["/status", "/messages"]
+    assert json.loads(requests[1].content) == {
+        "to": "79000000000",
+        "body": "Hello",
+    }

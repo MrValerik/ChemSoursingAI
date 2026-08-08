@@ -100,6 +100,9 @@ services:
       WHATSAPP_API_BASE_URL: ${WHATSAPP_API_BASE_URL:-https://graph.facebook.com}
       WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-v23.0}
       WHATSAPP_TIMEOUT_S: ${WHATSAPP_TIMEOUT_S:-30}
+      WHATSAPP_TRANSPORT: ${WHATSAPP_TRANSPORT:-cloud_api}
+      WHATSAPP_WEB_BASE_URL: ${WHATSAPP_WEB_BASE_URL:-http://whatsapp-web:3000}
+      WHATSAPP_WEB_SERVICE_TOKEN: ${WHATSAPP_WEB_SERVICE_TOKEN:-}
     volumes:
       - ./data/attachments:/app/data/attachments
     depends_on:
@@ -213,6 +216,26 @@ services:
       db:
         condition: service_healthy
 
+  whatsapp-web:
+    build: ./whatsapp-web
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      WHATSAPP_WEB_SERVICE_TOKEN: ${WHATSAPP_WEB_SERVICE_TOKEN:-}
+      WHATSAPP_WEB_CALLBACK_URL: http://backend:8000/internal/whatsapp-web/events
+      WHATSAPP_WEB_DATA_DIR: /data
+      WHATSAPP_WEB_CALLBACK_TIMEOUT_MS: ${WHATSAPP_WEB_CALLBACK_TIMEOUT_MS:-15000}
+    volumes:
+      - whatsapp_web_data:/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
   frontend:
     build: ./frontend
     restart: unless-stopped
@@ -227,3 +250,4 @@ services:
 
 volumes:
   pgdata:
+  whatsapp_web_data:

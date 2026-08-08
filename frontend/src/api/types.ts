@@ -389,6 +389,8 @@ export interface WhatsAppIntegration {
   enabled: boolean;
   configured: boolean;
   source: "database" | "environment";
+  transport: "cloud_api" | "web";
+  web_gateway_available: boolean;
   phone_id: string;
   token_set: boolean;
   api_base_url: string;
@@ -400,7 +402,20 @@ export interface IntegrationConnectionResult {
   channel: "email" | "whatsapp";
   ok: boolean;
   message: string;
-  details: Record<string, string | boolean | null>;
+  details: Record<string, string | boolean | number | null>;
+}
+
+export interface WhatsAppWebStatus {
+  state: string;
+  ready: boolean;
+  qr_available: boolean;
+  account: string | null;
+  pending_events: number;
+  error: string | null;
+}
+
+export interface WhatsAppWebQr {
+  qr_data_url: string;
 }
 
 export interface CommunicationTestRun {

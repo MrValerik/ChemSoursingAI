@@ -40,6 +40,12 @@ class CommunicationTestRun(Base, TimestampMixin):
     )
     channel: Mapped[str] = mapped_column(String(32), index=True)
     recipient_masked: Mapped[str] = mapped_column(String(320))
+    # Реальный адрес нужен только для сопоставления входящих ответов WhatsApp.
+    # Значение шифруется, а детерминированный keyed hash позволяет безопасный поиск.
+    recipient_key: Mapped[str | None] = mapped_column(
+        String(64), default=None, index=True
+    )
+    recipient_ciphertext: Mapped[str | None] = mapped_column(Text, default=None)
     procurement_context: Mapped[str] = mapped_column(Text)
     subject: Mapped[str] = mapped_column(
         String(998), default="Request for quotation"
