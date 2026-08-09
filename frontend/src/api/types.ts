@@ -259,6 +259,13 @@ export interface SupplierRead {
   last_checked_at: string | null;
   contacts_count: number;
   request_count: number;
+  contacts: {
+    id: number;
+    full_name: string | null;
+    email: string | null;
+    whatsapp: string | null;
+    offered_substances: string[] | null;
+  }[];
   linked_requests: {
     rfq_id: number;
     name: string;

@@ -27,6 +27,18 @@ class SupplierCreate(BaseModel):
     certificates: list[str] | None = None
 
 
+class SupplierContact(BaseModel):
+    """Контакт компании: кому и куда писать."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    full_name: str | None = None
+    email: str | None = None
+    whatsapp: str | None = None
+    offered_substances: list[str] | None = None
+
+
 class SupplierRequestLink(BaseModel):
     rfq_id: int
     name: str
@@ -55,6 +67,10 @@ class SupplierRead(BaseModel):
 
     # Доступные каналы по контактам менеджеров.
     channels: list[Channel] = Field(default_factory=list)
+    # Сами адреса. В таблице отбора их не показать — она и так широка, — но
+    # в подробной карточке закупщику нужен точный адрес: он решает, писать
+    # ли по нему, и должен видеть, куда именно уйдёт письмо.
+    contacts: list[SupplierContact] = Field(default_factory=list)
     contacts_count: int = 0
     request_count: int = 0
     linked_requests: list[SupplierRequestLink] = Field(default_factory=list)

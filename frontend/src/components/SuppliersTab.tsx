@@ -12,6 +12,23 @@ const TYPE_LABELS: Record<string, string> = {
   distributor: "дистрибьютор",
 };
 
+// Колонки, по которым таблицу имеет смысл упорядочивать. Источник сюда не
+// входит: он ушёл в подробную карточку.
+type SortKey = "company" | "type" | "channels" | "status" | "reputation";
+
+const SORT_LABELS: Record<SortKey, string> = {
+  company: "Компания",
+  type: "Тип",
+  channels: "Канал",
+  status: "Статус отправки",
+  reputation: "Репутация",
+};
+
+function reputationValue(value: string | null): number {
+  const n = Number(value);
+  return Number.isNaN(n) ? -1 : n;
+}
+
 function Stars({ value }: { value: string | null }) {
   const n = Number(value);
   if (!value || Number.isNaN(n)) return <span className="note">{value ?? "—"}</span>;
@@ -39,6 +56,11 @@ export default function SuppliersTab({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [sortKey, setSortKey] = useState<SortKey>("company");
+  const [sortAsc, setSortAsc] = useState(true);
+  // Компания, раскрытая в подробной карточке.
+  const [detailId, setDetailId] = useState<number | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
   const [newCompany, setNewCompany] = useState("");
@@ -87,6 +109,73 @@ export default function SuppliersTab({
     [recipients],
   );
   const queuedRecipients = recipients.filter((item) => item.status === "queued");
+
+  const sorted = useMemo(() => {
+    const status = (id: number) => {
+      const recipient = recipientBySupplier.get(id);
+      return recipient?.note ?? recipient?.status ?? "";
+    };
+    const value = (s: SupplierRead): string | number => {
+      switch (sortKey) {
+        case "type":
+          return s.type ? TYPE_LABELS[s.type] ?? s.type : "";
+        case "channels":
+          return s.channels.join(", ");
+        case "status":
+          return status(s.id);
+        case "reputation":
+          return reputationValue(s.reputation);
+        default:
+          return s.company;
+      }
+    };
+    // Копия: sort меняет массив на месте, а исходный список приходит из
+    // состояния и переупорядочивать его нельзя.
+    return [...forThisRequest].sort((a, b) => {
+      const left = value(a);
+      const right = value(b);
+      let diff: number;
+      if (typeof left === "number" && typeof right === "number") {
+        diff = left - right;
+      } else {
+        // localeCompare, а не сравнение строк: в реестре есть и кириллица,
+        // и китайские названия, и при обычном сравнении они уезжают в конец.
+        diff = String(left).localeCompare(String(right), "ru", {
+          sensitivity: "base",
+          numeric: true,
+        });
+      }
+      // Равные значения упорядочиваем по названию, иначе строки прыгают
+      // при каждом обновлении списка.
+      if (diff === 0) diff = a.company.localeCompare(b.company, "ru");
+      return sortAsc ? diff : -diff;
+    });
+  }, [forThisRequest, recipientBySupplier, sortKey, sortAsc]);
+
+  const detail = useMemo(
+    () => sorted.find((item) => item.id === detailId) ?? null,
+    [sorted, detailId],
+  );
+
+  // Окно должно закрываться клавишей, а не только мышью: закупщик
+  // просматривает таблицу подряд и не тянется к кнопке ради каждой строки.
+  useEffect(() => {
+    if (detailId === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDetailId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [detailId]);
+
+  const sortBy = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortAsc((prev) => !prev);
+      return;
+    }
+    setSortKey(key);
+    setSortAsc(true);
+  };
 
   const toggle = (s: SupplierRead) => {
     if (readOnly || alreadySelected.has(s.id) || s.channels.length === 0) return;
@@ -249,24 +338,36 @@ export default function SuppliersTab({
         <thead>
           <tr>
             <th></th>
-            <th>Компания</th>
-            <th>Тип</th>
-            <th>Канал</th>
-            <th>Статус отправки</th>
-            <th>Источник</th>
-            <th>Репутация</th>
+            {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+              <th key={key}>
+                <button
+                  type="button"
+                  className="table-sort"
+                  onClick={() => sortBy(key)}
+                  aria-label={`Сортировать по «${SORT_LABELS[key]}»`}
+                >
+                  {SORT_LABELS[key]}
+                  <span className="table-sort-mark">
+                    {sortKey === key ? (sortAsc ? "▲" : "▼") : ""}
+                  </span>
+                </button>
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {forThisRequest.map((s) => {
+          {sorted.map((s) => {
             const selected = alreadySelected.has(s.id);
             const isChecked = checked.has(s.id);
             const recipient = recipientBySupplier.get(s.id);
             return (
+              // Клик по строке раскрывает карточку, а не ставит галочку:
+              // выбор получателя — действие с последствиями, и для него
+              // остаётся сам чекбокс.
               <tr
                 key={s.id}
                 className={selected ? "row-muted" : "clickable"}
-                onClick={() => toggle(s)}
+                onClick={() => setDetailId(s.id)}
               >
                 <td onClick={(e) => e.stopPropagation()}>
                   <input
@@ -274,6 +375,7 @@ export default function SuppliersTab({
                     checked={isChecked || selected}
                     disabled={readOnly || selected || s.channels.length === 0}
                     onChange={() => toggle(s)}
+                    aria-label={`Выбрать «${s.company}» для рассылки`}
                   />
                 </td>
                 <td>
@@ -301,16 +403,15 @@ export default function SuppliersTab({
                   )}
                 </td>
                 <td>{recipient?.note ?? recipient?.status ?? "—"}</td>
-                <td>{s.source ?? "—"}</td>
                 <td>
                   <Stars value={s.reputation} />
                 </td>
               </tr>
             );
           })}
-          {forThisRequest.length === 0 && (
+          {sorted.length === 0 && (
             <tr>
-              <td colSpan={7} className="note">
+              <td colSpan={6} className="note">
                 По этому запросу контрагентов пока нет. Запустите поиск во
                 вкладке «Поиск поставщиков» или добавьте компанию вручную.
               </td>
@@ -318,6 +419,112 @@ export default function SuppliersTab({
           )}
         </tbody>
       </table>
+
+      {detail && (
+        <div
+          className="request-delete-backdrop"
+          role="presentation"
+          onClick={() => setDetailId(null)}
+        >
+          <section
+            aria-labelledby="supplier-detail-title"
+            aria-modal="true"
+            className="supplier-detail"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <h2 id="supplier-detail-title">{detail.company}</h2>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => setDetailId(null)}
+              >
+                Закрыть
+              </button>
+            </header>
+
+            <dl className="supplier-detail-fields">
+              <dt>Тип</dt>
+              <dd>{detail.type ? TYPE_LABELS[detail.type] : "не определён"}</dd>
+
+              <dt>Страна</dt>
+              <dd>{detail.country ?? "—"}</dd>
+
+              <dt>Источник</dt>
+              <dd>
+                {detail.source && detail.source.startsWith("http") ? (
+                  <a href={detail.source} target="_blank" rel="noreferrer">
+                    {detail.source}
+                  </a>
+                ) : (
+                  detail.source ?? "—"
+                )}
+              </dd>
+
+              <dt>Контакты</dt>
+              <dd>
+                {detail.contacts.length === 0 ? (
+                  <span className="note">
+                    Связи нет: на странице компании не нашлось ни почты, ни
+                    телефона. Написать пока некуда.
+                  </span>
+                ) : (
+                  <ul className="supplier-detail-contacts">
+                    {detail.contacts.map((contact) => (
+                      <li key={contact.id}>
+                        {contact.full_name && <span>{contact.full_name}: </span>}
+                        {contact.email && (
+                          <a href={`mailto:${contact.email}`}>{contact.email}</a>
+                        )}
+                        {contact.email && contact.whatsapp && " · "}
+                        {contact.whatsapp && <span>WhatsApp {contact.whatsapp}</span>}
+                        {contact.offered_substances &&
+                          contact.offered_substances.length > 0 && (
+                            <div className="cas">
+                              по запросам: {contact.offered_substances.join(", ")}
+                            </div>
+                          )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </dd>
+
+              <dt>Сертификаты</dt>
+              <dd>
+                {detail.certificates && detail.certificates.length > 0
+                  ? detail.certificates.join(", ")
+                  : "—"}
+              </dd>
+
+              <dt>Балл проверки</dt>
+              <dd>
+                {detail.evidence_score ?? "—"}
+                {detail.evidence_score !== null && " из 100"}
+              </dd>
+
+              <dt>Статус в реестре</dt>
+              <dd>{detail.qualification_status}</dd>
+
+              <dt>Другие запросы</dt>
+              <dd>
+                {detail.linked_requests.length <= 1
+                  ? "только этот"
+                  : detail.linked_requests
+                      .filter((link) => link.rfq_id !== rfqId)
+                      .map((link) => link.name)
+                      .join("; ")}
+              </dd>
+            </dl>
+
+            <p className="note">
+              Роль и контакты прочитаны со страницы компании и подтверждения не
+              заменяют: точный ответ даст переписка.
+            </p>
+          </section>
+        </div>
+      )}
 
       <div className="tab-footer">
         <span className="note">

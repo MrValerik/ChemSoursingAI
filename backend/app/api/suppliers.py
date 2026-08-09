@@ -42,6 +42,7 @@ from app.schemas.supplier import (
     RecipientRead,
     RecipientsSelect,
     SupplierCreate,
+    SupplierContact,
     SupplierRead,
     SupplierRequestLink,
 )
@@ -75,6 +76,7 @@ def _to_supplier_read(
 ) -> SupplierRead:
     read = SupplierRead.model_validate(s)
     read.channels = _supplier_channels(s)
+    read.contacts = [SupplierContact.model_validate(m) for m in s.managers]
     read.contacts_count = len(s.managers)
     read.linked_requests = linked_requests or []
     read.request_count = len(read.linked_requests)

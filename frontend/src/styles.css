@@ -861,6 +861,85 @@ button.request-delete-button:focus-visible {
   background: var(--err-soft);
   color: var(--err);
 }
+/* Заголовок-кнопка сортировки: выглядит как обычный заголовок таблицы,
+   но нажимается. Отдельная кнопка внутри th, а не onClick на самом th, —
+   чтобы работала клавиатура и читалась экранным диктором. */
+.table-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.table-sort:hover {
+  color: var(--brand);
+}
+.table-sort-mark {
+  width: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+/* Подробная карточка контрагента. Источник и точные адреса живут здесь:
+   в таблице отбора они не помещаются, а закупщику нужны перед тем, как
+   ставить галочку. */
+.supplier-detail {
+  display: grid;
+  width: min(620px, 100%);
+  max-height: 82vh;
+  gap: 14px;
+  padding: 22px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 18px 48px rgb(15 23 42 / 18%);
+}
+.supplier-detail header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.supplier-detail h2 {
+  margin: 0;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.supplier-detail-fields {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+.supplier-detail-fields dt {
+  color: var(--muted);
+}
+.supplier-detail-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.supplier-detail-contacts {
+  margin: 0;
+  padding-left: 18px;
+}
+.supplier-detail-contacts li + li {
+  margin-top: 6px;
+}
+@media (max-width: 620px) {
+  .supplier-detail-fields {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .supplier-detail-fields dd {
+    margin-bottom: 8px;
+  }
+}
+
 .request-delete-backdrop {
   position: fixed;
   z-index: 80;
