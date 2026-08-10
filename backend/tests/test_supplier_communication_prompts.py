@@ -398,3 +398,70 @@ def test_quality_gate_rejects_unrequested_sample_or_container():
 
     assert issue is not None
     assert "новый объём" in issue
+
+
+def test_quality_gate_rejects_request_for_document_already_attached():
+    issue = _reply_quality_issue(
+        _quality_run(
+            "50 кг аммиака",
+            "CAS 7664-41-7. CoA and SDS are attached.",
+        ),
+        "Could you please send the CoA for this batch?",
+        stage="reply",
+    )
+
+    assert issue is not None
+    assert "CoA приложен или отправлен" in issue
+
+
+def test_quality_gate_allows_request_for_document_only_marked_available():
+    issue = _reply_quality_issue(
+        _quality_run(
+            "50 кг аммиака",
+            "CAS 7664-41-7. CoA and SDS are available on request.",
+        ),
+        "Could you please send the CoA?",
+        stage="reply",
+    )
+
+    assert issue is None
+
+
+def test_quality_gate_allows_request_for_document_promised_on_request():
+    issue = _reply_quality_issue(
+        _quality_run(
+            "50 кг аммиака",
+            "The CoA can be provided upon request.",
+        ),
+        "Could you please send the CoA?",
+        stage="reply",
+    )
+
+    assert issue is None
+
+
+def test_quality_gate_understands_russian_attachment_confirmation():
+    issue = _reply_quality_issue(
+        _quality_run("50 кг аммиака", "CoA и SDS приложены к сообщению."),
+        "Please send the SDS.",
+        stage="reply",
+    )
+
+    assert issue is not None
+    assert "SDS приложен или отправлен" in issue
+
+
+def test_quality_gate_remembers_document_attached_in_earlier_supplier_message():
+    run = _quality_run("50 кг аммиака", "CoA is attached.")
+    run.messages.append(
+        SimpleNamespace(sender_role="supplier", content="Lead time is 10 days.")
+    )
+
+    issue = _reply_quality_issue(
+        run,
+        "Please resend the certificate of analysis.",
+        stage="reply",
+    )
+
+    assert issue is not None
+    assert "CoA приложен или отправлен" in issue

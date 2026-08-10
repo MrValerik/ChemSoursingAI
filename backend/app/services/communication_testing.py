@@ -110,6 +110,23 @@ _DESTINATION_QUESTION_RE = re.compile(
     r"[^.?!]{0,80}\?",
     re.IGNORECASE,
 )
+_DOCUMENT_REQUEST_VERB_RE = re.compile(
+    r"\b(?:send|provide|share|attach|forward|resend|re-send)\b",
+    re.IGNORECASE,
+)
+_DOCUMENT_ATTACHED_RE = re.compile(
+    r"\b(?:attached|enclosed|included|sent)\b|"
+    r"(?:приложен|прикрепл[её]н|отправлен)\w*",
+    re.IGNORECASE,
+)
+_DOCUMENT_TERMS = {
+    "CoA": re.compile(r"\b(?:coa|certificate\s+of\s+analysis)\b", re.IGNORECASE),
+    "SDS": re.compile(
+        r"\b(?:sds|msds|safety\s+data\s+sheet)\b",
+        re.IGNORECASE,
+    ),
+    "TDS": re.compile(r"\b(?:tds|technical\s+data\s+sheet)\b", re.IGNORECASE),
+}
 
 _IDENTITY_GATE_PROMPT = """
 Ты проверяешь только согласованность названий химических веществ и CAS перед
@@ -407,7 +424,12 @@ def _reply_quality_issue(
         ),
         "",
     )
-    known_text = f"{context}\n{latest_supplier}"
+    supplier_text = "\n".join(
+        message.content.casefold()
+        for message in run.messages
+        if message.sender_role == "supplier"
+    )
+    known_text = f"{context}\n{supplier_text}"
 
     if stage == "initial" and not _CONTEXT_IDENTITY_DETAIL_RE.search(context):
         if not _OUTGOING_IDENTITY_TERM_RE.search(outgoing):
@@ -441,6 +463,21 @@ def _reply_quality_issue(
                 "Поставщик уже указал anhydrous и чистоту; нельзя повторно "
                 "спрашивать форму или концентрацию водного раствора."
             )
+
+    if _DOCUMENT_REQUEST_VERB_RE.search(outgoing):
+        for label, document_re in _DOCUMENT_TERMS.items():
+            if not document_re.search(outgoing):
+                continue
+            supplied_document = any(
+                _DOCUMENT_ATTACHED_RE.search(sentence)
+                for sentence in re.split(r"(?<=[.!?])\s+|\n+", supplier_text)
+                if document_re.search(sentence)
+            )
+            if supplied_document:
+                return (
+                    f"Поставщик уже указал, что {label} приложен или отправлен; "
+                    "нельзя запрашивать тот же документ повторно."
+                )
 
     scope_terms = {
         "sample": ("sample", "образец", "пробу"),
