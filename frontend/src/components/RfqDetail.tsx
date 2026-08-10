@@ -471,6 +471,7 @@ export default function RfqDetail({
             <>
               <DispatchTab
                 rfq={rfq}
+                onGoToSuppliers={() => setTab("suppliers")}
                 onStatusChanged={() => {
                   void api.getRfq(rfq.id).then(onChanged);
                 }}

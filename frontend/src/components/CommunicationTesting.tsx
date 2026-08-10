@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { CommunicationTestRun } from "../api/types";
+import type { CommunicationTestRun, RFQRead } from "../api/types";
 import { Field, Input, Select, Textarea } from "./ui";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -27,13 +27,38 @@ const STATUS_TONES: Record<string, string> = {
   processing_error: "tone-warn",
 };
 
-export default function CommunicationTesting() {
+const procurementContextFromRfq = (rfq: RFQRead) =>
+  [
+    `Вещество: ${rfq.name}`,
+    rfq.cas ? `CAS: ${rfq.cas}` : null,
+    rfq.purity ? `Чистота или грейд: ${rfq.purity}` : null,
+    rfq.volume ? `Количество: ${rfq.volume}` : null,
+    rfq.specification ? `Спецификация: ${rfq.specification}` : null,
+    rfq.application ? `Применение: ${rfq.application}` : null,
+    rfq.incoterms?.length
+      ? `Базисы поставки: ${rfq.incoterms.join(", ")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+export default function CommunicationTesting({
+  embedded = false,
+  rfq,
+}: {
+  embedded?: boolean;
+  rfq?: RFQRead;
+} = {}) {
   const [channel, setChannel] = useState<"email" | "whatsapp">("email");
   const [recipient, setRecipient] = useState("");
-  const [procurementContext, setProcurementContext] = useState("");
+  const [procurementContext, setProcurementContext] = useState(() =>
+    rfq ? procurementContextFromRfq(rfq) : "",
+  );
   const [supplierMessage, setSupplierMessage] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [subject, setSubject] = useState("Request for quotation");
+  const [subject, setSubject] = useState(
+    rfq?.rfq_subject ?? "Request for quotation",
+  );
   const [deliveryMode, setDeliveryMode] = useState<"preview" | "send">(
     "preview",
   );
@@ -51,12 +76,24 @@ export default function CommunicationTesting() {
   };
 
   useEffect(() => {
+    if (embedded) return;
     loadHistory().catch((reason) => setError(String(reason)));
     const interval = window.setInterval(() => {
       loadHistory().catch(() => undefined);
     }, 5000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [embedded]);
+
+  useEffect(() => {
+    if (!rfq) return;
+    setProcurementContext(procurementContextFromRfq(rfq));
+    setSubject(rfq.rfq_subject ?? "Request for quotation");
+    setDeliveryMode("preview");
+    setRecipient("");
+    setActive(null);
+    setSupplierMessage("");
+    setError(null);
+  }, [rfq]);
 
   const startDialog = async () => {
     if (!procurementContext.trim()) return;
@@ -86,10 +123,10 @@ export default function CommunicationTesting() {
       });
       setActive(created);
       setSupplierMessage("");
-      await loadHistory();
+      if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
-      await loadHistory().catch(() => undefined);
+      if (!embedded) await loadHistory().catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -117,10 +154,10 @@ export default function CommunicationTesting() {
       });
       setActive(updated);
       setSupplierMessage("");
-      await loadHistory();
+      if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
-      await loadHistory().catch(() => undefined);
+      if (!embedded) await loadHistory().catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -145,12 +182,21 @@ export default function CommunicationTesting() {
     active.status !== "delivery_error";
 
   return (
-    <div className="requests-page communication-testing">
+    <div
+      className={
+        embedded
+          ? "communication-testing communication-testing-embedded"
+          : "requests-page communication-testing"
+      }
+    >
       <div className="requests-header">
         <div>
-          <h1>Тестирование общения</h1>
+          {embedded ? <h2>Тестирование общения</h2> : <h1>Тестирование общения</h1>}
           <p className="note">
-            Администраторская песочница: задайте потребность, выделенная облачная
+            Администраторская песочница: {embedded
+              ? "данные текущего запроса уже подставлены, "
+              : "задайте потребность, "}
+            выделенная облачная
             нейросеть первой обратится к поставщику, а затем будет отвечать на
             ваши тестовые реплики с учётом всей истории. Фактически использованная
             модель отображается под диалогом. Внешняя переписка ведётся на
@@ -175,36 +221,45 @@ export default function CommunicationTesting() {
                 ]}
               />
             </Field>
-            <Field
-              label={channel === "email" ? "Email получателя" : "Номер WhatsApp"}
-              hint={
-                deliveryMode === "preview"
-                  ? "Для симуляции получателя можно не указывать"
-                  : "Обязателен для реальной отправки"
-              }
-            >
-              <Input
-                placeholder={
-                  channel === "email" ? "test@example.com" : "+7 900 000-00-00"
+            {!embedded && (
+              <Field
+                label={channel === "email" ? "Email получателя" : "Номер WhatsApp"}
+                hint={
+                  deliveryMode === "preview"
+                    ? "Для симуляции получателя можно не указывать"
+                    : "Обязателен для реальной отправки"
                 }
-                type={channel === "email" ? "email" : "tel"}
-                value={recipient}
-                onChange={(event) => setRecipient(event.target.value)}
-              />
-            </Field>
+              >
+                <Input
+                  placeholder={
+                    channel === "email" ? "test@example.com" : "+7 900 000-00-00"
+                  }
+                  type={channel === "email" ? "email" : "tel"}
+                  value={recipient}
+                  onChange={(event) => setRecipient(event.target.value)}
+                />
+              </Field>
+            )}
             <Field label="Язык переговоров">
               <Input disabled value="Английский · русский перевод в интерфейсе" />
             </Field>
-            <Field label="Режим">
-              <Select
-                value={deliveryMode}
-                onChange={(next) => setDeliveryMode(next as "preview" | "send")}
-                options={[
-                  { value: "preview", label: "Только симуляция" },
-                  { value: "send", label: "Генерировать и отправлять реально" },
-                ]}
-              />
-            </Field>
+            {!embedded && (
+              <Field label="Режим">
+                <Select
+                  value={deliveryMode}
+                  onChange={(next) => setDeliveryMode(next as "preview" | "send")}
+                  options={[
+                    { value: "preview", label: "Только симуляция" },
+                    { value: "send", label: "Генерировать и отправлять реально" },
+                  ]}
+                />
+              </Field>
+            )}
+            {embedded && (
+              <Field label="Режим">
+                <Input disabled value="Только симуляция · без внешней отправки" />
+              </Field>
+            )}
           </div>
           {channel === "email" && (
             <Field label="Тема тестового письма">
@@ -352,52 +407,54 @@ export default function CommunicationTesting() {
         </div>
       </div>
 
-      <div className="panel">
-        <h2>Последние диалоги</h2>
-        {history.length === 0 ? (
-          <p className="empty">Диалоги ещё не запускались.</p>
-        ) : (
-          <table className="summary">
-            <thead>
-              <tr>
-                <th>Время</th>
-                <th>Канал</th>
-                <th>Получатель</th>
-                <th>Режим</th>
-                <th>Статус</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((item) => (
-                <tr key={item.id}>
-                  <td>{new Date(item.created_at).toLocaleString("ru-RU")}</td>
-                  <td>{item.channel === "email" ? "Email" : "WhatsApp"}</td>
-                  <td>{item.recipient_masked}</td>
-                  <td>
-                    {item.delivery_mode === "send" ? "Отправка" : "Симуляция"}
-                  </td>
-                  <td>
-                    <span
-                      className={`badge ${STATUS_TONES[item.status] ?? "tone-neutral"}`}
-                    >
-                      {STATUS_LABELS[item.status] ?? item.status}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      className="secondary btn-small"
-                      onClick={() => openDialog(item)}
-                    >
-                      Открыть
-                    </button>
-                  </td>
+      {!embedded && (
+        <div className="panel">
+          <h2>Последние диалоги</h2>
+          {history.length === 0 ? (
+            <p className="empty">Диалоги ещё не запускались.</p>
+          ) : (
+            <table className="summary">
+              <thead>
+                <tr>
+                  <th>Время</th>
+                  <th>Канал</th>
+                  <th>Получатель</th>
+                  <th>Режим</th>
+                  <th>Статус</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+              </thead>
+              <tbody>
+                {history.map((item) => (
+                  <tr key={item.id}>
+                    <td>{new Date(item.created_at).toLocaleString("ru-RU")}</td>
+                    <td>{item.channel === "email" ? "Email" : "WhatsApp"}</td>
+                    <td>{item.recipient_masked}</td>
+                    <td>
+                      {item.delivery_mode === "send" ? "Отправка" : "Симуляция"}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${STATUS_TONES[item.status] ?? "tone-neutral"}`}
+                      >
+                        {STATUS_LABELS[item.status] ?? item.status}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        className="secondary btn-small"
+                        onClick={() => openDialog(item)}
+                      >
+                        Открыть
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -108,7 +108,6 @@ export default function SuppliersTab({
     () => new Map(recipients.map((item) => [item.supplier_id, item])),
     [recipients],
   );
-  const queuedRecipients = recipients.filter((item) => item.status === "queued");
 
   const sorted = useMemo(() => {
     const status = (id: number) => {
@@ -205,40 +204,7 @@ export default function SuppliersTab({
       );
       setChecked(new Map());
       await load();
-      setNotice("Получатели добавлены. Проверьте каналы и подтвердите отправку RFQ.");
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const dispatchSelected = async () => {
-    if (queuedRecipients.length === 0) return;
-    const channels = [...new Set(queuedRecipients.map((item) => item.channel))]
-      .map((item) => (item === "email" ? "Email" : "WhatsApp"))
-      .join(" и ");
-    if (
-      !window.confirm(
-        `Отправить RFQ ${queuedRecipients.length} получателям через ${channels}? При включённых каналах это реальное внешнее действие.`,
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.dispatchRfq(rfqId, true);
-      const failed = result.filter((item) => item.status === "error");
-      await load();
-      if (failed.length > 0) {
-        setError(
-          `Не отправлено: ${failed.length}. Проверьте контакты и настройки каналов.`,
-        );
-        return;
-      }
-      onGoToDispatch();
+      setNotice("Получатели добавлены. Перейдите в «Общение», проверьте RFQ и подтвердите отправку.");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -539,11 +505,8 @@ export default function SuppliersTab({
           >
             Добавить получателей
           </button>
-          <button
-            onClick={() => void dispatchSelected()}
-            disabled={busy || queuedRecipients.length === 0}
-          >
-            Отправить RFQ ({queuedRecipients.length})
+          <button onClick={onGoToDispatch} disabled={busy || recipients.length === 0}>
+            Перейти к предпросмотру RFQ
           </button>
         </div>
       </div>

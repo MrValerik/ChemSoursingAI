@@ -9,6 +9,8 @@ import type {
   SupplierConversationRead,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import CommunicationTesting from "./CommunicationTesting";
+import RfqDispatchPreparation from "./RfqDispatchPreparation";
 import { Textarea } from "./ui";
 
 const EMPTY_OVERVIEW: CommunicationOverviewRead = {
@@ -62,9 +64,11 @@ const deliveryStatusLabel = (status: string) =>
 export default function DispatchTab({
   rfq,
   onStatusChanged,
+  onGoToSuppliers,
 }: {
   rfq: RFQRead;
   onStatusChanged: () => void;
+  onGoToSuppliers: () => void;
 }) {
   const rfqId = rfq.id;
   const { user } = useAuth();
@@ -236,6 +240,20 @@ export default function DispatchTab({
 
   return (
     <div>
+      <RfqDispatchPreparation
+        rfq={rfq}
+        readOnly={readOnly}
+        onGoToSuppliers={onGoToSuppliers}
+        onSent={async () => {
+          await load();
+          onStatusChanged();
+        }}
+      />
+
+      {user?.role === "admin" && (
+        <CommunicationTesting embedded rfq={rfq} />
+      )}
+
       <div className="panel communication-panel">
         <div className="tab-toolbar">
           <div>

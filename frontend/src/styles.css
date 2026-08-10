@@ -179,6 +179,18 @@ h1, h2, h3 {
   gap: 16px;
 }
 
+.communication-testing-embedded {
+  margin: 16px 0;
+}
+
+.communication-testing-embedded > .requests-header {
+  margin-bottom: 12px;
+}
+
+.communication-testing-embedded > .requests-header h2 {
+  margin: 0 0 6px;
+}
+
 .generated-message {
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -1184,6 +1196,92 @@ button.danger:hover {
 }
 
 /* Вкладка «Общение»: поставщики, сообщения и эскалации в одном месте. */
+.rfq-dispatch-preparation {
+  display: grid;
+  gap: 16px;
+}
+
+.rfq-recipient-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.rfq-recipient-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.rfq-recipient-row,
+.rfq-recipient-status,
+.rfq-preview-confirmation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rfq-recipient-row {
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.rfq-recipient-row > div:first-child,
+.rfq-recipient-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rfq-preview-message {
+  overflow: hidden;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.rfq-preview-subject,
+.rfq-preview-body {
+  display: grid;
+  gap: 6px;
+  padding: 13px 15px;
+}
+
+.rfq-preview-subject {
+  border-bottom: 1px solid var(--border);
+}
+
+.rfq-preview-subject > span,
+.rfq-preview-body > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.rfq-preview-body > div {
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.rfq-preview-confirmation {
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.rfq-preview-confirmation label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .communication-toolbar-actions {
   display: flex;
   align-items: center;
@@ -1358,6 +1456,13 @@ button.danger:hover {
 }
 
 @media (max-width: 800px) {
+  .rfq-recipient-empty,
+  .rfq-recipient-row,
+  .rfq-preview-confirmation {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .conversation-layout {
     grid-template-columns: 1fr;
   }
