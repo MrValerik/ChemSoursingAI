@@ -8,7 +8,6 @@ import { api, userErrorMessage } from "../api/client";
 import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
-import DocumentsSection from "./DocumentsSection";
 import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
@@ -465,7 +464,7 @@ export default function RfqDetail({
             <SuppliersTab rfqId={rfq.id} onGoToDispatch={() => setTab("dispatch")} />
           )}
 
-          {/* Рассылка, пришедшие ответы и документы — один рабочий поток. */}
+          {/* Рассылка и пришедшие ответы — один рабочий поток. */}
           {tab === "dispatch" && (
             <>
               <DispatchTab
@@ -475,7 +474,6 @@ export default function RfqDetail({
                   void api.getRfq(rfq.id).then(onChanged);
                 }}
               />
-              <DocumentsSection rfqId={rfq.id} />
             </>
           )}
 
