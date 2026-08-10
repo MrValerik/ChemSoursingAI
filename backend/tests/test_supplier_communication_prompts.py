@@ -155,6 +155,19 @@ def test_internal_translation_corrects_availability_agreement():
     assert translated == "Подтвердите номер CAS и текущее наличие товара."
 
 
+def test_internal_translation_corrects_commercial_offer_agreement():
+    class TranslationLLM:
+        def generate_text(self, **kwargs):
+            return "Привет, нам нужен коммерческий предложение на ацетон."
+
+    translated = _translate_for_user(
+        "Hi, we need a quote for acetone.",
+        llm=TranslationLLM(),
+    )
+
+    assert translated == "Привет, нам нужно коммерческое предложение на ацетон."
+
+
 def test_internal_translation_failure_does_not_invent_russian_text():
     calls = []
 

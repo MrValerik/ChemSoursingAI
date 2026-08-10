@@ -232,6 +232,10 @@ _COA_CONFORMITY_RU_RE = re.compile(
     re.IGNORECASE,
 )
 _CURRENT_AVAILABILITY_RU_RE = re.compile(r"\bтекущую\s+наличие\b", re.IGNORECASE)
+_COMMERCIAL_PROPOSAL_RU_RE = re.compile(
+    r"\bнужен\s+коммерческий\s+предложение\b",
+    re.IGNORECASE,
+)
 
 
 class CommunicationTestError(RuntimeError):
@@ -283,7 +287,11 @@ def _plain_text_message(value: str) -> str:
 def _normalize_internal_translation(value: str) -> str:
     """Исправляет однозначные терминологические ошибки русского перевода."""
     normalized = _COA_CONFORMITY_RU_RE.sub(r"\1 анализа", value)
-    return _CURRENT_AVAILABILITY_RU_RE.sub("текущее наличие", normalized)
+    normalized = _CURRENT_AVAILABILITY_RU_RE.sub("текущее наличие", normalized)
+    return _COMMERCIAL_PROPOSAL_RU_RE.sub(
+        "нужно коммерческое предложение",
+        normalized,
+    )
 
 
 def _load_run(db: Session, run_id: int) -> CommunicationTestRun | None:
