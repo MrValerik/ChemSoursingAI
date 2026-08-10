@@ -9,7 +9,6 @@ import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types"
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
 import DocumentsSection from "./DocumentsSection";
-import ExtractReplies from "./ExtractReplies";
 import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
@@ -473,12 +472,6 @@ export default function RfqDetail({
                 rfq={rfq}
                 onGoToSuppliers={() => setTab("suppliers")}
                 onStatusChanged={() => {
-                  void api.getRfq(rfq.id).then(onChanged);
-                }}
-              />
-              <ExtractReplies
-                rfqId={rfq.id}
-                onStored={() => {
                   void api.getRfq(rfq.id).then(onChanged);
                 }}
               />
