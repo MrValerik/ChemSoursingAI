@@ -348,6 +348,27 @@ def test_quality_gate_accepts_identity_questions_for_sparse_initial_context():
     assert issue is None
 
 
+def test_quality_gate_requires_cas_when_concentration_is_already_known():
+    issue = _reply_quality_issue(
+        _quality_run("30 л соляной кислоты, концентрация 37%"),
+        "Please quote 30 liters and confirm packaging and lead time.",
+        stage="initial",
+    )
+
+    assert issue is not None
+    assert "обязан запросить CAS" in issue
+
+
+def test_quality_gate_accepts_cas_request_when_concentration_is_known():
+    issue = _reply_quality_issue(
+        _quality_run("30 л соляной кислоты, концентрация 37%"),
+        "Please quote 30 liters and confirm the CAS, packaging and lead time.",
+        stage="initial",
+    )
+
+    assert issue is None
+
+
 def test_quality_gate_rejects_destination_question_owned_by_buyer():
     issue = _reply_quality_issue(
         _quality_run("20 кг ацетона, нужна цена"),
@@ -370,6 +391,39 @@ def test_quality_gate_allows_destination_already_given_in_context():
             "Novosibirsk."
         ),
         stage="initial",
+    )
+
+    assert issue is None
+
+
+def test_quality_gate_rejects_false_fca_carriage_claim():
+    issue = _reply_quality_issue(
+        _quality_run(
+            "30 л соляной кислоты, доставка до Новосибирска",
+            "Price is RUB 2000/L, FCA Shanghai.",
+        ),
+        (
+            "FCA Shanghai does not allow us to arrange delivery to "
+            "Novosibirsk. Please quote DDP Novosibirsk."
+        ),
+        stage="reply",
+    )
+
+    assert issue is not None
+    assert "не запрещает покупателю организовать перевозку" in issue
+
+
+def test_quality_gate_allows_correct_fca_delivery_clarification():
+    issue = _reply_quality_issue(
+        _quality_run(
+            "30 л соляной кислоты, доставка до Новосибирска",
+            "Price is RUB 2000/L, FCA Shanghai.",
+        ),
+        (
+            "The FCA price does not include delivery to Novosibirsk. "
+            "Could you also quote DAP Novosibirsk?"
+        ),
+        stage="reply",
     )
 
     assert issue is None

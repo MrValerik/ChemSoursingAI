@@ -110,6 +110,15 @@ _DESTINATION_QUESTION_RE = re.compile(
     r"[^.?!]{0,80}\?",
     re.IGNORECASE,
 )
+_BUYER_CARRIAGE_ERROR_RE = re.compile(
+    r"\b(?:fca|exw|free\s+carrier|ex\s+works)\b[^.?!]{0,160}"
+    r"(?:does\s+not|doesn't|cannot|can't)\s+(?:allow\s+(?:us|the\s+buyer)\s+to\s+)?"
+    r"arrange\s+(?:delivery|transport|carriage|shipping)\b|"
+    r"\b(?:fca|exw|free\s+carrier|ex\s+works)\b[^.?!]{0,160}"
+    r"prevent(?:s|ed)?\s+(?:us|the\s+buyer)\s+from\s+arranging\s+"
+    r"(?:delivery|transport|carriage|shipping)\b",
+    re.IGNORECASE,
+)
 _DOCUMENT_REQUEST_VERB_RE = re.compile(
     r"\b(?:send|provide|share|attach|forward|resend|re-send)\b",
     re.IGNORECASE,
@@ -294,7 +303,9 @@ def _generation_instructions(run: CommunicationTestRun, *, stage: str) -> str:
         "подтверждения идентичности оператором. Не проси поставщика подтвердить "
         "отсутствующие данные самого покупателя: пункт назначения, требуемый "
         "объём, применение или целевую цену. При EXW/FCA не запрашивай фрахт или "
-        "destination, если оператор явно не запросил альтернативную доставку."
+        "destination, если оператор явно не запросил альтернативную доставку. "
+        "Не утверждай, что EXW/FCA запрещает покупателю организовать перевозку: "
+        "этот базис лишь не включает основную доставку в предложение поставщика."
     )
 
 
@@ -431,11 +442,18 @@ def _reply_quality_issue(
     )
     known_text = f"{context}\n{supplier_text}"
 
+    if stage == "initial" and not _CONTEXT_CAS_RE.search(context):
+        if not re.search(r"\bcas\b", outgoing, re.IGNORECASE):
+            return (
+                "В исходном контексте нет CAS; первый RFQ обязан запросить CAS "
+                "у поставщика, даже если концентрация, грейд или форма известны."
+            )
+
     if stage == "initial" and not _CONTEXT_IDENTITY_DETAIL_RE.search(context):
         if not _OUTGOING_IDENTITY_TERM_RE.search(outgoing):
             return (
-                "В исходном контексте нет CAS, грейда, чистоты или формы; "
-                "первый RFQ обязан запросить хотя бы эти данные идентичности."
+                "В исходном контексте нет грейда, чистоты или формы; первый RFQ "
+                "обязан запросить эти данные идентичности вместе с CAS."
             )
 
     if _DESTINATION_QUESTION_RE.search(outgoing):
@@ -446,6 +464,11 @@ def _reply_quality_issue(
             )
 
     if re.search(r"\b(?:fca|exw)\b", latest_supplier, re.IGNORECASE):
+        if _BUYER_CARRIAGE_ERROR_RE.search(outgoing):
+            return (
+                "EXW/FCA не запрещает покупателю организовать перевозку; можно "
+                "сказать, что доставка не включена, и запросить доставочный базис."
+            )
         if re.search(r"\b(?:destination|freight)\b", outgoing, re.IGNORECASE):
             if not re.search(r"(?:delivery|доставк)", context, re.IGNORECASE):
                 return (
