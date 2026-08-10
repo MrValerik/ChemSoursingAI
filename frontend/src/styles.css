@@ -179,18 +179,6 @@ h1, h2, h3 {
   gap: 16px;
 }
 
-.communication-testing-embedded {
-  margin: 16px 0;
-}
-
-.communication-testing-embedded > .requests-header {
-  margin-bottom: 12px;
-}
-
-.communication-testing-embedded > .requests-header h2 {
-  margin: 0 0 6px;
-}
-
 .generated-message {
   background: var(--panel-2);
   border: 1px solid var(--border);

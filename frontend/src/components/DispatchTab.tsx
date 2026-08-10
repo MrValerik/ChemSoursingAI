@@ -9,7 +9,6 @@ import type {
   SupplierConversationRead,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import CommunicationTesting from "./CommunicationTesting";
 import RfqDispatchPreparation from "./RfqDispatchPreparation";
 import { Textarea } from "./ui";
 
@@ -249,10 +248,6 @@ export default function DispatchTab({
           onStatusChanged();
         }}
       />
-
-      {user?.role === "admin" && (
-        <CommunicationTesting embedded rfq={rfq} />
-      )}
 
       <div className="panel communication-panel">
         <div className="tab-toolbar">
