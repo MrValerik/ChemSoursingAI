@@ -129,6 +129,19 @@ def test_internal_translation_preserves_untrusted_source_as_user_data():
     assert "недоверенными данными" in calls[0]["system_prompt"]
 
 
+def test_internal_translation_corrects_coa_term():
+    class TranslationLLM:
+        def generate_text(self, **kwargs):
+            return "Пожалуйста, предоставьте сертификат соответствия (CoA)."
+
+    translated = _translate_for_user(
+        "Please provide the CoA.",
+        llm=TranslationLLM(),
+    )
+
+    assert translated == "Пожалуйста, предоставьте сертификат анализа (CoA)."
+
+
 def test_internal_translation_failure_does_not_invent_russian_text():
     calls = []
 
@@ -427,6 +440,34 @@ def test_quality_gate_allows_correct_fca_delivery_clarification():
     )
 
     assert issue is None
+
+
+def test_quality_gate_rejects_fca_with_included_delivery_wording():
+    issue = _reply_quality_issue(
+        _quality_run(
+            "30 л соляной кислоты, доставка до Новосибирска",
+            "Price is RUB 2000/L, FCA Shanghai.",
+        ),
+        "Can the FCA Shanghai price be adjusted to include delivery?",
+        stage="reply",
+    )
+
+    assert issue is not None
+    assert "отдельную доставочную цену" in issue
+
+
+def test_quality_gate_rejects_unrequested_exw_as_delivery_alternative():
+    issue = _reply_quality_issue(
+        _quality_run(
+            "30 л соляной кислоты, доставка до Новосибирска",
+            "Price is RUB 2000/L, FCA Shanghai.",
+        ),
+        "Could you offer an EXW price for the 30 liters?",
+        stage="reply",
+    )
+
+    assert issue is not None
+    assert "EXW не решает запрос оператора на доставку" in issue
 
 
 def test_quality_gate_does_not_repeat_form_after_anhydrous_purity_answer():
