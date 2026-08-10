@@ -1,11 +1,14 @@
 """Регрессии правил общения, обобщённых из закупочных переписок."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.connectors.pubchem import SubstanceInfo
 from app.services.communication_testing import (
     _message_language_matches,
     _plain_text_message,
+    _reply_quality_issue,
     _translate_for_user,
     _validate_procurement_identity,
 )
@@ -313,3 +316,85 @@ def test_procurement_identity_gate_fails_closed_when_pubchem_is_unavailable():
         "CAS 67-64-1 не проверен из-за недоступности PubChem; "
         "первое сообщение остановлено.",
     )
+
+
+def _quality_run(context, supplier_message=None):
+    messages = []
+    if supplier_message is not None:
+        messages.append(
+            SimpleNamespace(sender_role="supplier", content=supplier_message)
+        )
+    return SimpleNamespace(procurement_context=context, messages=messages)
+
+
+def test_quality_gate_requires_identity_questions_for_sparse_initial_context():
+    issue = _reply_quality_issue(
+        _quality_run("50 кг аммиака"),
+        "Hello. Please provide your price, Incoterm and lead time.",
+        stage="initial",
+    )
+
+    assert issue is not None
+    assert "первый RFQ обязан запросить" in issue
+
+
+def test_quality_gate_accepts_identity_questions_for_sparse_initial_context():
+    issue = _reply_quality_issue(
+        _quality_run("50 кг аммиака"),
+        "Hello. Please confirm the CAS, grade, form, price and Incoterm.",
+        stage="initial",
+    )
+
+    assert issue is None
+
+
+def test_quality_gate_rejects_destination_question_owned_by_buyer():
+    issue = _reply_quality_issue(
+        _quality_run("20 кг ацетона, нужна цена"),
+        (
+            "Please confirm CAS, grade, form, Incoterm and destination "
+            "for the quote."
+        ),
+        stage="initial",
+    )
+
+    assert issue is not None
+    assert "пункт назначения покупателя" in issue
+
+
+def test_quality_gate_allows_destination_already_given_in_context():
+    issue = _reply_quality_issue(
+        _quality_run("20 кг ацетона, доставка до Новосибирска"),
+        (
+            "Please confirm CAS, grade and purity, and quote delivery to "
+            "Novosibirsk."
+        ),
+        stage="initial",
+    )
+
+    assert issue is None
+
+
+def test_quality_gate_does_not_repeat_form_after_anhydrous_purity_answer():
+    issue = _reply_quality_issue(
+        _quality_run(
+            "50 кг аммиака",
+            "Anhydrous ammonia, purity 99.98%, USD 2.20/kg FCA Shanghai.",
+        ),
+        "Could you confirm the physical state and concentration?",
+        stage="reply",
+    )
+
+    assert issue is not None
+    assert "уже указал anhydrous" in issue
+
+
+def test_quality_gate_rejects_unrequested_sample_or_container():
+    issue = _reply_quality_issue(
+        _quality_run("50 кг аммиака"),
+        "Please confirm CAS, grade and form, then quote a sample and container.",
+        stage="initial",
+    )
+
+    assert issue is not None
+    assert "новый объём" in issue

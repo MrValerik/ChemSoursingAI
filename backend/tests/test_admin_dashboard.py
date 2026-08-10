@@ -281,7 +281,7 @@ def test_communication_testing_preview_and_explicit_delivery(
             )
         return (
             "**Subject: Request**\n**Hello.** We need 50 kg of ammonia.\n"
-            "* Please quote and provide a `CoA`.\n"
+            "* Please confirm CAS, grade and form; quote and provide a `CoA`.\n"
             "This message was generated for testing purposes."
         )
 
@@ -316,7 +316,7 @@ def test_communication_testing_preview_and_explicit_delivery(
     assert preview.json()["procurement_context"] == "50 кг аммиака, нужны цена и CoA"
     assert preview.json()["generated_reply"] == (
         "Hello. We need 50 kg of ammonia.\n"
-        "Please quote and provide a CoA."
+        "Please confirm CAS, grade and form; quote and provide a CoA."
     )
     assert "*" not in preview.json()["generated_reply"]
     assert [message["sender_role"] for message in preview.json()["messages"]] == [
@@ -463,7 +463,10 @@ def test_communication_testing_escalates_social_reply_without_generation(
         if "переводчик переписки" in kwargs["system_prompt"]:
             return "Как у вас дела сегодня?"
         dialogue_calls.append(kwargs)
-        return "Hello. We need 50 kg of ammonia. Please provide your quote."
+        return (
+            "Hello. We need 50 kg of ammonia. Please confirm CAS, grade, "
+            "form and provide your quote."
+        )
 
     monkeypatch.setattr(
         "app.services.communication_testing.LLMClient.generate_text",
@@ -513,7 +516,7 @@ def test_communication_testing_preserves_reply_when_classifier_is_unavailable(
         lambda self, **kwargs: (
             "Здравствуйте. Запросите цену."
             if "переводчик переписки" in kwargs["system_prompt"]
-            else "Hello. Please provide your price."
+            else "Hello. Please confirm CAS, grade, form and provide your price."
         ),
     )
     preview = client.post(
@@ -604,6 +607,88 @@ def test_communication_testing_stops_before_first_message_on_identity_conflict(
     assert "identity_or_custom_synthesis" in response.json()["error"]
 
 
+def test_communication_testing_regenerates_reply_rejected_by_quality_gate(
+    client, monkeypatch
+):
+    admin = _login(client)
+    dialogue_outputs = iter(
+        (
+            "Hello. Please provide your price, Incoterm and lead time.",
+            "Hello. Please confirm CAS, grade, form, price, Incoterm and lead time.",
+        )
+    )
+    dialogue_calls = []
+
+    def fake_generate_text(self, **kwargs):
+        if "переводчик переписки" in kwargs["system_prompt"]:
+            return "Здравствуйте. Подтвердите CAS, сорт, форму, цену и условия."
+        dialogue_calls.append(kwargs)
+        return next(dialogue_outputs)
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        fake_generate_text,
+    )
+
+    response = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "recipient": "",
+            "procurement_context": "50 кг аммиака",
+            "delivery_mode": "preview",
+            "confirm_external_send": False,
+        },
+        headers=admin,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["generated_reply"] == (
+        "Hello. Please confirm CAS, grade, form, price, Incoterm and lead time."
+    )
+    assert len(dialogue_calls) == 2
+    assert "КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ КАЧЕСТВА" in dialogue_calls[1][
+        "additional_instructions"
+    ]
+    assert "первый RFQ обязан запросить" in dialogue_calls[1][
+        "additional_instructions"
+    ]
+
+
+def test_communication_testing_stops_after_repeated_quality_violation(
+    client, monkeypatch
+):
+    admin = _login(client)
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        lambda self, **kwargs: (
+            "Hello. Please provide your price, Incoterm and lead time."
+        ),
+    )
+
+    response = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "recipient": "",
+            "procurement_context": "50 кг аммиака",
+            "delivery_mode": "preview",
+            "confirm_external_send": False,
+        },
+        headers=admin,
+    )
+
+    assert response.status_code == 503
+    assert "дважды нарушила проверяемые правила" in response.json()["detail"]
+    with SessionLocal() as db:
+        saved = db.scalar(
+            select(CommunicationTestRun).order_by(CommunicationTestRun.id.desc())
+        )
+        assert saved is not None
+        assert saved.status == "llm_error"
+        assert saved.messages == []
+
+
 def test_communication_testing_regenerates_non_english_reply_and_translates_it(
     client, monkeypatch
 ):
@@ -611,7 +696,7 @@ def test_communication_testing_regenerates_non_english_reply_and_translates_it(
     generated = iter(
         (
             "Здравствуйте. Сообщите, пожалуйста, цену и срок поставки.",
-            "Hello. Please provide your price and lead time.",
+            "Hello. Please confirm CAS, grade, form, price and lead time.",
             "Здравствуйте. Сообщите, пожалуйста, цену и срок поставки.",
         )
     )

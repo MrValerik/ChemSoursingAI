@@ -87,6 +87,29 @@ _MAX_IDENTITY_CAS_NUMBERS = 10
 _CONTEXT_CAS_RE = re.compile(
     r"(?<!\d)(\d{2,7}[-‐‑‒–—―−－]\d{2}[-‐‑‒–—―−－]\d)(?!\d)"
 )
+_OUTGOING_IDENTITY_TERM_RE = re.compile(
+    r"\b(?:cas|grade|purity|form|concentration|specification)\b",
+    re.IGNORECASE,
+)
+_CONTEXT_IDENTITY_DETAIL_RE = re.compile(
+    r"\b(?:cas|grade|purity|form|concentration|specification)\b|"
+    r"(?:чистот|грейд|сорт|форм|концентрац|спецификац)",
+    re.IGNORECASE,
+)
+_DESTINATION_IN_CONTEXT_RE = re.compile(
+    r"\b(?:delivery|deliver|ship(?:ping)?)\s+to\b|"
+    r"\b(?:destination|destination\s+port)\b|"
+    r"\b(?:cif|cip|cfr|dap|ddp)\b|"
+    r"(?:доставк\w*\s+(?:до|в)|пункт\s+назначения|порт\s+назначения)",
+    re.IGNORECASE,
+)
+_DESTINATION_QUESTION_RE = re.compile(
+    r"(?:confirm|provide|specify|clarify|what|which)[^.?!]{0,80}"
+    r"\b(?:destination|destination\s+port|delivery\s+address)\b|"
+    r"\b(?:destination|destination\s+port|delivery\s+address)\b"
+    r"[^.?!]{0,80}\?",
+    re.IGNORECASE,
+)
 
 _IDENTITY_GATE_PROMPT = """
 Ты проверяешь только согласованность названий химических веществ и CAS перед
@@ -367,6 +390,81 @@ def _validate_procurement_identity(
     return None
 
 
+def _reply_quality_issue(
+    run: CommunicationTestRun,
+    reply: str,
+    *,
+    stage: str,
+) -> str | None:
+    """Детерминированно ловит типовые смысловые ошибки перед показом/отправкой."""
+    context = run.procurement_context.casefold()
+    outgoing = reply.casefold()
+    latest_supplier = next(
+        (
+            message.content.casefold()
+            for message in reversed(run.messages)
+            if message.sender_role == "supplier"
+        ),
+        "",
+    )
+    known_text = f"{context}\n{latest_supplier}"
+
+    if stage == "initial" and not _CONTEXT_IDENTITY_DETAIL_RE.search(context):
+        if not _OUTGOING_IDENTITY_TERM_RE.search(outgoing):
+            return (
+                "В исходном контексте нет CAS, грейда, чистоты или формы; "
+                "первый RFQ обязан запросить хотя бы эти данные идентичности."
+            )
+
+    if _DESTINATION_QUESTION_RE.search(outgoing):
+        if not _DESTINATION_IN_CONTEXT_RE.search(context):
+            return (
+                "Нельзя просить поставщика выбрать или подтвердить пункт "
+                "назначения покупателя, которого нет в контексте."
+            )
+
+    if re.search(r"\b(?:fca|exw)\b", latest_supplier, re.IGNORECASE):
+        if re.search(r"\b(?:destination|freight)\b", outgoing, re.IGNORECASE):
+            if not re.search(r"(?:delivery|доставк)", context, re.IGNORECASE):
+                return (
+                    "При уже указанном FCA/EXW нельзя запрашивать destination "
+                    "или freight без запроса покупателя на доставленную цену."
+                )
+
+    if "anhydrous" in latest_supplier and "%" in latest_supplier:
+        if re.search(
+            r"\b(?:physical\s+state|form|concentration)\b",
+            outgoing,
+            re.IGNORECASE,
+        ):
+            return (
+                "Поставщик уже указал anhydrous и чистоту; нельзя повторно "
+                "спрашивать форму или концентрацию водного раствора."
+            )
+
+    scope_terms = {
+        "sample": ("sample", "образец", "пробу"),
+        "pilot batch": ("pilot", "пилот"),
+        "container": ("container", "контейнер"),
+        "annual volume": ("annual", "годовой"),
+    }
+    for label, variants in scope_terms.items():
+        if any(variant in outgoing for variant in variants) and not any(
+            variant in known_text for variant in variants
+        ):
+            return f"Нельзя вводить новый объём или вид партии: {label}."
+
+    buyer_owned_questions = {
+        "target price": ("target price", "целевая цена"),
+        "application": ("application", "end use", "применение"),
+    }
+    for label, variants in buyer_owned_questions.items():
+        if "?" in outgoing and any(variant in outgoing for variant in variants):
+            if not any(variant in context for variant in variants):
+                return f"Нельзя просить поставщика определить данные покупателя: {label}."
+    return None
+
+
 def _message_language_matches(value: str, language: str) -> bool:
     """Проверяет письменность ответа без отправки текста внешнему детектору."""
     if language == "ru":
@@ -544,6 +642,35 @@ def _generate_reply(
                     "Нейросеть дважды вернула сообщение не на выбранном "
                     f"{_LANGUAGE_NAMES[run.reply_language]} языке. Отправка "
                     "остановлена."
+                )
+                db.commit()
+                raise CommunicationTestError(run.error)
+        quality_issue = (
+            _reply_quality_issue(run, reply, stage=stage) if reply else None
+        )
+        if quality_issue:
+            reply = generate(
+                f"{_generation_instructions(run, stage=stage)}\n\n"
+                "КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ КАЧЕСТВА: предыдущий черновик "
+                f"отклонён. Причина: {quality_issue} Создай сообщение заново, "
+                "устрани причину и не объясняй исправление поставщику."
+            )
+            if not reply or not _message_language_matches(
+                reply, run.reply_language
+            ):
+                run.status = "llm_error"
+                run.error = (
+                    "Исправленная реплика не прошла проверку английского языка. "
+                    "Отправка остановлена."
+                )
+                db.commit()
+                raise CommunicationTestError(run.error)
+            repeated_issue = _reply_quality_issue(run, reply, stage=stage)
+            if repeated_issue:
+                run.status = "llm_error"
+                run.error = (
+                    "Нейросеть дважды нарушила проверяемые правила общения: "
+                    f"{repeated_issue} Отправка остановлена."
                 )
                 db.commit()
                 raise CommunicationTestError(run.error)
