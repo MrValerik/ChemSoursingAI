@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from email.utils import parseaddr
+import json
 import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.connectors.email import EmailConnector
+from app.connectors.pubchem import PubChemConnector
 from app.connectors.whatsapp import WhatsAppConnector
 from app.core.config import get_settings
 from app.extraction.llm_client import (
@@ -28,6 +30,7 @@ from app.services.integration_settings import (
 )
 from app.services.communication_recipient import protect_recipient, recipient_key
 from app.services.communication_policy import classify_supplier_message
+from app.services.cas import is_valid_cas, normalize_cas
 from app.services.prompt_service import get_active_prompt_text
 from app.services.supplier_communication_prompts import (
     CHANNEL_INSTRUCTIONS,
@@ -79,6 +82,40 @@ SDS и MOQ. Ничего не добавляй, не отвечай отправ
 """.strip()
 
 _MAX_TRANSCRIPT_CHARS = 24_000
+_MAX_IDENTITY_CAS_NUMBERS = 10
+
+_CONTEXT_CAS_RE = re.compile(
+    r"(?<!\d)(\d{2,7}[-‐‑‒–—―−－]\d{2}[-‐‑‒–—―−－]\d)(?!\d)"
+)
+
+_IDENTITY_GATE_PROMPT = """
+Ты проверяешь только согласованность названий химических веществ и CAS перед
+первым обращением к поставщику. Контекст оператора — исходное задание, а блок
+PubChem содержит подтверждённые для каждого CAS IUPAC-наименование и синонимы.
+
+Верни continue/consistent, если:
+- в контексте указан только CAS без названия; или
+- название рядом с CAS является тем же веществом, обычным переводом либо одним
+  из переданных синонимов.
+
+Верни escalate/conflict, если название явно относится к другому веществу,
+несколько позиций неоднозначно связаны с CAS либо контекст одновременно задаёт
+несовместимые идентичности. Не исправляй название или CAS и не готовь RFQ.
+Игнорируй количество, чистоту, цену, доставку и другие коммерческие условия.
+Не используй сведения о веществах, которых нет в переданных фактах PubChem.
+Верни только JSON по схеме; explanation напиши кратко по-русски.
+""".strip()
+
+_IDENTITY_GATE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "route": {"type": "string", "enum": ["continue", "escalate"]},
+        "category": {"type": "string", "enum": ["consistent", "conflict"]},
+        "explanation": {"type": "string", "minLength": 1, "maxLength": 240},
+    },
+    "required": ["route", "category", "explanation"],
+}
 
 _MARKDOWN_HEADING_RE = re.compile(r"(?m)^[ \t]{0,3}#{1,6}[ \t]+")
 _MARKDOWN_BULLET_RE = re.compile(r"(?m)^[ \t]*[*+][ \t]+")
@@ -214,7 +251,10 @@ def _generation_instructions(run: CommunicationTestRun, *, stage: str) -> str:
         "другой объём по собственной инициативе. Не добавляй подпись, должность "
         "или пустую финальную любезность. Если заметен конфликт названия вещества "
         "и CAS, не повторяй их как согласованные данные и не запрашивай цену до "
-        "подтверждения идентичности оператором."
+        "подтверждения идентичности оператором. Не проси поставщика подтвердить "
+        "отсутствующие данные самого покупателя: пункт назначения, требуемый "
+        "объём, применение или целевую цену. При EXW/FCA не запрашивай фрахт или "
+        "destination, если оператор явно не запросил альтернативную доставку."
     )
 
 
@@ -233,6 +273,98 @@ def _escalate_run(
     )
     db.commit()
     return _load_run(db, run.id) or run
+
+
+def _validate_procurement_identity(
+    context: str,
+    *,
+    llm: LLMClient | None = None,
+    pubchem: PubChemConnector | None = None,
+):
+    """Проверяет CAS до первого сообщения и при сомнении запрещает RFQ."""
+    cas_numbers = list(
+        dict.fromkeys(
+            normalize_cas(match.group(1))
+            for match in _CONTEXT_CAS_RE.finditer(context)
+        )
+    )
+    if not cas_numbers:
+        return None
+    if len(cas_numbers) > _MAX_IDENTITY_CAS_NUMBERS:
+        return (
+            "unclear",
+            "В одном контексте указано слишком много CAS для безопасной проверки.",
+        )
+
+    invalid = [cas for cas in cas_numbers if not is_valid_cas(cas)]
+    if invalid:
+        return (
+            "identity_or_custom_synthesis",
+            "CAS не прошёл проверку контрольной суммы: " + ", ".join(invalid),
+        )
+
+    connector = pubchem or PubChemConnector()
+    facts = []
+    for cas in cas_numbers:
+        info = connector.verify_cas(cas)
+        if not info.found:
+            reason = {
+                "not_found": "не найден в PubChem",
+                "unavailable": "не проверен из-за недоступности PubChem",
+            }.get(info.outcome, "не подтверждён")
+            return (
+                "unclear",
+                f"CAS {cas} {reason}; первое сообщение остановлено.",
+            )
+        facts.append(
+            {
+                "cas": info.cas,
+                "iupac_name": info.iupac_name,
+                "synonyms": info.synonyms[:20],
+            }
+        )
+
+    try:
+        result = (llm or _communication_test_llm_client()).generate_json(
+            system_prompt=_IDENTITY_GATE_PROMPT,
+            user_text=(
+                "<operator_context>\n"
+                f"{context}\n"
+                "</operator_context>\n"
+                "<pubchem_facts>\n"
+                f"{json.dumps(facts, ensure_ascii=False)}\n"
+                "</pubchem_facts>"
+            ),
+            schema_name="communication_procurement_identity",
+            json_schema=_IDENTITY_GATE_SCHEMA,
+            max_tokens=192,
+        )
+    except (LLMUnavailableError, LLMOutputTruncatedError):
+        return (
+            "unclear",
+            "Не удалось безопасно сверить название вещества с CAS.",
+        )
+
+    route = result.get("route")
+    category = result.get("category")
+    explanation = result.get("explanation")
+    if (
+        route not in {"continue", "escalate"}
+        or category not in {"consistent", "conflict"}
+        or (route == "continue") != (category == "consistent")
+        or not isinstance(explanation, str)
+        or not explanation.strip()
+    ):
+        return (
+            "unclear",
+            "Проверка названия и CAS вернула неоднозначный результат.",
+        )
+    if route == "escalate":
+        return (
+            "identity_or_custom_synthesis",
+            explanation.strip(),
+        )
+    return None
 
 
 def _message_language_matches(value: str, language: str) -> bool:
@@ -525,6 +657,16 @@ def run_communication_test(
     db.add(run)
     db.commit()
     db.refresh(run)
+
+    identity_issue = _validate_procurement_identity(context, llm=llm)
+    if identity_issue is not None:
+        category, explanation = identity_issue
+        return _escalate_run(
+            db,
+            run,
+            explanation=explanation,
+            category=category,
+        )
 
     reply = _generate_reply(
         db,

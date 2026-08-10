@@ -2,10 +2,12 @@
 
 import pytest
 
+from app.connectors.pubchem import SubstanceInfo
 from app.services.communication_testing import (
     _message_language_matches,
     _plain_text_message,
     _translate_for_user,
+    _validate_procurement_identity,
 )
 from app.services.supplier_communication_prompts import (
     CHANNEL_INSTRUCTIONS,
@@ -35,6 +37,8 @@ from app.services.supplier_communication_prompts import (
         "включая «как ваши дела»",
         "обрабатывать сотрудник после эскалации",
         "Не добавляй подпись «Procurement Team/Department»",
+        "Не проси поставщика подтвердить сведения, которые определяет покупатель",
+        "При базисе EXW или FCA не запрашивай фрахт",
     ],
 )
 def test_dialogue_prompt_keeps_observed_procurement_rules(required_rule):
@@ -187,3 +191,125 @@ def test_plain_text_message_removes_fabricated_signature_and_empty_closing(
     generated, expected
 ):
     assert _plain_text_message(generated) == expected
+
+
+class IdentityGateLlm:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def generate_json(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.result
+
+
+class IdentityPubChem:
+    def __init__(self, records):
+        self.records = records
+        self.calls = []
+
+    def verify_cas(self, cas):
+        self.calls.append(cas)
+        return self.records[cas]
+
+
+def test_procurement_identity_gate_passes_verified_consistent_cas():
+    llm = IdentityGateLlm(
+        {
+            "route": "continue",
+            "category": "consistent",
+            "explanation": "Название соответствует подтверждённому CAS.",
+        }
+    )
+    pubchem = IdentityPubChem(
+        {
+            "67-64-1": SubstanceInfo(
+                cas="67-64-1",
+                found=True,
+                iupac_name="propan-2-one",
+                synonyms=["Acetone", "2-Propanone"],
+            )
+        }
+    )
+
+    issue = _validate_procurement_identity(
+        "100 kg acetone, CAS 67-64-1",
+        llm=llm,
+        pubchem=pubchem,
+    )
+
+    assert issue is None
+    assert pubchem.calls == ["67-64-1"]
+    assert '"Acetone"' in llm.calls[0]["user_text"]
+    assert llm.calls[0]["schema_name"] == "communication_procurement_identity"
+
+
+def test_procurement_identity_gate_escalates_name_cas_conflict():
+    llm = IdentityGateLlm(
+        {
+            "route": "escalate",
+            "category": "conflict",
+            "explanation": "Метанол не соответствует CAS ацетона.",
+        }
+    )
+    pubchem = IdentityPubChem(
+        {
+            "67-64-1": SubstanceInfo(
+                cas="67-64-1",
+                found=True,
+                iupac_name="propan-2-one",
+                synonyms=["Acetone"],
+            )
+        }
+    )
+
+    issue = _validate_procurement_identity(
+        "100 кг метанола, CAS 67-64-1",
+        llm=llm,
+        pubchem=pubchem,
+    )
+
+    assert issue == (
+        "identity_or_custom_synthesis",
+        "Метанол не соответствует CAS ацетона.",
+    )
+
+
+def test_procurement_identity_gate_rejects_invalid_checksum_before_pubchem():
+    pubchem = IdentityPubChem({})
+
+    issue = _validate_procurement_identity(
+        "100 kg acetone, CAS 67-64-2",
+        llm=IdentityGateLlm({}),
+        pubchem=pubchem,
+    )
+
+    assert issue == (
+        "identity_or_custom_synthesis",
+        "CAS не прошёл проверку контрольной суммы: 67-64-2",
+    )
+    assert pubchem.calls == []
+
+
+def test_procurement_identity_gate_fails_closed_when_pubchem_is_unavailable():
+    pubchem = IdentityPubChem(
+        {
+            "67-64-1": SubstanceInfo(
+                cas="67-64-1",
+                found=False,
+                error="http_error: offline",
+            )
+        }
+    )
+
+    issue = _validate_procurement_identity(
+        "100 kg acetone, CAS 67-64-1",
+        llm=IdentityGateLlm({}),
+        pubchem=pubchem,
+    )
+
+    assert issue == (
+        "unclear",
+        "CAS 67-64-1 не проверен из-за недоступности PubChem; "
+        "первое сообщение остановлено.",
+    )

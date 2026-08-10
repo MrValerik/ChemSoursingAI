@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.connectors.pubchem import SubstanceInfo
 from app.core.db import SessionLocal, engine
 from app.extraction.llm_client import LLMUnavailableError
 from app.main import app
@@ -550,6 +551,57 @@ def test_communication_testing_preserves_reply_when_classifier_is_unavailable(
     ]
     assert continued.json()["messages"][-1]["content"] == "The price is USD 12/kg."
     assert continued.json()["messages"][-1]["translation_ru"] is None
+
+
+def test_communication_testing_stops_before_first_message_on_identity_conflict(
+    client, monkeypatch
+):
+    admin = _login(client)
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.PubChemConnector.verify_cas",
+        lambda self, cas: SubstanceInfo(
+            cas=cas,
+            found=True,
+            iupac_name="propan-2-one",
+            synonyms=["Acetone", "2-Propanone"],
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_json",
+        lambda self, **kwargs: {
+            "route": "escalate",
+            "category": "conflict",
+            "explanation": "Метанол не соответствует CAS ацетона.",
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("RFQ must not be generated")
+        ),
+    )
+
+    response = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "recipient": "",
+            "procurement_context": (
+                "100 кг метанола, CAS 67-64-1, чистота 99,9%. Нужна цена."
+            ),
+            "delivery_mode": "preview",
+            "confirm_external_send": False,
+        },
+        headers=admin,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "escalated"
+    assert response.json()["messages"] == []
+    assert response.json()["generated_reply"] is None
+    assert "Метанол не соответствует CAS ацетона" in response.json()["error"]
+    assert "identity_or_custom_synthesis" in response.json()["error"]
 
 
 def test_communication_testing_regenerates_non_english_reply_and_translates_it(
