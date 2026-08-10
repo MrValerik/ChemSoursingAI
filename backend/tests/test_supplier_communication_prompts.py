@@ -18,7 +18,7 @@ from app.services.supplier_communication_prompts import (
 @pytest.mark.parametrize(
     "required_rule",
     [
-        "коммерческий объём и отдельный объём образца",
+        "Отдельный объём образца упоминай только тогда",
         "Incoterm и пункт назначения",
         "форму или концентрацию раствора",
         "не принимай замену сам",
@@ -34,6 +34,7 @@ from app.services.supplier_communication_prompts import (
         "служебные оговорки о тесте",
         "включая «как ваши дела»",
         "обрабатывать сотрудник после эскалации",
+        "Не добавляй подпись «Procurement Team/Department»",
     ],
 )
 def test_dialogue_prompt_keeps_observed_procurement_rules(required_rule):
@@ -84,8 +85,7 @@ This is a test message.
     assert result == (
         "Hello, Anna.\n"
         "Please quote X-100, 2M solution.\n"
-        "Please send the CoA.\n\n"
-        "Thank you."
+        "Please send the CoA."
     )
     assert "*" not in result
 
@@ -160,6 +160,30 @@ def test_internal_translation_failure_does_not_invent_russian_text():
     ],
 )
 def test_plain_text_message_removes_subject_and_trailing_test_note(
+    generated, expected
+):
+    assert _plain_text_message(generated) == expected
+
+
+@pytest.mark.parametrize(
+    ("generated", "expected"),
+    [
+        (
+            "Hello. Please confirm the price. Best regards, Procurement Team",
+            "Hello. Please confirm the price.",
+        ),
+        (
+            "Hello. Please confirm the price.\n\nKind regards,\n"
+            "Procurement Department",
+            "Hello. Please confirm the price.",
+        ),
+        (
+            "Hello. Please confirm the price. Looking forward to your prompt response.",
+            "Hello. Please confirm the price.",
+        ),
+    ],
+)
+def test_plain_text_message_removes_fabricated_signature_and_empty_closing(
     generated, expected
 ):
     assert _plain_text_message(generated) == expected

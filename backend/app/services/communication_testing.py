@@ -27,6 +27,7 @@ from app.services.integration_settings import (
     mask_recipient,
 )
 from app.services.communication_recipient import protect_recipient, recipient_key
+from app.services.communication_policy import classify_supplier_message
 from app.services.prompt_service import get_active_prompt_text
 from app.services.supplier_communication_prompts import (
     CHANNEL_INSTRUCTIONS,
@@ -106,6 +107,20 @@ _TRAILING_TEST_NOTE_RE = re.compile(
     r")[.!。]*\s*)+\Z",
     re.IGNORECASE,
 )
+_TRAILING_SIGNATURE_RE = re.compile(
+    r"(?:\n+|[ \t]+)(?:best|kind|warm)\s+regards[,!]?"
+    r"(?:[ \t]*\n+[ \t]*|[ \t]+)?"
+    r"(?:procurement(?:\s+(?:team|department|specialist))?)?[.!]?[ \t]*\Z|"
+    r"(?:\n+|[ \t]+)sincerely[,]?"
+    r"(?:[ \t]*\n+[ \t]*|[ \t]+)?"
+    r"(?:procurement(?:\s+(?:team|department|specialist))?)?[.!]?[ \t]*\Z",
+    re.IGNORECASE,
+)
+_TRAILING_EMPTY_COURTESY_RE = re.compile(
+    r"(?:\s+(?:thank\s+you|thanks|looking\s+forward\s+to\s+your\s+"
+    r"(?:prompt\s+)?(?:reply|response)))[.!]?[ \t]*\Z",
+    re.IGNORECASE,
+)
 
 
 class CommunicationTestError(RuntimeError):
@@ -149,6 +164,8 @@ def _plain_text_message(value: str) -> str:
     text = _EXCESS_BLANK_LINES_RE.sub("\n\n", text).strip()
     text = _LEADING_SUBJECT_RE.sub("", text).strip()
     text = _TRAILING_TEST_NOTE_RE.sub("", text).strip()
+    text = _TRAILING_SIGNATURE_RE.sub("", text).strip()
+    text = _TRAILING_EMPTY_COURTESY_RE.sub("", text).strip()
     return _EXCESS_BLANK_LINES_RE.sub("\n\n", text).strip()
 
 
@@ -190,8 +207,32 @@ def _generation_instructions(run: CommunicationTestRun, *, stage: str) -> str:
         )
     return (
         f"{instructions}\n\nКРИТИЧЕСКОЕ ТРЕБОВАНИЕ К РЕЗУЛЬТАТУ: "
-        f"{_LANGUAGE_INSTRUCTIONS[run.reply_language]}"
+        f"{_LANGUAGE_INSTRUCTIONS[run.reply_language]} "
+        "Используй только объёмы и виды партий, прямо указанные в контексте "
+        "или последней реплике поставщика. Не превращай заданный объём в sample "
+        "и не добавляй образец, пилотную партию, контейнер, годовой объём либо "
+        "другой объём по собственной инициативе. Не добавляй подпись, должность "
+        "или пустую финальную любезность. Если заметен конфликт названия вещества "
+        "и CAS, не повторяй их как согласованные данные и не запрашивай цену до "
+        "подтверждения идентичности оператором."
     )
+
+
+def _escalate_run(
+    db: Session,
+    run: CommunicationTestRun,
+    *,
+    explanation: str,
+    category: str,
+) -> CommunicationTestRun:
+    """Останавливает симуляцию тем же fail-closed способом, что и реальные каналы."""
+    run.status = "escalated"
+    run.error = (
+        "Требуется ответ человека: "
+        f"{explanation} Категория: {category}."
+    )
+    db.commit()
+    return _load_run(db, run.id) or run
 
 
 def _message_language_matches(value: str, language: str) -> bool:
@@ -526,7 +567,7 @@ def continue_communication_test(
         run_id=run.id,
         sender_role="supplier",
         content=payload.supplier_message,
-        translation_ru=_translate_for_user(payload.supplier_message, llm=llm),
+        translation_ru=None,
         delivery_status="received",
     )
     run.messages.append(supplier_message)
@@ -535,14 +576,47 @@ def continue_communication_test(
     run.error = None
     db.commit()
 
+    try:
+        client = llm or _communication_test_llm_client()
+    except LLMUnavailableError:
+        return _escalate_run(
+            db,
+            run,
+            explanation=(
+                "Нейросеть недоступна, поэтому безопасная классификация "
+                "ответа поставщика не выполнена."
+            ),
+            category="unclear",
+        )
+
+    supplier_message.translation_ru = _translate_for_user(
+        payload.supplier_message,
+        llm=client,
+    )
+    db.commit()
+
+    policy = classify_supplier_message(
+        payload.supplier_message,
+        rfq_name=run.procurement_context,
+        rfq_cas=None,
+        llm=client,
+    )
+    if not policy.auto_reply_allowed:
+        return _escalate_run(
+            db,
+            run,
+            explanation=policy.explanation,
+            category=policy.category,
+        )
+
     reply = _generate_reply(
         db,
         run=run,
         user_text=_continue_prompt(run),
         stage="reply",
-        llm=llm,
+        llm=client,
     )
-    translation_ru = _translate_for_user(reply, llm=llm)
+    translation_ru = _translate_for_user(reply, llm=client)
     return _save_assistant_reply(
         db,
         run=run,

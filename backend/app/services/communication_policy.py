@@ -17,6 +17,93 @@ _SOCIAL_QUESTION_PATTERNS = (
     re.compile(r"\bкак\s+(?:вы\s+)?поживаете\b", re.IGNORECASE),
     re.compile(r"(?:你好吗|最近怎么样|你怎么样)"),
 )
+_PROMPT_INJECTION_PATTERNS = (
+    re.compile(
+        r"\bignore\s+(?:all\s+)?(?:previous|prior|system)\s+"
+        r"(?:rules|instructions|prompts?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:reveal|show|print|repeat)\s+(?:your\s+)?"
+        r"(?:system\s+)?prompt\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:change|switch|forget)\s+(?:your\s+)?"
+        r"(?:role|rules|instructions)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bигнорируй\s+(?:все\s+)?(?:предыдущие\s+)?"
+        r"(?:правила|инструкции|промпт)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"(?:忽略|无视).{0,12}(?:指令|规则|提示词)"),
+)
+_DANGEROUS_OR_REGULATED_PATTERNS = (
+    re.compile(r"\b(?:bypass|evade|avoid)\s+(?:the\s+)?(?:customs|sanctions?|export\s+controls?)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:unofficial|illegal|undeclared)\s+"
+        r"(?:route|shipping|import|export)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwithout\s+(?:customs|shipping|export|import)\s+documents?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:pay(?:ment)?|transfer|arrange|settle)\b.{0,30}"
+        r"\b(?:crypto(?:currency)?|bitcoin|usdt)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:обойти|нарушить)\s+(?:таможн|санкц|экспортн)\w*\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:неофициальн|нелегальн)\w*\s+"
+        r"(?:маршрут|достав|ввоз|вывоз)\w*\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:оплат|перевод)\w*\b.{0,30}"
+        r"\b(?:криптовалют|биткоин|usdt)\w*\b",
+        re.IGNORECASE,
+    ),
+)
+_COMMERCIAL_COMMITMENT_PATTERNS = (
+    re.compile(
+        r"\b(?:confirm|guarantee|place)\s+(?:the\s+|your\s+)?order\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:sign|accept)\s+(?:the\s+)?"
+        r"(?:contract|agreement|proforma\s+invoice|pi)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:pay|transfer)\s+(?:now|today|the\s+deposit|in\s+advance)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:подтвердите|разместите|гарантируйте)\s+заказ\b", re.IGNORECASE),
+    re.compile(r"\b(?:подпишите|примите)\s+(?:договор|контракт|инвойс|pi)\b", re.IGNORECASE),
+)
+_IDENTITY_OR_SYNTHESIS_PATTERNS = (
+    re.compile(
+        r"\b(?:offer|suggest|propose|supply|use)\b.{0,40}"
+        r"\b(?:alternative|analogue|analog|substitute)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:different|another)\s+cas\b", re.IGNORECASE),
+    re.compile(r"\bcustom\s+synth(?:esis|esize|esise)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:предлож|постав|использ)\w*\b.{0,40}"
+        r"\b(?:аналог|заменител)\w*\b|"
+        r"\b(?:другой\s+cas|кастомн\w*\s+синтез)\w*\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"(?:替代品|类似物|定制合成|不同的CAS)"),
+)
 _QUESTION_PATTERN = re.compile(
     r"[?？]|\b(?:what|why|how|who|where|when|can|could|would|do|are)\b|"
     r"\b(?:как|что|кто|где|когда|почему|можете|можно|ли)\b|"
@@ -211,6 +298,45 @@ def classify_supplier_message(
             auto_reply_allowed=False,
             category="social_or_personal",
             explanation="Поставщик задал личный или светский вопрос.",
+            method="rule",
+        )
+    if any(pattern.search(normalized) for pattern in _PROMPT_INJECTION_PATTERNS):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="prompt_injection",
+            explanation="Сообщение содержит инструкцию изменить правила или раскрыть промпт.",
+            method="rule",
+        )
+    if any(
+        pattern.search(normalized) for pattern in _DANGEROUS_OR_REGULATED_PATTERNS
+    ):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="regulated_or_dangerous",
+            explanation=(
+                "Поставщик затронул рискованную схему оплаты, доставки или "
+                "регуляторного обхода."
+            ),
+            method="rule",
+        )
+    if any(
+        pattern.search(normalized) for pattern in _COMMERCIAL_COMMITMENT_PATTERNS
+    ):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="commercial_commitment",
+            explanation="Поставщик просит подтвердить коммерческое обязательство.",
+            method="rule",
+        )
+    if any(
+        pattern.search(normalized) for pattern in _IDENTITY_OR_SYNTHESIS_PATTERNS
+    ):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="identity_or_custom_synthesis",
+            explanation=(
+                "Поставщик предлагает замену, другой CAS или индивидуальный синтез."
+            ),
             method="rule",
         )
     if _QUESTION_PATTERN.search(normalized) and not any(
