@@ -132,6 +132,13 @@ _EXW_QUOTE_REQUEST_RE = re.compile(
     r"\bexw\b[^.?!]{0,80}\b(?:price|quote)\b",
     re.IGNORECASE,
 )
+_UNREQUESTED_DELIVERY_PRICE_RE = re.compile(
+    r"\b(?:quote|price|cost)\b[^.?!]{0,100}\b(?:including|include|with)\b"
+    r"[^.?!]{0,30}\b(?:delivery|freight|shipping)\b|"
+    r"\b(?:delivery|freight|shipping)\b[^.?!]{0,30}\b"
+    r"(?:included|include)\b",
+    re.IGNORECASE,
+)
 _DOCUMENT_REQUEST_VERB_RE = re.compile(
     r"\b(?:send|provide|share|attach|forward|resend|re-send)\b",
     re.IGNORECASE,
@@ -224,6 +231,7 @@ _COA_CONFORMITY_RU_RE = re.compile(
     r"\b(сертификат(?:а|ом|у|е)?)\s+соответствия(?=\s*(?:\(\s*CoA\s*\)|CoA))",
     re.IGNORECASE,
 )
+_CURRENT_AVAILABILITY_RU_RE = re.compile(r"\bтекущую\s+наличие\b", re.IGNORECASE)
 
 
 class CommunicationTestError(RuntimeError):
@@ -274,7 +282,8 @@ def _plain_text_message(value: str) -> str:
 
 def _normalize_internal_translation(value: str) -> str:
     """Исправляет однозначные терминологические ошибки русского перевода."""
-    return _COA_CONFORMITY_RU_RE.sub(r"\1 анализа", value)
+    normalized = _COA_CONFORMITY_RU_RE.sub(r"\1 анализа", value)
+    return _CURRENT_AVAILABILITY_RU_RE.sub("текущее наличие", normalized)
 
 
 def _load_run(db: Session, run_id: int) -> CommunicationTestRun | None:
@@ -330,6 +339,8 @@ def _generation_instructions(run: CommunicationTestRun, *, stage: str) -> str:
         "этот базис лишь не включает основную доставку в предложение поставщика. "
         "Если нужна доставочная цена, запроси отдельный доставочный Incoterm "
         "(например, DAP/DDP), а не EXW и не 'FCA с включённой доставкой'."
+        " Не запрашивай цену с включённой доставкой или фрахтом, если оператор "
+        "не задал доставку или пункт назначения."
     )
 
 
@@ -486,6 +497,15 @@ def _reply_quality_issue(
                 "Нельзя просить поставщика выбрать или подтвердить пункт "
                 "назначения покупателя, которого нет в контексте."
             )
+
+    if (
+        not _DESTINATION_IN_CONTEXT_RE.search(context)
+        and _UNREQUESTED_DELIVERY_PRICE_RE.search(outgoing)
+    ):
+        return (
+            "В контексте нет запроса на доставку или пункта назначения; нельзя "
+            "самостоятельно просить цену с включённой доставкой или фрахтом."
+        )
 
     if re.search(r"\b(?:fca|exw)\b", latest_supplier, re.IGNORECASE):
         if _BUYER_CARRIAGE_ERROR_RE.search(outgoing):

@@ -142,6 +142,19 @@ def test_internal_translation_corrects_coa_term():
     assert translated == "Пожалуйста, предоставьте сертификат анализа (CoA)."
 
 
+def test_internal_translation_corrects_availability_agreement():
+    class TranslationLLM:
+        def generate_text(self, **kwargs):
+            return "Подтвердите номер CAS и текущую наличие товара."
+
+    translated = _translate_for_user(
+        "Please confirm the CAS and current availability.",
+        llm=TranslationLLM(),
+    )
+
+    assert translated == "Подтвердите номер CAS и текущее наличие товара."
+
+
 def test_internal_translation_failure_does_not_invent_russian_text():
     calls = []
 
@@ -394,6 +407,33 @@ def test_quality_gate_rejects_destination_question_owned_by_buyer():
 
     assert issue is not None
     assert "пункт назначения покупателя" in issue
+
+
+def test_quality_gate_rejects_unrequested_delivered_price():
+    issue = _reply_quality_issue(
+        _quality_run("100 кг ацетона, CAS 67-64-1, нужна цена и срок"),
+        (
+            "Hi, we need Acetone CAS 67-64-1. Please quote for 100 kg "
+            "including delivery and lead time."
+        ),
+        stage="initial",
+    )
+
+    assert issue is not None
+    assert "нет запроса на доставку" in issue
+
+
+def test_quality_gate_allows_plain_lead_time_without_destination():
+    issue = _reply_quality_issue(
+        _quality_run("100 кг ацетона, CAS 67-64-1, нужна цена и срок"),
+        (
+            "Hi, we need Acetone CAS 67-64-1. Please quote for 100 kg "
+            "and confirm the lead time."
+        ),
+        stage="initial",
+    )
+
+    assert issue is None
 
 
 def test_quality_gate_allows_destination_already_given_in_context():
