@@ -26,6 +26,10 @@ class Supplier(Base, TimestampMixin):
     # компания, найденная на своём сайте и на двух площадках, остаётся
     # одной строкой, а не тремя.
     company_key: Mapped[str | None] = mapped_column(String(255), index=True)
+    # Почему связи нет: «obfuscated» — адрес на странице скрыт подменой,
+    # «form» — вместо адреса форма обратной связи. Пусто, если контакт
+    # найден или страница не сказала ничего.
+    contact_barrier: Mapped[str | None] = mapped_column(String(32))
     city: Mapped[str | None] = mapped_column(String(120))
     country: Mapped[str | None] = mapped_column(String(120))
     type: Mapped[SupplierType | None] = mapped_column(SAEnum(SupplierType))

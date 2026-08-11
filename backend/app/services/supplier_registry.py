@@ -114,7 +114,14 @@ def _attach_contacts(
         if not _is_platform_own_address(email, page_url, platforms)
     ]
     if not emails and not whatsapp:
+        # Связи нет — но причина бывает разной, и закупщику её надо знать:
+        # скрытый адрес значит «напиши, открыв страницу руками», а форма —
+        # «другого пути нет».
+        barrier = result.get("contact_barrier")
+        if barrier and not supplier.contact_barrier:
+            supplier.contact_barrier = str(barrier)[:32]
         return
+    supplier.contact_barrier = None
 
     # Читаем из базы, а не из supplier.managers: связь после вставки в той
     # же сессии остаётся прежней, и повторный прогон заводил контакт заново.

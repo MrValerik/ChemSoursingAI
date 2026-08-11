@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { ChannelKind, RecipientRead, SupplierRead } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { HelpTip } from "./ui";
 
 const TYPE_LABELS: Record<string, string> = {
   manufacturer: "производитель",
@@ -22,6 +23,26 @@ const SORT_LABELS: Record<SortKey, string> = {
   channels: "Канал",
   status: "Статус отправки",
   reputation: "Репутация",
+};
+
+// Почему у компании нет канала. «Нет контакта» закупщик читает как
+// «недостижима» и вычёркивает, хотя написать нередко можно — просто не
+// автоматической рассылкой.
+const BARRIER_LABELS: Record<string, string> = {
+  obfuscated: "контакт зашифрован",
+  form: "только форма на сайте",
+};
+
+const BARRIER_HELP: Record<string, string> = {
+  obfuscated:
+    "Адрес почты на странице компании есть, но сайт подменяет его заглушкой, " +
+    "чтобы его не собирали спам-боты. В браузере адрес виден, а нашему " +
+    "чтению страницы — нет. Откройте источник из карточки и посмотрите " +
+    "адрес глазами: писать по нему можно, в автоматическую рассылку он не " +
+    "попадёт.",
+  form: "Ни почты, ни телефона компания не публикует — связь только через " +
+    "форму обратной связи на её сайте. Заполнить и отправить форму может " +
+    "только человек: откройте источник из карточки и напишите оттуда.",
 };
 
 function reputationValue(value: string | null): number {
@@ -352,7 +373,15 @@ export default function SuppliersTab({
                 </td>
                 <td>{s.type ? TYPE_LABELS[s.type] : "—"}</td>
                 <td onClick={(e) => e.stopPropagation()}>
-                  {s.channels.length === 0 && <span className="note">нет контакта</span>}
+                  {s.channels.length === 0 &&
+                    (s.contact_barrier ? (
+                      <span className="note contact-barrier">
+                        {BARRIER_LABELS[s.contact_barrier]}
+                        <HelpTip text={BARRIER_HELP[s.contact_barrier]} />
+                      </span>
+                    ) : (
+                      <span className="note">нет контакта</span>
+                    ))}
                   {isChecked && s.channels.length > 1 ? (
                     <select
                       value={checked.get(s.id)}
@@ -432,8 +461,14 @@ export default function SuppliersTab({
               <dd>
                 {detail.contacts.length === 0 ? (
                   <span className="note">
-                    Связи нет: на странице компании не нашлось ни почты, ни
-                    телефона. Написать пока некуда.
+                    {detail.contact_barrier ? (
+                      <>
+                        {BARRIER_LABELS[detail.contact_barrier]}
+                        <HelpTip text={BARRIER_HELP[detail.contact_barrier]} />
+                      </>
+                    ) : (
+                      "Связи нет: на странице компании не нашлось ни почты, ни телефона."
+                    )}
                   </span>
                 ) : (
                   <ul className="supplier-detail-contacts">

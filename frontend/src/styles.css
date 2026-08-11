@@ -861,6 +861,13 @@ button.request-delete-button:focus-visible {
   background: var(--err-soft);
   color: var(--err);
 }
+/* Причина отсутствия связи и вопросик рядом с ней. */
+.contact-barrier {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 /* Заголовок-кнопка сортировки: выглядит как обычный заголовок таблицы,
    но нажимается. Отдельная кнопка внутри th, а не onClick на самом th, —
    чтобы работала клавиатура и читалась экранным диктором. */

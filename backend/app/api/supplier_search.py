@@ -73,7 +73,7 @@ from app.services.intermediaries import (
     marketplace_page_kind,
     split_by_intermediary,
 )
-from app.services.contacts import find_contacts, has_contacts
+from app.services.contacts import find_contact_barrier, find_contacts, has_contacts
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
     build_highlights,
@@ -787,15 +787,18 @@ def _fetch_contacts_from_link(
     budget,
     run,
     into: dict[str, list[str]],
-) -> str | None:
-    """Догружает раздел «контакты» и дополняет ими найденное.
+) -> tuple[str | None, str | None]:
+    """Догружает раздел «контакты»: адреса и причину, если адресов нет.
 
     Одна загрузка на кандидата и только там, где на основной странице
     связи не нашлось. Отказ бюджета или недоступная страница — не ошибка
     прогона: карточка просто останется без контакта, как и была.
+
+    Возвращает адрес страницы, откуда взята связь, и препятствие, если
+    связи там тоже не оказалось.
     """
     if budget.refuse_page_fetch() is not None:
-        return None
+        return None, None
     try:
         page = fetch_web_page(url)
     except Exception as exc:
@@ -804,13 +807,15 @@ def _fetch_contacts_from_link(
             f"Раздел «контакты» {_domain_key(url)} не открылся: {str(exc)[:90]}",
             kind="warning",
         )
-        return None
+        return None, None
     for kind, values in find_contacts(page.text).items():
         into.setdefault(kind, [])
         for value in values:
             if value not in into[kind]:
                 into[kind].append(value)
-    return url if into else None
+    if into:
+        return url, None
+    return None, find_contact_barrier(page.text)
 
 
 def _batch_with_halving(
@@ -2721,13 +2726,20 @@ def execute_supplier_qualification(
             # ссылку на такой раздел — у 125.
             contacts = find_contacts(page.text)
             contact_source_url: str | None = None
+            # Чем страница объяснила отсутствие связи: адрес скрыт подменой
+            # или вместо него форма. Закупщику это разные вещи.
+            contact_barrier = find_contact_barrier(page.text)
             if not has_contacts(contacts) and page.contact_links:
-                contact_source_url = _fetch_contacts_from_link(
+                contact_source_url, page_barrier = _fetch_contacts_from_link(
                     page.contact_links[0],
                     budget=budget,
                     run=fetch_run,
                     into=contacts,
                 )
+                # Раздел «контакты» знает о связи больше товарной страницы:
+                # если причина видна там, она и есть настоящая.
+                if page_barrier is not None:
+                    contact_barrier = page_barrier
             fetched_sources.append(
                 {
                     "result_index": index,
@@ -2747,6 +2759,9 @@ def execute_supplier_qualification(
                     ),
                     "contacts": contacts,
                     "contacts_source_url": contact_source_url or result.url,
+                    "contact_barrier": (
+                        None if has_contacts(contacts) else contact_barrier
+                    ),
                     "page_text": _compose_page_text(
                         page.text, highlights, page_text_limit
                     ),
@@ -3091,6 +3106,7 @@ def execute_supplier_qualification(
         int(source["result_index"]): {
             "contacts": source.get("contacts") or {},
             "contacts_source_url": source.get("contacts_source_url") or "",
+            "contact_barrier": source.get("contact_barrier"),
             "is_market_report": bool(source.get("is_market_report")),
         }
         for source in fetched_sources

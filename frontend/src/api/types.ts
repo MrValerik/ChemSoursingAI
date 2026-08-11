@@ -266,6 +266,8 @@ export interface SupplierRead {
     whatsapp: string | null;
     offered_substances: string[] | null;
   }[];
+  /** Почему связи нет: адрес скрыт подменой или на сайте только форма. */
+  contact_barrier: "obfuscated" | "form" | null;
   linked_requests: {
     rfq_id: number;
     name: string;

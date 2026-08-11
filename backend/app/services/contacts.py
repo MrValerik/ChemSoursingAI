@@ -125,6 +125,53 @@ def find_contacts(text: str) -> dict[str, list[str]]:
     return {kind: values for kind, values in found.items() if values}
 
 
+# Подмена адреса, которую ставят против сборщиков спама. Настоящий адрес
+# лежит в разметке и подставляется скриптом при показе, а мы читаем текст
+# без выполнения скриптов — и видим заглушку.
+_OBFUSCATED_RE = re.compile(
+    r"(\[email\s*protected\]|email-protection|cdn-cgi/l/email"
+    r"|\(at\)|\s+at\s+\S+\s+dot\s+|＠)",
+    re.IGNORECASE,
+)
+
+# Форма обратной связи. Сама разметка в сохранённый текст не попадает, но
+# подписи полей и кнопок — попадают.
+_FORM_RE = re.compile(
+    r"(send\s+(?:us\s+)?(?:an?\s+)?(?:inquiry|enquiry|message)"
+    r"|inquiry\s+now|leave\s+(?:us\s+)?a\s+message"
+    r"|request\s+a\s+quote|get\s+a\s+quote"
+    r"|submit\s+(?:your\s+)?(?:inquiry|request|message)"
+    r"|write\s+your\s+message"
+    r"|在线留言|立即询价|提交询价|给我们留言|在线咨询)",
+    re.IGNORECASE,
+)
+
+# Что помешало снять связь со страницы.
+BARRIER_OBFUSCATED = "obfuscated"
+BARRIER_FORM = "form"
+
+
+def find_contact_barrier(text: str) -> str | None:
+    """Почему связи нет: адрес скрыт или есть только форма.
+
+    Разница существенная для закупщика. «Нет контакта» он читает как
+    «компания недостижима» и вычёркивает её. На деле у Ningbo Inno адрес
+    на странице есть, просто подменён на «[email protected]»: написать
+    можно, открыв страницу руками. А там, где стоит только форма,
+    адреса нет ни у кого, и путь один — заполнить её на сайте.
+
+    Проверено на шести сайтах из нашего же реестра: у cjspvc, keyingchem
+    и sprchemical адрес опубликован прямо, у aogubiotech — на отдельной
+    странице контактов, а у echochemtech и nbinno подменён Cloudflare.
+    """
+    body = text or ""
+    if _OBFUSCATED_RE.search(body):
+        return BARRIER_OBFUSCATED
+    if _FORM_RE.search(body):
+        return BARRIER_FORM
+    return None
+
+
 def has_contacts(contacts: dict[str, list[str]] | None) -> bool:
     """Есть ли хоть один способ написать или позвонить."""
     if not contacts:

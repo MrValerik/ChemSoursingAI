@@ -72,6 +72,10 @@ class SupplierRead(BaseModel):
     # ли по нему, и должен видеть, куда именно уйдёт письмо.
     contacts: list[SupplierContact] = Field(default_factory=list)
     contacts_count: int = 0
+    # Почему связи нет: «obfuscated» — адрес на странице скрыт подменой,
+    # «form» — вместо адреса форма обратной связи. Пусто, если контакт есть
+    # или страница ничего об этом не сказала.
+    contact_barrier: str | None = None
     request_count: int = 0
     linked_requests: list[SupplierRequestLink] = Field(default_factory=list)
     has_coa: bool = False
