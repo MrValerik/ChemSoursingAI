@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { RecipientRead, RFQRead } from "../api/types";
+import { Input, Textarea } from "./ui";
 
 const STATUS_LABELS: Record<string, string> = {
   queued: "ожидает отправки",
@@ -12,18 +13,28 @@ export default function RfqDispatchPreparation({
   rfq,
   readOnly,
   onGoToSuppliers,
-  onSent,
+  onChanged,
 }: {
   rfq: RFQRead;
   readOnly: boolean;
   onGoToSuppliers: () => void;
-  onSent: () => void;
+  onChanged: () => void;
 }) {
   const [recipients, setRecipients] = useState<RecipientRead[]>([]);
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [savedSubject, setSavedSubject] = useState(
+    rfq.rfq_subject ?? "Request for quotation",
+  );
+  const [savedBody, setSavedBody] = useState(
+    rfq.rfq_body ?? "Текст RFQ временно недоступен.",
+  );
+  const [draftSubject, setDraftSubject] = useState(savedSubject);
+  const [draftBody, setDraftBody] = useState(savedBody);
+  const [customized, setCustomized] = useState(rfq.rfq_is_customized);
 
   const queued = useMemo(
     () => recipients.filter((item) => item.status === "queued"),
@@ -46,6 +57,16 @@ export default function RfqDispatchPreparation({
   }, [rfq.id]);
 
   useEffect(() => {
+    const subject = rfq.rfq_subject ?? "Request for quotation";
+    const body = rfq.rfq_body ?? "Текст RFQ временно недоступен.";
+    setSavedSubject(subject);
+    setSavedBody(body);
+    setDraftSubject(subject);
+    setDraftBody(body);
+    setCustomized(rfq.rfq_is_customized);
+  }, [rfq.id, rfq.rfq_subject, rfq.rfq_body, rfq.rfq_is_customized]);
+
+  useEffect(() => {
     // Изменился список или статус получателей — RFQ нужно проверить заново.
     setReviewed(false);
   }, [queueKey]);
@@ -57,6 +78,83 @@ export default function RfqDispatchPreparation({
     try {
       await api.removeRecipient(rfq.id, recipient.id);
       await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const beginEditing = () => {
+    setDraftSubject(savedSubject);
+    setDraftBody(savedBody);
+    setEditing(true);
+    setReviewed(false);
+    setError(null);
+    setNotice(null);
+  };
+
+  const cancelEditing = () => {
+    setDraftSubject(savedSubject);
+    setDraftBody(savedBody);
+    setEditing(false);
+    setError(null);
+  };
+
+  const applyDraft = (updated: RFQRead) => {
+    const subject = updated.rfq_subject ?? "Request for quotation";
+    const body = updated.rfq_body ?? "Текст RFQ временно недоступен.";
+    setSavedSubject(subject);
+    setSavedBody(body);
+    setDraftSubject(subject);
+    setDraftBody(body);
+    setCustomized(updated.rfq_is_customized);
+    setReviewed(false);
+  };
+
+  const saveDraft = async () => {
+    const subject = draftSubject.trim();
+    const body = draftBody.trim();
+    if (!subject || !body) {
+      setError("Заполните тему и текст RFQ.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await api.updateRfqMessageDraft(rfq.id, { subject, body });
+      applyDraft(updated);
+      setEditing(false);
+      setNotice("Ручная версия RFQ сохранена.");
+      onChanged();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetDraft = async () => {
+    if (
+      !window.confirm(
+        "Удалить ручные изменения и заново собрать RFQ по единому шаблону?",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await api.updateRfqMessageDraft(rfq.id, {
+        subject: null,
+        body: null,
+      });
+      applyDraft(updated);
+      setEditing(false);
+      setNotice("RFQ возвращён к единому шаблону.");
+      onChanged();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -92,7 +190,7 @@ export default function RfqDispatchPreparation({
       } else {
         setNotice("RFQ отправлен выбранным поставщикам.");
       }
-      onSent();
+      onChanged();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
       await load();
@@ -179,26 +277,100 @@ export default function RfqDispatchPreparation({
               выбранные поставщики.
             </p>
           </div>
-          <span className="badge tone-neutral">получателей: {queued.length}</span>
+          <div className="rfq-preview-actions">
+            {customized && (
+              <span className="badge tone-warn">изменено вручную</span>
+            )}
+            <span className="badge tone-neutral">получателей: {queued.length}</span>
+            {!readOnly && !editing && (
+              <button
+                className="secondary btn-small"
+                disabled={busy}
+                onClick={beginEditing}
+                type="button"
+              >
+                Редактировать
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="rfq-preview-message">
-          <div className="rfq-preview-subject">
-            <span>Тема Email</span>
-            <strong>
-              [RFQ-{rfq.id}] {rfq.rfq_subject ?? "Request for quotation"}
-            </strong>
+        {editing ? (
+          <div className="rfq-preview-editor">
+            <label>
+              <span>Тема Email</span>
+              <div className="rfq-subject-editor">
+                <span>[RFQ-{rfq.id}]</span>
+                <Input
+                  maxLength={500}
+                  value={draftSubject}
+                  onChange={(event) => {
+                    setDraftSubject(event.target.value);
+                    setReviewed(false);
+                  }}
+                />
+              </div>
+            </label>
+            <label>
+              <span>Сообщение</span>
+              <Textarea
+                maxLength={20_000}
+                rows={18}
+                value={draftBody}
+                onChange={(event) => {
+                  setDraftBody(event.target.value);
+                  setReviewed(false);
+                }}
+              />
+            </label>
+            <div className="rfq-editor-actions">
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={cancelEditing}
+                type="button"
+              >
+                Отмена
+              </button>
+              <button
+                disabled={busy || !draftSubject.trim() || !draftBody.trim()}
+                onClick={() => void saveDraft()}
+                type="button"
+              >
+                {busy ? "Сохранение…" : "Сохранить RFQ"}
+              </button>
+            </div>
           </div>
-          <div className="rfq-preview-body">
-            <span>Сообщение</span>
-            <div>{rfq.rfq_body ?? "Текст RFQ временно недоступен."}</div>
+        ) : (
+          <div className="rfq-preview-message">
+            <div className="rfq-preview-subject">
+              <span>Тема Email</span>
+              <strong>
+                [RFQ-{rfq.id}] {savedSubject}
+              </strong>
+            </div>
+            <div className="rfq-preview-body">
+              <span>Сообщение</span>
+              <div>{savedBody}</div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {!readOnly && customized && !editing && (
+          <button
+            className="rfq-reset-template"
+            disabled={busy}
+            onClick={() => void resetDraft()}
+            type="button"
+          >
+            Вернуть единый шаблон
+          </button>
+        )}
 
         {notice && <p className="success-note">{notice}</p>}
         {error && <p className="error">{error}</p>}
 
-        {!readOnly && queued.length > 0 && (
+        {!readOnly && !editing && queued.length > 0 && (
           <div className="rfq-preview-confirmation">
             <label>
               <input

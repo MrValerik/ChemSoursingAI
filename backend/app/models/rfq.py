@@ -71,6 +71,13 @@ class RFQ(Base, TimestampMixin):
     search_countries: Mapped[list[str] | None] = mapped_column(JSON, default=None)
     supplier_target: Mapped[int] = mapped_column(Integer, default=5)
 
+    # Ручная версия первого RFQ. Оба поля либо заполнены вместе, либо остаются
+    # пустыми — тогда предпросмотр и отправка используют единый шаблон.
+    rfq_subject_override: Mapped[str | None] = mapped_column(
+        String(500), default=None
+    )
+    rfq_body_override: Mapped[str | None] = mapped_column(Text, default=None)
+
     status: Mapped[RFQStatus] = mapped_column(
         SAEnum(RFQStatus), default=RFQStatus.DRAFT, index=True
     )

@@ -98,7 +98,10 @@ def create_rfq(
 
 
 def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
-    """Генерирует (subject, body) RFQ из сохранённой записи."""
+    """Возвращает ручной черновик или генерирует RFQ из сохранённой записи."""
+    if rfq.rfq_subject_override and rfq.rfq_body_override:
+        return rfq.rfq_subject_override, rfq.rfq_body_override
+
     result = build_rfq(
         RFQInput(
             cas=rfq.cas,
@@ -116,6 +119,21 @@ def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
         )
     )
     return result["subject"], result["body"]
+
+
+def update_rfq_message_draft(
+    db: Session,
+    rfq: RFQ,
+    *,
+    subject: str | None,
+    body: str | None,
+) -> RFQ:
+    """Сохраняет ручной RFQ или очищает его, возвращая единый шаблон."""
+    rfq.rfq_subject_override = subject
+    rfq.rfq_body_override = body
+    db.commit()
+    db.refresh(rfq)
+    return rfq
 
 
 def archive_rfq(

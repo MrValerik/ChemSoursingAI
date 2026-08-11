@@ -1242,6 +1242,71 @@ button.danger:hover {
   background: var(--panel-2);
 }
 
+.rfq-preview-actions,
+.rfq-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rfq-preview-editor {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.rfq-preview-editor > label {
+  display: grid;
+  gap: 7px;
+}
+
+.rfq-preview-editor > label > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.rfq-subject-editor {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.rfq-subject-editor > span {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.rfq-preview-editor textarea {
+  min-height: 280px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.rfq-reset-template {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rfq-reset-template:hover {
+  background: transparent;
+  color: var(--text);
+  text-decoration: underline;
+}
+
 .rfq-preview-subject,
 .rfq-preview-body {
   display: grid;

@@ -16,13 +16,23 @@ from app.models.enums import EscalationStatus, UserRole
 from app.models.escalation import Escalation
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
-from app.schemas.rfq import RFQCreate, RFQListItem, RFQRead
+from app.schemas.rfq import (
+    RFQCreate,
+    RFQListItem,
+    RFQMessageDraftUpdate,
+    RFQRead,
+)
 from app.services.rfq_builder import (
     RFQInput,
     UnsupportedIncotermError,
     build_rfq,
 )
-from app.services.rfq_service import archive_rfq, create_rfq, render_rfq_text
+from app.services.rfq_service import (
+    archive_rfq,
+    create_rfq,
+    render_rfq_text,
+    update_rfq_message_draft,
+)
 from app.services.search_trace import create_search_run
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
@@ -211,6 +221,36 @@ def get(
     return _to_read(rfq)
 
 
+@router.put("/{rfq_id}/message-draft", response_model=RFQRead)
+def update_message_draft(
+    rfq_id: int,
+    data: RFQMessageDraftUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RFQRead:
+    """Сохраняет ручной текст первого RFQ или возвращает исходный шаблон."""
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    rfq = db.get(
+        RFQ,
+        rfq_id,
+        options=[joinedload(RFQ.owner), joinedload(RFQ.substance)],
+    )
+    if (
+        rfq is None
+        or rfq.deleted_at is not None
+        or not _can_see(user, rfq)
+    ):
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+    update_rfq_message_draft(
+        db,
+        rfq,
+        subject=data.subject,
+        body=data.body,
+    )
+    return _to_read(rfq)
+
+
 @router.delete("/{rfq_id}", status_code=204, response_class=Response)
 def delete_rfq(
     rfq_id: int,
@@ -291,6 +331,9 @@ def _to_read(rfq: RFQ) -> RFQRead:
     subject, body = render_rfq_text(rfq)
     read.rfq_subject = subject
     read.rfq_body = body
+    read.rfq_is_customized = bool(
+        rfq.rfq_subject_override and rfq.rfq_body_override
+    )
     read.owner_name = rfq.owner.full_name if rfq.owner else None
     read.substance_preferred_name = (
         rfq.substance.preferred_name if rfq.substance else None

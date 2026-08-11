@@ -136,10 +136,33 @@ class RFQRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    # Вычисляемые поля (текст RFQ под выбранные базисы) — не хранятся в БД.
+    # Эффективный текст: ручной сохранённый черновик либо единый шаблон.
     rfq_subject: str | None = None
     rfq_body: str | None = None
+    rfq_is_customized: bool = False
     owner_name: str | None = None
+
+
+class RFQMessageDraftUpdate(BaseModel):
+    """Ручная версия первого RFQ; два null возвращают единый шаблон."""
+
+    subject: str | None = Field(default=None, max_length=500)
+    body: str | None = Field(default=None, max_length=20_000)
+
+    @model_validator(mode="after")
+    def validate_complete_draft(self) -> "RFQMessageDraftUpdate":
+        if self.subject is None and self.body is None:
+            return self
+        if self.subject is None or self.body is None:
+            raise ValueError("Тема и текст RFQ должны быть заполнены вместе")
+
+        subject = self.subject.strip()
+        body = self.body.strip()
+        if not subject or not body:
+            raise ValueError("Тема и текст RFQ не могут быть пустыми")
+        self.subject = subject
+        self.body = body
+        return self
 
 
 class RFQListItem(BaseModel):

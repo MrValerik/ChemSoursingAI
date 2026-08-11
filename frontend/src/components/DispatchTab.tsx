@@ -243,7 +243,7 @@ export default function DispatchTab({
         rfq={rfq}
         readOnly={readOnly}
         onGoToSuppliers={onGoToSuppliers}
-        onSent={async () => {
+        onChanged={async () => {
           await load();
           onStatusChanged();
         }}

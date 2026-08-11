@@ -129,6 +129,7 @@ export interface RFQRead {
   owner_name: string | null;
   rfq_subject: string | null;
   rfq_body: string | null;
+  rfq_is_customized: boolean;
 }
 
 export interface RFQListItem {

@@ -173,6 +173,93 @@ def test_select_and_dispatch(client):
     assert client.post(f"/rfq/{rfq['id']}/dispatch", headers=headers).status_code == 422
 
 
+def test_manual_rfq_draft_is_validated_persisted_and_dispatched(client):
+    headers = _login(client)
+    supplier = client.post(
+        "/suppliers",
+        json={
+            "company": "Manual RFQ Supplier",
+            "email": "manual-rfq@supplier.example",
+        },
+        headers=headers,
+    ).json()
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "64-17-5", "name": "Ethanol", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+    template_subject = rfq["rfq_subject"]
+    template_body = rfq["rfq_body"]
+    assert rfq["rfq_is_customized"] is False
+
+    incomplete = client.put(
+        f"/rfq/{rfq['id']}/message-draft",
+        json={"subject": "Only subject", "body": None},
+        headers=headers,
+    )
+    blank = client.put(
+        f"/rfq/{rfq['id']}/message-draft",
+        json={"subject": "   ", "body": "Message"},
+        headers=headers,
+    )
+    assert incomplete.status_code == 422
+    assert blank.status_code == 422
+
+    custom_subject = "Custom quotation request for ethanol"
+    custom_body = "Dear Supplier,\n\nPlease quote 50 kg of ethanol."
+    saved = client.put(
+        f"/rfq/{rfq['id']}/message-draft",
+        json={
+            "subject": f"  {custom_subject}  ",
+            "body": f"  {custom_body}  ",
+        },
+        headers=headers,
+    )
+    assert saved.status_code == 200
+    assert saved.json()["rfq_subject"] == custom_subject
+    assert saved.json()["rfq_body"] == custom_body
+    assert saved.json()["rfq_is_customized"] is True
+
+    persisted = client.get(f"/rfq/{rfq['id']}", headers=headers).json()
+    assert persisted["rfq_subject"] == custom_subject
+    assert persisted["rfq_body"] == custom_body
+
+    auditor = _login(client, "auditor")
+    forbidden = client.put(
+        f"/rfq/{rfq['id']}/message-draft",
+        json={"subject": "Forbidden", "body": "Forbidden"},
+        headers=auditor,
+    )
+    assert forbidden.status_code == 403
+
+    reset = client.put(
+        f"/rfq/{rfq['id']}/message-draft",
+        json={"subject": None, "body": None},
+        headers=headers,
+    )
+    assert reset.status_code == 200
+    assert reset.json()["rfq_subject"] == template_subject
+    assert reset.json()["rfq_body"] == template_body
+    assert reset.json()["rfq_is_customized"] is False
+
+    client.put(
+        f"/rfq/{rfq['id']}/message-draft",
+        json={"subject": custom_subject, "body": custom_body},
+        headers=headers,
+    )
+    client.post(
+        f"/rfq/{rfq['id']}/recipients",
+        json={"items": [{"supplier_id": supplier["id"], "channel": "email"}]},
+        headers=headers,
+    )
+    dispatched = client.post(f"/rfq/{rfq['id']}/dispatch", headers=headers)
+    assert dispatched.status_code == 200
+    history = _communications(rfq["id"])
+    assert len(history) == 1
+    assert history[0].subject == f"[RFQ-{rfq['id']}] {custom_subject}"
+    assert history[0].body == custom_body
+
+
 def test_live_smtp_dispatch_creates_communication(client, monkeypatch):
     headers = _login(client)
     supplier = client.post(

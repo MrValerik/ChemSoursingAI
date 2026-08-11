@@ -360,6 +360,15 @@ export const api = {
   listRecipients: (rfqId: number) =>
     request<RecipientRead[]>(`/rfq/${rfqId}/recipients`),
 
+  updateRfqMessageDraft: (
+    rfqId: number,
+    payload: { subject: string | null; body: string | null },
+  ) =>
+    request<RFQRead>(`/rfq/${rfqId}/message-draft`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
   selectRecipients: (rfqId: number, items: { supplier_id: number; channel: string }[]) =>
     request<RecipientRead[]>(`/rfq/${rfqId}/recipients`, {
       method: "POST",
