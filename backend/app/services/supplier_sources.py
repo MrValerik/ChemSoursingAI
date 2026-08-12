@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlparse
@@ -309,6 +310,21 @@ _MAX_NAME_ALTERNATIVES = 3
 # названия в два слова находятся, в четыре — нет.
 _MAX_QUOTED_WORDS = 3
 
+# Числовой диапазон в названии — «C18-C22», «C16-18», «12-14». В точную
+# фразу такое имя брать нельзя, сколько бы слов в нём ни было: продавцы
+# пишут диапазон как попало, и ни одно написание не совпадёт дословно.
+#
+# Замер по запросу #31 «C18-C22 fatty alcohol», четыре пары запросов,
+# различие только в кавычках: в кавычках найден один результат на четыре
+# формы, без кавычек — тридцать девять. Единственная находка в кавычках
+# оказалась сводным перечнем, а без них пришли «Behenyl Alcohol
+# (Docosanol, C22) Supplier», «unsaturated fatty alcohol C18», «STEARYL
+# ALCOHOL (C18)» — то есть тот же товар под другими написаниями.
+#
+# Порог по числу слов при этом не трогаем: он измерен отдельно, и для
+# обычных трёхсловных названий кавычки держат выдачу от расползания.
+_RANGE_RE = re.compile(r"\d\s*[-–—]\s*[A-Za-zА-Яа-я]?\d")
+
 
 def _query_base_name(name: str) -> str:
     """Главное товарное имя без пояснения закупщика в скобках.
@@ -402,7 +418,9 @@ def _explicit_form_variants(name: str) -> list[str]:
 
 def _is_quotable(name: str) -> bool:
     """Годится ли название в точную фразу."""
-    return 0 < len(name.split()) <= _MAX_QUOTED_WORDS
+    if not 0 < len(name.split()) <= _MAX_QUOTED_WORDS:
+        return False
+    return not _RANGE_RE.search(name)
 
 
 def _distinct_names(name: str, synonyms: list[str] | None) -> list[str]:

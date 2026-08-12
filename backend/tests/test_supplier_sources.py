@@ -549,3 +549,45 @@ def test_composition_only_query_survives_the_plan_safety_filter():
         and "ABIL" not in item.query
         for item in merged
     )
+
+
+def test_a_name_with_a_range_is_never_an_exact_phrase():
+    """Диапазон в названии убивает выдачу, сколько бы слов ни было.
+
+    Замер по запросу #31 «C18-C22 fatty alcohol», четыре пары запросов,
+    различие только в кавычках: в кавычках найден один результат на все
+    четыре формы, без кавычек — тридцать девять. Единственная находка в
+    кавычках оказалась сводным перечнем, а без них пришли «Behenyl
+    Alcohol (Docosanol, C22) Supplier», «unsaturated fatty alcohol C18»,
+    «STEARYL ALCOHOL (C18)» — тот же товар под другими написаниями.
+
+    Название здесь трёхсловное, то есть под прежний порог по числу слов
+    оно проходило и в кавычки попадало.
+    """
+    name = "C18-C22 fatty alcohol"
+    queries = build_search_queries(
+        cas=None, name=name, country="Китай", ai_query=None
+    )
+
+    assert queries
+    assert all(f'"{name}"' not in query for query in queries)
+    # Само название из поиска при этом не пропадает.
+    assert any(name in query for query in queries)
+
+
+def test_other_range_spellings_are_caught_too():
+    """Продавцы пишут диапазон как попало — правило должно ловить все."""
+    for name in ("C16-18 fatty alcohol", "Alcohol 12-14", "С20–С22 alcohol"):
+        queries = build_search_queries(
+            cas=None, name=name, country="Китай", ai_query=None
+        )
+        assert all(f'"{name}"' not in query for query in queries), name
+
+
+def test_a_short_name_without_a_range_keeps_its_quotes():
+    """Правило адресное: обычные названия кавычек не теряют."""
+    for name in ("Cocamidopropyl betaine", "Adipic acid", "Stearyl alcohol"):
+        queries = build_search_queries(
+            cas=None, name=name, country="Китай", ai_query=None
+        )
+        assert any(f'"{name}"' in query for query in queries), name
