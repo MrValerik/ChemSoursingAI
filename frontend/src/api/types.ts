@@ -333,6 +333,8 @@ export interface SupplierConversationRead {
   channel: ChannelKind;
   contact: string | null;
   recipient_status: DispatchStatusKind | null;
+  data_collection_status: "not_started" | "collecting" | "complete" | "needs_human";
+  missing_quote_fields: string[];
   last_message_at: string | null;
   messages: CommunicationMessageRead[];
   escalations: CommunicationEscalationRead[];

@@ -476,6 +476,140 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
     assert quotes[0]["price"] == 500
 
 
+def test_email_dialogue_stops_after_cumulative_data_and_coa_attachment(
+    client, monkeypatch
+):
+    headers = _login(client)
+    supplier = client.post(
+        "/suppliers",
+        json={
+            "company": "Cumulative Quote Supplier",
+            "email": "cumulative@supplier.example",
+        },
+        headers=headers,
+    ).json()
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "67-56-1", "name": "Methanol", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+
+    first = IncomingEmail(
+        uid="cumulative-1",
+        message_id="<cumulative-1@supplier.example>",
+        subject=f"Re: [RFQ-{rfq['id']}] Methanol",
+        from_address="cumulative@supplier.example",
+        to_addresses=["buyer@example.com"],
+        text="USD 500/MT, CIP Moscow.",
+    )
+    second = IncomingEmail(
+        uid="cumulative-2",
+        message_id="<cumulative-2@supplier.example>",
+        subject=f"Re: [RFQ-{rfq['id']}] Methanol",
+        from_address="cumulative@supplier.example",
+        to_addresses=["buyer@example.com"],
+        text="Our MOQ is 1 MT. CoA attached.",
+        attachments=[{"filename": "methanol-coa.pdf", "content": b"test"}],
+    )
+
+    class FakeConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="draft",
+            email_delivery_mode="demo",
+            email_from="buyer@example.com",
+        )
+
+        def __init__(self):
+            self.pending = [[first], [second]]
+            self.seen = []
+
+        def fetch_unseen(self, limit=20):
+            return self.pending.pop(0)
+
+        def mark_seen(self, uids):
+            self.seen.extend(uids)
+
+    extracted = iter(
+        [
+            ExtractedQuote(
+                price=500,
+                currency="USD",
+                incoterm="CIP",
+                field_confidence={"price": 0.9, "incoterm": 0.9},
+                method="test",
+            ),
+            ExtractedQuote(
+                moq="1 MT",
+                field_confidence={"moq": 0.95},
+                method="test",
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: next(extracted),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Standard quotation reply.",
+            method="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow._render_followup",
+        lambda *args, **kwargs: "Please provide the remaining details.",
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.store_incoming_attachments",
+        lambda *args, attachments=None, **kwargs: (
+            [
+                {
+                    "filename": "methanol-coa.pdf",
+                    "content_type": "application/pdf",
+                    "size": 4,
+                    "document_id": 777,
+                    "kind": "coa",
+                    "status": "extracted",
+                    "page_count": 1,
+                    "error": None,
+                }
+            ]
+            if attachments
+            else []
+        ),
+    )
+
+    connector = FakeConnector()
+    with SessionLocal() as db:
+        first_result = sync_inbox(db, connector=connector)
+        second_result = sync_inbox(db, connector=connector)
+
+    assert first_result.followups_drafted == 1
+    assert second_result.followups_drafted == 0
+    assert second_result.followups_sent == 0
+    assert connector.seen == ["cumulative-1", "cumulative-2"]
+    history = _communications(rfq["id"])
+    assert [item.status for item in history] == [
+        "received",
+        "cancelled",
+        "received",
+    ]
+
+    overview = client.get(
+        f"/rfq/{rfq['id']}/communications", headers=headers
+    ).json()
+    conversation = next(
+        item
+        for item in overview["conversations"]
+        if item["supplier_id"] == supplier["id"]
+    )
+    assert conversation["data_collection_status"] == "complete"
+    assert conversation["missing_quote_fields"] == []
+
+
 def test_nonstandard_supplier_question_creates_escalation_without_reply(
     client, monkeypatch
 ):

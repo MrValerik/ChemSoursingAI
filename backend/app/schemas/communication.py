@@ -91,6 +91,8 @@ class SupplierConversationRead(BaseModel):
     channel: Channel
     contact: str | None
     recipient_status: DispatchStatus | None
+    data_collection_status: str = "not_started"
+    missing_quote_fields: list[str] = Field(default_factory=list)
     last_message_at: datetime | None
     messages: list[CommunicationMessageRead] = Field(default_factory=list)
     escalations: list[CommunicationEscalationRead] = Field(default_factory=list)

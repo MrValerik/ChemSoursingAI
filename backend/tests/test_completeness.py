@@ -1,7 +1,7 @@
 """Тесты контроля полноты и правил эскалации."""
 
 from app.models.enums import EscalationReason
-from app.services.completeness import evaluate_completeness
+from app.services.completeness import accumulate_quotations, evaluate_completeness
 from app.services.escalation_rules import detect_escalation
 
 
@@ -46,6 +46,40 @@ def test_low_confidence_breaks_completeness():
     )
     assert not r.is_complete
     assert r.low_confidence_fields == ["price"]
+
+
+def test_optional_low_confidence_does_not_block_complete_quote():
+    r = evaluate_completeness(
+        _full_quote(), field_confidence={"lead_time": 0.2}
+    )
+    assert r.is_complete
+
+
+def test_accumulates_confirmed_fields_across_replies():
+    result = accumulate_quotations(
+        [
+            {
+                "price": 12.5,
+                "incoterm": "CIP",
+                "moq": None,
+                "has_coa": False,
+                "has_tds": False,
+                "field_confidence": {"price": 0.9, "incoterm": 0.9},
+            },
+            {
+                "price": None,
+                "incoterm": None,
+                "moq": "25 kg",
+                "has_coa": True,
+                "has_tds": False,
+                "field_confidence": {"moq": 0.95},
+            },
+        ]
+    )
+
+    assert result.completeness.is_complete
+    assert result.quote["price"] == 12.5
+    assert result.quote["moq"] == "25 kg"
 
 
 def test_escalation_none_for_clean_quote():

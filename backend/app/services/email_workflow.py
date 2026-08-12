@@ -26,9 +26,10 @@ from app.models.enums import (
 )
 from app.models.escalation import Escalation
 from app.models.manager import Manager
+from app.models.quotation import Quotation
 from app.models.rfq import RFQ
 from app.schemas.quotation import QuotationCreate
-from app.services.completeness import evaluate_completeness
+from app.services.completeness import accumulate_quotations
 from app.services.communication_policy import classify_supplier_message
 from app.services.document_intake import store_incoming_attachments
 from app.services.integration_settings import effective_email_settings
@@ -99,17 +100,54 @@ def _find_manager(db: Session, address: str) -> Manager | None:
     )
 
 
-def _quote_mapping(quote) -> dict:
-    return {
-        "price": quote.price,
-        "incoterm": quote.incoterm,
-        "moq": quote.moq,
-        "grade": quote.grade,
-        "payment_terms": quote.payment_terms,
-        "lead_time": quote.lead_time,
-        "has_coa": quote.has_coa,
-        "has_tds": quote.has_tds,
-    }
+def _supplier_manager_ids(db: Session, manager: Manager | None) -> list[int]:
+    if manager is None:
+        return []
+    return list(
+        db.scalars(
+            select(Manager.id).where(Manager.supplier_id == manager.supplier_id)
+        ).all()
+    )
+
+
+def _supplier_quotations(db: Session, rfq_id: int, manager: Manager | None):
+    if manager is None:
+        return []
+    manager_ids = _supplier_manager_ids(db, manager)
+    return list(
+        db.scalars(
+            select(Quotation)
+            .where(
+                Quotation.rfq_id == rfq_id,
+                Quotation.manager_id.in_(manager_ids),
+            )
+            .order_by(Quotation.created_at, Quotation.id)
+        ).all()
+    )
+
+
+def _cancel_pending_followups(
+    db: Session, *, rfq_id: int, manager: Manager | None
+) -> None:
+    """Не даёт оператору отправить устаревший дозапрос после сбора данных."""
+    if manager is None:
+        return
+    manager_ids = _supplier_manager_ids(db, manager)
+    drafts = db.scalars(
+        select(Communication).where(
+            Communication.rfq_id == rfq_id,
+            Communication.manager_id.in_(manager_ids),
+            Communication.direction == CommDirection.OUTBOUND,
+            Communication.channel == Channel.EMAIL,
+            Communication.status == "draft",
+            Communication.idempotency_key.is_(None),
+            Communication.thread_id.is_not(None),
+        )
+    ).all()
+    for draft in drafts:
+        draft.status = "cancelled"
+    if drafts:
+        db.commit()
 
 
 def _subject_label(rfq: RFQ) -> str:
@@ -257,15 +295,13 @@ def sync_inbox(
             db.add(inbound)
             rfq.status = RFQStatus.COLLECTING
             db.flush()
-            inbound.attachments = (
-                store_incoming_attachments(
-                    db,
-                    rfq_id=rfq.id,
-                    communication_id=inbound.id,
-                    attachments=message.attachments,
-                )
-                or None
+            stored_attachments = store_incoming_attachments(
+                db,
+                rfq_id=rfq.id,
+                communication_id=inbound.id,
+                attachments=message.attachments,
             )
+            inbound.attachments = stored_attachments or None
 
             policy = classify_supplier_message(
                 message.text,
@@ -303,11 +339,12 @@ def sync_inbox(
                 system_prompt=system_prompt,
                 additional_instructions=instructions,
             )
-            quote_data = _quote_mapping(quote)
-            completeness = evaluate_completeness(
-                quote_data, quote.field_confidence
-            )
-            create_quotation(
+            attachment_kinds = {
+                item.get("kind")
+                for item in stored_attachments
+                if item.get("document_id") is not None
+            }
+            quotation = create_quotation(
                 db,
                 QuotationCreate(
                     rfq_id=rfq.id,
@@ -319,15 +356,25 @@ def sync_inbox(
                     grade=quote.grade,
                     payment_terms=quote.payment_terms,
                     lead_time=quote.lead_time,
-                    has_coa=quote.has_coa,
-                    has_tds=quote.has_tds,
+                    has_coa=quote.has_coa or "coa" in attachment_kinds,
+                    has_tds=quote.has_tds or "tds" in attachment_kinds,
                     field_confidence=quote.field_confidence,
                     source_text=message.text,
                 ),
             )
+            supplier_quotations = _supplier_quotations(db, rfq.id, manager)
+            progress = accumulate_quotations(
+                supplier_quotations if supplier_quotations else [quotation]
+            )
             rfq.status = RFQStatus.PARSED
             db.commit()
             summary.quotations_created += 1
+            if progress.completeness.is_complete:
+                _cancel_pending_followups(
+                    db,
+                    rfq_id=rfq.id,
+                    manager=manager,
+                )
             followup_status = _create_followup(
                 db,
                 rfq=rfq,
@@ -336,8 +383,8 @@ def sync_inbox(
                 missing=list(
                     dict.fromkeys(
                         [
-                            *completeness.missing_fields,
-                            *completeness.low_confidence_fields,
+                            *progress.completeness.missing_fields,
+                            *progress.completeness.low_confidence_fields,
                         ]
                     )
                 ),

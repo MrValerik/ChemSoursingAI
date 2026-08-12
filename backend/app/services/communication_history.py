@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Communication, Escalation, RfqRecipient, Supplier
+from app.models import Communication, Escalation, Quotation, RfqRecipient, Supplier
 from app.models.enums import Channel, CommDirection, DispatchStatus, EscalationStatus
 from app.models.manager import Manager
 from app.schemas.communication import (
@@ -14,6 +14,7 @@ from app.schemas.communication import (
     CommunicationOverviewRead,
     SupplierConversationRead,
 )
+from app.services.completeness import accumulate_quotations
 
 
 def _contact(manager: Manager | None, channel: Channel) -> str | None:
@@ -92,6 +93,16 @@ def list_communication_overview(
             )
             .where(Escalation.rfq_id == rfq_id)
             .order_by(Escalation.created_at.desc(), Escalation.id.desc())
+        ).unique()
+    )
+    quotations = list(
+        db.scalars(
+            select(Quotation)
+            .options(
+                joinedload(Quotation.manager).joinedload(Manager.supplier)
+            )
+            .where(Quotation.rfq_id == rfq_id)
+            .order_by(Quotation.created_at, Quotation.id)
         ).unique()
     )
 
@@ -205,6 +216,43 @@ def list_communication_overview(
             )
             conversations[key] = conversation
         conversation.escalations.append(escalation_read)
+
+    quotations_by_supplier: dict[int, list[Quotation]] = {}
+    for quotation in quotations:
+        if quotation.manager is None:
+            continue
+        quotations_by_supplier.setdefault(
+            quotation.manager.supplier_id, []
+        ).append(quotation)
+
+    for conversation in conversations.values():
+        supplier_quotations = (
+            quotations_by_supplier.get(conversation.supplier_id, [])
+            if conversation.supplier_id is not None
+            else []
+        )
+        if not supplier_quotations:
+            continue
+        progress = accumulate_quotations(supplier_quotations)
+        missing = list(
+            dict.fromkeys(
+                [
+                    *progress.completeness.missing_fields,
+                    *progress.completeness.low_confidence_fields,
+                ]
+            )
+        )
+        conversation.missing_quote_fields = missing
+        conversation.data_collection_status = (
+            "complete" if progress.completeness.is_complete else "collecting"
+        )
+
+    for conversation in conversations.values():
+        if any(
+            escalation.status != EscalationStatus.RESOLVED.value
+            for escalation in conversation.escalations
+        ):
+            conversation.data_collection_status = "needs_human"
 
     def sort_key(item: SupplierConversationRead) -> tuple[int, float]:
         has_active = any(

@@ -12,7 +12,7 @@ Confidence-порог (раздел 5 ТЗ): поля с уверенность�
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 # Обязательные для полноты поля (спецификация проверяется отдельно).
 REQUIRED_FIELDS = ("price", "incoterm", "moq")
@@ -26,6 +26,15 @@ class CompletenessResult:
     is_complete: bool
     missing_fields: list[str] = field(default_factory=list)
     low_confidence_fields: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AccumulatedQuoteResult:
+    """Накопленные подтверждённые условия одного поставщика по одному RFQ."""
+
+    quote: dict[str, Any]
+    field_confidence: dict[str, float]
+    completeness: CompletenessResult
 
 
 def _is_empty(value: Any) -> bool:
@@ -59,7 +68,10 @@ def evaluate_completeness(
         low_conf = [
             name
             for name, conf in field_confidence.items()
-            if conf is not None and conf < threshold
+            if name in REQUIRED_FIELDS
+            and not _is_empty(quote.get(name))
+            and conf is not None
+            and conf < threshold
         ]
 
     is_complete = not missing and not low_conf
@@ -67,4 +79,61 @@ def evaluate_completeness(
         is_complete=is_complete,
         missing_fields=missing,
         low_confidence_fields=sorted(low_conf),
+    )
+
+
+def accumulate_quotations(
+    quotations: Iterable[Any],
+    *,
+    threshold: float = CONFIDENCE_THRESHOLD,
+) -> AccumulatedQuoteResult:
+    """Объединяет данные из нескольких ответов, не смешивая поставщиков.
+
+    Вызывающий код передаёт только котировки одного поставщика и одного RFQ.
+    Более позднее значение заменяет раннее, если оно не менее надёжно. Поэтому
+    случайный ответ с низкой уверенностью не стирает ранее подтверждённое поле.
+    CoA/TDS накапливаются логическим OR.
+    """
+
+    merged: dict[str, Any] = {
+        "price": None,
+        "incoterm": None,
+        "moq": None,
+        "has_coa": False,
+        "has_tds": False,
+    }
+    confidence: dict[str, float] = {}
+
+    for quotation in quotations:
+        values = quotation if isinstance(quotation, Mapping) else vars(quotation)
+        raw_confidence = values.get("field_confidence") or {}
+        for name in REQUIRED_FIELDS:
+            value = values.get(name)
+            if _is_empty(value):
+                continue
+            new_confidence = raw_confidence.get(name)
+            current_confidence = confidence.get(name)
+            if (
+                _is_empty(merged.get(name))
+                or new_confidence is None
+                or current_confidence is None
+                or new_confidence >= current_confidence
+            ):
+                merged[name] = value
+                if new_confidence is None:
+                    confidence.pop(name, None)
+                else:
+                    confidence[name] = float(new_confidence)
+        merged["has_coa"] = bool(merged["has_coa"] or values.get("has_coa"))
+        merged["has_tds"] = bool(merged["has_tds"] or values.get("has_tds"))
+
+    completeness = evaluate_completeness(
+        merged,
+        confidence,
+        threshold=threshold,
+    )
+    return AccumulatedQuoteResult(
+        quote=merged,
+        field_confidence=confidence,
+        completeness=completeness,
     )

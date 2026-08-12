@@ -21,6 +21,32 @@ const EMPTY_OVERVIEW: CommunicationOverviewRead = {
 const conversationKey = (item: SupplierConversationRead) =>
   `${item.supplier_id ?? item.contact ?? "unknown"}:${item.channel}`;
 
+const QUOTE_FIELD_LABELS: Record<string, string> = {
+  price: "цена",
+  incoterm: "Incoterm",
+  moq: "MOQ",
+  specification: "CoA/TDS",
+};
+
+const collectionStatus = (item: SupplierConversationRead) => {
+  if (item.data_collection_status === "complete") {
+    return { label: "Данные собраны", tone: "tone-ok" };
+  }
+  if (item.data_collection_status === "needs_human") {
+    return { label: "Нужен человек", tone: "tone-warn" };
+  }
+  if (item.data_collection_status === "collecting") {
+    const fields = item.missing_quote_fields
+      .map((field) => QUOTE_FIELD_LABELS[field] ?? field)
+      .join(", ");
+    return {
+      label: fields ? `Не хватает: ${fields}` : "Сбор данных",
+      tone: "tone-info",
+    };
+  }
+  return null;
+};
+
 const createActionId = () => {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -351,6 +377,7 @@ export default function DispatchTab({
                 const lastMessage =
                   item.messages[item.messages.length - 1]?.body ??
                   "Сообщений пока нет";
+                const progress = collectionStatus(item);
                 return (
                   <button
                     className={`conversation-supplier ${
@@ -373,6 +400,11 @@ export default function DispatchTab({
                         Нужен человек · {openCount}
                       </span>
                     )}
+                    {openCount === 0 && progress && (
+                      <span className={`badge ${progress.tone}`}>
+                        {progress.label}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -388,11 +420,22 @@ export default function DispatchTab({
                         {selectedConversation.contact ?? "Контакт не указан"}
                       </div>
                     </div>
-                    <span className="badge tone-neutral">
-                      {selectedConversation.channel === "email"
-                        ? "Email"
-                        : "WhatsApp"}
-                    </span>
+                    <div className="stack-inline">
+                      {collectionStatus(selectedConversation) && (
+                        <span
+                          className={`badge ${
+                            collectionStatus(selectedConversation)?.tone
+                          }`}
+                        >
+                          {collectionStatus(selectedConversation)?.label}
+                        </span>
+                      )}
+                      <span className="badge tone-neutral">
+                        {selectedConversation.channel === "email"
+                          ? "Email"
+                          : "WhatsApp"}
+                      </span>
+                    </div>
                   </div>
 
                   {selectedConversation.escalations
