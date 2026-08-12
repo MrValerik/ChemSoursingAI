@@ -78,6 +78,9 @@ def test_owner_sees_document_and_downloads_it_as_attachment(client, seeded):
     # Файл извне не должен открываться браузером как страница.
     assert downloaded.headers["content-type"] == "application/octet-stream"
     assert "attachment;" in downloaded.headers["content-disposition"]
+    assert "filename*=UTF-8''CoA_api.pdf" in downloaded.headers[
+        "content-disposition"
+    ]
     assert downloaded.headers["x-content-type-options"] == "nosniff"
 
 

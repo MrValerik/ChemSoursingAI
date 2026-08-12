@@ -143,6 +143,35 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
+async function requestFile(path: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}${path}`, { headers });
+  } catch (error) {
+    throw new ApiError(
+      0,
+      userErrorMessage(
+        error,
+        "Не удалось скачать файл. Проверьте подключение и повторите попытку.",
+      ),
+    );
+  }
+  if (!response.ok) {
+    if (response.status === 401) onUnauthorized?.();
+    throw new ApiError(
+      response.status,
+      response.status === 410
+        ? "Файл больше недоступен в хранилище."
+        : "Не удалось скачать вложение.",
+    );
+  }
+  return response.blob();
+}
+
 export interface RFQCreatePayload {
   identification_method?: IdentificationMethod;
   /** Необязателен: у смесей и промышленных продуктов номера нет. */
@@ -657,6 +686,8 @@ export const api = {
     request<SupplierDocumentRead[]>(`/rfq/${rfqId}/documents`),
 
   documentFileUrl: (id: number) => `${BASE}/documents/${id}/file`,
+
+  downloadDocument: (id: number) => requestFile(`/documents/${id}/file`),
 
   verifyDocument: (id: number) =>
     request<SupplierDocumentDetail>(`/documents/${id}/verify`, {

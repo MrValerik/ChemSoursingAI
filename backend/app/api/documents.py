@@ -1,5 +1,7 @@
 """Документы поставщика: список, исходный файл, текст и проверка агентом."""
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import select
@@ -85,11 +87,15 @@ def download_document(
     # Документ приходит извне, поэтому браузер не должен его исполнять:
     # только скачивание, без inline-просмотра.
     safe_name = document.filename.replace('"', "")
+    encoded_name = quote(safe_name, safe="")
     return Response(
         content=payload,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{safe_name}"',
+            "Content-Disposition": (
+                'attachment; filename="document"; '
+                f"filename*=UTF-8''{encoded_name}"
+            ),
             "X-Content-Type-Options": "nosniff",
         },
     )

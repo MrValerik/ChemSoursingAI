@@ -299,8 +299,19 @@ export interface CommunicationMessageRead {
   status: string | null;
   from_address: string | null;
   to_address: string | null;
-  attachments: Record<string, unknown>[] | null;
+  attachments: CommunicationAttachmentRead[] | null;
   created_at: string;
+}
+
+export interface CommunicationAttachmentRead {
+  filename: string;
+  content_type: string | null;
+  size: number;
+  document_id: number | null;
+  kind: string | null;
+  status: string;
+  page_count: number | null;
+  error: string | null;
 }
 
 export interface CommunicationEscalationRead {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type {
+  CommunicationAttachmentRead,
   CommunicationEscalationRead,
   CommunicationOverviewRead,
   RFQRead,
@@ -60,6 +61,29 @@ const deliveryStatusLabel = (status: string) =>
     delivery_error: "доставка не подтверждена",
   })[status] ?? status;
 
+const ATTACHMENT_STATUS_LABELS: Record<string, string> = {
+  stored: "сохранён",
+  extracted: "текст извлечён",
+  ocr_extracted: "текст распознан",
+  needs_ocr: "нужна ручная проверка",
+  unsupported: "формат не поддерживается",
+  rejected: "файл отклонён",
+  failed: "не удалось сохранить",
+  skipped: "файл пропущен",
+};
+
+const ATTACHMENT_KIND_LABELS: Record<string, string> = {
+  coa: "CoA",
+  tds: "TDS",
+  msds: "SDS",
+  other: "файл",
+};
+
+const formatAttachmentSize = (bytes: number) =>
+  bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)} МБ`
+    : `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+
 export default function DispatchTab({
   rfq,
   onStatusChanged,
@@ -83,6 +107,7 @@ export default function DispatchTab({
   const [messageActionId, setMessageActionId] = useState(createActionId);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [draftBusy, setDraftBusy] = useState<number | null>(null);
+  const [downloadBusy, setDownloadBusy] = useState<number | null>(null);
 
   const canSyncEmail = user?.role === "head" || user?.role === "admin";
 
@@ -211,6 +236,27 @@ export default function DispatchTab({
       await load();
     } finally {
       setDraftBusy(null);
+    }
+  };
+
+  const downloadAttachment = async (attachment: CommunicationAttachmentRead) => {
+    if (!attachment.document_id) return;
+    setDownloadBusy(attachment.document_id);
+    setError(null);
+    try {
+      const blob = await api.downloadDocument(attachment.document_id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setDownloadBusy(null);
     }
   };
 
@@ -379,6 +425,62 @@ export default function DispatchTab({
                             <span>{formatMoment(message.created_at)}</span>
                           </div>
                           <p>{message.body || "—"}</p>
+                          {message.channel === "email" &&
+                            message.attachments &&
+                            message.attachments.length > 0 && (
+                              <div
+                                className="conversation-attachments"
+                                aria-label="Вложения письма"
+                              >
+                                {message.attachments.map((attachment, index) => {
+                                  const downloadable = attachment.document_id !== null;
+                                  return (
+                                    <div
+                                      className={`conversation-attachment ${
+                                        downloadable ? "" : "unavailable"
+                                      }`}
+                                      key={`${message.id}-${attachment.document_id ?? index}`}
+                                    >
+                                      <div>
+                                        <strong>{attachment.filename}</strong>
+                                        <span>
+                                          {ATTACHMENT_KIND_LABELS[
+                                            attachment.kind ?? "other"
+                                          ] ?? "файл"}
+                                          {` · ${formatAttachmentSize(attachment.size)}`}
+                                          {attachment.page_count
+                                            ? ` · ${attachment.page_count} стр.`
+                                            : ""}
+                                        </span>
+                                        <span>
+                                          {ATTACHMENT_STATUS_LABELS[attachment.status] ??
+                                            attachment.status}
+                                          {attachment.error
+                                            ? `: ${attachment.error}`
+                                            : ""}
+                                        </span>
+                                      </div>
+                                      {downloadable && (
+                                        <button
+                                          className="secondary btn-small"
+                                          disabled={
+                                            downloadBusy === attachment.document_id
+                                          }
+                                          onClick={() =>
+                                            void downloadAttachment(attachment)
+                                          }
+                                          type="button"
+                                        >
+                                          {downloadBusy === attachment.document_id
+                                            ? "Скачивание…"
+                                            : "Скачать"}
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           <div className="conversation-message-actions">
                             {message.status && (
                               <span className="conversation-delivery-status">

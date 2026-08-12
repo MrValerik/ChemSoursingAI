@@ -430,6 +430,21 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
             "environment",
         ),
     )
+    monkeypatch.setattr(
+        "app.services.email_workflow.store_incoming_attachments",
+        lambda *args, **kwargs: [
+            {
+                "filename": "Methanol_CoA.pdf",
+                "content_type": "application/pdf",
+                "size": 24576,
+                "document_id": 321,
+                "kind": "coa",
+                "status": "extracted",
+                "page_count": 2,
+                "error": None,
+            }
+        ],
+    )
     connector = FakeConnector()
     with SessionLocal() as db:
         result = sync_inbox(db, connector=connector)
@@ -440,6 +455,22 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
     assert connector.seen == ["500"]
     history = _communications(rfq["id"])
     assert [item.status for item in history] == ["received", "draft"]
+    overview = client.get(
+        f"/rfq/{rfq['id']}/communications", headers=headers
+    ).json()
+    inbound = overview["conversations"][0]["messages"][0]
+    assert inbound["attachments"] == [
+        {
+            "filename": "Methanol_CoA.pdf",
+            "content_type": "application/pdf",
+            "size": 24576,
+            "document_id": 321,
+            "kind": "coa",
+            "status": "extracted",
+            "page_count": 2,
+            "error": None,
+        }
+    ]
     quotes = client.get(f"/rfq/{rfq['id']}/quotations", headers=headers).json()
     assert len(quotes) == 1
     assert quotes[0]["price"] == 500

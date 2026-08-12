@@ -10,6 +10,19 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.models.enums import Channel, CommDirection, DispatchStatus
 
 
+class CommunicationAttachmentRead(BaseModel):
+    """Безопасные метаданные входящего файла без его содержимого."""
+
+    filename: str
+    content_type: str | None = None
+    size: int = Field(default=0, ge=0)
+    document_id: int | None = Field(default=None, gt=0)
+    kind: str | None = None
+    status: str = "stored"
+    page_count: int | None = Field(default=None, ge=0)
+    error: str | None = None
+
+
 class CommunicationMessageRead(BaseModel):
     id: int
     direction: CommDirection
@@ -19,7 +32,7 @@ class CommunicationMessageRead(BaseModel):
     status: str | None
     from_address: str | None
     to_address: str | None
-    attachments: list[dict] | None
+    attachments: list[CommunicationAttachmentRead] | None
     created_at: datetime
 
 

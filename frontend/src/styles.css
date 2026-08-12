@@ -1459,6 +1459,44 @@ button.danger:hover {
   white-space: pre-wrap;
 }
 
+.conversation-attachments {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 7px;
+}
+
+.conversation-attachment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.conversation-attachment.unavailable {
+  border-style: dashed;
+}
+
+.conversation-attachment > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.conversation-attachment strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.conversation-attachment span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .conversation-message-meta {
   color: var(--muted);
   font-size: 12px;
