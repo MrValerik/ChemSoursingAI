@@ -1631,3 +1631,45 @@ def test_silent_source_failure_is_reported_instead_of_zero_suppliers(
     run_id = result.json()["detail"]["search_run_id"]
     trace = client.get(f"/search-runs/{run_id}", headers=buyer).json()
     assert trace["status"] == "failed", "запуск не должен считаться успешным"
+
+
+def test_a_cyrillic_letter_in_the_name_is_repaired_before_searching(
+    client, monkeypatch
+):
+    """Ровно случай запроса #31 «С18-С22 fatty alcohol».
+
+    Поиск вернул ноль на все восемь запросов, и система обвинила
+    поисковик. На деле «С» там кириллическая U+0421: имя стоит в запросах
+    точной фразой, и такая строка не находится нигде. С латинской буквой
+    тот же запрос находит китайских поставщиков.
+    """
+    buyer = _auth(client, "ivanov")
+    _mock_search_agents(monkeypatch, '"C18-C22 fatty alcohol" manufacturer China')
+    seen: list[str] = []
+
+    def fake_search(query, limit):
+        seen.append(query)
+        return [
+            {
+                "title": "C18-C22 fatty alcohol manufacturer",
+                "url": "https://example-alcohols.cn/c18-c22",
+                "snippet": "Fatty alcohol C18-C22 supplier in China",
+            }
+        ]
+
+    monkeypatch.setattr("app.api.supplier_search.search_web", fake_search)
+    response = client.post(
+        "/supplier-search",
+        headers=buyer,
+        json={
+            # Кириллическая С, как пришло из файла заказчика.
+            "name": "\u0421 18-\u0421 22 fatty alcohol".replace(" ", ""),
+            "country": "Китай",
+            "identification_method": "analog",
+        },
+    )
+
+    assert response.status_code == 200
+    # Ни один запрос не должен нести кириллицу в названии вещества.
+    assert seen, "поиск не выполнялся"
+    assert not any("\u0421" in query for query in seen), seen

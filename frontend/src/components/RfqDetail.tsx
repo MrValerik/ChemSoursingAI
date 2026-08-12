@@ -30,27 +30,29 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "summary", label: "Сводная таблица" },
 ];
 
-// Статус → пройденные этапы конвейера (раздел 7: «Этапы»).
-const STAGES = ["Проверка вещества", "Поиск", "Отбор", "Общение", "Ответы", "Сравнение"];
-// Куда ведёт клик по проблемному этапу: вкладка с местом ошибки.
-// Этап «Ответы» ведёт в «Общение»: отдельной вкладки ответов больше нет.
-const STAGE_TABS: TabKey[] = [
-  "supplier_search",
-  "supplier_search",
-  "suppliers",
-  "dispatch",
-  "dispatch",
-  "summary",
+// Этапы конвейера (раздел 7: «Этапы»). Один этап — одно место работы, поэтому
+// подпись этапа совпадает с названием вкладки, куда он ведёт. Отдельного этапа
+// «Ответы» нет: приём писем и извлечение данных из них — часть «Общения» и
+// живут на той же вкладке.
+const STAGES: { label: string; tab: TabKey }[] = [
+  { label: "Проверка вещества", tab: "supplier_search" },
+  { label: "Поиск поставщиков", tab: "supplier_search" },
+  { label: "Отбор поставщиков", tab: "suppliers" },
+  { label: "Общение", tab: "dispatch" },
+  { label: "Сводная таблица", tab: "summary" },
 ];
+// Сколько этапов пройдено к моменту наступления статуса.
 const STAGE_BY_STATUS: Record<string, number> = {
   draft: 0,
   verified: 1,
-  sent: 4,
-  collecting: 4,
-  parsed: 5,
-  summarized: 6,
-  escalated: 5,
-  closed: 6,
+  sent: 3,
+  collecting: 3,
+  parsed: 4,
+  summarized: 5,
+  // Ручной разбор начинается на входящем письме, поэтому карточка остаётся на
+  // «Общении», а не прыгает в конец конвейера.
+  escalated: 3,
+  closed: 5,
 };
 
 const ESCALATION_REASONS: [string, string][] = [
@@ -184,18 +186,26 @@ export default function RfqDetail({
 
   const stageClass = (index: number) => {
     if (index === 0) {
+      // Запрос мог уйти поставщикам и без успешной проверки по справочнику,
+      // поэтому ушедший вперёд статус закрывает этот этап так же, как флаг
+      // проверки: иначе первый этап остаётся текущим до самого конца.
       const searchStarted = searchRuns.some(
         (run) => !["queued", "identifying"].includes(run.status),
       );
-      return rfq.verified || searchStarted || searchRuns.length > 0
+      return rfq.verified || searchStarted || searchRuns.length > 0 || doneStages >= 1
         ? "done"
         : "current";
     }
     if (index === 1) {
       if (searchFailed) return "error";
-      if (searchFinished && searchSucceeded) return "done";
+      if (doneStages >= 2 || (searchFinished && searchSucceeded)) return "done";
       if (searchRuns.length > 0 || doneStages >= 1) return "current";
       return "";
+    }
+    if (index === 2 && doneStages < 3) {
+      // Отдельного статуса «поставщики отобраны» нет: отбор становится текущим,
+      // как только поиск закончился результатом, и закрывается отправкой.
+      return searchFinished && searchSucceeded ? "current" : "";
     }
     return index < doneStages ? "done" : index === doneStages ? "current" : "";
   };
@@ -413,22 +423,22 @@ export default function RfqDetail({
 
           <h2 style={{ marginTop: 16 }}>Этапы</h2>
           <ol className="stages">
-            {STAGES.map((s, i) => {
+            {STAGES.map((stage, i) => {
               const stateClass = stageClass(i);
               const needsAttention = stateClass === "error";
               return (
-                <li key={s} className={stateClass}>
+                <li key={stage.label} className={stateClass}>
                   {needsAttention ? (
                     <button
                       className="stage-jump"
-                      onClick={() => setTab(STAGE_TABS[i])}
+                      onClick={() => setTab(stage.tab)}
                       title="Перейти к месту ошибки"
                       type="button"
                     >
-                      {s}
+                      {stage.label}
                     </button>
                   ) : (
-                    s
+                    stage.label
                   )}
                 </li>
               );

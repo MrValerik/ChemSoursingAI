@@ -78,6 +78,7 @@ from app.services.intermediaries import (
     split_by_intermediary,
 )
 from app.services.contacts import find_contact_barrier, find_contacts, has_contacts
+from app.services.homoglyphs import fix_lookalikes, has_lookalikes
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
     build_highlights,
@@ -1856,6 +1857,21 @@ def execute_supplier_search(
     db.commit()
     budget = SearchBudget.from_settings()
 
+    # Кириллица, набранная вместо латиницы, убивает поиск целиком: запрос
+    # #31 «С18-С22 fatty alcohol» дал ноль на все восемь запросов, потому
+    # что «С» там U+0421. Имя стоит в запросах точной фразой, и такая
+    # строка не находится нигде. Половина списка заказчика набрана в Word
+    # и Excel, где раскладка переключается на полуслове.
+    lookalikes_fixed: list[tuple[str, str]] = []
+    for field in ("name", "analog_reference", "catalog_preferred_name"):
+        original = getattr(data, field, None)
+        if not original:
+            continue
+        repaired = fix_lookalikes(original)
+        if repaired != original:
+            setattr(data, field, repaired)
+            lookalikes_fixed.append((original, repaired))
+
     normalized_cas = normalize_cas(data.cas) if data.cas else None
     lookup_stage, lookup_clock = start_agent_run(
         db,
@@ -1870,6 +1886,15 @@ def execute_supplier_search(
         execution_type="tool",
         input_payload={"cas": normalized_cas},
     )
+    for original, repaired in lookalikes_fixed:
+        log_agent_event(
+            lookup_stage,
+            f"В названии «{original}» кириллические буквы набраны вместо "
+            f"латинских — ищу как «{repaired}». Поисковик считает такие "
+            "строки разными, и без правки находится ноль",
+            kind="warning",
+        )
+
     if normalized_cas:
         log_agent_event(lookup_stage, f"Запрашиваю PubChem по CAS {normalized_cas}")
         db.commit()
@@ -2428,12 +2453,31 @@ def execute_supplier_search(
         # успехом с нулём кандидатов, и закупщик прочитает это как
         # «производителей нет». Проверка не зависит от разметки выдачи и
         # переживёт её изменение.
-        error = (
-            f"Источник выдачи не вернул ни одного результата на "
-            f"{len(executed_items)} запросов подряд. Это похоже на "
-            "ограничение доступа к поисковику и не означает, что "
-            "поставщиков не существует."
-        )
+        # Виноват не всегда поисковик. Запрос #31 «С18-С22 fatty alcohol»
+        # упал именно здесь, и сообщение обвинило источник выдачи — а на
+        # деле «С» в названии была кириллической, и точная фраза не
+        # находилась нигде. Диагноз, который уводит в сторону, хуже
+        # отсутствия диагноза: по нему полдня ищут блокировку.
+        suspicious = [
+            value
+            for value in (data.name, data.analog_reference)
+            if value and has_lookalikes(value)
+        ]
+        if suspicious:
+            error = (
+                f"Ни один из {len(executed_items)} запросов ничего не нашёл. "
+                f"В названии «{suspicious[0]}» кириллические буквы набраны "
+                "вместо латинских — они выглядят одинаково, но поисковик "
+                "считает такие строки разными. Исправьте раскладку в "
+                "названии и повторите поиск."
+            )
+        else:
+            error = (
+                f"Источник выдачи не вернул ни одного результата на "
+                f"{len(executed_items)} запросов подряд. Это похоже на "
+                "ограничение доступа к поисковику и не означает, что "
+                "поставщиков не существует."
+            )
         finish_agent_run(search_stage, search_clock, error=error)
         finish_search_run(search_run, error=error)
         db.commit()
