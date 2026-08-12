@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 
 from app.models import Manager, RfqSupplierLink, SearchRun, Supplier
 from app.models.enums import SupplierType
-from app.services.intermediaries import active_domains, domain_label, is_intermediary
+from app.services.intermediaries import (
+    active_domains,
+    domain_label,
+    is_intermediary,
+    known_domains,
+)
 from app.services.search_trace import utc_now
 
 # Сколько контактов одной компании имеет смысл заводить. Больше — это уже
@@ -191,7 +196,9 @@ def _attach_contacts(
     contacts = result.get("contacts") or {}
     emails = [str(value).strip() for value in contacts.get("emails") or []]
     whatsapp = [str(value).strip() for value in contacts.get("whatsapp") or []]
-    platforms = active_domains(db)
+    # Весь реестр, а не только действующие записи: выключение говорит
+    # «не выбрасывай эти ссылки», а не «доверяй их почтовому ящику».
+    platforms = known_domains(db)
     page_url = str(result.get("url") or "")
     emails = [
         email

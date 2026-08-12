@@ -214,6 +214,11 @@ def test_a_page_without_contacts_registers_the_company_anyway(client):
 def test_a_directory_mailbox_is_not_the_company_contact(client):
     """Прогон 280 приписал почту каталога китайской компании.
 
+    b2brazil в реестре был, но выключённым — мы отключали такие домены,
+    чтобы их ссылки не выбрасывались из выдачи. Проверка спрашивала
+    только действующие записи и потому каталога не узнала. Выключение
+    говорит «не выбрасывай ссылку», а не «доверяй почтовому ящику».
+
     У «Shijiazhuang Randa Technology» в контактах оказался
     randa@b2brazil.com — письмо ушло бы владельцу справочника. Защита
     была, но спрашивала реестр площадок, а b2brazil, go4worldbusiness и

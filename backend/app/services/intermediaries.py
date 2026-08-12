@@ -103,6 +103,26 @@ def normalize_domain(value: str) -> str:
     return candidate[4:] if candidate.startswith("www.") else candidate
 
 
+def known_domains(db: Session) -> set[str]:
+    """Все записи реестра, включая выключенные.
+
+    Выключение означает «не выбрасывай эти ссылки из выдачи» — так мы
+    вернули полноту после того, как расширение реестра отсекло у двух
+    веществ вообще всё. Но каталог остаётся каталогом: его почта не
+    становится адресом компании оттого, что мы решили пускать его ссылки
+    в кандидаты.
+
+    Прогон 280 это и показал: b2brazil выключен, поэтому проверка его не
+    узнала, и randa@b2brazil.com лёг контактом «Shijiazhuang Randa
+    Technology». Отбор ссылок спрашивает active_domains, вопрос о
+    принадлежности почты — этот список.
+    """
+    return {
+        normalize_domain(domain)
+        for domain in db.scalars(select(Intermediary.domain)).all()
+    }
+
+
 def active_domains(db: Session) -> set[str]:
     """Действующие записи реестра одним запросом на этап поиска."""
     return {
