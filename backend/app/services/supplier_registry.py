@@ -22,6 +22,12 @@ from app.services.search_trace import utc_now
 # не отдел продаж, а разбор чужого списка рассылки.
 _MAX_MANAGERS = 3
 
+# Роды страниц, с которых поставщика заводить нельзя. Держится здесь, а не
+# импортируется из api: реестр не должен зависеть от слоя запросов.
+NOT_A_SUPPLIER_KINDS = frozenset(
+    {"market_report", "scientific", "directory", "marketplace_listing"}
+)
+
 _SEPARATORS_RE = re.compile(r"[^0-9a-zA-Zа-яА-ЯёЁ一-鿿]+")
 # Юридические хвосты компанию не различают, а сравнению мешают.
 _LEGAL_TAILS = (
@@ -273,6 +279,13 @@ def register_qualified_candidate(
     # «Henan GP» с почтой исследовательского агентства, и письмо по ней
     # ушло бы не тому.
     if result.get("is_market_report"):
+        return None
+
+    # То же самое, но определённое моделью и шире: научная статья,
+    # справочник, перечень площадки. Прогон 281 завёл со страницы PubMed
+    # «компанию» с адресом dtstuart@ualberta.ca — личной почтой
+    # исследователя, которому ушло бы коммерческое письмо.
+    if result.get("page_kind") in NOT_A_SUPPLIER_KINDS:
         return None
 
     stored_source = source_url[:255]

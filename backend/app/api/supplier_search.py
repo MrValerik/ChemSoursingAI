@@ -315,6 +315,36 @@ ClaimType = Literal[
 ]
 ClaimSupport = Literal["supports", "contradicts"]
 
+# Что за страница по назначению. Роды, с которых поставщика заводить
+# нельзя, перечислены отдельно ниже.
+PageKind = Literal[
+    "company_site",
+    "marketplace_storefront",
+    "marketplace_listing",
+    "market_report",
+    "scientific",
+    "directory",
+    "other",
+]
+
+# Страница не представляет компанию: обзор рынка называет чужих игроков,
+# научная статья не продаёт вовсе, справочник и перечень площадки
+# перечисляют многих. Прогон 281 завёл со страницы PubMed «компанию» с
+# личным адресом исследователя из университета Альберты — письмо с
+# коммерческим запросом ушло бы живому человеку, который ничего не
+# продаёт.
+NOT_A_SUPPLIER_PAGE = frozenset(
+    {"market_report", "scientific", "directory", "marketplace_listing"}
+)
+
+# Причина пишется в карточку словами закупщика, а не кодом рода.
+_PAGE_KIND_REASONS = {
+    "market_report": "это обзор рынка, и названные в нём компании — чужие",
+    "scientific": "это научная публикация, а не продавец",
+    "directory": "это справочник, он сам ничего не продаёт",
+    "marketplace_listing": "это перечень продавцов на площадке",
+}
+
 
 class QualificationEvidence(BaseModel):
     source_document_id: int = Field(..., ge=1)
@@ -337,6 +367,17 @@ class SupplierQualification(BaseModel):
     company_name: str = Field(..., min_length=1, max_length=255)
     title_ru: str = Field(..., min_length=1, max_length=500)
     summary_ru: str = Field(..., min_length=1, max_length=1200)
+    # Род страницы. Заменяет растущий список регулярок под каждый новый вид
+    # негодной страницы: обзор рынка, научная статья, справочник. Замер по
+    # 23 сохранённым страницам с известным ответом — 21 верно, причём
+    # ошибки только на границе «справочник против витрины», а научная
+    # статья, обзор рынка и сайт компании определены верно во всех случаях.
+    #
+    # Поле только запрещает и никогда не доказывает: им можно отбросить
+    # кандидата, но нельзя подтвердить роль. Ошибка в сторону запрета
+    # стоит одного потерянного кандидата, ошибка в сторону доверия —
+    # письма не туда.
+    page_kind: PageKind = "other"
     supplier_type: SupplierKind
     cas_status: CasStatus
     country_status: CountryStatus
@@ -369,6 +410,18 @@ _QUALIFICATION_SCHEMA = {
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 255,
+                    },
+                    "page_kind": {
+                        "type": "string",
+                        "enum": [
+                            "company_site",
+                            "marketplace_storefront",
+                            "marketplace_listing",
+                            "market_report",
+                            "scientific",
+                            "directory",
+                            "other",
+                        ],
                     },
                     "title_ru": {
                         "type": "string",
@@ -479,6 +532,7 @@ _QUALIFICATION_SCHEMA = {
                     "company_name",
                     "title_ru",
                     "summary_ru",
+                    "page_kind",
                     "supplier_type",
                     "cas_status",
                     "country_status",
@@ -675,7 +729,20 @@ def _qualification_system_prompt(
         "Не переводи и не исправляй quote. По одному факту создавай одну запись. "
         "Если page_text отсутствует, evidence для этого источника должен быть пуст. "
         "Кратко перечисли риски и недостающие доказательства. "
-        "Не изменяй CAS, названия компаний и факты источника."
+        "Не изменяй CAS, названия компаний и факты источника. "
+        "\n\nОтдельно определи page_kind — что это за страница по её "
+        "назначению, а не по упоминаниям веществ:\n"
+        "company_site — собственный сайт одной компании;\n"
+        "marketplace_storefront — магазин или профиль ОДНОЙ компании на "
+        "домене торговой площадки: продавец назван, но сайт чужой;\n"
+        "marketplace_listing — перечень МНОГИХ продавцов, поиск или раздел "
+        "площадки;\n"
+        "market_report — обзор или отчёт о рынке, аналитика, прогноз, доли "
+        "рынка;\n"
+        "scientific — научная статья, публикация, база публикаций;\n"
+        "directory — справочник или агрегатор сведений о сайтах и компаниях, "
+        "сам ничего не продающий;\n"
+        "other — всё остальное."
     )
 
 
@@ -1050,6 +1117,7 @@ def _apply_evidence_gates(
         if marketplace_page_kind(page_url) != "storefront":
             payload["supplier_type"] = "marketplace"
             return payload
+
     supported = {
         item["claim_type"]
         for item in evidence_items
@@ -1065,6 +1133,25 @@ def _apply_evidence_gates(
     def flag(message: str) -> None:
         if message not in red_flags:
             red_flags.append(message)
+
+    # Страница не представляет компанию — обзор рынка, научная статья,
+    # справочник, перечень площадки. Роль тут доказывать нечем, а контакты
+    # принадлежат кому угодно, только не поставщику: прогон 281 завёл со
+    # страницы PubMed «компанию» с личным адресом исследователя.
+    #
+    # Род определяет модель, и он только запрещает: подтвердить им роль
+    # нельзя. Замер по 23 сохранённым страницам — 21 верно, и ни одной
+    # ошибки на научной статье, обзоре рынка или сайте компании.
+    if payload.get("page_kind") in NOT_A_SUPPLIER_PAGE:
+        payload["supplier_type"] = "unknown"
+        flag(
+            "Страница не представляет компанию: "
+            + _PAGE_KIND_REASONS.get(
+                str(payload.get("page_kind")), "это не сайт поставщика"
+            )
+        )
+        payload["red_flags"] = red_flags
+        return payload
 
     # Собственная площадка или годовой выпуск — тоже доказательство роли, и
     # доказательство более крепкое, чем прозаическое «мы производитель»:
