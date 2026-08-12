@@ -61,6 +61,91 @@ def company_key(name: str) -> str | None:
     return collapsed[:255]
 
 
+def register_marketplace_seller(
+    db: Session,
+    *,
+    search_run: SearchRun,
+    seller,
+) -> Supplier | None:
+    """Заводит продавца, названного площадкой в поисковой выдаче.
+
+    Отдельно от register_qualified_candidate намеренно: здесь нет ни
+    страницы компании, ни доказательств — только строка описания. Роль и
+    страна записываются как сведения площадки, а не как проверенный факт,
+    и балл не выставляется вовсе.
+
+    Связи тоже нет: писать такому продавцу можно лишь через саму площадку,
+    и в карточке это видно по contact_barrier.
+    """
+    if search_run.rfq_id is None:
+        return None
+
+    # Личность продавца здесь — имя, а не адрес страницы: одна и та же
+    # ссылка на площадку может прийти с разными компаниями в описании, и
+    # поиск по адресу склеил бы их в одну. Тест на повторный прогон это и
+    # поймал.
+    key = company_key(seller.company)
+    supplier = (
+        db.scalar(
+            select(Supplier)
+            .where(Supplier.company_key == key)
+            .order_by(Supplier.id)
+            .limit(1)
+        )
+        if key
+        else None
+    )
+
+    if supplier is None:
+        supplier = Supplier(
+            company=seller.company[:255],
+            company_key=key,
+            country=seller.country,
+            type=(
+                SupplierType(seller.claimed_role)
+                if seller.claimed_role in {"manufacturer", "distributor"}
+                else None
+            ),
+            reputation=(
+                f"Сведения площадки {seller.platform}: "
+                f"{seller.claimed_role or 'роль не указана'}; "
+                "страница компании недоступна, проверка не проводилась"
+            )[:255],
+            source=seller.listing_url[:255],
+            qualification_status="candidate",
+            contact_barrier="platform",
+            last_checked_at=utc_now(),
+        )
+        db.add(supplier)
+        db.flush()
+    else:
+        # Компания уже известна по собственному сайту — там сведений
+        # больше, и затирать их площадкой нельзя.
+        if supplier.country is None and seller.country:
+            supplier.country = seller.country
+        if supplier.company_key is None and key:
+            supplier.company_key = key
+
+    link = db.scalar(
+        select(RfqSupplierLink).where(
+            RfqSupplierLink.rfq_id == search_run.rfq_id,
+            RfqSupplierLink.supplier_id == supplier.id,
+        )
+    )
+    if link is None:
+        db.add(
+            RfqSupplierLink(
+                rfq_id=search_run.rfq_id,
+                supplier_id=supplier.id,
+                search_run_id=search_run.id,
+                source_url=seller.listing_url,
+                status="candidate",
+            )
+        )
+        db.flush()
+    return supplier
+
+
 def _is_platform_own_address(email: str, page_url: str, platforms: set[str]) -> bool:
     """Это адрес хозяина площадки, а не компании на её витрине.
 

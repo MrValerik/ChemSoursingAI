@@ -267,8 +267,11 @@ export interface SupplierRead {
     whatsapp: string | null;
     offered_substances: string[] | null;
   }[];
-  /** Почему связи нет: адрес скрыт подменой или на сайте только форма. */
-  contact_barrier: "obfuscated" | "form" | null;
+  /**
+   * Почему связи нет: адрес скрыт подменой, на сайте только форма или
+   * компанию назвала площадка и своей страницы у нас нет.
+   */
+  contact_barrier: "obfuscated" | "form" | "platform" | null;
   linked_requests: {
     rfq_id: number;
     name: string;

@@ -66,7 +66,11 @@ from app.services.supplier_search_continuation import (
     result_is_excluded,
     supplier_exclusions,
 )
-from app.services.supplier_registry import register_qualified_candidate
+from app.services.marketplace_listings import collect_sellers
+from app.services.supplier_registry import (
+    register_marketplace_seller,
+    register_qualified_candidate,
+)
 from app.services.intermediaries import (
     active_domains,
     is_intermediary,
@@ -2510,6 +2514,27 @@ def execute_supplier_search(
                 "переключите режим на поиск всех продавцов",
                 kind="warning",
             )
+    # Продавцы, названные площадкой в описании выдачи. Их страницы нам
+    # недоступны — Echemi отдаёт challenge защитного экрана вместо
+    # содержимого, — но описание Google уже проиндексировал, и в нём есть
+    # имя, страна и роль. Стоит это ноль запросов и ноль загрузок: строки
+    # уже пришли вместе с результатом поиска.
+    marketplace_sellers = collect_sellers([*raw_results, *intermediary_results])
+    if marketplace_sellers:
+        registered = 0
+        for seller in marketplace_sellers:
+            if register_marketplace_seller(
+                db, search_run=search_run, seller=seller
+            ):
+                registered += 1
+        db.commit()
+        log_agent_event(
+            search_stage,
+            f"С площадок вычитано продавцов: {len(marketplace_sellers)}, "
+            f"заведено в реестр {registered}. Роль указана площадкой и "
+            "доказательством не является",
+        )
+
     ranked_pool = _rank_results(
         raw_results,
         data.country,
