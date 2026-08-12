@@ -591,3 +591,37 @@ def test_a_short_name_without_a_range_keeps_its_quotes():
             cas=None, name=name, country="Китай", ai_query=None
         )
         assert any(f'"{name}"' in query for query in queries), name
+
+
+def test_the_model_may_not_quote_a_ranged_name_either():
+    """План запросов пишет модель, и кавычки она ставит сама.
+
+    На прогоне 279 это видно в одной выдаче: три запроса, где модель
+    закавычила «C18-C22 fatty alcohol», дали 0, 1 и 0 результатов, а
+    четыре наших, без кавычек, — по 9–10.
+    """
+    from app.services.supplier_sources import unquote_ranged_name
+
+    name = "C18-C22 fatty alcohol"
+    assert unquote_ranged_name(f'"{name}" COA specification', name) == (
+        f"{name} COA specification"
+    )
+    assert unquote_ranged_name(f'site:*.cn "{name}" manufacturer', name) == (
+        f"site:*.cn {name} manufacturer"
+    )
+
+
+def test_other_quotes_in_the_query_survive():
+    """Снимаются кавычки только вокруг самого названия."""
+    from app.services.supplier_sources import unquote_ranged_name
+
+    name = "C18-C22 fatty alcohol"
+    query = f'"{name}" "50-78-2" manufacturer'
+    assert unquote_ranged_name(query, name) == f'{name} "50-78-2" manufacturer'
+
+
+def test_a_name_without_a_range_keeps_the_model_quotes():
+    from app.services.supplier_sources import unquote_ranged_name
+
+    query = '"Adipic acid" manufacturer China'
+    assert unquote_ranged_name(query, "Adipic acid") == query

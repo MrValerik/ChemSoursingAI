@@ -423,6 +423,24 @@ def _is_quotable(name: str) -> bool:
     return not _RANGE_RE.search(name)
 
 
+def unquote_ranged_name(query: str, name: str | None) -> str:
+    """Снимает кавычки с названия, содержащего диапазон.
+
+    План запросов пишет модель, и она берёт название в кавычки по своему
+    усмотрению. На прогоне 279 это видно в одной выдаче: три запроса, где
+    модель закавычила «C18-C22 fatty alcohol», дали 0, 1 и 0 результатов,
+    а четыре наших, без кавычек, — по 9–10.
+
+    Правку деструктивной не делаем: снимаются кавычки только вокруг
+    самого названия и только когда в нём есть диапазон. Остальные кавычки
+    в запросе — вокруг номера, синонима, чужого имени — не трогаются.
+    """
+    subject = (name or "").strip()
+    if not subject or not _RANGE_RE.search(subject):
+        return query
+    return query.replace(f'"{subject}"', subject)
+
+
 def _distinct_names(name: str, synonyms: list[str] | None) -> list[str]:
     names = [name]
     seen = {name.casefold()}

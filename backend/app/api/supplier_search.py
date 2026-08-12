@@ -112,6 +112,7 @@ from app.services.supplier_sources import (
     source_kind,
     source_priority,
     specification_search_terms,
+    unquote_ranged_name,
 )
 
 router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
@@ -1403,7 +1404,7 @@ def _merge_search_plans(
     # то есть не работал ни разу с тех пор, как появился.
     deterministic = {item.query.strip().casefold() for item in fallback_items}
     for item in ordered_items:
-        normalized = item.query.strip()
+        normalized = unquote_ranged_name(item.query.strip(), data.name)
         if normalized.casefold() not in deterministic and not any(
             anchor in normalized.casefold() for anchor in anchors
         ):
