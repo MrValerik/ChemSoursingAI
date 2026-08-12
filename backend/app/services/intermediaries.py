@@ -25,6 +25,16 @@ DEFAULT_INTERMEDIARIES: list[tuple[str, str, str]] = [
     ("indiamart.com", "IndiaMART", "marketplace"),
     ("tradeindia.com", "TradeIndia", "marketplace"),
     ("exportersindia.com", "ExportersIndia", "marketplace"),
+    # Каталоги, которых в реестре не хватало. Прогон 280 приписал почту
+    # каталога китайской компании: у «Shijiazhuang Randa Technology» в
+    # контактах оказался randa@b2brazil.com — письмо ушло бы владельцу
+    # справочника. Защита от такого есть, но она спрашивает реестр, а
+    # реестр этих доменов не знал.
+    ("b2brazil.com", "B2Brazil", "marketplace"),
+    ("go4worldbusiness.com", "Go4WorldBusiness", "marketplace"),
+    ("everychina.com", "EveryChina", "marketplace"),
+    ("chemdmart.com", "ChemDMart", "catalog"),
+    ("accessify.com", "Accessify", "reference"),
     ("ec21.com", "EC21", "marketplace"),
     ("ecplaza.net", "ECPlaza", "marketplace"),
     ("tradekey.com", "TradeKey", "marketplace"),

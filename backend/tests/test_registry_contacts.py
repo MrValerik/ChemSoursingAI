@@ -209,3 +209,31 @@ def test_a_page_without_contacts_registers_the_company_anyway(client):
 
         assert supplier is not None
         assert db.query(Manager).filter(Manager.supplier_id == supplier.id).count() == 0
+
+
+def test_a_directory_mailbox_is_not_the_company_contact(client):
+    """Прогон 280 приписал почту каталога китайской компании.
+
+    У «Shijiazhuang Randa Technology» в контактах оказался
+    randa@b2brazil.com — письмо ушло бы владельцу справочника. Защита
+    была, но спрашивала реестр площадок, а b2brazil, go4worldbusiness и
+    everychina в нём не значились.
+    """
+    with SessionLocal() as db:
+        run = _run(db, "https://b2brazil.com/hotsite/randa")
+        supplier = register_qualified_candidate(
+            db,
+            search_run=run,
+            result=_result(
+                "https://b2brazil.com/hotsite/randa",
+                "Шицзячжуан Ранда",
+                contacts={"emails": ["randa@b2brazil.com", "sales@randa.cn"]},
+            ),
+        )
+        db.commit()
+
+        emails = {
+            m.email
+            for m in db.query(Manager).filter(Manager.supplier_id == supplier.id)
+        }
+        assert emails == {"sales@randa.cn"}
