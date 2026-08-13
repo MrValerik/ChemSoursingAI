@@ -224,15 +224,17 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
                     : "Вы · поставщик"}
                 </span>
                 <div className="communication-message-original">
-                  <span>Английский оригинал</span>
-                  <div>{message.content}</div>
-                </div>
-                {translationRevealed && message.translation_ru && (
-                  <div className="communication-message-translation">
-                    <span>Русский перевод</span>
-                    <div>{message.translation_ru}</div>
+                  <span>
+                    {translationRevealed && message.translation_ru
+                      ? "Русский перевод"
+                      : "Английский оригинал"}
+                  </span>
+                  <div>
+                    {translationRevealed && message.translation_ru
+                      ? message.translation_ru
+                      : message.content}
                   </div>
-                )}
+                </div>
               </div>
             ))}
           </div>
@@ -752,20 +754,20 @@ function FullCommunicationTesting({
                     </span>
                     <div className="communication-message-original">
                       <span>
-                        {message.sender_role === "assistant"
-                          ? "Английский оригинал"
-                          : message.sender_role === "buyer"
-                            ? "Оригинал покупателя"
-                          : "Оригинал поставщика"}
+                        {translationRevealed && message.translation_ru
+                          ? "Русский перевод"
+                          : message.sender_role === "assistant"
+                            ? "Английский оригинал"
+                            : message.sender_role === "buyer"
+                              ? "Оригинал покупателя"
+                              : "Оригинал поставщика"}
                       </span>
-                      <div>{message.content}</div>
-                    </div>
-                    {translationRevealed && message.translation_ru && (
-                      <div className="communication-message-translation">
-                        <span>Русский перевод</span>
-                        <div>{message.translation_ru}</div>
+                      <div>
+                        {translationRevealed && message.translation_ru
+                          ? message.translation_ru
+                          : message.content}
                       </div>
-                    )}
+                    </div>
                   </div>
                 ))}
               </div>
