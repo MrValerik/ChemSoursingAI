@@ -10,6 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.connectors.email import EmailConnector
+from app.connectors.google_translate import (
+    GoogleTranslateConnector,
+    GoogleTranslateError,
+)
 from app.connectors.pubchem import PubChemConnector
 from app.connectors.whatsapp import WhatsAppConnector
 from app.core.config import get_settings
@@ -359,13 +363,20 @@ def translate_test_message(
 def translate_preview_text(
     content: str,
     *,
-    llm: LLMClient | None = None,
+    translator: GoogleTranslateConnector | None = None,
 ) -> str:
-    """Переводит непосланный предпросмотр без создания тестового диалога."""
-    translation = _translate_for_user(content, llm=llm)
-    if not translation:
-        raise CommunicationTestError("Не удалось перевести RFQ на русский")
-    return translation
+    """Передаёт сохранённый английский RFQ в Google Translate без LLM."""
+    source = content.strip()
+    if not source:
+        raise CommunicationTestError("RFQ пуст — переводить нечего")
+    try:
+        return (translator or GoogleTranslateConnector()).translate(
+            source,
+            source_language="en",
+            target_language="ru",
+        )
+    except GoogleTranslateError as exc:
+        raise CommunicationTestError("Google Translate не смог перевести RFQ") from exc
 
 
 def _attach_quote_assessment(run: CommunicationTestRun) -> CommunicationTestRun:
