@@ -265,12 +265,25 @@ export default function NewRfq({ onCreated }: Props) {
   // Минимум запроса — название: номера может не быть у смесей, рецептур и
   // промышленных продуктов, а искать по названию можно всегда. Заполненный
   // номер обязан быть верным — иначе он уводит поиск к другому веществу.
-  const canCreate =
-    !busy &&
-    name.trim().length > 0 &&
-    (!casEntered || casValid) &&
-    countries.length > 0 &&
-    incoterms.length > 0;
+  //
+  // Список причин собирается здесь же, а не выводится отдельной проверкой:
+  // неактивная кнопка без объяснения оставляет закупщика гадать, чего от
+  // него хотят, а поля, которых не хватает, могут быть ниже экрана.
+  const blockers: string[] = [];
+  if (!name.trim()) {
+    blockers.push("укажите, что нужно закупить");
+  }
+  if (casEntered && !casValid) {
+    blockers.push("исправьте CAS-номер или очистите поле");
+  }
+  if (countries.length === 0) {
+    blockers.push("выберите хотя бы одну страну поиска");
+  }
+  if (incoterms.length === 0) {
+    blockers.push("отметьте хотя бы одно условие поставки");
+  }
+
+  const canCreate = !busy && blockers.length === 0;
 
   return (
     <div className={`new-rfq${suggestions.length > 0 ? " has-suggestions" : ""}`}>
@@ -513,10 +526,32 @@ export default function NewRfq({ onCreated }: Props) {
         </div>
 
         <div className="actions">
-          <button onClick={() => void onCreate()} disabled={!canCreate}>
+          <button
+            onClick={() => void onCreate()}
+            disabled={!canCreate}
+            title={
+              blockers.length > 0
+                ? `Чтобы начать поиск: ${blockers.join("; ")}`
+                : undefined
+            }
+          >
             {busy ? "Создаём и ставим поиск в очередь…" : "Создать запрос и начать поиск"}
           </button>
         </div>
+
+        {blockers.length === 1 && (
+          <p className="note blockers-note">Чтобы начать поиск, {blockers[0]}.</p>
+        )}
+        {blockers.length > 1 && (
+          <div className="note blockers-note">
+            Чтобы начать поиск:
+            <ul>
+              {blockers.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {error && <p className="error">Ошибка: {error}</p>}
       </div>

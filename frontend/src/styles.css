@@ -355,6 +355,12 @@ button.secondary:hover { background: var(--panel-2); }
 
 .actions { display: flex; gap: 8px; margin-top: 8px; }
 
+/* Почему кнопка неактивна. Стоит под ней, потому что незаполненное поле
+   может быть выше края экрана, и «кнопка серая» — единственное, что видит
+   закупщик. */
+.blockers-note { margin-top: 6px; }
+.blockers-note ul { margin: 4px 0 0; padding-left: 18px; }
+
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
 .badge.ok { background: var(--ok-soft); color: var(--ok); }
 .badge.err { background: var(--err-soft); color: var(--err); }
