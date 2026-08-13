@@ -700,7 +700,8 @@ export interface SupplierQualificationResponse {
   replacement_candidates_used?: number;
   source_shortfall?: number;
   budget?: SearchBudgetSnapshot;
-  warning: string;
+  /** Приходит с живым ответом; у результата, восстановленного из трассы, его нет. */
+  warning?: string;
 }
 
 export interface AgentRunRead {

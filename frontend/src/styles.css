@@ -1184,6 +1184,23 @@ button.danger:hover {
   gap: 8px;
 }
 
+/* Таблица найденных поставщиков: сравнение сверху вниз по одному столбцу. */
+.qualification-table td {
+  vertical-align: top;
+}
+.qualification-table .cell-ok { color: var(--ok); }
+.qualification-table .cell-danger { color: var(--err); }
+.qualification-table .cell-muted { color: var(--muted); }
+
+/* Окно подробностей строки: та же механика, что у карточки контрагента. */
+.qualification-detail {
+  max-width: 760px;
+}
+.qualification-detail-content {
+  display: grid;
+  gap: 10px;
+}
+
 /* Карточка поставщика: сверху решение, доказательная база — под раскрывашкой. */
 .qualification-summary {
   margin: 0;

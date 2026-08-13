@@ -187,14 +187,225 @@ const verificationExplanation = (
   ].join(" ");
 };
 
-// Карточка найденного поставщика.
+// Короткая строка статуса для колонки таблицы: в ячейке нужно слово, по
+// которому видно состояние, а объяснение ждёт в окне подробностей.
+const documentsCell = (
+  result: SupplierQualificationResponse["results"][number],
+) => {
+  const contradicted = DOCUMENT_FIELDS.filter(
+    (document) => result[document.key] === "contradicted",
+  ).map((document) => document.label);
+  if (contradicted.length > 0) return `противоречие: ${contradicted.join(", ")}`;
+  const claimed = DOCUMENT_FIELDS.filter(
+    (document) => result[document.key] === "claimed",
+  ).map((document) => document.label);
+  return claimed.length > 0 ? claimed.join(", ") : "не найдены";
+};
+
+const documentsRank = (
+  result: SupplierQualificationResponse["results"][number],
+) => {
+  if (DOCUMENT_FIELDS.some((d) => result[d.key] === "contradicted")) return 2;
+  if (DOCUMENT_FIELDS.some((d) => result[d.key] === "claimed")) return 0;
+  return 1;
+};
+
+const documentsTone = (
+  result: SupplierQualificationResponse["results"][number],
+) => {
+  if (DOCUMENT_FIELDS.some((d) => result[d.key] === "contradicted")) return "danger";
+  if (DOCUMENT_FIELDS.some((d) => result[d.key] === "claimed")) return "warn";
+  return "muted";
+};
+
+type QualificationSortKey =
+  | "company"
+  | "type"
+  | "confidence"
+  | "cas"
+  | "country"
+  | "documents"
+  | "risks";
+
+// Сортировка по статусу идёт от «подтверждено» к «противоречию», а не по
+// алфавиту: закупщику важна степень подтверждённости, а не название статуса.
+const CAS_ORDER: Record<CasEvidenceStatus, number> = {
+  confirmed: 0,
+  mentioned: 1,
+  not_found: 2,
+  mismatch: 3,
+};
+
+const COUNTRY_ORDER: Record<CountryEvidenceStatus, number> = {
+  claimed: 0,
+  likely: 1,
+  not_found: 2,
+  mismatch: 3,
+};
+
+// Таблица найденных поставщиков.
 //
-// Наверху — то, чем закупщик принимает решение: кто это, какая роль, балл,
-// суть, три статуса и риски. Всё остальное — расчёт балла, дословные цитаты,
-// исходная выдача — доказательная база; она никуда не делась, но лежит под
-// одной раскрывашкой, а не тремя. Раньше карточка несла до десяти тегов и
-// три вложенные раскрывашки, и решение в них терялось.
-function QualificationCard({
+// Закупщик сравнивает компании между собой, а не читает их по очереди: в
+// таблице один и тот же параметр стоит в одном столбце, и восемь кандидатов
+// сравниваются одним взглядом сверху вниз. Карточки требовали читать каждую
+// целиком. Всё, что не помещается в строку, открывается по клику.
+function QualificationTable({
+  results,
+  activeCas,
+  activeCountry,
+  onSelect,
+}: {
+  results: SupplierQualificationResponse["results"];
+  activeCas: string | null;
+  activeCountry: string;
+  onSelect: (result: SupplierQualificationResponse["results"][number]) => void;
+}) {
+  // Балл — то, ради чего список и упорядочен, поэтому он и стоит по
+  // умолчанию, от большего к меньшему.
+  const [sortKey, setSortKey] = useState<QualificationSortKey>("confidence");
+  const [sortAsc, setSortAsc] = useState(false);
+
+  const columns: { key: QualificationSortKey; label: string }[] = [
+    { key: "company", label: "Компания" },
+    { key: "type", label: "Роль" },
+    { key: "confidence", label: "Балл" },
+    { key: "cas", label: activeCas ? "CAS" : "Идентичность" },
+    { key: "country", label: activeCountry || "Страна" },
+    { key: "documents", label: "Документы" },
+    { key: "risks", label: "Риски" },
+  ];
+
+  const sortBy = (key: QualificationSortKey) => {
+    if (key === sortKey) {
+      setSortAsc((prev) => !prev);
+      return;
+    }
+    setSortKey(key);
+    // Числовые колонки читают сверху вниз от большего, текстовые — от «а».
+    setSortAsc(!["confidence", "risks"].includes(key));
+  };
+
+  const sorted = useMemo(() => {
+    const value = (
+      result: SupplierQualificationResponse["results"][number],
+    ): string | number => {
+      switch (sortKey) {
+        case "company":
+          return result.company_name.toLocaleLowerCase();
+        case "type":
+          return TYPE_LABELS[result.supplier_type];
+        case "confidence":
+          return result.confidence;
+        case "cas":
+          return CAS_ORDER[result.cas_status];
+        case "country":
+          return COUNTRY_ORDER[result.country_status];
+        case "documents":
+          return documentsRank(result);
+        case "risks":
+          return result.red_flags.length;
+      }
+    };
+    return [...results].sort((a, b) => {
+      const left = value(a);
+      const right = value(b);
+      if (left === right) return a.company_name.localeCompare(b.company_name);
+      const order =
+        typeof left === "number" && typeof right === "number"
+          ? left - right
+          : String(left).localeCompare(String(right), "ru");
+      return sortAsc ? order : -order;
+    });
+  }, [results, sortKey, sortAsc]);
+
+  return (
+    <table className="summary qualification-table">
+      <thead>
+        <tr>
+          {columns.map((column) => (
+            <th key={column.key}>
+              <button
+                type="button"
+                className="table-sort"
+                onClick={() => sortBy(column.key)}
+                aria-label={`Сортировать по «${column.label}»`}
+              >
+                {column.label}
+                <span className="table-sort-mark">
+                  {sortKey === column.key ? (sortAsc ? "▲" : "▼") : ""}
+                </span>
+              </button>
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((result) => (
+          <tr
+            className="clickable"
+            key={result.url}
+            onClick={() => onSelect(result)}
+            title="Открыть подробности: проверка, расчёт балла и цитаты"
+          >
+            <td>
+              <strong>{result.company_name}</strong>
+            </td>
+            <td>
+              <span
+                className={`badge ${
+                  result.supplier_type === "manufacturer"
+                    ? "tone-ok"
+                    : result.supplier_type === "distributor"
+                      ? "tone-warn"
+                      : "tone-neutral"
+                }`}
+              >
+                {TYPE_LABELS[result.supplier_type]}
+              </span>
+            </td>
+            <td>
+              <strong>{result.confidence}%</strong>
+            </td>
+            <td
+              className={
+                result.cas_status === "confirmed"
+                  ? "cell-ok"
+                  : result.cas_status === "mismatch"
+                    ? "cell-danger"
+                    : "cell-muted"
+              }
+            >
+              {CAS_LABELS[result.cas_status]}
+            </td>
+            <td
+              className={
+                result.country_status === "claimed"
+                  ? "cell-ok"
+                  : result.country_status === "mismatch"
+                    ? "cell-danger"
+                    : "cell-muted"
+              }
+            >
+              {COUNTRY_LABELS[result.country_status]}
+            </td>
+            <td className={`cell-${documentsTone(result)}`}>
+              {documentsCell(result)}
+            </td>
+            <td className={result.red_flags.length > 0 ? "cell-danger" : "cell-muted"}>
+              {result.red_flags.length > 0 ? result.red_flags.length : "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// Подробности поставщика: то, что не помещается в строку таблицы.
+//
+// Здесь всё, чем вывод доказывается: суть, статусы с объяснениями, решение
+// аудитора, правило отбора, расчёт балла, дословные цитаты и исходная выдача.
+function QualificationDetail({
   result,
   activeCas,
   activeCountry,
@@ -217,10 +428,9 @@ function QualificationCard({
   ).map((document) => document.label);
 
   return (
-    <article className="qualification-card">
+    <div className="qualification-detail-content">
       <div className="qualification-card-header">
         <div>
-          <h3>{result.company_name}</h3>
           <span
             className={`badge ${
               result.supplier_type === "manufacturer"
@@ -232,6 +442,7 @@ function QualificationCard({
           >
             {TYPE_LABELS[result.supplier_type]}
           </span>
+          <h4>{result.title_ru}</h4>
         </div>
         <div className="confidence">
           <div className="confidence-value">
@@ -333,31 +544,27 @@ function QualificationCard({
         )}
       </div>
 
-      <details className="qualification-details">
-        <summary>Подробно: проверка, расчёт балла и цитаты</summary>
-        <div className="qualification-details-body">
-          <EvidenceBadge
+      <div className="qualification-details-body">
+        <EvidenceBadge
             className={result.shortlist_eligible ? "tone-ok" : "tone-neutral"}
             label={
               result.shortlist_eligible
                 ? "В коротком списке"
                 : "Не в коротком списке"
             }
-            explanation={shortlistExplanation(result)}
-          />
-          <EvidenceBadge
-            className={verificationTone(
-              result.verification?.status ?? "unavailable",
-            )}
-            label={
-              VERIFICATION_LABELS[result.verification?.status ?? "unavailable"]
-            }
-            explanation={verificationExplanation(result)}
-          />
+          explanation={shortlistExplanation(result)}
+        />
+        <EvidenceBadge
+          className={verificationTone(
+            result.verification?.status ?? "unavailable",
+          )}
+          label={
+            VERIFICATION_LABELS[result.verification?.status ?? "unavailable"]
+          }
+          explanation={verificationExplanation(result)}
+        />
 
-          <h4>{result.title_ru}</h4>
-
-          <ul className="score-list">
+        <ul className="score-list">
             <li>Совпадение вещества: {result.score_breakdown.identity}/35</li>
             <li>Роль компании: {result.score_breakdown.supplier_role}/25</li>
             <li>Страна: {result.score_breakdown.country}/10</li>
@@ -405,13 +612,12 @@ function QualificationCard({
             </div>
           )}
 
-          <p className="note">
-            Исходный фрагмент поисковой выдачи получен до проверки страницы и
-            доказательством не считается: {result.title}. {result.snippet}
-          </p>
-        </div>
-      </details>
-    </article>
+        <p className="note">
+          Исходный фрагмент поисковой выдачи получен до проверки страницы и
+          доказательством не считается: {result.title}. {result.snippet}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -728,8 +934,6 @@ const qualificationFromTrace = (
       typeof output.source_shortfall === "number"
         ? output.source_shortfall
         : undefined,
-    warning:
-      "Квалификация предварительная. Проверьте первичные источники и документы перед решением.",
   };
 };
 
@@ -1284,6 +1488,19 @@ export default function SupplierSearchSection({
   const [repeatSearchOpen, setRepeatSearchOpen] = useState(false);
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
   const [qualification, setQualification] = useState<SupplierQualificationResponse | null>(null);
+  // Строка таблицы, раскрытая в окне подробностей.
+  const [detailIndex, setDetailIndex] = useState<number | null>(null);
+
+  // Окно закрывается клавишей, а не только кнопкой: закупщик просматривает
+  // строки подряд и не тянется к мыши ради каждой.
+  useEffect(() => {
+    if (detailIndex === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDetailIndex(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [detailIndex]);
   const [trace, setTrace] = useState<SearchRunTrace | null>(null);
   const [runs, setRuns] = useState<SearchRunListItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
@@ -1424,6 +1641,10 @@ export default function SupplierSearchSection({
     !!qualification?.registry_links?.some(
       (link) => link.result_index === resultIndex,
     );
+  const detailResult =
+    qualification?.results.find(
+      (result) => result.result_index === detailIndex,
+    ) ?? null;
   const countryRuns = useMemo(() => {
     const seen = new Set<string>();
     return runs.filter((run) => {
@@ -1711,7 +1932,7 @@ export default function SupplierSearchSection({
           <div className="search-results-header">
             <div className="heading-with-help">
               <h2>Найденные поставщики</h2>
-              <HelpTip text="Сначала идёт короткий список: кандидаты с подтверждённым веществом, ролью производителя и решением аудитора. Остальные найденные лежат ниже отдельным блоком." />
+              <HelpTip text="Сначала идёт короткий список: кандидаты с подтверждённым веществом, ролью производителя и решением аудитора. Остальные найденные лежат ниже отдельным блоком. Проверка предварительная: перед решением откройте первичные источники и запросите документы у поставщика." />
             </div>
           </div>
           {data ? (
@@ -1908,27 +2129,17 @@ export default function SupplierSearchSection({
           )}
           {qualification && (
             <>
-              <div className="qualification-warning">
-                Проверка предварительная. Перед решением откройте источники и
-                запросите документы у поставщика.
-              </div>
               {/* Два представления вместо одного списка: закупщику — короткий
                   безопасный список, эксперту — всё найденное. Раньше они шли
                   вперемешку, и принадлежность к короткому списку отличалась
                   только цветом одного тега из десяти. */}
               {shortlisted.length > 0 && (
-                <div className="qualification-grid">
-                  {shortlisted.map((result) => (
-                    <QualificationCard
-                      key={result.url}
-                      result={result}
-                      activeCas={activeCas}
-                      activeCountry={activeCountry}
-                      trace={trace}
-                      savedToRegistry={savedToRegistry(result.result_index)}
-                    />
-                  ))}
-                </div>
+                <QualificationTable
+                  results={shortlisted}
+                  activeCas={activeCas}
+                  activeCountry={activeCountry}
+                  onSelect={(result) => setDetailIndex(result.result_index)}
+                />
               )}
               {shortlisted.length === 0 && (
                 <p className="note">
@@ -1942,19 +2153,52 @@ export default function SupplierSearchSection({
                   <summary>
                     Остальные найденные ({rest.length}) — не прошли отбор
                   </summary>
-                  <div className="content-accordion-body qualification-grid">
-                    {rest.map((result) => (
-                      <QualificationCard
-                        key={result.url}
-                        result={result}
-                        activeCas={activeCas}
-                        activeCountry={activeCountry}
-                        trace={trace}
-                        savedToRegistry={savedToRegistry(result.result_index)}
-                      />
-                    ))}
+                  <div className="content-accordion-body">
+                    <QualificationTable
+                      results={rest}
+                      activeCas={activeCas}
+                      activeCountry={activeCountry}
+                      onSelect={(result) => setDetailIndex(result.result_index)}
+                    />
                   </div>
                 </details>
+              )}
+              {detailResult && (
+                <div
+                  className="request-delete-backdrop"
+                  role="presentation"
+                  onClick={() => setDetailIndex(null)}
+                >
+                  <section
+                    aria-labelledby="qualification-detail-title"
+                    aria-modal="true"
+                    className="supplier-detail qualification-detail"
+                    role="dialog"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <header>
+                      <h2 id="qualification-detail-title">
+                        {detailResult.company_name}
+                      </h2>
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => setDetailIndex(null)}
+                      >
+                        Закрыть
+                      </button>
+                    </header>
+                    <QualificationDetail
+                      result={detailResult}
+                      activeCas={activeCas}
+                      activeCountry={activeCountry}
+                      trace={trace}
+                      savedToRegistry={savedToRegistry(
+                        detailResult.result_index,
+                      )}
+                    />
+                  </section>
+                </div>
               )}
             </>
           )}
