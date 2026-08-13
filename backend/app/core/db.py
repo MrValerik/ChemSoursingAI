@@ -152,6 +152,35 @@ def _apply_light_migrations() -> None:
                         "simulation_mode VARCHAR(32) NOT NULL DEFAULT 'buyer_ai'"
                     )
                 )
+            if "rfq_id" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE communication_test_runs ADD COLUMN "
+                        "rfq_id INTEGER REFERENCES rfqs(id)"
+                    )
+                )
+            if "quotation_id" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE communication_test_runs ADD COLUMN "
+                        "quotation_id INTEGER REFERENCES quotations(id)"
+                    )
+                )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS "
+                    "ix_communication_test_runs_rfq_id "
+                    "ON communication_test_runs (rfq_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ix_communication_test_runs_quotation_id "
+                    "ON communication_test_runs (quotation_id) "
+                    "WHERE quotation_id IS NOT NULL"
+                )
+            )
     if "communication_test_messages" in tables:
         cols = {
             c["name"]

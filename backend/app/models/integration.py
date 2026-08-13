@@ -10,6 +10,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.quotation import Quotation
+    from app.models.rfq import RFQ
     from app.models.user import User
 
 
@@ -37,6 +39,17 @@ class CommunicationTestRun(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     actor_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    # Встроенный тестовый диалог может принадлежать рабочему RFQ. Одна
+    # накопительная котировка на диалог обновляется после каждого ответа.
+    rfq_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rfqs.id", ondelete="SET NULL"), default=None, index=True
+    )
+    quotation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("quotations.id", ondelete="SET NULL"),
+        default=None,
+        unique=True,
+        index=True,
     )
     channel: Mapped[str] = mapped_column(String(32), index=True)
     recipient_masked: Mapped[str] = mapped_column(String(320))
@@ -70,6 +83,8 @@ class CommunicationTestRun(Base, TimestampMixin):
     error: Mapped[str | None] = mapped_column(Text, default=None)
 
     actor: Mapped["User"] = relationship()
+    rfq: Mapped["RFQ | None"] = relationship()
+    quotation: Mapped["Quotation | None"] = relationship()
     messages: Mapped[list["CommunicationTestMessage"]] = relationship(
         back_populates="run",
         cascade="all, delete-orphan",

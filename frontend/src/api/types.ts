@@ -463,6 +463,8 @@ export interface WhatsAppWebPairingCode {
 
 export interface CommunicationTestRun {
   id: number;
+  rfq_id: number | null;
+  quotation_id: number | null;
   channel: "email" | "whatsapp";
   recipient_masked: string;
   procurement_context: string;

@@ -647,6 +647,82 @@ def test_communication_testing_explains_missing_quote_fields(client, monkeypatch
     assert len(continued.json()["messages"]) == 3
 
 
+def test_embedded_communication_test_updates_one_summary_quotation(
+    client, monkeypatch
+):
+    admin = _login(client)
+    monkeypatch.setattr(
+        "app.services.communication_testing._validate_procurement_identity",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Обычный ответ по закупке.",
+            method="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        lambda self, **kwargs: "Please also confirm MOQ and CoA availability.",
+    )
+
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+        headers=admin,
+    ).json()
+    started = client.post(
+        "/communication-testing",
+        json={
+            "rfq_id": rfq["id"],
+            "channel": "email",
+            "procurement_context": "50 kg Aspirin, CAS 50-78-2",
+            "initial_message": "Please quote 50 kg Aspirin, CAS 50-78-2.",
+            "delivery_mode": "preview",
+        },
+        headers=admin,
+    ).json()
+
+    first = client.post(
+        f"/communication-testing/{started['id']}/messages",
+        json={"message": "Our price is USD 720 per MT, CIP Moscow."},
+        headers=admin,
+    )
+    assert first.status_code == 201
+    first_payload = first.json()
+    assert first_payload["rfq_id"] == rfq["id"]
+    assert first_payload["quotation_id"] is not None
+
+    first_summary = client.get(
+        f"/rfq/{rfq['id']}/summary", headers=admin
+    ).json()
+    assert len(first_summary) == 1
+    assert first_summary[0]["supplier"] == "Тестовый поставщик"
+    assert first_summary[0]["price"] == 720.0
+    assert not first_summary[0]["is_complete"]
+
+    second = client.post(
+        f"/communication-testing/{started['id']}/messages",
+        json={"message": "MOQ: 100 kg. CoA attached."},
+        headers=admin,
+    )
+    assert second.status_code == 201
+    assert second.json()["quotation_id"] == first_payload["quotation_id"]
+
+    final_summary = client.get(
+        f"/rfq/{rfq['id']}/summary", headers=admin
+    ).json()
+    assert len(final_summary) == 1
+    assert final_summary[0]["quotation_id"] == first_payload["quotation_id"]
+    assert final_summary[0]["price"] == 720.0
+    assert final_summary[0]["moq"] == "100 kg"
+    assert final_summary[0]["has_coa"] is True
+    assert final_summary[0]["is_complete"] is True
+
+
 def test_communication_testing_can_simulate_supplier_for_manual_buyer(
     client, monkeypatch
 ):

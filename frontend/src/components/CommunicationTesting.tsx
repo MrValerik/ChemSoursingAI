@@ -140,6 +140,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
     setError(null);
     try {
       const created = await api.runCommunicationTest({
+        rfq_id: rfq.id,
         channel: "email",
         recipient: "",
         procurement_context: context,
@@ -187,7 +188,8 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
           <h3>Диалог с тестовым поставщиком</h3>
           <p className="note">
             Первое сообщение — сохранённый RFQ текущего запроса. Сообщения никуда
-            не отправляются.
+            не отправляются. Найденные в ответах цены и условия добавляются в
+            сводную таблицу как котировка «Тестовый поставщик».
           </p>
         </div>
       </div>

@@ -183,6 +183,7 @@ class WhatsAppWebEvent(BaseModel):
 
 
 class CommunicationTestCreate(BaseModel):
+    rfq_id: int | None = Field(default=None, ge=1)
     channel: Literal["email", "whatsapp"]
     recipient: str = Field(default="", max_length=320)
     procurement_context: str = Field(default="", max_length=8000)
@@ -300,6 +301,8 @@ class CommunicationTestRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    rfq_id: int | None
+    quotation_id: int | None
     channel: str
     recipient_masked: str
     procurement_context: str

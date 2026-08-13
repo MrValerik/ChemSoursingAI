@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.escalation import Escalation
+from app.models.integration import CommunicationTestRun
 from app.models.enums import EscalationStatus, RFQStatus
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
@@ -67,6 +68,14 @@ def create_quotation(db: Session, data: QuotationCreate) -> Quotation:
 def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
     """Сводная сравнительная таблица по RFQ: полные котировки — выше."""
     stmt = select(Quotation).where(Quotation.rfq_id == rfq_id)
+    test_quotation_ids = set(
+        db.scalars(
+            select(CommunicationTestRun.quotation_id).where(
+                CommunicationTestRun.rfq_id == rfq_id,
+                CommunicationTestRun.quotation_id.is_not(None),
+            )
+        ).all()
+    )
     rows: list[SummaryRow] = []
     for q in db.scalars(stmt).all():
         manager = q.manager
@@ -74,7 +83,10 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
         rows.append(
             SummaryRow(
                 quotation_id=q.id,
-                supplier=supplier,
+                supplier=(
+                    supplier
+                    or ("Тестовый поставщик" if q.id in test_quotation_ids else None)
+                ),
                 manager=manager.full_name if manager else None,
                 price=float(q.price) if q.price is not None else None,
                 currency=q.currency,

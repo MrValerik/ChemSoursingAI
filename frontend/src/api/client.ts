@@ -588,6 +588,7 @@ export const api = {
     request<CommunicationTestRun[]>(`/communication-testing?limit=${limit}`),
 
   runCommunicationTest: (payload: {
+    rfq_id?: number;
     channel: "email" | "whatsapp";
     recipient: string;
     procurement_context: string;

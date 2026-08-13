@@ -23,7 +23,13 @@ from app.extraction.llm_client import (
     LLMUnavailableError,
 )
 from app.extraction.rule_extractor import extract_with_rules
-from app.models import CommunicationTestMessage, CommunicationTestRun, User
+from app.models import (
+    CommunicationTestMessage,
+    CommunicationTestRun,
+    Quotation,
+    RFQ,
+    User,
+)
 from app.schemas.integration import (
     CommunicationTestContinue,
     CommunicationTestCreate,
@@ -384,6 +390,59 @@ def _attach_quote_assessment(run: CommunicationTestRun) -> CommunicationTestRun:
     return run
 
 
+def _sync_test_quotation(db: Session, run: CommunicationTestRun) -> None:
+    """Создаёт или обновляет одну накопительную котировку тестового диалога."""
+    if run.rfq_id is None:
+        return
+
+    extracted = [
+        extract_with_rules(message.content)
+        for message in run.messages
+        if message.sender_role == "supplier"
+    ]
+    if not extracted:
+        return
+
+    progress = accumulate_quotations(extracted)
+    # Пустой тестовый ответ не должен создавать пустую строку в сводной.
+    if progress.quote["price"] is None and run.quotation_id is None:
+        return
+
+    rfq = db.get(RFQ, run.rfq_id)
+    if rfq is None or rfq.deleted_at is not None:
+        return
+
+    def latest(name: str):
+        return next(
+            (
+                getattr(item, name)
+                for item in reversed(extracted)
+                if getattr(item, name) not in (None, "")
+            ),
+            None,
+        )
+
+    quotation = db.get(Quotation, run.quotation_id) if run.quotation_id else None
+    if quotation is None:
+        quotation = Quotation(rfq_id=run.rfq_id, manager_id=None)
+        db.add(quotation)
+        db.flush()
+        run.quotation_id = quotation.id
+
+    quotation.price = progress.quote["price"]
+    quotation.currency = latest("currency")
+    quotation.incoterm = progress.quote["incoterm"]
+    quotation.moq = progress.quote["moq"]
+    quotation.grade = latest("grade")
+    quotation.payment_terms = latest("payment_terms")
+    quotation.lead_time = latest("lead_time")
+    quotation.has_coa = bool(progress.quote["has_coa"])
+    quotation.has_tds = bool(progress.quote["has_tds"])
+    quotation.is_complete = progress.completeness.is_complete
+    quotation.field_confidence = progress.field_confidence or None
+    db.commit()
+
+
 def _supplier_simulation_prompt(run: CommunicationTestRun) -> str:
     lines = []
     for message in run.messages:
@@ -454,7 +513,9 @@ def _save_supplier_reply(
     run.status = "previewed"
     run.error = None
     db.commit()
-    return _attach_quote_assessment(_load_run(db, run.id) or run)
+    loaded = _load_run(db, run.id) or run
+    _sync_test_quotation(db, loaded)
+    return _attach_quote_assessment(_load_run(db, run.id) or loaded)
 
 
 def _generation_instructions(run: CommunicationTestRun, *, stage: str) -> str:
@@ -977,10 +1038,15 @@ def run_communication_test(
         raise ValueError(
             "Для реальной отправки требуется явное подтверждение администратора"
         )
+    if payload.rfq_id is not None:
+        rfq = db.get(RFQ, payload.rfq_id)
+        if rfq is None or rfq.deleted_at is not None:
+            raise ValueError("Запрос для тестового диалога не найден")
 
     context = payload.scenario_text
     run = CommunicationTestRun(
         actor_id=actor.id,
+        rfq_id=payload.rfq_id,
         channel=payload.channel,
         recipient_masked=(
             mask_recipient(payload.channel, payload.recipient)
@@ -1143,6 +1209,7 @@ def continue_communication_test(
             category=policy.category,
         )
 
+    _sync_test_quotation(db, run)
     assessed = _attach_quote_assessment(run)
     if assessed.quote_assessment["is_complete"]:
         run.status = "complete"
