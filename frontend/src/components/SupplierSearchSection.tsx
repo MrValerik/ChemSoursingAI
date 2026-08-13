@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, userErrorMessage } from "../api/client";
 import type {
   SearchScope,
@@ -98,12 +98,6 @@ const CLAIM_LABELS: Record<string, string> = {
   tds: "TDS",
 };
 
-const evidenceTone = (status: EvidenceStatus) => {
-  if (status === "claimed") return "tone-warn";
-  if (status === "contradicted") return "tone-danger";
-  return "tone-neutral";
-};
-
 const evidenceExplanation = (
   result: SupplierQualificationResponse["results"][number],
   claimType: string,
@@ -193,6 +187,234 @@ const verificationExplanation = (
   ].join(" ");
 };
 
+// Карточка найденного поставщика.
+//
+// Наверху — то, чем закупщик принимает решение: кто это, какая роль, балл,
+// суть, три статуса и риски. Всё остальное — расчёт балла, дословные цитаты,
+// исходная выдача — доказательная база; она никуда не делась, но лежит под
+// одной раскрывашкой, а не тремя. Раньше карточка несла до десяти тегов и
+// три вложенные раскрывашки, и решение в них терялось.
+function QualificationCard({
+  result,
+  activeCas,
+  activeCountry,
+  trace,
+  savedToRegistry,
+}: {
+  result: SupplierQualificationResponse["results"][number];
+  activeCas: string | null;
+  activeCountry: string;
+  trace: SearchRunTrace | null;
+  savedToRegistry: boolean;
+}) {
+  // Четыре отдельных тега документов занимали по строке каждый, хотя
+  // отвечают на один вопрос: что поставщик о себе заявил и где противоречие.
+  const claimedDocuments = DOCUMENT_FIELDS.filter(
+    (document) => result[document.key] === "claimed",
+  ).map((document) => document.label);
+  const contradictedDocuments = DOCUMENT_FIELDS.filter(
+    (document) => result[document.key] === "contradicted",
+  ).map((document) => document.label);
+
+  return (
+    <article className="qualification-card">
+      <div className="qualification-card-header">
+        <div>
+          <h3>{result.company_name}</h3>
+          <span
+            className={`badge ${
+              result.supplier_type === "manufacturer"
+                ? "tone-ok"
+                : result.supplier_type === "distributor"
+                  ? "tone-warn"
+                  : "tone-neutral"
+            }`}
+          >
+            {TYPE_LABELS[result.supplier_type]}
+          </span>
+        </div>
+        <div className="confidence">
+          <div className="confidence-value">
+            <strong>{result.confidence}%</strong>
+            <HelpTip text={scoreExplanation(result)} />
+          </div>
+          <span>балл по проверенным данным</span>
+        </div>
+      </div>
+
+      <p className="qualification-summary">{result.summary_ru}</p>
+
+      <div className="qualification-evidence">
+        <EvidenceBadge
+          className={
+            result.cas_status === "confirmed"
+              ? "tone-ok"
+              : result.cas_status === "mismatch"
+                ? "tone-danger"
+                : "tone-neutral"
+          }
+          label={`${activeCas ? "CAS" : "Идентичность"}: ${CAS_LABELS[result.cas_status]}`}
+          explanation={evidenceExplanation(
+            result,
+            "chemical_identity",
+            activeCas
+              ? `Статус «${CAS_LABELS[result.cas_status]}» показывает, найдено ли на открытой первичной странице точное подтверждение CAS ${activeCas} и вещества.`
+              : `Статус «${CAS_LABELS[result.cas_status]}» показывает, подтверждает ли первичная страница название, состав или требуемый грейд продукта без CAS. Для аналога дополнительно нужно вручную сравнить свойства.`,
+          )}
+        />
+        <EvidenceBadge
+          className={
+            result.country_status === "claimed"
+              ? "tone-ok"
+              : result.country_status === "mismatch"
+                ? "tone-danger"
+                : result.country_status === "likely"
+                  ? "tone-warn"
+                  : "tone-neutral"
+          }
+          label={`${activeCountry}: ${COUNTRY_LABELS[result.country_status]}`}
+          explanation={evidenceExplanation(
+            result,
+            "country",
+            `Статус «${COUNTRY_LABELS[result.country_status]}» показывает, подтверждает ли первичная страница связь компании или производственной площадки со страной поиска.`,
+          )}
+        />
+        <EvidenceBadge
+          className={
+            contradictedDocuments.length > 0
+              ? "tone-danger"
+              : claimedDocuments.length > 0
+                ? "tone-warn"
+                : "tone-neutral"
+          }
+          label={
+            contradictedDocuments.length > 0
+              ? `Документы: противоречие (${contradictedDocuments.join(", ")})`
+              : claimedDocuments.length > 0
+                ? `Документы заявлены: ${claimedDocuments.join(", ")}`
+                : "Документы: не найдены"
+          }
+          explanation={DOCUMENT_FIELDS.map(
+            (document) =>
+              `${document.label} — ${EVIDENCE_LABELS[result[document.key]]}.`,
+          )
+            .concat(
+              "Заявление на сайте не заменяет сам документ: его нужно запросить у поставщика.",
+            )
+            .join(" ")}
+        />
+      </div>
+
+      {result.red_flags.length > 0 && (
+        <div className="qualification-warning">
+          <strong>Риски:</strong> {result.red_flags.join("; ")}
+        </div>
+      )}
+      {result.missing_evidence.length > 0 && (
+        <div className="note">
+          <strong>Запросить:</strong> {result.missing_evidence.join("; ")}
+        </div>
+      )}
+
+      <div className="qualification-card-footer">
+        <a
+          className="source-link"
+          href={result.url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Открыть первичный источник
+        </a>
+        {savedToRegistry && (
+          <span className="candidate-auto-saved">
+            <Icon name="check" size={16} />
+            Сохранён в реестре
+          </span>
+        )}
+      </div>
+
+      <details className="qualification-details">
+        <summary>Подробно: проверка, расчёт балла и цитаты</summary>
+        <div className="qualification-details-body">
+          <EvidenceBadge
+            className={result.shortlist_eligible ? "tone-ok" : "tone-neutral"}
+            label={
+              result.shortlist_eligible
+                ? "В коротком списке"
+                : "Не в коротком списке"
+            }
+            explanation={shortlistExplanation(result)}
+          />
+          <EvidenceBadge
+            className={verificationTone(
+              result.verification?.status ?? "unavailable",
+            )}
+            label={
+              VERIFICATION_LABELS[result.verification?.status ?? "unavailable"]
+            }
+            explanation={verificationExplanation(result)}
+          />
+
+          <h4>{result.title_ru}</h4>
+
+          <ul className="score-list">
+            <li>Совпадение вещества: {result.score_breakdown.identity}/35</li>
+            <li>Роль компании: {result.score_breakdown.supplier_role}/25</li>
+            <li>Страна: {result.score_breakdown.country}/10</li>
+            <li>Документы: {result.score_breakdown.documents}/15</li>
+            <li>
+              Качество доказательств: {result.score_breakdown.evidence_quality}
+              /15
+            </li>
+          </ul>
+          {result.llm_confidence !== null && (
+            <p className="note">
+              Исходная оценка ИИ-агента: {result.llm_confidence}% — показана для
+              аудита, но не участвует в итоговом балле.
+            </p>
+          )}
+
+          {result.evidence.length > 0 && (
+            <div className="candidate-evidence-list">
+              <strong>Проверенные цитаты ({result.evidence.length})</strong>
+              {result.evidence.map((evidence) => {
+                const source = trace?.source_documents.find(
+                  (item) => item.id === evidence.source_document_id,
+                );
+                return (
+                  <blockquote key={evidence.id}>
+                    <span>
+                      {CLAIM_LABELS[evidence.claim_type] || evidence.claim_type}:
+                    </span>{" "}
+                    «{evidence.quote}»
+                    {source && (
+                      <>
+                        {" "}
+                        <a
+                          href={source.final_url || source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          источник
+                        </a>
+                      </>
+                    )}
+                  </blockquote>
+                );
+              })}
+            </div>
+          )}
+
+          <p className="note">
+            Исходный фрагмент поисковой выдачи получен до проверки страницы и
+            доказательством не считается: {result.title}. {result.snippet}
+          </p>
+        </div>
+      </details>
+    </article>
+  );
+}
+
 const formatJson = (value: unknown) => JSON.stringify(value, null, 2);
 
 const traceTone = (status: string) => {
@@ -200,6 +422,14 @@ const traceTone = (status: string) => {
   if (status === "failed") return "tone-danger";
   return "tone-warn";
 };
+
+// Статусы, после которых прогон уже ничего не сделает сам.
+const FINISHED_SEARCH_STATUSES = [
+  "completed",
+  "search_completed",
+  "failed",
+  "cancelled",
+];
 
 const SEARCH_STATUS_LABELS: Record<string, string> = {
   queued: "В очереди",
@@ -527,6 +757,54 @@ function SearchTracePanel({
     return () => window.clearInterval(timer);
   }, [hasRunningStage]);
 
+  // Пока поиск идёт, ход — главное на экране. Как только он закончился,
+  // главным становится результат, а этапы сворачиваются в одну строку:
+  // иначе к найденным поставщикам приходится прокручивать весь журнал.
+  //
+  // Завершённость берётся из статуса прогона, а не из «нет работающих
+  // этапов»: у задачи в очереди этапов нет вообще, и по второму признаку
+  // она сворачивалась бы как законченная.
+  const finished = FINISHED_SEARCH_STATUSES.includes(trace.status);
+  const [collapsed, setCollapsed] = useState(finished);
+  const wasUnfinished = useRef(!finished);
+  useEffect(() => {
+    if (finished && wasUnfinished.current) setCollapsed(true);
+    wasUnfinished.current = !finished;
+  }, [finished]);
+
+  const finishedSteps = trace.agent_runs.filter(
+    (stage) => stage.status === "completed",
+  ).length;
+  const failedSteps = trace.agent_runs.filter(
+    (stage) => stage.status === "failed",
+  ).length;
+
+  if (collapsed) {
+    return (
+      <section className="search-trace search-trace-collapsed">
+        <div className="search-trace-header">
+          <div className="heading-with-help">
+            <h2>Ход поиска</h2>
+            <span className={`badge ${traceTone(trace.status)}`}>
+              {SEARCH_STATUS_LABELS[trace.status] || trace.status}
+            </span>
+            <span className="note">
+              этапов пройдено: {finishedSteps}
+              {failedSteps > 0 ? ` · с ошибкой: ${failedSteps}` : ""}
+            </span>
+          </div>
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => setCollapsed(false)}
+          >
+            Показать этапы
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="search-trace">
       <div className="search-trace-header">
@@ -552,6 +830,15 @@ function SearchTracePanel({
           <span className={`badge ${traceTone(trace.status)}`}>
             {SEARCH_STATUS_LABELS[trace.status] || trace.status}
           </span>
+          {finished && (
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => setCollapsed(true)}
+            >
+              Свернуть
+            </button>
+          )}
           {trace.can_resume && (
             <button
               className="secondary"
@@ -1124,6 +1411,19 @@ export default function SupplierSearchSection({
     ? runText(trace, "country")
     : selectedCountries[0] ?? "";
   const candidateResults = trace?.candidate_results ?? data?.results ?? [];
+  // Короткий список закупщика и всё остальное найденное — два разных
+  // представления одних и тех же данных (правило проекта: широкое покрытие
+  // для эксперта, короткий безопасный список для закупщика).
+  const shortlisted = (qualification?.results ?? []).filter(
+    (result) => result.shortlist_eligible,
+  );
+  const rest = (qualification?.results ?? []).filter(
+    (result) => !result.shortlist_eligible,
+  );
+  const savedToRegistry = (resultIndex: number) =>
+    !!qualification?.registry_links?.some(
+      (link) => link.result_index === resultIndex,
+    );
   const countryRuns = useMemo(() => {
     const seen = new Set<string>();
     return runs.filter((run) => {
@@ -1395,12 +1695,23 @@ export default function SupplierSearchSection({
 
       {notice && <Toast message={notice} onClose={() => setNotice(null)} />}
       {error && <p className="error">{error}</p>}
+      {trace && (
+        <div className="panel">
+          <SearchTracePanel
+            trace={trace}
+            onRestart={() => void restartTrace()}
+            onResume={() => void resumeTrace()}
+            restartBusy={restartBusy}
+            isAdmin={user?.role === "admin"}
+          />
+        </div>
+      )}
       {(data || candidateResults.length > 0) && (
         <div className="panel">
           <div className="search-results-header">
             <div className="heading-with-help">
               <h2>Найденные поставщики</h2>
-              <HelpTip text="Сначала показываются кандидаты из поисковой выдачи. Дополнительная проверка помогает определить производителей, документы и риски." />
+              <HelpTip text="Сначала идёт короткий список: кандидаты с подтверждённым веществом, ролью производителя и решением аудитора. Остальные найденные лежат ниже отдельным блоком." />
             </div>
           </div>
           {data ? (
@@ -1601,204 +1912,52 @@ export default function SupplierSearchSection({
                 Проверка предварительная. Перед решением откройте источники и
                 запросите документы у поставщика.
               </div>
-              <div className="qualification-grid">
-                {qualification.results.map((result) => (
-                  <article className="qualification-card" key={result.url}>
-                    <div className="qualification-card-header">
-                      <div>
-                        <h3>{result.company_name}</h3>
-                        <span className={`badge ${result.supplier_type === "manufacturer" ? "tone-ok" : result.supplier_type === "distributor" ? "tone-warn" : "tone-neutral"}`}>
-                          {TYPE_LABELS[result.supplier_type]}
-                        </span>
-                        <span className={`badge ${sourceTone(result.source_kind)}`}>
-                          {SOURCE_LABELS[result.source_kind]}
-                        </span>
-                      </div>
-                      <div className="confidence">
-                        <div className="confidence-value">
-                          <strong>{result.confidence}%</strong>
-                          <HelpTip text={scoreExplanation(result)} />
-                        </div>
-                        <span>балл по проверенным данным</span>
-                      </div>
-                    </div>
-
-                    <h4>{result.title_ru}</h4>
-                    <p>{result.summary_ru}</p>
-
-                    <div className="qualification-evidence">
-                      <EvidenceBadge
-                        className={result.shortlist_eligible ? "tone-ok" : "tone-neutral"}
-                        label={
-                          result.shortlist_eligible
-                            ? "Включён в короткий список"
-                            : "Не включён в короткий список"
-                        }
-                        explanation={shortlistExplanation(result)}
+              {/* Два представления вместо одного списка: закупщику — короткий
+                  безопасный список, эксперту — всё найденное. Раньше они шли
+                  вперемешку, и принадлежность к короткому списку отличалась
+                  только цветом одного тега из десяти. */}
+              {shortlisted.length > 0 && (
+                <div className="qualification-grid">
+                  {shortlisted.map((result) => (
+                    <QualificationCard
+                      key={result.url}
+                      result={result}
+                      activeCas={activeCas}
+                      activeCountry={activeCountry}
+                      trace={trace}
+                      savedToRegistry={savedToRegistry(result.result_index)}
+                    />
+                  ))}
+                </div>
+              )}
+              {shortlisted.length === 0 && (
+                <p className="note">
+                  В короткий список никто не прошёл: ни у одного кандидата нет
+                  одновременно подтверждённого вещества, роли производителя и
+                  решения аудитора. Проверьте остальных найденных вручную.
+                </p>
+              )}
+              {rest.length > 0 && (
+                <details className="content-accordion">
+                  <summary>
+                    Остальные найденные ({rest.length}) — не прошли отбор
+                  </summary>
+                  <div className="content-accordion-body qualification-grid">
+                    {rest.map((result) => (
+                      <QualificationCard
+                        key={result.url}
+                        result={result}
+                        activeCas={activeCas}
+                        activeCountry={activeCountry}
+                        trace={trace}
+                        savedToRegistry={savedToRegistry(result.result_index)}
                       />
-                      <EvidenceBadge
-                        className={verificationTone(
-                          result.verification?.status ?? "unavailable",
-                        )}
-                        label={
-                          VERIFICATION_LABELS[
-                            result.verification?.status ?? "unavailable"
-                          ]
-                        }
-                        explanation={verificationExplanation(result)}
-                      />
-                      <EvidenceBadge
-                        className={
-                          result.cas_status === "confirmed"
-                            ? "tone-ok"
-                            : result.cas_status === "mismatch"
-                              ? "tone-danger"
-                              : "tone-neutral"
-                        }
-                        label={`${activeCas ? "CAS" : "Идентичность"}: ${CAS_LABELS[result.cas_status]}`}
-                        explanation={evidenceExplanation(
-                          result,
-                          "chemical_identity",
-                          activeCas
-                            ? `Статус «${CAS_LABELS[result.cas_status]}» показывает, найдено ли на открытой первичной странице точное подтверждение CAS ${activeCas} и вещества.`
-                            : `Статус «${CAS_LABELS[result.cas_status]}» показывает, подтверждает ли первичная страница название, состав или требуемый грейд продукта без CAS. Для аналога дополнительно нужно вручную сравнить свойства.`,
-                        )}
-                      />
-                      <EvidenceBadge
-                        className={
-                          result.country_status === "claimed"
-                            ? "tone-ok"
-                            : result.country_status === "mismatch"
-                              ? "tone-danger"
-                              : result.country_status === "likely"
-                                ? "tone-warn"
-                                : "tone-neutral"
-                        }
-                        label={`${activeCountry}: ${COUNTRY_LABELS[result.country_status]}`}
-                        explanation={evidenceExplanation(
-                          result,
-                          "country",
-                          `Статус «${COUNTRY_LABELS[result.country_status]}» показывает, подтверждает ли первичная страница связь компании или производственной площадки со страной поиска.`,
-                        )}
-                      />
-                      {DOCUMENT_FIELDS.map((document) => {
-                        const status = result[document.key];
-                        return (
-                          <EvidenceBadge
-                            className={evidenceTone(status)}
-                            explanation={evidenceExplanation(
-                              result,
-                              document.key.replace("_status", ""),
-                              `Статус «${EVIDENCE_LABELS[status]}» означает результат проверки упоминания ${document.label} на первичной странице. Он не заменяет проверку самого документа.`,
-                            )}
-                            key={document.key}
-                            label={`${document.label}: ${EVIDENCE_LABELS[status]}`}
-                          />
-                        );
-                      })}
-                    </div>
-
-                    <details className="score-breakdown">
-                      <summary>Показать расчёт балла</summary>
-                      <ul>
-                        <li>Совпадение вещества: {result.score_breakdown.identity}/35</li>
-                        <li>Роль компании: {result.score_breakdown.supplier_role}/25</li>
-                        <li>Страна: {result.score_breakdown.country}/10</li>
-                        <li>Документы: {result.score_breakdown.documents}/15</li>
-                        <li>Качество доказательств: {result.score_breakdown.evidence_quality}/15</li>
-                      </ul>
-                      {result.llm_confidence !== null && (
-                        <p className="note">
-                          Исходная оценка ИИ-агента: {result.llm_confidence}% —
-                          показана для аудита, но не участвует в итоговом балле.
-                        </p>
-                      )}
-                    </details>
-
-                    {result.red_flags.length > 0 && (
-                      <div className="qualification-warning">
-                        <strong>Риски:</strong> {result.red_flags.join("; ")}
-                      </div>
-                    )}
-                    {result.missing_evidence.length > 0 && (
-                      <div className="note">
-                        <strong>Запросить:</strong> {result.missing_evidence.join("; ")}
-                      </div>
-                    )}
-
-                    {result.evidence.length > 0 && (
-                      <details className="candidate-evidence">
-                        <summary>
-                          Проверенные цитаты ({result.evidence.length})
-                        </summary>
-                        <div className="candidate-evidence-list">
-                          {result.evidence.map((evidence) => {
-                            const source = trace?.source_documents.find(
-                              (item) => item.id === evidence.source_document_id,
-                            );
-                            return (
-                              <blockquote key={evidence.id}>
-                                <span>
-                                  {CLAIM_LABELS[evidence.claim_type] || evidence.claim_type}:
-                                </span>{" "}
-                                «{evidence.quote}»
-                                {source && (
-                                  <>
-                                    {" "}
-                                    <a
-                                      href={source.final_url || source.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    >
-                                      источник
-                                    </a>
-                                  </>
-                                )}
-                              </blockquote>
-                            );
-                          })}
-                        </div>
-                      </details>
-                    )}
-
-                    <details>
-                      <summary>Исходный фрагмент поисковой выдачи</summary>
-                      <p className="note">
-                        Заголовок и краткое описание получены от поисковой
-                        системы до проверки страницы. Они сохранены для аудита
-                        поиска и не считаются доказательством.
-                      </p>
-                      <p className="note">{result.title}</p>
-                      <p className="note">{result.snippet}</p>
-                    </details>
-                    <a className="source-link" href={result.url} target="_blank" rel="noreferrer">
-                      Открыть первичный источник
-                    </a>
-
-                    {qualification.registry_links?.some(
-                      (link) => link.result_index === result.result_index,
-                    ) && (
-                      <div className="candidate-auto-saved">
-                        <Icon name="check" size={16} />
-                        Кандидат автоматически сохранён в реестре поставщиков
-                      </div>
-                    )}
-                  </article>
-                ))}
-              </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </>
           )}
-        </div>
-      )}
-      {trace && (
-        <div className="panel">
-          <SearchTracePanel
-            trace={trace}
-            onRestart={() => void restartTrace()}
-            onResume={() => void resumeTrace()}
-            restartBusy={restartBusy}
-            isAdmin={user?.role === "admin"}
-          />
         </div>
       )}
     </div>

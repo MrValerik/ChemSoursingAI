@@ -1173,6 +1173,51 @@ button.danger:hover {
   text-decoration-style: solid;
 }
 
+/* Свёрнутый ход поиска: одна строка вместо всего журнала, когда поиск
+   закончился и главным на экране стал результат. */
+.search-trace-collapsed .search-trace-header {
+  align-items: center;
+  margin: 0;
+}
+.search-trace-collapsed .heading-with-help {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Карточка поставщика: сверху решение, доказательная база — под раскрывашкой. */
+.qualification-summary {
+  margin: 0;
+}
+.qualification-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.qualification-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.qualification-details-body {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.qualification-details-body h4 {
+  margin: 0;
+  font-size: 13px;
+}
+.score-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* Создание запроса: форма и колонка похожих прошлых запросов рядом с ней. */
 .new-rfq {
   display: grid;
