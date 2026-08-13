@@ -28,6 +28,7 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: production
+      DEMO_WORKSPACE_ENABLED: ${DEMO_WORKSPACE_ENABLED:-true}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-chemsource}:${POSTGRES_PASSWORD:-change_me}@db:5432/${POSTGRES_DB:-chemsource}
       REDIS_URL: redis://redis:6379/0
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-dev-secret-change-in-prod}

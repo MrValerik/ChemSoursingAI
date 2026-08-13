@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     app_host: str = Field(default="0.0.0.0")
     app_port: int = Field(default=8000)
     log_level: str = Field(default="INFO")
+    # Готовый синтетический сценарий для демонстрационного стенда. В обычном
+    # запуске выключен; Docker Compose включает его явно для текущего демо.
+    demo_workspace_enabled: bool = Field(default=False)
 
     # --- База данных ---
     postgres_host: str = Field(default="localhost")

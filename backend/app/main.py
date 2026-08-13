@@ -34,7 +34,13 @@ from app.api import (
 )
 from app.core.config import get_settings
 from app.core.db import SessionLocal, init_db
-from app.core.seed import seed_prompts, seed_suppliers, seed_templates, seed_users
+from app.core.seed import (
+    seed_demo_workspace,
+    seed_prompts,
+    seed_suppliers,
+    seed_templates,
+    seed_users,
+)
 from app.services.intermediaries import seed_intermediaries
 
 
@@ -87,6 +93,8 @@ def create_app() -> FastAPI:
             seed_prompts(db)
             seed_suppliers(db)
             seed_templates(db)
+            if settings.demo_workspace_enabled:
+                seed_demo_workspace(db)
             # Стартовый список площадок: без него первый же поиск потратит
             # бюджет загрузки на маркетплейсы. Пользовательские правки
             # заполнение не трогает.
