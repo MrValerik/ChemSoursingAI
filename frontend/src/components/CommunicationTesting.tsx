@@ -63,7 +63,204 @@ const procurementContextFromRfq = (rfq: RFQRead) =>
     .filter(Boolean)
     .join("\n");
 
-export default function CommunicationTesting({
+function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
+  const [active, setActive] = useState<CommunicationTestRun | null>(null);
+  const [supplierMessage, setSupplierMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const context = procurementContextFromRfq(rfq);
+  const rfqBody = rfq.rfq_body?.trim() ?? "";
+  const canContinue =
+    active !== null &&
+    active.messages[active.messages.length - 1]?.sender_role === "assistant" &&
+    !["delivery_error", "complete", "escalated"].includes(active.status);
+
+  useEffect(() => {
+    setActive(null);
+    setSupplierMessage("");
+    setError(null);
+  }, [rfq.id, rfq.rfq_body]);
+
+  const start = async () => {
+    if (!rfqBody) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await api.runCommunicationTest({
+        channel: "email",
+        recipient: "",
+        procurement_context: context,
+        additional_instructions: "",
+        simulation_mode: "buyer_ai",
+        initial_message: rfqBody,
+        delivery_mode: "preview",
+        subject: rfq.rfq_subject?.trim() || "Request for quotation",
+        confirm_external_send: false,
+      });
+      setActive(created);
+      setSupplierMessage("");
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reply = async (message: string) => {
+    if (!active || !canContinue || !message.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.continueCommunicationTest(active.id, {
+        message: message.trim(),
+        recipient: "",
+        confirm_external_send: false,
+      });
+      setActive(updated);
+      setSupplierMessage("");
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="communication-testing communication-testing-embedded">
+      <div className="requests-header">
+        <div>
+          <h3>Диалог с тестовым поставщиком</h3>
+          <p className="note">
+            Первое сообщение — сохранённый RFQ текущего запроса. Сообщения никуда
+            не отправляются.
+          </p>
+        </div>
+      </div>
+
+      {error && <p className="error">{error}</p>}
+
+      {!active ? (
+        <div className="embedded-test-start">
+          <div className="communication-message from-assistant">
+            <span className="communication-message-role">RFQ покупателя</span>
+            <div className="communication-message-original">
+              <div>{rfqBody || "Сначала сформируйте RFQ для этого запроса."}</div>
+            </div>
+          </div>
+          <button disabled={busy || !rfqBody} onClick={() => void start()} type="button">
+            {busy ? "Начинаем…" : "Начать диалог"}
+          </button>
+        </div>
+      ) : (
+        <div className="communication-dialog-panel embedded-test-thread">
+          <div className="communication-messages">
+            {active.messages.map((message) => (
+              <div
+                className={`communication-message ${
+                  message.sender_role === "assistant"
+                    ? "from-assistant"
+                    : "from-supplier"
+                }`}
+                key={message.id}
+              >
+                <span className="communication-message-role">
+                  {message.sender_role === "assistant"
+                    ? "Нейросеть · покупатель"
+                    : "Вы · поставщик"}
+                </span>
+                <div className="communication-message-original">
+                  <span>Английский оригинал</span>
+                  <div>{message.content}</div>
+                </div>
+                {message.translation_ru && message.translation_ru !== message.content && (
+                  <div className="communication-message-translation">
+                    <span>Перевод для сотрудника</span>
+                    <div>{message.translation_ru}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <p className="note">
+            {STATUS_LABELS[active.status] ?? active.status}
+            {active.model ? ` · модель: ${active.model}` : ""}
+          </p>
+
+          {active.quote_assessment && (
+            <div className="communication-assessment" role="status">
+              <strong>
+                {active.quote_assessment.is_complete
+                  ? "Данные собраны — диалог завершён."
+                  : "Проверка ответа поставщика"}
+              </strong>
+              <span>
+                Цена: {active.quote_assessment.price ?? "не указана"}
+                {active.quote_assessment.currency
+                  ? ` ${active.quote_assessment.currency}`
+                  : ""}
+                {` · Incoterm: ${active.quote_assessment.incoterm ?? "не указан"}`}
+                {` · MOQ: ${active.quote_assessment.moq ?? "не указан"}`}
+              </span>
+              {!active.quote_assessment.is_complete && (
+                <span>
+                  Не хватает: {active.quote_assessment.missing_fields
+                    .map((field) => QUOTE_FIELD_LABELS[field] ?? field)
+                    .join(", ")}
+                </span>
+              )}
+            </div>
+          )}
+
+          {active.error && <p className="error">{active.error}</p>}
+
+          {canContinue && (
+            <div className="communication-reply">
+              <Field label="Ваш ответ на RFQ от лица поставщика">
+                <Textarea
+                  rows={4}
+                  placeholder="Введите ответ поставщика на английском"
+                  value={supplierMessage}
+                  onChange={(event) => setSupplierMessage(event.target.value)}
+                />
+              </Field>
+              <div className="actions embedded-test-actions">
+                <button
+                  disabled={busy || !supplierMessage.trim()}
+                  onClick={() => void reply(supplierMessage)}
+                  type="button"
+                >
+                  {busy ? "Нейросеть отвечает…" : "Ответить"}
+                </button>
+                {(Object.entries(EXAMPLES) as Array<
+                  [keyof typeof EXAMPLES, (typeof EXAMPLES)[keyof typeof EXAMPLES]]
+                >).map(([kind, example]) => (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    key={kind}
+                    onClick={() => void reply(example.supplierMessage)}
+                    type="button"
+                  >
+                    {example.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!canContinue && (
+            <button className="secondary" disabled={busy} onClick={() => void start()}>
+              Начать заново
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FullCommunicationTesting({
   embedded = false,
   rfq,
 }: {
@@ -648,4 +845,17 @@ export default function CommunicationTesting({
       )}
     </div>
   );
+}
+
+export default function CommunicationTesting({
+  embedded = false,
+  rfq,
+}: {
+  embedded?: boolean;
+  rfq?: RFQRead;
+} = {}) {
+  if (embedded && rfq) {
+    return <EmbeddedCommunicationTesting rfq={rfq} />;
+  }
+  return <FullCommunicationTesting embedded={embedded} rfq={rfq} />;
 }

@@ -370,7 +370,7 @@ export default function DispatchTab({
               <span>
                 <strong>Тестовый поставщик</strong>
                 <small>
-                  Полный и неполный ответы · ручной диалог с нейросетью
+                  Ответьте на RFQ сами или выберите полный/неполный пример
                 </small>
               </span>
               <span className="badge tone-info">Тестовый режим</span>

@@ -220,6 +220,8 @@ class CommunicationTestCreate(BaseModel):
                 raise ValueError("Режим «нейросеть — поставщик» доступен только в симуляции")
             if not self.initial_message:
                 raise ValueError("Напишите первое сообщение покупателя")
+        elif self.initial_message and self.delivery_mode != "preview":
+            raise ValueError("Готовый RFQ можно использовать только в симуляции")
         if not self.recipient:
             if self.delivery_mode == "send":
                 raise ValueError("Для реальной отправки укажите получателя")

@@ -1619,6 +1619,24 @@ button.danger:hover {
   padding: 16px;
 }
 
+.embedded-test-start,
+.embedded-test-thread {
+  display: grid;
+  gap: 14px;
+}
+
+.embedded-test-start > button {
+  justify-self: start;
+}
+
+.embedded-test-thread.communication-dialog-panel {
+  min-height: 0;
+}
+
+.embedded-test-actions {
+  align-items: center;
+}
+
 .conversation-attachments {
   display: grid;
   gap: 7px;

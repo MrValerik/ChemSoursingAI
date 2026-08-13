@@ -1062,6 +1062,15 @@ def run_communication_test(
             category=category,
         )
 
+    if payload.initial_message:
+        return _save_assistant_reply(
+            db,
+            run=run,
+            reply=payload.initial_message,
+            translation_ru=_translate_for_user(payload.initial_message, llm=llm),
+            recipient="",
+        )
+
     reply = _generate_reply(
         db,
         run=run,

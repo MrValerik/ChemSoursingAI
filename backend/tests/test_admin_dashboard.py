@@ -689,6 +689,62 @@ def test_communication_testing_can_simulate_supplier_for_manual_buyer(
     assert rejected.status_code == 422
 
 
+def test_communication_testing_uses_saved_rfq_as_first_buyer_message(
+    client, monkeypatch
+):
+    admin = _login(client)
+    rfq_body = (
+        "Hello,\n\nPlease quote 50 kg of ammonia and provide price, MOQ, "
+        "Incoterm and CoA."
+    )
+    generated: list[str] = []
+
+    def fake_generate_text(self, **kwargs):
+        generated.append(kwargs["system_prompt"])
+        if "переводчик переписки" in kwargs["system_prompt"]:
+            return "Здравствуйте. Просим предоставить предложение."
+        raise AssertionError("The saved RFQ must not be regenerated")
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        fake_generate_text,
+    )
+
+    started = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "procurement_context": "50 kg of ammonia",
+            "simulation_mode": "buyer_ai",
+            "initial_message": rfq_body,
+            "delivery_mode": "preview",
+            "subject": "Request for quotation: ammonia",
+        },
+        headers=admin,
+    )
+
+    assert started.status_code == 201
+    assert started.json()["status"] == "previewed"
+    assert started.json()["messages"][0]["sender_role"] == "assistant"
+    assert started.json()["messages"][0]["content"] == rfq_body
+    assert len(generated) == 1
+
+    rejected = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "recipient": "supplier@example.com",
+            "procurement_context": "50 kg of ammonia",
+            "simulation_mode": "buyer_ai",
+            "initial_message": rfq_body,
+            "delivery_mode": "send",
+            "confirm_external_send": True,
+        },
+        headers=admin,
+    )
+    assert rejected.status_code == 422
+
+
 def test_communication_testing_preserves_reply_when_classifier_is_unavailable(
     client, monkeypatch
 ):
