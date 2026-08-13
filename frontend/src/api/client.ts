@@ -609,11 +609,10 @@ export const api = {
       },
     ),
 
-  translateCommunicationTestMessage: (runId: number, messageId: number) =>
-    request<CommunicationTestMessage>(
-      `/communication-testing/${runId}/messages/${messageId}/translation`,
-      { method: "POST" },
-    ),
+  translateCommunicationTestDialogue: (runId: number) =>
+    request<CommunicationTestRun>(`/communication-testing/${runId}/translation`, {
+      method: "POST",
+    }),
 
   translateRfqPreview: (rfqId: number) =>
     request<{ translation_ru: string }>(`/rfq/${rfqId}/translation`, {

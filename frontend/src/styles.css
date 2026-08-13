@@ -1658,14 +1658,31 @@ button.danger:hover {
   align-items: center;
 }
 
-.communication-translation-control {
-  display: grid;
-  justify-items: start;
-  gap: 7px;
-  margin-top: 8px;
+.communication-dialog-heading,
+.communication-dialog-translation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.communication-translation-control .communication-message-translation {
+.communication-dialog-heading {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.communication-dialog-heading h2 {
+  margin: 0;
+}
+
+.communication-dialog-translation {
+  flex-wrap: wrap;
+}
+
+.embedded-test-thread > .communication-dialog-translation {
+  justify-content: flex-end;
+}
+
+.communication-dialog-translation .error {
   margin: 0;
 }
 

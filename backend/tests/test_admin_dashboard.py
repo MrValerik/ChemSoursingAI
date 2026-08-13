@@ -34,6 +34,15 @@ def _login(client, username="admin"):
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
+@pytest.fixture(autouse=True)
+def google_translate_stub(monkeypatch):
+    """Диалоги в API-тестах переводятся без обращения к внешнему Google."""
+    monkeypatch.setattr(
+        "app.services.communication_testing.GoogleTranslateConnector.translate",
+        lambda self, text, **kwargs: f"Здравствуйте. {text}",
+    )
+
+
 def test_user_administration(client):
     admin = _login(client)
 
@@ -324,12 +333,11 @@ def test_communication_testing_preview_and_explicit_delivery(
     ]
     assert preview.json()["messages"][0]["translation_ru"] is None
     translated = client.post(
-        f"/communication-testing/{preview.json()['id']}/messages/"
-        f"{preview.json()['messages'][0]['id']}/translation",
+        f"/communication-testing/{preview.json()['id']}/translation",
         headers=admin,
     )
     assert translated.status_code == 200
-    assert translated.json()["translation_ru"].startswith("Здравствуйте")
+    assert translated.json()["messages"][0]["translation_ru"].startswith("Здравствуйте")
     dialogue_calls = [
         item for item in llm_calls if "переводчик переписки" not in item["system_prompt"]
     ]
@@ -360,9 +368,18 @@ def test_communication_testing_preview_and_explicit_delivery(
     assert "ПОСТАВЩИК_НЕДОВЕРЕННЫЙ" in dialogue_calls[1]["user_text"]
     assert "USD 700 per ton" in dialogue_calls[1]["user_text"]
     assert "продолжение диалога" in dialogue_calls[1]["additional_instructions"]
-    assert continued.json()["messages"][0]["translation_ru"].startswith("Здравствуйте")
-    assert continued.json()["messages"][1]["translation_ru"] is None
-    assert continued.json()["messages"][2]["translation_ru"] is None
+    llm_call_count = len(llm_calls)
+    translated_dialogue = client.post(
+        f"/communication-testing/{preview.json()['id']}/translation",
+        headers=admin,
+    )
+    assert translated_dialogue.status_code == 200
+    assert all(
+        message["translation_ru"].startswith("Здравствуйте")
+        for message in translated_dialogue.json()["messages"]
+    )
+    assert len(translated_dialogue.json()["messages"]) == 3
+    assert len(llm_calls) == llm_call_count
 
     buyer = _login(client, "ivanov")
     assert (
@@ -740,21 +757,22 @@ def test_communication_testing_uses_saved_rfq_as_first_buyer_message(
     assert generated == []
 
     translated = client.post(
-        f"/communication-testing/{started.json()['id']}/messages/"
-        f"{started.json()['messages'][0]['id']}/translation",
+        f"/communication-testing/{started.json()['id']}/translation",
         headers=admin,
     )
     assert translated.status_code == 200
-    assert translated.json()["translation_ru"].startswith("Здравствуйте")
-    assert len(generated) == 1
+    assert translated.json()["messages"][0]["translation_ru"].startswith("Здравствуйте")
+    assert len(generated) == 0
     translated_again = client.post(
-        f"/communication-testing/{started.json()['id']}/messages/"
-        f"{started.json()['messages'][0]['id']}/translation",
+        f"/communication-testing/{started.json()['id']}/translation",
         headers=admin,
     )
     assert translated_again.status_code == 200
-    assert translated_again.json()["translation_ru"] == translated.json()["translation_ru"]
-    assert len(generated) == 1
+    assert (
+        translated_again.json()["messages"][0]["translation_ru"]
+        == translated.json()["messages"][0]["translation_ru"]
+    )
+    assert len(generated) == 0
 
     rejected = client.post(
         "/communication-testing",
@@ -998,14 +1016,12 @@ def test_communication_testing_regenerates_non_english_reply_and_translates_it(
     assert "предыдущая попытка" in llm_calls[1]["additional_instructions"]
     assert "строго соблюдай язык: английском" in llm_calls[1]["additional_instructions"]
     translated = client.post(
-        f"/communication-testing/{response.json()['id']}/messages/"
-        f"{response.json()['messages'][0]['id']}/translation",
+        f"/communication-testing/{response.json()['id']}/translation",
         headers=admin,
     )
     assert translated.status_code == 200
-    assert translated.json()["translation_ru"].startswith("Здравствуйте")
-    assert len(llm_calls) == 3
-    assert "ВНУТРЕННИЙ ПЕРЕВОД" in llm_calls[2]["additional_instructions"]
+    assert translated.json()["messages"][0]["translation_ru"].startswith("Здравствуйте")
+    assert len(llm_calls) == 2
 
     rejected_language = client.post(
         "/communication-testing",

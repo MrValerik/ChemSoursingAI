@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { CommunicationTestRun, RFQRead } from "../api/types";
-import type { CommunicationTestMessage } from "../api/types";
 import { Field, Input, Select, Textarea } from "./ui";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -64,37 +63,31 @@ const procurementContextFromRfq = (rfq: RFQRead) =>
     .filter(Boolean)
     .join("\n");
 
-function MessageTranslation({
-  runId,
-  message,
+function DialogueTranslation({
+  run,
+  revealed,
+  onRevealedChange,
   onTranslated,
 }: {
-  runId: number;
-  message: CommunicationTestMessage;
-  onTranslated: (message: CommunicationTestMessage) => void;
+  run: CommunicationTestRun;
+  revealed: boolean;
+  onRevealedChange: (revealed: boolean) => void;
+  onTranslated: (run: CommunicationTestRun) => void;
 }) {
-  const [revealed, setRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const toggle = async () => {
     if (revealed) {
-      setRevealed(false);
-      return;
-    }
-    if (message.translation_ru) {
-      setRevealed(true);
+      onRevealedChange(false);
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const translated = await api.translateCommunicationTestMessage(
-        runId,
-        message.id,
-      );
+      const translated = await api.translateCommunicationTestDialogue(run.id);
       onTranslated(translated);
-      setRevealed(true);
+      onRevealedChange(true);
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -103,7 +96,7 @@ function MessageTranslation({
   };
 
   return (
-    <div className="communication-translation-control">
+    <div className="communication-dialog-translation">
       <button
         className="secondary btn-small"
         disabled={busy}
@@ -113,15 +106,9 @@ function MessageTranslation({
         {busy
           ? "Переводим…"
           : revealed
-            ? "Скрыть перевод"
-            : "Перевести на русский"}
+            ? "Скрыть перевод диалога"
+            : "Перевести диалог"}
       </button>
-      {revealed && message.translation_ru && (
-        <div className="communication-message-translation">
-          <span>Русский перевод</span>
-          <div>{message.translation_ru}</div>
-        </div>
-      )}
       {error && <span className="error">{error}</span>}
     </div>
   );
@@ -130,6 +117,7 @@ function MessageTranslation({
 function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
   const [active, setActive] = useState<CommunicationTestRun | null>(null);
   const [supplierMessage, setSupplierMessage] = useState("");
+  const [translationRevealed, setTranslationRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const context = procurementContextFromRfq(rfq);
@@ -142,6 +130,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
   useEffect(() => {
     setActive(null);
     setSupplierMessage("");
+    setTranslationRevealed(false);
     setError(null);
   }, [rfq.id, rfq.rfq_body]);
 
@@ -163,6 +152,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
       });
       setActive(created);
       setSupplierMessage("");
+      setTranslationRevealed(false);
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -182,6 +172,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
       });
       setActive(updated);
       setSupplierMessage("");
+      setTranslationRevealed(false);
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -211,6 +202,12 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
         </div>
       ) : (
         <div className="communication-dialog-panel embedded-test-thread">
+          <DialogueTranslation
+            run={active}
+            revealed={translationRevealed}
+            onRevealedChange={setTranslationRevealed}
+            onTranslated={setActive}
+          />
           <div className="communication-messages">
             {active.messages.map((message) => (
               <div
@@ -230,22 +227,12 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
                   <span>Английский оригинал</span>
                   <div>{message.content}</div>
                 </div>
-                <MessageTranslation
-                  runId={active.id}
-                  message={message}
-                  onTranslated={(translated) =>
-                    setActive((current) =>
-                      current
-                        ? {
-                            ...current,
-                            messages: current.messages.map((item) =>
-                              item.id === translated.id ? translated : item,
-                            ),
-                          }
-                        : current,
-                    )
-                  }
-                />
+                {translationRevealed && message.translation_ru && (
+                  <div className="communication-message-translation">
+                    <span>Русский перевод</span>
+                    <div>{message.translation_ru}</div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -354,6 +341,7 @@ function FullCommunicationTesting({
   );
   const [history, setHistory] = useState<CommunicationTestRun[]>([]);
   const [active, setActive] = useState<CommunicationTestRun | null>(null);
+  const [translationRevealed, setTranslationRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -388,6 +376,7 @@ function FullCommunicationTesting({
       setSimulationMode("buyer_ai");
       setDeliveryMode("preview");
       setActive(updated);
+      setTranslationRevealed(false);
       setSupplierMessage("");
     } catch (reason) {
       setError(String(reason));
@@ -420,6 +409,7 @@ function FullCommunicationTesting({
     setDeliveryMode("preview");
     setRecipient("");
     setActive(null);
+    setTranslationRevealed(false);
     setSupplierMessage("");
     setBuyerMessage("");
     setError(null);
@@ -454,6 +444,7 @@ function FullCommunicationTesting({
         confirm_external_send: live,
       });
       setActive(created);
+      setTranslationRevealed(false);
       setSupplierMessage("");
       if (!embedded) await loadHistory();
     } catch (reason) {
@@ -495,6 +486,7 @@ function FullCommunicationTesting({
         confirm_external_send: live,
       });
       setActive(updated);
+      setTranslationRevealed(false);
       setSupplierMessage("");
       setBuyerMessage("");
       if (!embedded) await loadHistory();
@@ -508,6 +500,7 @@ function FullCommunicationTesting({
 
   const openDialog = (item: CommunicationTestRun) => {
     setActive(item);
+    setTranslationRevealed(false);
     setChannel(item.channel);
     setSimulationMode(item.simulation_mode);
     setProcurementContext(item.procurement_context);
@@ -721,7 +714,17 @@ function FullCommunicationTesting({
         </div>
 
         <div className="panel communication-dialog-panel">
-          <h2>Диалог</h2>
+          <div className="communication-dialog-heading">
+            <h2>Диалог</h2>
+            {active && (
+              <DialogueTranslation
+                run={active}
+                revealed={translationRevealed}
+                onRevealedChange={setTranslationRevealed}
+                onTranslated={setActive}
+              />
+            )}
+          </div>
           {active ? (
             <>
               <div className="communication-context">
@@ -757,22 +760,12 @@ function FullCommunicationTesting({
                       </span>
                       <div>{message.content}</div>
                     </div>
-                    <MessageTranslation
-                      runId={active.id}
-                      message={message}
-                      onTranslated={(translated) =>
-                        setActive((current) =>
-                          current
-                            ? {
-                                ...current,
-                                messages: current.messages.map((item) =>
-                                  item.id === translated.id ? translated : item,
-                                ),
-                              }
-                            : current,
-                        )
-                      }
-                    />
+                    {translationRevealed && message.translation_ru && (
+                      <div className="communication-message-translation">
+                        <span>Русский перевод</span>
+                        <div>{message.translation_ru}</div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
