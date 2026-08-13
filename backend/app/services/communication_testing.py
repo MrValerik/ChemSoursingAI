@@ -329,6 +329,33 @@ def list_test_runs(db: Session, *, limit: int = 50) -> list[CommunicationTestRun
     return [_attach_quote_assessment(run) for run in runs]
 
 
+def translate_test_message(
+    db: Session,
+    *,
+    run_id: int,
+    message_id: int,
+    llm: LLMClient | None = None,
+) -> CommunicationTestMessage:
+    """Переводит одну реплику только по явному запросу пользователя."""
+    message = db.scalar(
+        select(CommunicationTestMessage).where(
+            CommunicationTestMessage.id == message_id,
+            CommunicationTestMessage.run_id == run_id,
+        )
+    )
+    if message is None:
+        raise LookupError("Сообщение тестового диалога не найдено")
+    if message.translation_ru:
+        return message
+    translation = _translate_for_user(message.content, llm=llm)
+    if not translation:
+        raise CommunicationTestError("Не удалось перевести сообщение на русский")
+    message.translation_ru = translation
+    db.commit()
+    db.refresh(message)
+    return message
+
+
 def _attach_quote_assessment(run: CommunicationTestRun) -> CommunicationTestRun:
     """Добавляет объяснимую оценку полноты, не меняя исходные сообщения."""
     supplier_quotes = [
@@ -1039,7 +1066,7 @@ def run_communication_test(
                 run_id=run.id,
                 sender_role="buyer",
                 content=payload.initial_message,
-                translation_ru=_translate_for_user(payload.initial_message, llm=llm),
+                translation_ru=None,
                 delivery_status="previewed",
             )
         )
@@ -1049,7 +1076,7 @@ def run_communication_test(
             db,
             run=run,
             reply=reply,
-            translation_ru=_translate_for_user(reply, llm=llm),
+            translation_ru=None,
         )
 
     identity_issue = _validate_procurement_identity(context, llm=llm)
@@ -1067,7 +1094,7 @@ def run_communication_test(
             db,
             run=run,
             reply=payload.initial_message,
-            translation_ru=_translate_for_user(payload.initial_message, llm=llm),
+            translation_ru=None,
             recipient="",
         )
 
@@ -1078,12 +1105,11 @@ def run_communication_test(
         stage="initial",
         llm=llm,
     )
-    translation_ru = _translate_for_user(reply, llm=llm)
     return _save_assistant_reply(
         db,
         run=run,
         reply=reply,
-        translation_ru=translation_ru,
+        translation_ru=None,
         recipient=payload.recipient,
     )
 
@@ -1104,7 +1130,7 @@ def continue_communication_test(
             run_id=run.id,
             sender_role="buyer",
             content=payload.participant_message,
-            translation_ru=_translate_for_user(payload.participant_message, llm=llm),
+            translation_ru=None,
             delivery_status="previewed",
         )
         run.messages.append(buyer_message)
@@ -1116,7 +1142,7 @@ def continue_communication_test(
             db,
             run=run,
             reply=reply,
-            translation_ru=_translate_for_user(reply, llm=llm),
+            translation_ru=None,
         )
     if run.delivery_mode == "send":
         if not payload.confirm_external_send:
@@ -1153,12 +1179,6 @@ def continue_communication_test(
             category="unclear",
         )
 
-    supplier_message.translation_ru = _translate_for_user(
-        payload.participant_message,
-        llm=client,
-    )
-    db.commit()
-
     policy = classify_supplier_message(
         payload.participant_message,
         rfq_name=run.procurement_context,
@@ -1187,11 +1207,10 @@ def continue_communication_test(
         stage="reply",
         llm=client,
     )
-    translation_ru = _translate_for_user(reply, llm=client)
     return _save_assistant_reply(
         db,
         run=run,
         reply=reply,
-        translation_ru=translation_ru,
+        translation_ru=None,
         recipient=payload.recipient,
     )

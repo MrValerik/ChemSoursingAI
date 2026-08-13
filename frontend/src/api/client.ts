@@ -29,6 +29,7 @@ import type {
   TemplateRead,
   IntegrationConnectionResult,
   CommunicationTestRun,
+  CommunicationTestMessage,
   UserAdminRead,
   UserRead,
   WhatsAppIntegration,
@@ -606,6 +607,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload),
       },
+    ),
+
+  translateCommunicationTestMessage: (runId: number, messageId: number) =>
+    request<CommunicationTestMessage>(
+      `/communication-testing/${runId}/messages/${messageId}/translation`,
+      { method: "POST" },
     ),
 
   listTemplates: () => request<TemplateRead[]>(`/templates`),

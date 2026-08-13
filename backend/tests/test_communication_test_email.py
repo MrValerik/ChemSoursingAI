@@ -151,10 +151,8 @@ def test_standard_reply_is_threaded_and_processed_once(session_factory) -> None:
             "assistant",
         ]
         assert saved.messages[-1].delivery_status == "sent"
-        assert saved.messages[1].translation_ru is not None
-        assert "50 кг" in saved.messages[1].translation_ru
-        assert saved.messages[2].translation_ru is not None
-        assert saved.messages[2].translation_ru.startswith("Спасибо")
+        assert saved.messages[1].translation_ru is None
+        assert saved.messages[2].translation_ru is None
 
 
 def test_social_question_escalates_without_sending(session_factory) -> None:

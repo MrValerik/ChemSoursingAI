@@ -1637,6 +1637,17 @@ button.danger:hover {
   align-items: center;
 }
 
+.communication-translation-control {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.communication-translation-control .communication-message-translation {
+  margin: 0;
+}
+
 .conversation-attachments {
   display: grid;
   gap: 7px;

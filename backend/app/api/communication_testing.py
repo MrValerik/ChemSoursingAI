@@ -10,6 +10,7 @@ from app.models.enums import UserRole
 from app.schemas.integration import (
     CommunicationTestContinue,
     CommunicationTestCreate,
+    CommunicationTestMessageRead,
     CommunicationTestRead,
 )
 from app.services.communication_testing import (
@@ -17,6 +18,7 @@ from app.services.communication_testing import (
     continue_communication_test,
     list_test_runs,
     run_communication_test,
+    translate_test_message,
 )
 
 router = APIRouter(
@@ -60,5 +62,22 @@ def continue_test(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CommunicationTestError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{run_id}/messages/{message_id}/translation",
+    response_model=CommunicationTestMessageRead,
+)
+def translate_message(
+    run_id: int,
+    message_id: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        return translate_test_message(db, run_id=run_id, message_id=message_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except CommunicationTestError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

@@ -16,7 +16,6 @@ from app.services.communication_testing import (
     _communication_test_llm_client,
     _continue_prompt,
     _generate_reply,
-    _translate_for_user,
 )
 from app.services.integration_settings import effective_whatsapp_settings
 
@@ -126,8 +125,6 @@ def process_incoming_whatsapp(db: Session, *, run_id: int, message_id: str) -> N
             rfq_cas=None,
             llm=llm,
         )
-        incoming.translation_ru = _translate_for_user(incoming.content, llm=llm)
-        db.commit()
         if not policy.auto_reply_allowed:
             _escalate(
                 db,
@@ -150,7 +147,7 @@ def process_incoming_whatsapp(db: Session, *, run_id: int, message_id: str) -> N
             run_id=run.id,
             sender_role="assistant",
             content=reply,
-            translation_ru=_translate_for_user(reply, llm=llm),
+            translation_ru=None,
             delivery_status="sending",
         )
         run.messages.append(outgoing)
