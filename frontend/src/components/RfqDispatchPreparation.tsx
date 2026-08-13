@@ -324,6 +324,20 @@ export default function RfqDispatchPreparation({
             >
               {previewOpen ? "Свернуть" : "Развернуть"}
             </button>
+            {previewOpen && !editing && (
+              <button
+                className="secondary btn-small"
+                disabled={translationBusy || !savedBody.trim()}
+                onClick={() => void toggleTranslation()}
+                type="button"
+              >
+                {translationBusy
+                  ? "Переводим…"
+                  : translationVisible
+                    ? "Скрыть перевод RFQ"
+                    : "Перевести RFQ"}
+              </button>
+            )}
             {!readOnly && previewOpen && !editing && (
               <button
                 className="secondary btn-small"
@@ -386,37 +400,26 @@ export default function RfqDispatchPreparation({
         ) : (
           <div className="rfq-preview-expanded">
             <div className="rfq-preview-message">
-              <div className="rfq-preview-subject">
-                <span>Тема Email</span>
-                <strong>
-                  [RFQ-{rfq.id}] {savedSubject}
-                </strong>
-              </div>
-              <div className="rfq-preview-body">
-                <span>Сообщение</span>
-                <div>{savedBody}</div>
-              </div>
+              {translationVisible && translation ? (
+                <div className="rfq-preview-body">
+                  <span>Русский перевод RFQ</span>
+                  <div>{translation}</div>
+                </div>
+              ) : (
+                <>
+                  <div className="rfq-preview-subject">
+                    <span>Тема Email</span>
+                    <strong>
+                      [RFQ-{rfq.id}] {savedSubject}
+                    </strong>
+                  </div>
+                  <div className="rfq-preview-body">
+                    <span>Сообщение</span>
+                    <div>{savedBody}</div>
+                  </div>
+                </>
+              )}
             </div>
-            <div className="rfq-preview-translation-actions">
-              <button
-                className="secondary btn-small"
-                disabled={translationBusy || !savedBody.trim()}
-                onClick={() => void toggleTranslation()}
-                type="button"
-              >
-                {translationBusy
-                  ? "Переводим…"
-                  : translationVisible
-                    ? "Скрыть перевод"
-                    : "Перевести на русский"}
-              </button>
-            </div>
-            {translationVisible && translation && (
-              <div className="communication-message-translation rfq-preview-translation">
-                <span>Русский перевод RFQ</span>
-                <div>{translation}</div>
-              </div>
-            )}
           </div>
         ))}
 
