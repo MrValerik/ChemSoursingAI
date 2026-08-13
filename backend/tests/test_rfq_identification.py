@@ -72,10 +72,19 @@ def test_request_by_cas_still_requires_the_number():
         RFQCreate(**_create(identification_method="cas"))
 
 
-def test_specification_mode_requires_something_to_search_by():
-    """Без назначения и требований поставщику нечего отправить."""
-    with pytest.raises(ValidationError):
-        RFQCreate(**_create(identification_method="spec"))
+def test_request_without_a_number_needs_only_the_name():
+    """Названия достаточно: «нет CAS» не значит «неизвестно, что нужно».
+
+    Раньше запрос без номера требовал описания требований или назначения.
+    Это правило писалось, когда закупщик сам выбирал режим «по
+    спецификации» — то есть заведомо сообщал, что молекула не важна. В
+    форме способ больше не выбирают, и требовать описание у обычного
+    вещества без номера значит блокировать нормальный запрос: поиск по
+    группе названий работает и без него.
+    """
+    data = RFQCreate(**_create(identification_method="spec"))
+    assert data.cas is None
+    assert data.name == "Бетаин"
 
 
 def test_wrong_check_digit_names_the_correct_number():

@@ -130,8 +130,11 @@ def _build_body(data: RFQInput, incoterms: list[str]) -> str:
         lines.append(f"  - CAS No.: {data.cas}")
     if data.analog_reference:
         # Поставщик должен видеть эталон и границы замены отдельными
-        # строками: «analog» без границ означает что угодно.
-        lines.append(f"  - Similar to: {data.analog_reference}")
+        # строками: «analog» без границ означает что угодно. Эталон обычно
+        # и есть названное вещество — тогда строка повторяет предыдущую и
+        # остаются только границы замены.
+        if data.analog_reference.strip().casefold() != data.name.strip().casefold():
+            lines.append(f"  - Similar to: {data.analog_reference}")
         for code in data.analog_variations or []:
             text = ANALOG_VARIATION_TEXT.get(code)
             if text:

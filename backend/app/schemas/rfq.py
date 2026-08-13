@@ -92,13 +92,9 @@ class RFQCreate(BaseModel):
                 raise ValueError(
                     "Укажите вещество, на которое должен быть похож аналог"
                 )
-        elif self.identification_method == "spec":
-            if not (self.specification or "").strip() and not (
-                self.application or ""
-            ).strip():
-                raise ValueError(
-                    "Опишите назначение или требования к веществу"
-                )
+        # Запрос без номера описания не требует: «нет CAS» перестало означать
+        # «молекула неизвестна». Номера нет у смесей и промышленных продуктов,
+        # но название у них есть, и поиск по группе названий на нём работает.
         return self
 
 

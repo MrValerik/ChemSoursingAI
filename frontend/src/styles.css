@@ -1143,6 +1143,81 @@ button.danger:hover {
   text-decoration-style: solid;
 }
 
+/* Создание запроса: форма и колонка похожих прошлых запросов рядом с ней. */
+.new-rfq {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.new-rfq.has-suggestions {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+@media (max-width: 1100px) {
+  .new-rfq.has-suggestions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.similar-requests {
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.similar-requests h3 {
+  margin: 0;
+}
+.similar-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.similar-card:hover:not(:disabled),
+.similar-card:focus-visible {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.similar-card:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.similar-card-name {
+  font-weight: 600;
+}
+.similar-card-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Действие внутри пояснения: читается как ссылка, а не как кнопка формы. */
+.link-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--brand);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-btn:hover,
+.link-btn:focus-visible {
+  background: transparent;
+  color: var(--brand);
+  text-decoration-thickness: 2px;
+}
+
 .stage-error-block {
   display: flex;
   flex-wrap: wrap;
