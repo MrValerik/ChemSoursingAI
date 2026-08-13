@@ -487,7 +487,7 @@ def dispatch(
         if previous_attempt is not None:
             if previous_attempt.status == "sent":
                 recipient.status = DispatchStatus.SENT
-                recipient.note = f"отправлено на {manager.email}"[:255]
+                recipient.note = None
                 sent_any = True
             else:
                 recipient.status = DispatchStatus.ERROR
@@ -524,7 +524,7 @@ def dispatch(
             continue
 
         recipient.status = DispatchStatus.SENT
-        recipient.note = f"отправлено на {manager.email}"[:255]
+        recipient.note = None
         communication.status = "sent"
         communication.thread_id = message_id
         communication.external_id = message_id

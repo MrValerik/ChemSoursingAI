@@ -9,9 +9,6 @@ const STATUS_LABELS: Record<string, string> = {
   error: "ошибка",
 };
 
-const recipientNote = (note: string) =>
-  note.replace(/^SMTP:\s*/i, "").replace(/SMTP/gi, "Email");
-
 export default function RfqDispatchPreparation({
   rfq,
   readOnly,
@@ -285,8 +282,8 @@ export default function RfqDispatchPreparation({
                   >
                     {STATUS_LABELS[recipient.status] ?? recipient.status}
                   </span>
-                  {recipient.note && (
-                    <span className="note">{recipientNote(recipient.note)}</span>
+                  {recipient.status !== "sent" && recipient.note && (
+                    <span className="note">{recipient.note}</span>
                   )}
                   {!readOnly && recipient.status === "queued" && (
                     <button
