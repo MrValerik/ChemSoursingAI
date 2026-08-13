@@ -866,7 +866,7 @@ button.is-busy:disabled {
 .table-panel { padding: 0; overflow-x: auto; }
 .requests-table th { cursor: pointer; user-select: none; white-space: nowrap; }
 .requests-table th:hover { color: var(--text); }
-.requests-table tr.clickable { cursor: pointer; }
+tr.clickable { cursor: pointer; }
 .requests-table td .cas { font-size: 12px; color: var(--muted); }
 .requests-table .request-actions-column {
   width: 1%;
@@ -1182,6 +1182,22 @@ button.danger:hover {
 .search-trace-collapsed .heading-with-help {
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* Что и как искали: панель про сам поиск, а не про найденные компании. */
+.search-explain {
+  display: grid;
+  gap: 12px;
+}
+
+/* У блока идентификации не было раскладки, поэтому название вещества,
+   пояснения и предупреждения сходились встык. */
+.search-identity {
+  display: grid;
+  gap: 8px;
+}
+.search-identity .qualification-warning + .qualification-warning {
+  margin-top: 0;
 }
 
 /* Таблица найденных поставщиков: сравнение сверху вниз по одному столбцу. */
@@ -2524,16 +2540,9 @@ button.danger:hover {
   cursor: help;
 }
 
-.term-help-label {
-  text-decoration: underline dotted var(--muted);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-
-.term-help:hover .term-help-label,
-.term-help:focus-visible .term-help-label {
-  text-decoration-color: var(--text);
-}
+/* Пунктирного подчёркивания у терминов нет: в блоке параметров подчёркнуто
+   оказывалось почти каждое значение, и текст рябил. Подсказка остаётся —
+   её обещает курсор help и она открывается по наведению и с клавиатуры. */
 
 .term-help > span[role="tooltip"] {
   position: absolute;

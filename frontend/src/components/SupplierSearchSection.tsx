@@ -219,6 +219,7 @@ const documentsTone = (
 };
 
 type QualificationSortKey =
+  | "shortlist"
   | "company"
   | "type"
   | "confidence"
@@ -260,12 +261,14 @@ function QualificationTable({
   activeCountry: string;
   onSelect: (result: SupplierQualificationResponse["results"][number]) => void;
 }) {
-  // Балл — то, ради чего список и упорядочен, поэтому он и стоит по
-  // умолчанию, от большего к меньшему.
-  const [sortKey, setSortKey] = useState<QualificationSortKey>("confidence");
+  // По умолчанию сверху стоят прошедшие отбор, внутри — по баллу. Раньше
+  // это делили на две таблицы, но сравнивать в двух таблицах нельзя: у них
+  // независимая сортировка и разная ширина колонок.
+  const [sortKey, setSortKey] = useState<QualificationSortKey>("shortlist");
   const [sortAsc, setSortAsc] = useState(false);
 
   const columns: { key: QualificationSortKey; label: string }[] = [
+    { key: "shortlist", label: "Отбор" },
     { key: "company", label: "Компания" },
     { key: "type", label: "Роль" },
     { key: "confidence", label: "Балл" },
@@ -282,7 +285,7 @@ function QualificationTable({
     }
     setSortKey(key);
     // Числовые колонки читают сверху вниз от большего, текстовые — от «а».
-    setSortAsc(!["confidence", "risks"].includes(key));
+    setSortAsc(!["confidence", "risks", "shortlist"].includes(key));
   };
 
   const sorted = useMemo(() => {
@@ -290,6 +293,8 @@ function QualificationTable({
       result: SupplierQualificationResponse["results"][number],
     ): string | number => {
       switch (sortKey) {
+        case "shortlist":
+          return result.shortlist_eligible ? 1 : 0;
         case "company":
           return result.company_name.toLocaleLowerCase();
         case "type":
@@ -309,7 +314,12 @@ function QualificationTable({
     return [...results].sort((a, b) => {
       const left = value(a);
       const right = value(b);
-      if (left === right) return a.company_name.localeCompare(b.company_name);
+      if (left === right) {
+        return (
+          b.confidence - a.confidence ||
+          a.company_name.localeCompare(b.company_name)
+        );
+      }
       const order =
         typeof left === "number" && typeof right === "number"
           ? left - right
@@ -347,6 +357,16 @@ function QualificationTable({
             onClick={() => onSelect(result)}
             title="Открыть подробности: проверка, расчёт балла и цитаты"
           >
+            <td>
+              <span
+                className={`badge ${
+                  result.shortlist_eligible ? "tone-ok" : "tone-neutral"
+                }`}
+                title={shortlistExplanation(result)}
+              >
+                {result.shortlist_eligible ? "в списке" : "не прошёл"}
+              </span>
+            </td>
             <td>
               <strong>{result.company_name}</strong>
             </td>
@@ -1628,14 +1648,11 @@ export default function SupplierSearchSection({
     ? runText(trace, "country")
     : selectedCountries[0] ?? "";
   const candidateResults = trace?.candidate_results ?? data?.results ?? [];
-  // Короткий список закупщика и всё остальное найденное — два разных
-  // представления одних и тех же данных (правило проекта: широкое покрытие
-  // для эксперта, короткий безопасный список для закупщика).
+  // Прошедшие отбор — это колонка и порядок сортировки, а не отдельный
+  // список: закупщику нужен короткий безопасный набор сверху, эксперту —
+  // всё найденное рядом, и сравнивать их надо в одной таблице.
   const shortlisted = (qualification?.results ?? []).filter(
     (result) => result.shortlist_eligible,
-  );
-  const rest = (qualification?.results ?? []).filter(
-    (result) => !result.shortlist_eligible,
   );
   const savedToRegistry = (resultIndex: number) =>
     !!qualification?.registry_links?.some(
@@ -1927,156 +1944,161 @@ export default function SupplierSearchSection({
           />
         </div>
       )}
+      {data && (
+        <div className="panel search-explain">
+          <div className="heading-with-help">
+            <h2>Что и как искали</h2>
+            <HelpTip text="Как ИИ-агент понял вещество и какие запросы составил. Отсюда видно, почему выдача получилась именно такой." />
+          </div>
+          <div className="qualification-evidence">
+            <span className="badge tone-ok">
+              Стратегия: {SEARCH_STRATEGY_LABELS[data.search_strategy]}
+            </span>
+            {Object.entries(data.source_counts).map(([source, count]) => {
+              const kind = source as SupplierSearchResult["source_kind"];
+              return (
+                <span className={`badge ${sourceTone(kind)}`} key={source}>
+                  {SOURCE_LABELS[kind]}: {count}
+                </span>
+              );
+            })}
+          </div>
+          <details className="content-accordion">
+            <summary>Результат идентификации вещества ИИ-агентом</summary>
+            <div className="content-accordion-body search-identity">
+              <strong>{data.identity.canonical_name || activeName}</strong>
+              <div className="note">
+                {activeCas
+                  ? `CAS: ${activeCas} · справочник: ${
+                      data.substance_lookup.found
+                        ? "подтверждён"
+                        : "не подтверждён"
+                    }`
+                  : "CAS не указан · поиск по названию, эталону и спецификации"}
+                {data.substance_lookup.molecular_formula
+                  ? ` · ${data.substance_lookup.molecular_formula}`
+                  : ""}
+              </div>
+              {data.identity.search_names.length > 0 && (
+                <div className="note">
+                  Также искали: {data.identity.search_names.join(", ")}
+                </div>
+              )}
+              {data.identity.ambiguities.map((item) => (
+                <div className="qualification-warning" key={item}>
+                  Требует внимания: {item}
+                </div>
+              ))}
+              {activeCas && <div className="identity-decision">
+                <div>
+                  <strong>Решение специалиста</strong>
+                  <p className="note">
+                    Подтвердите соответствие или укажите корректное название.
+                    Решение сохранится для следующих запросов.
+                  </p>
+                </div>
+                {(substanceRecord || rfq.substance_id) && (
+                  <div className="identity-saved-rule">
+                    <Icon name="check" size={17} />
+                    <span>
+                      {substanceRecord?.review_status === "confirmed" ||
+                      rfq.substance_review_status === "confirmed"
+                        ? "Правило подтверждено и сохранено"
+                        : "Карточка вещества сохранена и требует уточнения"}
+                    </span>
+                    {onOpenSubstance && (
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          onOpenSubstance(
+                            substanceRecord?.id ?? rfq.substance_id!,
+                          )
+                        }
+                      >
+                        Открыть карточку
+                      </button>
+                    )}
+                  </div>
+                )}
+                {user?.role !== "auditor" && (
+                  <div className="identity-actions">
+                    <button
+                      disabled={decisionBusy}
+                      onClick={() => void saveIdentityDecision("confirm")}
+                    >
+                      Подтвердить соответствие
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={decisionBusy}
+                      onClick={() =>
+                        setIdentityDecision((current) =>
+                          current === "reject" ? null : "reject",
+                        )
+                      }
+                    >
+                      Указать другое название
+                    </button>
+                  </div>
+                )}
+                {identityDecision === "reject" && (
+                  <div className="identity-correction-form">
+                    <label>
+                      <span className="ui-field-label">Корректное наименование</span>
+                      <Input
+                        value={correctedName}
+                        onChange={(event) => setCorrectedName(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span className="ui-field-label">Комментарий к решению</span>
+                      <Textarea
+                        rows={2}
+                        placeholder="Почему предложенное название не подходит"
+                        value={decisionNote}
+                        onChange={(event) => setDecisionNote(event.target.value)}
+                      />
+                    </label>
+                    <button
+                      disabled={decisionBusy || !correctedName.trim()}
+                      onClick={() => void saveIdentityDecision("reject")}
+                    >
+                      {decisionBusy ? "Сохранение…" : "Сохранить исправление"}
+                    </button>
+                  </div>
+                )}
+              </div>}
+            </div>
+          </details>
+          <details className="content-accordion">
+            <summary>
+              Поисковая стратегия и запросы ({data.search_plan.length})
+            </summary>
+            <div className="content-accordion-body search-plan-list">
+              {data.search_plan.map((item) => (
+                <article key={item.query}>
+                  <strong>
+                    {PURPOSE_LABELS[item.purpose] || "Поисковый запрос"}
+                  </strong>
+                  <code>{item.query}</code>
+                  <small>
+                    Язык: {LANGUAGE_LABELS[item.language] || item.language}
+                  </small>
+                </article>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
       {(data || candidateResults.length > 0) && (
         <div className="panel">
           <div className="search-results-header">
             <div className="heading-with-help">
               <h2>Найденные поставщики</h2>
-              <HelpTip text="Сначала идёт короткий список: кандидаты с подтверждённым веществом, ролью производителя и решением аудитора. Остальные найденные лежат ниже отдельным блоком. Проверка предварительная: перед решением откройте первичные источники и запросите документы у поставщика." />
+              <HelpTip text="Отметку «в списке» получают кандидаты с подтверждённым веществом, ролью производителя и решением аудитора; по умолчанию они стоят сверху. Проверка предварительная: перед решением откройте первичные источники и запросите документы у поставщика." />
             </div>
           </div>
-          {data ? (
-            <>
-              <div className="qualification-evidence">
-                <span className="badge tone-ok">
-                  Стратегия: {SEARCH_STRATEGY_LABELS[data.search_strategy]}
-                </span>
-                {Object.entries(data.source_counts).map(([source, count]) => {
-                  const kind = source as SupplierSearchResult["source_kind"];
-                  return (
-                    <span className={`badge ${sourceTone(kind)}`} key={source}>
-                      {SOURCE_LABELS[kind]}: {count}
-                    </span>
-                  );
-                })}
-              </div>
-              <details className="content-accordion">
-                <summary>Результат идентификации вещества ИИ-агентом</summary>
-                <div className="content-accordion-body search-identity">
-                  <strong>{data.identity.canonical_name || activeName}</strong>
-                  <div className="note">
-                    {activeCas
-                      ? `CAS: ${activeCas} · справочник: ${
-                          data.substance_lookup.found
-                            ? "подтверждён"
-                            : "не подтверждён"
-                        }`
-                      : "CAS не указан · поиск по названию, эталону и спецификации"}
-                    {data.substance_lookup.molecular_formula
-                      ? ` · ${data.substance_lookup.molecular_formula}`
-                      : ""}
-                  </div>
-                  {data.identity.search_names.length > 0 && (
-                    <div className="note">
-                      Также искали: {data.identity.search_names.join(", ")}
-                    </div>
-                  )}
-                  {data.identity.ambiguities.map((item) => (
-                    <div className="qualification-warning" key={item}>
-                      Требует внимания: {item}
-                    </div>
-                  ))}
-                  {activeCas && <div className="identity-decision">
-                    <div>
-                      <strong>Решение специалиста</strong>
-                      <p className="note">
-                        Подтвердите соответствие или укажите корректное название.
-                        Решение сохранится для следующих запросов.
-                      </p>
-                    </div>
-                    {(substanceRecord || rfq.substance_id) && (
-                      <div className="identity-saved-rule">
-                        <Icon name="check" size={17} />
-                        <span>
-                          {substanceRecord?.review_status === "confirmed" ||
-                          rfq.substance_review_status === "confirmed"
-                            ? "Правило подтверждено и сохранено"
-                            : "Карточка вещества сохранена и требует уточнения"}
-                        </span>
-                        {onOpenSubstance && (
-                          <button
-                            className="secondary"
-                            onClick={() =>
-                              onOpenSubstance(
-                                substanceRecord?.id ?? rfq.substance_id!,
-                              )
-                            }
-                          >
-                            Открыть карточку
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {user?.role !== "auditor" && (
-                      <div className="identity-actions">
-                        <button
-                          disabled={decisionBusy}
-                          onClick={() => void saveIdentityDecision("confirm")}
-                        >
-                          Подтвердить соответствие
-                        </button>
-                        <button
-                          className="secondary"
-                          disabled={decisionBusy}
-                          onClick={() =>
-                            setIdentityDecision((current) =>
-                              current === "reject" ? null : "reject",
-                            )
-                          }
-                        >
-                          Указать другое название
-                        </button>
-                      </div>
-                    )}
-                    {identityDecision === "reject" && (
-                      <div className="identity-correction-form">
-                        <label>
-                          <span className="ui-field-label">Корректное наименование</span>
-                          <Input
-                            value={correctedName}
-                            onChange={(event) => setCorrectedName(event.target.value)}
-                          />
-                        </label>
-                        <label>
-                          <span className="ui-field-label">Комментарий к решению</span>
-                          <Textarea
-                            rows={2}
-                            placeholder="Почему предложенное название не подходит"
-                            value={decisionNote}
-                            onChange={(event) => setDecisionNote(event.target.value)}
-                          />
-                        </label>
-                        <button
-                          disabled={decisionBusy || !correctedName.trim()}
-                          onClick={() => void saveIdentityDecision("reject")}
-                        >
-                          {decisionBusy ? "Сохранение…" : "Сохранить исправление"}
-                        </button>
-                      </div>
-                    )}
-                  </div>}
-                </div>
-              </details>
-              <details className="content-accordion">
-                <summary>
-                  Поисковая стратегия и запросы ({data.search_plan.length})
-                </summary>
-                <div className="content-accordion-body search-plan-list">
-                  {data.search_plan.map((item) => (
-                    <article key={item.query}>
-                      <strong>
-                        {PURPOSE_LABELS[item.purpose] || "Поисковый запрос"}
-                      </strong>
-                      <code>{item.query}</code>
-                      <small>
-                        Язык: {LANGUAGE_LABELS[item.language] || item.language}
-                      </small>
-                    </article>
-                  ))}
-                </div>
-              </details>
-            </>
-          ) : (
+          {!data && (
             <div className="qualification-warning">
               {trace && trace.merged_run_count > 1
                 ? "Новый запуск ещё выполняется. Ниже сохранены объединённые результаты предыдущих поисков по этой стране."
@@ -2133,36 +2155,19 @@ export default function SupplierSearchSection({
                   безопасный список, эксперту — всё найденное. Раньше они шли
                   вперемешку, и принадлежность к короткому списку отличалась
                   только цветом одного тега из десяти. */}
-              {shortlisted.length > 0 && (
-                <QualificationTable
-                  results={shortlisted}
-                  activeCas={activeCas}
-                  activeCountry={activeCountry}
-                  onSelect={(result) => setDetailIndex(result.result_index)}
-                />
-              )}
               {shortlisted.length === 0 && (
                 <p className="note">
-                  В короткий список никто не прошёл: ни у одного кандидата нет
-                  одновременно подтверждённого вещества, роли производителя и
-                  решения аудитора. Проверьте остальных найденных вручную.
+                  Отбор не прошёл никто: ни у одного кандидата нет одновременно
+                  подтверждённого вещества, роли производителя и решения
+                  аудитора. Проверяйте найденных вручную.
                 </p>
               )}
-              {rest.length > 0 && (
-                <details className="content-accordion">
-                  <summary>
-                    Остальные найденные ({rest.length}) — не прошли отбор
-                  </summary>
-                  <div className="content-accordion-body">
-                    <QualificationTable
-                      results={rest}
-                      activeCas={activeCas}
-                      activeCountry={activeCountry}
-                      onSelect={(result) => setDetailIndex(result.result_index)}
-                    />
-                  </div>
-                </details>
-              )}
+              <QualificationTable
+                results={qualification.results}
+                activeCas={activeCas}
+                activeCountry={activeCountry}
+                onSelect={(result) => setDetailIndex(result.result_index)}
+              />
               {detailResult && (
                 <div
                   className="request-delete-backdrop"
