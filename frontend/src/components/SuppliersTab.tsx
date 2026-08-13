@@ -80,7 +80,6 @@ export default function SuppliersTab({
 
   const [suppliers, setSuppliers] = useState<SupplierRead[]>([]);
   const [recipients, setRecipients] = useState<RecipientRead[]>([]);
-  const [checked, setChecked] = useState<Map<number, ChannelKind>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -204,35 +203,50 @@ export default function SuppliersTab({
     setSortAsc(true);
   };
 
-  const toggle = (s: SupplierRead) => {
-    if (readOnly || alreadySelected.has(s.id) || s.channels.length === 0) return;
-    setChecked((prev) => {
-      const next = new Map(prev);
-      if (next.has(s.id)) next.delete(s.id);
-      else next.set(s.id, s.channels[0]);
-      return next;
-    });
-  };
-
-  const setChannel = (id: number, channel: ChannelKind) => {
-    setChecked((prev) => new Map(prev).set(id, channel));
-  };
-
-  const submitSelection = async () => {
+  // Галочка и есть действие: поставили — поставщик в рассылке, сняли —
+  // убран. Отдельная кнопка подтверждения повторяла то же решение вторым
+  // щелчком, а до неё галочки жили только в памяти вкладки и молча
+  // пропадали при переходе к предпросмотру.
+  const toggle = async (s: SupplierRead) => {
+    if (readOnly || busy || s.channels.length === 0) return;
+    const recipient = recipientBySupplier.get(s.id);
+    if (recipient && recipient.status !== "queued") return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await api.selectRecipients(
-        rfqId,
-        [...checked.entries()].map(([supplier_id, channel]) => ({
-          supplier_id,
-          channel,
-        })),
-      );
-      setChecked(new Map());
+      if (recipient) {
+        await api.removeRecipient(rfqId, recipient.id);
+      } else {
+        await api.selectRecipients(rfqId, [
+          { supplier_id: s.id, channel: s.channels[0] },
+        ]);
+        setNotice(
+          "Получатель добавлен. В «Общении» проверьте RFQ и подтвердите отправку.",
+        );
+      }
       await load();
-      setNotice("Получатели добавлены. Перейдите в «Общение», проверьте RFQ и подтвердите отправку.");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Смена канала у уже включённого получателя: пара «поставщик + канал»
+  // хранится записью, поэтому канал меняется заменой записи.
+  const setChannel = async (supplierId: number, channel: ChannelKind) => {
+    const recipient = recipientBySupplier.get(supplierId);
+    if (readOnly || busy || !recipient || recipient.status !== "queued") return;
+    if (recipient.channel === channel) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.removeRecipient(rfqId, recipient.id);
+      await api.selectRecipients(rfqId, [
+        { supplier_id: supplierId, channel },
+      ]);
+      await load();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -351,25 +365,35 @@ export default function SuppliersTab({
         </thead>
         <tbody>
           {sorted.map((s) => {
-            const selected = alreadySelected.has(s.id);
-            const isChecked = checked.has(s.id);
             const recipient = recipientBySupplier.get(s.id);
+            const selected = alreadySelected.has(s.id);
+            // Ушедшее письмо не отзывается: снять такую галочку нельзя.
+            const locked = !!recipient && recipient.status !== "queued";
             return (
               // Клик по строке раскрывает карточку, а не ставит галочку:
               // выбор получателя — действие с последствиями, и для него
               // остаётся сам чекбокс.
               <tr
                 key={s.id}
-                className={selected ? "row-muted" : "clickable"}
+                className={locked ? "row-muted" : "clickable"}
                 onClick={() => setDetailId(s.id)}
               >
                 <td onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
-                    checked={isChecked || selected}
-                    disabled={readOnly || selected || s.channels.length === 0}
-                    onChange={() => toggle(s)}
-                    aria-label={`Выбрать «${s.company}» для рассылки`}
+                    checked={selected}
+                    disabled={
+                      readOnly || busy || locked || s.channels.length === 0
+                    }
+                    onChange={() => void toggle(s)}
+                    title={
+                      locked
+                        ? "Письмо уже отправлено — получателя не убрать"
+                        : s.channels.length === 0
+                          ? "У компании нет контакта для рассылки"
+                          : undefined
+                    }
+                    aria-label={`Включить «${s.company}» в рассылку`}
                   />
                 </td>
                 <td>
@@ -389,10 +413,13 @@ export default function SuppliersTab({
                     ) : (
                       <span className="note">нет контакта</span>
                     ))}
-                  {isChecked && s.channels.length > 1 ? (
+                  {selected && !locked && s.channels.length > 1 ? (
                     <select
-                      value={checked.get(s.id)}
-                      onChange={(e) => setChannel(s.id, e.target.value as ChannelKind)}
+                      value={recipient?.channel}
+                      disabled={busy}
+                      onChange={(e) =>
+                        void setChannel(s.id, e.target.value as ChannelKind)
+                      }
                     >
                       {s.channels.map((c) => (
                         <option key={c} value={c}>
@@ -536,17 +563,11 @@ export default function SuppliersTab({
 
       <div className="tab-footer">
         <span className="note">
-          Выбрано: {checked.size}
-          {alreadySelected.size > 0 ? ` · уже в рассылке: ${alreadySelected.size}` : ""}
+          {recipients.length > 0
+            ? `В рассылке: ${recipients.length}`
+            : "Отметьте галочками, кому отправлять запрос"}
         </span>
         <div className="actions">
-          <button
-            className="secondary"
-            onClick={() => void submitSelection()}
-            disabled={busy || checked.size === 0}
-          >
-            Добавить получателей
-          </button>
           <button onClick={onGoToDispatch} disabled={busy || recipients.length === 0}>
             Перейти к предпросмотру RFQ
           </button>
