@@ -1090,40 +1090,9 @@ button.danger:hover {
 
 /* ===== Шаг 3: карточка запроса с вкладками ===== */
 
-.detail-layout {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-.detail-params {
-  grid-column: 1;
-  grid-row: 1;
-  width: auto;
-}
-
-/* Заголовок вкладок остаётся рядом с параметрами, а содержимое вкладки
-   переходит на следующую строку и занимает всю ширину рабочей области. */
-.detail-main { display: contents; }
-.detail-main > .tabs {
-  grid-column: 2;
-  grid-row: 1;
-  min-width: 0;
-}
-.detail-main > :not(.tabs) {
-  grid-column: 1 / -1;
-  min-width: 0;
-}
-
-@media (max-width: 800px) {
-  .detail-layout { grid-template-columns: minmax(0, 1fr); }
-  .detail-params,
-  .detail-main > .tabs,
-  .detail-main > :not(.tabs) {
-    grid-column: 1;
-    grid-row: auto;
-  }
-}
+.detail-layout { display: flex; gap: 16px; align-items: flex-start; }
+.detail-params { width: 260px; flex-shrink: 0; }
+.detail-main { flex: 1; min-width: 0; }
 
 .parameters-heading {
   margin-bottom: 10px;
