@@ -12,8 +12,6 @@ from app.schemas.integration import (
     CommunicationTestCreate,
     CommunicationTestMessageRead,
     CommunicationTestRead,
-    CommunicationTextTranslationRead,
-    CommunicationTextTranslationRequest,
 )
 from app.services.communication_testing import (
     CommunicationTestError,
@@ -21,7 +19,6 @@ from app.services.communication_testing import (
     list_test_runs,
     run_communication_test,
     translate_test_message,
-    translate_preview_text,
 )
 
 router = APIRouter(
@@ -37,18 +34,6 @@ def history(
     db: Session = Depends(get_db),
 ) -> list[CommunicationTestRun]:
     return list_test_runs(db, limit=limit)
-
-
-@router.post("/translation", response_model=CommunicationTextTranslationRead)
-def translate_preview(
-    payload: CommunicationTextTranslationRequest,
-) -> CommunicationTextTranslationRead:
-    try:
-        return CommunicationTextTranslationRead(
-            translation_ru=translate_preview_text(payload.content)
-        )
-    except CommunicationTestError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("", response_model=CommunicationTestRead, status_code=201)

@@ -161,6 +161,12 @@ class RFQMessageDraftUpdate(BaseModel):
         return self
 
 
+class RFQTranslationRead(BaseModel):
+    """Русский перевод сохранённого английского RFQ для внутреннего просмотра."""
+
+    translation_ru: str
+
+
 class RFQListItem(BaseModel):
     """Строка сводной таблицы запросов (раздел 6 UI/UX-плана)."""
 

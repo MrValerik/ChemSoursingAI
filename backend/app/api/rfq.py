@@ -21,6 +21,11 @@ from app.schemas.rfq import (
     RFQListItem,
     RFQMessageDraftUpdate,
     RFQRead,
+    RFQTranslationRead,
+)
+from app.services.communication_testing import (
+    CommunicationTestError,
+    translate_preview_text,
 )
 from app.services.rfq_builder import (
     RFQInput,
@@ -249,6 +254,28 @@ def update_message_draft(
         body=data.body,
     )
     return _to_read(rfq)
+
+
+@router.post("/{rfq_id}/translation", response_model=RFQTranslationRead)
+def translate_rfq(
+    rfq_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RFQTranslationRead:
+    """Переводит сохранённый RFQ для просмотра, ничего не изменяя и не отправляя."""
+    rfq = db.get(RFQ, rfq_id, options=[joinedload(RFQ.owner)])
+    if (
+        rfq is None
+        or rfq.deleted_at is not None
+        or not _can_see(user, rfq)
+    ):
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+    subject, body = render_rfq_text(rfq)
+    try:
+        translation = translate_preview_text(f"Subject: {subject}\n\n{body}")
+    except CommunicationTestError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return RFQTranslationRead(translation_ru=translation)
 
 
 @router.delete("/{rfq_id}", status_code=204, response_class=Response)

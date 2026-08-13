@@ -282,19 +282,6 @@ class CommunicationTestMessageRead(BaseModel):
     created_at: datetime
 
 
-class CommunicationTextTranslationRequest(BaseModel):
-    content: str = Field(min_length=1, max_length=8000)
-
-    @field_validator("content", mode="before")
-    @classmethod
-    def clean_content(cls, value: object) -> str:
-        return str(value or "").strip()
-
-
-class CommunicationTextTranslationRead(BaseModel):
-    translation_ru: str
-
-
 class CommunicationTestAssessmentRead(BaseModel):
     """Детерминированный результат разбора тестовых ответов поставщика."""
 

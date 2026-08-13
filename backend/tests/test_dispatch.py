@@ -260,6 +260,37 @@ def test_manual_rfq_draft_is_validated_persisted_and_dispatched(client):
     assert history[0].body == custom_body
 
 
+def test_saved_rfq_preview_can_be_translated_without_changing_it(client, monkeypatch):
+    headers = _login(client)
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "7664-41-7", "name": "Ammonia", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+    before = client.get(f"/rfq/{rfq['id']}", headers=headers).json()
+    calls: list[str] = []
+
+    def fake_translate(content: str) -> str:
+        calls.append(content)
+        return "Тема: Запрос коммерческого предложения\n\nПросим дать цену на аммиак."
+
+    monkeypatch.setattr("app.api.rfq.translate_preview_text", fake_translate)
+
+    translated = client.post(f"/rfq/{rfq['id']}/translation", headers=headers)
+    assert translated.status_code == 200
+    assert translated.json()["translation_ru"].startswith("Тема:")
+    assert before["rfq_subject"] in calls[0]
+    assert before["rfq_body"] in calls[0]
+    assert client.get(f"/rfq/{rfq['id']}", headers=headers).json() == before
+
+    auditor = _login(client, "auditor")
+    assert (
+        client.post(f"/rfq/{rfq['id']}/translation", headers=auditor).status_code
+        == 200
+    )
+    assert client.post(f"/rfq/{rfq['id']}/translation").status_code == 401
+
+
 def test_live_smtp_dispatch_creates_communication(client, monkeypatch):
     headers = _login(client)
     supplier = client.post(

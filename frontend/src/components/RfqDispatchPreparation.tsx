@@ -26,6 +26,10 @@ export default function RfqDispatchPreparation({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [translation, setTranslation] = useState<string | null>(null);
+  const [translationVisible, setTranslationVisible] = useState(false);
+  const [translationBusy, setTranslationBusy] = useState(false);
   const [savedSubject, setSavedSubject] = useState(
     rfq.rfq_subject ?? "Request for quotation",
   );
@@ -59,11 +63,14 @@ export default function RfqDispatchPreparation({
   useEffect(() => {
     const subject = rfq.rfq_subject ?? "Request for quotation";
     const body = rfq.rfq_body ?? "Текст RFQ временно недоступен.";
+    setPreviewOpen(false);
     setSavedSubject(subject);
     setSavedBody(body);
     setDraftSubject(subject);
     setDraftBody(body);
     setCustomized(rfq.rfq_is_customized);
+    setTranslation(null);
+    setTranslationVisible(false);
   }, [rfq.id, rfq.rfq_subject, rfq.rfq_body, rfq.rfq_is_customized]);
 
   useEffect(() => {
@@ -92,6 +99,7 @@ export default function RfqDispatchPreparation({
     setReviewed(false);
     setError(null);
     setNotice(null);
+    setTranslationVisible(false);
   };
 
   const cancelEditing = () => {
@@ -110,6 +118,30 @@ export default function RfqDispatchPreparation({
     setDraftBody(body);
     setCustomized(updated.rfq_is_customized);
     setReviewed(false);
+    setTranslation(null);
+    setTranslationVisible(false);
+  };
+
+  const toggleTranslation = async () => {
+    if (translationVisible) {
+      setTranslationVisible(false);
+      return;
+    }
+    if (translation) {
+      setTranslationVisible(true);
+      return;
+    }
+    setTranslationBusy(true);
+    setError(null);
+    try {
+      const result = await api.translateRfqPreview(rfq.id);
+      setTranslation(result.translation_ru);
+      setTranslationVisible(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setTranslationBusy(false);
+    }
   };
 
   const saveDraft = async () => {
@@ -268,7 +300,7 @@ export default function RfqDispatchPreparation({
         )}
       </section>
 
-      <section className="panel rfq-preview-panel">
+      <section className={`panel rfq-preview-panel${previewOpen ? " is-open" : ""}`}>
         <div className="tab-toolbar">
           <div>
             <h2>Предпросмотр RFQ</h2>
@@ -282,7 +314,15 @@ export default function RfqDispatchPreparation({
               <span className="badge tone-warn">изменено вручную</span>
             )}
             <span className="badge tone-neutral">получателей: {queued.length}</span>
-            {!readOnly && !editing && (
+            <button
+              aria-expanded={previewOpen}
+              className="secondary btn-small"
+              onClick={() => setPreviewOpen((open) => !open)}
+              type="button"
+            >
+              {previewOpen ? "Свернуть" : "Развернуть"}
+            </button>
+            {!readOnly && previewOpen && !editing && (
               <button
                 className="secondary btn-small"
                 disabled={busy}
@@ -295,7 +335,7 @@ export default function RfqDispatchPreparation({
           </div>
         </div>
 
-        {editing ? (
+        {previewOpen && (editing ? (
           <div className="rfq-preview-editor">
             <label>
               <span>Тема Email</span>
@@ -342,21 +382,43 @@ export default function RfqDispatchPreparation({
             </div>
           </div>
         ) : (
-          <div className="rfq-preview-message">
-            <div className="rfq-preview-subject">
-              <span>Тема Email</span>
-              <strong>
-                [RFQ-{rfq.id}] {savedSubject}
-              </strong>
+          <div className="rfq-preview-expanded">
+            <div className="rfq-preview-message">
+              <div className="rfq-preview-subject">
+                <span>Тема Email</span>
+                <strong>
+                  [RFQ-{rfq.id}] {savedSubject}
+                </strong>
+              </div>
+              <div className="rfq-preview-body">
+                <span>Сообщение</span>
+                <div>{savedBody}</div>
+              </div>
             </div>
-            <div className="rfq-preview-body">
-              <span>Сообщение</span>
-              <div>{savedBody}</div>
+            <div className="rfq-preview-translation-actions">
+              <button
+                className="secondary btn-small"
+                disabled={translationBusy || !savedBody.trim()}
+                onClick={() => void toggleTranslation()}
+                type="button"
+              >
+                {translationBusy
+                  ? "Переводим…"
+                  : translationVisible
+                    ? "Скрыть перевод"
+                    : "Перевести на русский"}
+              </button>
             </div>
+            {translationVisible && translation && (
+              <div className="communication-message-translation rfq-preview-translation">
+                <span>Русский перевод RFQ</span>
+                <div>{translation}</div>
+              </div>
+            )}
           </div>
-        )}
+        ))}
 
-        {!readOnly && customized && !editing && (
+        {previewOpen && !readOnly && customized && !editing && (
           <button
             className="rfq-reset-template"
             disabled={busy}
@@ -370,7 +432,7 @@ export default function RfqDispatchPreparation({
         {notice && <p className="success-note">{notice}</p>}
         {error && <p className="error">{error}</p>}
 
-        {!readOnly && !editing && queued.length > 0 && (
+        {previewOpen && !readOnly && !editing && queued.length > 0 && (
           <div className="rfq-preview-confirmation">
             <label>
               <input
