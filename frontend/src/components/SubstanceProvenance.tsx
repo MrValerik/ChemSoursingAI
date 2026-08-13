@@ -12,11 +12,14 @@
 
 import type { FieldSource, VerificationOutcome } from "../api/types";
 
+// Тег называет источник одним словом: он стоит в узкой колонке параметров
+// рядом со значением, и длинная подпись занимала там целую строку. Что
+// именно означает источник, объясняет подсказка при наведении.
 const SOURCE_LABELS: Record<FieldSource, string> = {
-  pubchem: "Проверено по PubChem",
-  ai_agent: "Поиск от ИИ-агента",
-  human: "Указано специалистом",
-  catalog: "Из справочника компании",
+  pubchem: "PubChem",
+  ai_agent: "ИИ-агент",
+  human: "Специалист",
+  catalog: "Справочник",
 };
 
 const SOURCE_HINTS: Record<FieldSource, string> = {
