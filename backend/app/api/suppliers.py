@@ -453,7 +453,7 @@ def dispatch(
         )
         if not live_email:
             recipient.status = DispatchStatus.SENT
-            recipient.note = "отправлено (демо; SMTP выключен)"
+            recipient.note = "отправлено (демо; Email выключен)"
             db.add(
                 Communication(
                     rfq_id=rfq.id,
@@ -487,7 +487,7 @@ def dispatch(
         if previous_attempt is not None:
             if previous_attempt.status == "sent":
                 recipient.status = DispatchStatus.SENT
-                recipient.note = f"SMTP: отправлено на {manager.email}"[:255]
+                recipient.note = f"отправлено на {manager.email}"[:255]
                 sent_any = True
             else:
                 recipient.status = DispatchStatus.ERROR
@@ -524,7 +524,7 @@ def dispatch(
             continue
 
         recipient.status = DispatchStatus.SENT
-        recipient.note = f"SMTP: отправлено на {manager.email}"[:255]
+        recipient.note = f"отправлено на {manager.email}"[:255]
         communication.status = "sent"
         communication.thread_id = message_id
         communication.external_id = message_id

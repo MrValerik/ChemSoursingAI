@@ -334,6 +334,7 @@ def test_live_smtp_dispatch_creates_communication(client, monkeypatch):
     assert "Подтвердите" in not_confirmed.json()["detail"]
     assert response.status_code == 200
     assert response.json()[0]["status"] == "sent"
+    assert response.json()[0]["note"] == "отправлено на live@supplier.example"
     history = _communications(rfq["id"])
     assert len(history) == 1
     assert history[0].status == "sent"
