@@ -81,6 +81,7 @@ def create_rfq(
         volume=data.volume,
         target_price=data.target_price,
         currency=data.currency,
+        specialist_comment=data.specialist_comment,
         incoterms=[i.strip().upper() for i in data.incoterms],
         channels=data.channels or [],
         search_countries=data.search_countries,

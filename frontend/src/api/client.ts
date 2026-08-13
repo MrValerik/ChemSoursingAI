@@ -196,6 +196,8 @@ export interface RFQCreatePayload {
   volume?: string | null;
   target_price?: number | null;
   currency?: string;
+  /** Внутренняя заметка закупщика: в письмо поставщику не уходит. */
+  specialist_comment?: string | null;
 }
 
 export const api = {

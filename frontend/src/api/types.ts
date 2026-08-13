@@ -113,6 +113,7 @@ export interface RFQRead {
   volume: string | null;
   target_price: number | null;
   currency: string | null;
+  specialist_comment: string | null;
   incoterms: string[] | null;
   channels: string[] | null;
   search_countries: string[] | null;

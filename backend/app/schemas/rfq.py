@@ -49,6 +49,7 @@ class RFQCreate(BaseModel):
     volume: str | None = None
     target_price: float | None = None
     currency: str = "USD"
+    specialist_comment: str | None = Field(default=None, max_length=4000)
 
     @field_validator("search_countries")
     @classmethod
@@ -118,6 +119,7 @@ class RFQRead(BaseModel):
     volume: str | None
     target_price: float | None
     currency: str | None
+    specialist_comment: str | None = None
     incoterms: list[str] | None
     channels: list[str] | None
     search_countries: list[str] | None

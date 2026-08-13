@@ -65,6 +65,10 @@ class RFQ(Base, TimestampMixin):
     target_price: Mapped[float | None] = mapped_column(Numeric(14, 4))
     currency: Mapped[str | None] = mapped_column(String(3), default="USD")
 
+    # Комментарий закупщика к позиции (ТЗ, функция 1). Внутренняя заметка:
+    # в письмо поставщику не попадает.
+    specialist_comment: Mapped[str | None] = mapped_column(Text, default=None)
+
     # Базисы поставки (Incoterm) и каналы рассылки (Channel) — списки строк.
     incoterms: Mapped[list[str] | None] = mapped_column(JSON, default=None)
     channels: Mapped[list[str] | None] = mapped_column(JSON, default=None)

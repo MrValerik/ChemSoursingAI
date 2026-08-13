@@ -110,6 +110,10 @@ button.ui-select-trigger:disabled {
 }
 
 .ui-select-trigger > span {
+  /* Без min-width флекс-элемент не сжимается меньше своего текста, и
+     обрезка ниже не срабатывает: длинная подпись вылезает за кнопку и
+     наезжает на соседнее поле. */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

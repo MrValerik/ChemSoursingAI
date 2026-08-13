@@ -15,18 +15,29 @@ const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
 
 // Грейд — величина справочная, вариантов конечное число. Значение хранится
 // по-английски: оно уходит в письмо поставщику, а письмо английское.
+// Списка грейдов в ТЗ нет: там названа чистота, а грейд упомянут в
+// извлечении ответов и сравнении. Поэтому список открытый — «Другое»
+// пропускает то, чего здесь не предусмотрели.
 const GRADES: { value: string; label: string }[] = [
   { value: "", label: "Не задан" },
-  { value: "USP", label: "USP — Фармакопея США" },
-  { value: "EP (Ph. Eur.)", label: "EP / Ph. Eur. — Европейская фармакопея" },
-  { value: "BP", label: "BP — Британская фармакопея" },
-  { value: "JP", label: "JP — Японская фармакопея" },
-  { value: "ACS reagent", label: "ACS — реактивный" },
+  { value: "USP", label: "USP" },
+  { value: "EP (Ph. Eur.)", label: "EP / Ph. Eur." },
+  { value: "BP", label: "BP" },
+  { value: "JP", label: "JP" },
+  { value: "ACS reagent", label: "ACS, реактивный" },
   { value: "Pharmaceutical grade", label: "Фармацевтический" },
   { value: "Food grade", label: "Пищевой" },
   { value: "Cosmetic grade", label: "Косметический" },
   { value: "Feed grade", label: "Кормовой" },
   { value: "Technical grade", label: "Технический" },
+  { value: "other", label: "Другое" },
+];
+
+const CURRENCIES: { value: string; label: string }[] = [
+  { value: "USD", label: "USD" },
+  { value: "EUR", label: "EUR" },
+  { value: "CNY", label: "CNY" },
+  { value: "RUB", label: "RUB" },
 ];
 
 // Единица тоже уходит в письмо, поэтому подпись русская, а значение — нет.
@@ -40,15 +51,24 @@ const VOLUME_UNITS: { value: string; label: string }[] = [
 
 // Разбор сохранённых строк: карточка прошлого запроса хранит «USP, min 99%»
 // и «500 kg» одной строкой, а форма показывает их раздельными полями.
-const parsePurity = (stored: string | null): [string, string] => {
+const parsePurity = (
+  stored: string | null,
+): { percent: string; grade: string; gradeOther: string } => {
   const text = (stored || "").trim();
-  if (!text) return ["", ""];
-  const grade =
-    GRADES.map((item) => item.value)
-      .filter(Boolean)
-      .find((value) => text.toLowerCase().includes(value.toLowerCase())) || "";
+  if (!text) return { percent: "", grade: "", gradeOther: "" };
   const number = /(\d+(?:[.,]\d+)?)\s*%/.exec(text);
-  return [grade, number ? number[1].replace(",", ".") : ""];
+  const percent = number ? number[1].replace(",", ".") : "";
+  // Остаток строки после числа — это и есть грейд, известный или чужой.
+  const rest = text
+    .replace(/min\s*\d+(?:[.,]\d+)?\s*%/i, "")
+    .replace(/\d+(?:[.,]\d+)?\s*%/, "")
+    .replace(/^[\s,;]+|[\s,;]+$/g, "");
+  const known = GRADES.map((item) => item.value)
+    .filter((value) => value && value !== "other")
+    .find((value) => rest.toLowerCase() === value.toLowerCase());
+  if (known) return { percent, grade: known, gradeOther: "" };
+  if (rest) return { percent, grade: "other", gradeOther: rest };
+  return { percent, grade: "", gradeOther: "" };
 };
 
 const parseVolume = (stored: string | null): [string, string] => {
@@ -73,8 +93,13 @@ export default function NewRfq({ onCreated }: Props) {
   const [synonyms, setSynonyms] = useState<string[]>([]);
   const [excludedNames, setExcludedNames] = useState<string[]>([]);
   const [name, setName] = useState("Ацетилсалициловая кислота");
-  const [grade, setGrade] = useState("USP");
-  const [minPurity, setMinPurity] = useState("");
+  const [grade, setGrade] = useState("");
+  const [gradeOther, setGradeOther] = useState("");
+  const [purityPercent, setPurityPercent] = useState("");
+  const [application, setApplication] = useState("");
+  const [targetPrice, setTargetPrice] = useState("");
+  const [currency, setCurrency] = useState("USD");
+  const [specialistComment, setSpecialistComment] = useState("");
   const [volumeAmount, setVolumeAmount] = useState("500");
   const [volumeUnit, setVolumeUnit] = useState("kg");
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
@@ -122,14 +147,16 @@ export default function NewRfq({ onCreated }: Props) {
     excluded_names: excludedNames,
     name: name.trim(),
     incoterms,
+    // Чистота и грейд лежат в базе одной строкой: число впереди, потому
+    // что ТЗ называет именно чистоту, а грейд идёт уточнением.
     purity:
-      [grade, minPurity.trim() ? `min ${minPurity.trim()}%` : ""]
+      [
+        purityPercent.trim() ? `min ${purityPercent.trim()}%` : "",
+        grade === "other" ? gradeOther.trim() : grade,
+      ]
         .filter(Boolean)
         .join(", ") || null,
-    // Назначение и инструкции для ИИ из формы убраны: первое не влияло ни
-    // на один поисковый запрос и после создания нигде не показывалось,
-    // второе задаётся на карточке запроса перед самим поиском.
-    application: null,
+    application: application.trim() || null,
     volume: volumeAmount.trim()
       ? `${volumeAmount.trim()} ${volumeUnit}`
       : null,
@@ -137,6 +164,9 @@ export default function NewRfq({ onCreated }: Props) {
     search_countries: countries,
     supplier_target: supplierTarget,
     additional_instructions: null,
+    target_price: targetPrice.trim() ? Number(targetPrice) : null,
+    currency,
+    specialist_comment: specialistComment.trim() || null,
     // Карточку справочника форма больше не привязывает: связь ставится
     // при подтверждении идентичности в самом поиске.
     substance_id: null,
@@ -197,9 +227,14 @@ export default function NewRfq({ onCreated }: Props) {
       setSpecification(source.specification || "");
       setSynonyms(source.confirmed_synonyms || []);
       setExcludedNames(source.excluded_names || []);
-      const [sourceGrade, sourceMinPurity] = parsePurity(source.purity);
-      setGrade(sourceGrade);
-      setMinPurity(sourceMinPurity);
+      const purity = parsePurity(source.purity);
+      setPurityPercent(purity.percent);
+      setGrade(purity.grade);
+      setGradeOther(purity.gradeOther);
+      setApplication(source.application || "");
+      setTargetPrice(source.target_price != null ? String(source.target_price) : "");
+      setCurrency(source.currency || "USD");
+      setSpecialistComment(source.specialist_comment || "");
       const [sourceAmount, sourceUnit] = parseVolume(source.volume);
       setVolumeAmount(sourceAmount);
       setVolumeUnit(sourceUnit);
@@ -333,24 +368,32 @@ export default function NewRfq({ onCreated }: Props) {
         )}
 
         <div className="row row-compact">
-          <Field className="field-grade" label="Грейд / стандарт">
-            <Select value={grade} options={GRADES} onChange={setGrade} />
-          </Field>
-          <Field
-            className="field-narrow"
-            label="Чистота не ниже, %"
-            hint="Необязательно."
-          >
+          {/* ТЗ называет на входе чистоту, поэтому она первая и числом:
+              закупщик проверяет её именно так — «не ниже 99». Грейд идёт
+              уточнением и остаётся необязательным. */}
+          <Field className="field-narrow" label="Чистота не ниже, %">
             <Input
               type="number"
               min={0}
               max={100}
               step="0.1"
               placeholder="99"
-              value={minPurity}
-              onChange={(event) => setMinPurity(event.target.value)}
+              value={purityPercent}
+              onChange={(event) => setPurityPercent(event.target.value)}
             />
           </Field>
+          <Field className="field-grade" label="Грейд / стандарт">
+            <Select value={grade} options={GRADES} onChange={setGrade} />
+          </Field>
+          {grade === "other" && (
+            <Field className="field-grade" label="Какой именно">
+              <Input
+                placeholder="например, Ph. Eur. + FCC"
+                value={gradeOther}
+                onChange={(event) => setGradeOther(event.target.value)}
+              />
+            </Field>
+          )}
           {/* Число и единица — одно значение, поэтому и поле одно: иначе
               единица отрывается от своего числа при переносе строки. */}
           <Field className="field-volume" label="Требуемый объём">
@@ -372,7 +415,49 @@ export default function NewRfq({ onCreated }: Props) {
               />
             </div>
           </Field>
+          <Field className="field-narrow" label="Ориентир цены">
+            <Input
+              type="number"
+              min={0}
+              step="any"
+              placeholder="не обязательно"
+              value={targetPrice}
+              onChange={(event) => setTargetPrice(event.target.value)}
+            />
+          </Field>
+          <Field className="field-unit" label="Валюта">
+            <Select
+              value={currency}
+              options={CURRENCIES}
+              onChange={setCurrency}
+            />
+          </Field>
         </div>
+
+        <Field
+          label="Область применения"
+          hint="Для чего вещество нужно. Уходит в письмо поставщику: по применению он подскажет подходящий грейд."
+        >
+          <Textarea
+            maxLength={1000}
+            placeholder="Например: эмульгатор для битумной эмульсии"
+            value={application}
+            onChange={(event) => setApplication(event.target.value)}
+          />
+        </Field>
+
+        <Field
+          label="Комментарий специалиста"
+          hint="Внутренняя заметка по позиции. Поставщику не отправляется."
+          className="comment-field"
+        >
+          <Textarea
+            maxLength={4000}
+            placeholder="Например: в прошлый раз брали у казанского завода, качество устроило"
+            value={specialistComment}
+            onChange={(event) => setSpecialistComment(event.target.value)}
+          />
+        </Field>
 
         <div className="field">
           <label>Страны поиска</label>

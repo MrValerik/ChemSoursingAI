@@ -373,6 +373,38 @@ export default function RfqDetail({
                 </dd>
               </>
             )}
+            {rfq.application && (
+              <>
+                <dt className="param-label">
+                  <Term
+                    label="Применение"
+                    help="Для чего вещество нужно закупщику. Уходит поставщику в RFQ: по применению он может предложить подходящий грейд."
+                  />
+                </dt>
+                <dd className="param-value">
+                  <Term
+                    label={rfq.application}
+                    help={`Заявленное применение: ${rfq.application}.`}
+                  />
+                </dd>
+              </>
+            )}
+            {rfq.specialist_comment && (
+              <>
+                <dt className="param-label">
+                  <Term
+                    label="Комментарий"
+                    help="Внутренняя заметка специалиста по этой позиции. Поставщику не отправляется."
+                  />
+                </dt>
+                <dd className="param-value">
+                  <Term
+                    label={rfq.specialist_comment}
+                    help="Заметка видна только сотрудникам и в письмо поставщику не попадает."
+                  />
+                </dd>
+              </>
+            )}
             <dt className="param-label">
               <Term
                 label="Базисы"

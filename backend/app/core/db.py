@@ -243,6 +243,10 @@ def _apply_light_migrations() -> None:
                 conn.execute(
                     text("ALTER TABLE rfqs ADD COLUMN specification TEXT")
                 )
+            if "specialist_comment" not in cols:
+                conn.execute(
+                    text("ALTER TABLE rfqs ADD COLUMN specialist_comment TEXT")
+                )
             conn.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_rfqs_substance_id "
