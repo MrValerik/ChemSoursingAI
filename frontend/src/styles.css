@@ -316,7 +316,23 @@ h1, h2, h3 {
 .field textarea { resize: vertical; min-height: 64px; }
 
 .row { display: flex; gap: 12px; }
-.row > .field { flex: 1; }
+.row > .field { flex: 1; min-width: 0; }
+/* Поле ввода внутри строки забирает остаток: рядом с ним стоит кнопка
+   фиксированной ширины, и в узкой колонке иначе остаётся щель. */
+.field .row > input { flex: 1; min-width: 0; }
+
+/* Справочные и числовые поля не растягиваются на всю ширину: ширина поля
+   должна подсказывать длину значения, а не занимать строку целиком. */
+/* Селектор с двумя классами строки перебивает `.row > .ui-field { flex: 1 }`
+   из ui.css: специфичность там та же, а подключается он позже. */
+.row.row-compact { flex-wrap: wrap; align-items: start; }
+.row.row-compact > .ui-field { flex: 0 0 auto; }
+.row.row-compact > .field-grade { width: 240px; }
+.row.row-compact > .field-narrow { width: 150px; }
+.row.row-compact > .field-volume { width: 230px; }
+.volume-input { display: flex; gap: 8px; }
+.volume-input > .ui-control { flex: 1; min-width: 0; }
+.volume-input > .volume-unit { flex: 0 0 92px; }
 
 .checks { display: flex; flex-wrap: wrap; gap: 16px; }
 .checks label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }

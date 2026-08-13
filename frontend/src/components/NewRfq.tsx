@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, type RFQCreatePayload } from "../api/client";
 import type {
-  AnalogVariation,
   IdentificationMethod,
   RFQListItem,
   RFQRead,
@@ -9,19 +8,60 @@ import type {
 import NameCandidates from "./NameCandidates";
 import { isValidCas, normalizeCas, suggestCheckDigit } from "./cas";
 import { STATUS_LABELS } from "./statusLabels";
-import { Field, Input, Textarea } from "./ui";
+import { Field, Input, Select, Textarea } from "./ui";
 
 const ALL_INCOTERMS = ["CIP", "FCA", "EXW"];
 const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
 
-// «Аналог» без границ означает для поставщика что угодно, и в ответ
-// приходит не то, что просили.
-const VARIATIONS: { value: AnalogVariation; label: string }[] = [
-  { value: "salt", label: "другая соль, гидрат или эфир" },
-  { value: "purity", label: "другая чистота или грейд" },
-  { value: "form", label: "другая форма (порошок, гранулы, раствор)" },
-  { value: "manufacturer", label: "любой производитель того же вещества" },
+// Грейд — величина справочная, вариантов конечное число. Значение хранится
+// по-английски: оно уходит в письмо поставщику, а письмо английское.
+const GRADES: { value: string; label: string }[] = [
+  { value: "", label: "Не задан" },
+  { value: "USP", label: "USP — Фармакопея США" },
+  { value: "EP (Ph. Eur.)", label: "EP / Ph. Eur. — Европейская фармакопея" },
+  { value: "BP", label: "BP — Британская фармакопея" },
+  { value: "JP", label: "JP — Японская фармакопея" },
+  { value: "ACS reagent", label: "ACS — реактивный" },
+  { value: "Pharmaceutical grade", label: "Фармацевтический" },
+  { value: "Food grade", label: "Пищевой" },
+  { value: "Cosmetic grade", label: "Косметический" },
+  { value: "Feed grade", label: "Кормовой" },
+  { value: "Technical grade", label: "Технический" },
 ];
+
+// Единица тоже уходит в письмо, поэтому подпись русская, а значение — нет.
+const VOLUME_UNITS: { value: string; label: string }[] = [
+  { value: "g", label: "г" },
+  { value: "kg", label: "кг" },
+  { value: "t", label: "т" },
+  { value: "L", label: "л" },
+  { value: "mL", label: "мл" },
+];
+
+// Разбор сохранённых строк: карточка прошлого запроса хранит «USP, min 99%»
+// и «500 kg» одной строкой, а форма показывает их раздельными полями.
+const parsePurity = (stored: string | null): [string, string] => {
+  const text = (stored || "").trim();
+  if (!text) return ["", ""];
+  const grade =
+    GRADES.map((item) => item.value)
+      .filter(Boolean)
+      .find((value) => text.toLowerCase().includes(value.toLowerCase())) || "";
+  const number = /(\d+(?:[.,]\d+)?)\s*%/.exec(text);
+  return [grade, number ? number[1].replace(",", ".") : ""];
+};
+
+const parseVolume = (stored: string | null): [string, string] => {
+  const match = /^\s*(\d+(?:[.,]\d+)?)\s*(.*)$/.exec(stored || "");
+  if (!match) return ["", "kg"];
+  const tail = match[2].trim().toLowerCase();
+  const unit =
+    VOLUME_UNITS.find(
+      (item) =>
+        item.value.toLowerCase() === tail || item.label.toLowerCase() === tail,
+    )?.value || "kg";
+  return [match[1].replace(",", "."), unit];
+};
 
 interface Props {
   onCreated: (rfq: RFQRead) => void;
@@ -29,21 +69,17 @@ interface Props {
 
 export default function NewRfq({ onCreated }: Props) {
   const [cas, setCas] = useState("50-78-2");
-  const [analogAccepted, setAnalogAccepted] = useState(false);
-  const [variations, setVariations] = useState<AnalogVariation[]>([
-    "manufacturer",
-  ]);
   const [specification, setSpecification] = useState("");
   const [synonyms, setSynonyms] = useState<string[]>([]);
   const [excludedNames, setExcludedNames] = useState<string[]>([]);
   const [name, setName] = useState("Ацетилсалициловая кислота");
-  const [purity, setPurity] = useState("USP");
-  const [application, setApplication] = useState("");
-  const [volume, setVolume] = useState("500 kg");
+  const [grade, setGrade] = useState("USP");
+  const [minPurity, setMinPurity] = useState("");
+  const [volumeAmount, setVolumeAmount] = useState("500");
+  const [volumeUnit, setVolumeUnit] = useState("kg");
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
   const [supplierTarget, setSupplierTarget] = useState(5);
-  const [aiInstructions, setAiInstructions] = useState("");
   const [pastRequests, setPastRequests] = useState<RFQListItem[]>([]);
   const [copiedFrom, setCopiedFrom] = useState<RFQListItem | null>(null);
   const [copyBusy, setCopyBusy] = useState(false);
@@ -68,44 +104,43 @@ export default function NewRfq({ onCreated }: Props) {
 
   // Способ идентификации остаётся в контракте поиска — он строит разные
   // запросы, — но выводится из заполненного, а не спрашивается у человека.
-  const method: IdentificationMethod = analogAccepted
-    ? "analog"
-    : casValid
-      ? "cas"
-      : "spec";
+  const method: IdentificationMethod = casValid ? "cas" : "spec";
 
   const payload = (): RFQCreatePayload => ({
     identification_method: method,
     // Непрошедший проверку номер не уходит в запрос: форма к этому моменту
     // уже не даёт создать запрос с таким полем.
     cas: casValid ? casNormalized : null,
-    // Эталон аналога — то самое вещество, которое назвали выше: отдельного
-    // «на что должно быть похоже» в живых запросах не было ни разу.
-    analog_reference: analogAccepted ? name.trim() : null,
-    analog_variations: analogAccepted ? variations : [],
-    specification: specification.trim() || null,
+    // Запрос создаётся строго по названному веществу: поиск аналога из формы
+    // убран, поле остаётся в контракте ради уже созданных запросов.
+    analog_reference: null,
+    analog_variations: [],
+    // Скрытое поле не отправляется: иначе набранные до ввода номера
+    // требования молча уехали бы в письмо поставщику.
+    specification: casValid ? null : specification.trim() || null,
     confirmed_synonyms: synonyms,
     excluded_names: excludedNames,
     name: name.trim(),
     incoterms,
-    purity: purity.trim() || null,
-    application: application.trim() || null,
-    volume: volume.trim() || null,
+    purity:
+      [grade, minPurity.trim() ? `min ${minPurity.trim()}%` : ""]
+        .filter(Boolean)
+        .join(", ") || null,
+    // Назначение и инструкции для ИИ из формы убраны: первое не влияло ни
+    // на один поисковый запрос и после создания нигде не показывалось,
+    // второе задаётся на карточке запроса перед самим поиском.
+    application: null,
+    volume: volumeAmount.trim()
+      ? `${volumeAmount.trim()} ${volumeUnit}`
+      : null,
     channels: ["email"],
     search_countries: countries,
     supplier_target: supplierTarget,
+    additional_instructions: null,
     // Карточку справочника форма больше не привязывает: связь ставится
     // при подтверждении идентичности в самом поиске.
     substance_id: null,
-    additional_instructions: aiInstructions.trim() || null,
   });
-
-  const toggleVariation = (value: AnalogVariation) =>
-    setVariations((current) =>
-      current.includes(value)
-        ? current.filter((item) => item !== value)
-        : [...current, value],
-    );
 
   const toggleIncoterm = (code: string) =>
     setIncoterms((current) =>
@@ -156,24 +191,21 @@ export default function NewRfq({ onCreated }: Props) {
     setCopyBusy(true);
     setError(null);
     try {
-      const [source, ai] = await Promise.all([
-        api.getRfq(item.id),
-        api.getRfqAiSettings(item.id).catch(() => null),
-      ]);
+      const source = await api.getRfq(item.id);
       setName(source.name);
       setCas(source.cas || "");
-      setAnalogAccepted(source.identification_method === "analog");
-      setVariations((source.analog_variations || []) as AnalogVariation[]);
       setSpecification(source.specification || "");
       setSynonyms(source.confirmed_synonyms || []);
       setExcludedNames(source.excluded_names || []);
-      setPurity(source.purity || "");
-      setApplication(source.application || "");
-      setVolume(source.volume || "");
+      const [sourceGrade, sourceMinPurity] = parsePurity(source.purity);
+      setGrade(sourceGrade);
+      setMinPurity(sourceMinPurity);
+      const [sourceAmount, sourceUnit] = parseVolume(source.volume);
+      setVolumeAmount(sourceAmount);
+      setVolumeUnit(sourceUnit);
       if (source.incoterms?.length) setIncoterms(source.incoterms);
       if (source.search_countries?.length) setCountries(source.search_countries);
       setSupplierTarget(source.supplier_target);
-      setAiInstructions(ai?.additional_instructions || "");
       setCopiedFrom(item);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));
@@ -209,10 +241,6 @@ export default function NewRfq({ onCreated }: Props) {
     <div className={`new-rfq${suggestions.length > 0 ? " has-suggestions" : ""}`}>
       <div className="panel">
         <h2>Создать новый запрос</h2>
-        <p className="note">
-          После создания система сразу проверит вещество и поставит поиск по
-          выбранным странам в очередь. Можно сразу создавать следующий запрос.
-        </p>
 
         <div className="row">
           <Field
@@ -269,79 +297,80 @@ export default function NewRfq({ onCreated }: Props) {
           </p>
         )}
 
-        <div className="field">
-          <label>
-            <input
-              type="checkbox"
-              checked={analogAccepted}
-              onChange={() => setAnalogAccepted((current) => !current)}
-            />{" "}
-            Подойдёт аналог — не обязательно ровно это вещество
-          </label>
-          {analogAccepted ? (
-            <>
-              <div className="checks">
-                {VARIATIONS.map((item) => (
-                  <label key={item.value}>
-                    <input
-                      type="checkbox"
-                      checked={variations.includes(item.value)}
-                      onChange={() => toggleVariation(item.value)}
-                    />
-                    {item.label}
-                  </label>
-                ))}
-              </div>
-              <span className="note">
-                Отметьте, чем аналог может отличаться. Без этих границ «аналог»
-                означает для поставщика сразу всё перечисленное, и в ответ
-                приходит не то, что просили.
-              </span>
-            </>
-          ) : (
-            <span className="note">
-              Поиск пойдёт строго по названному веществу.
-            </span>
-          )}
+        <div className="row">
+          <NameCandidates
+            label="Другие названия того же вещества"
+            hint="Равнозначные названия расширяют поиск. Без номера они служат основным якорем, но и с номером помогают: у карбомера запрос по номеру не нашёл ни одного поставщика, а по марке — сразу всех."
+            placeholder="например, Cocamidopropyl betaine"
+            value={synonyms}
+            onChange={setSynonyms}
+          />
+          <NameCandidates
+            label="Похожие названия, которые НЕ подходят"
+            hint="Соседние по названию вещества — другая соль, другой грейд. Они уйдут в отрицательный фильтр, иначе поиск найдёт настоящих поставщиков не того вещества."
+            placeholder="например, Betaine hydrochloride"
+            value={excludedNames}
+            onChange={setExcludedNames}
+          />
         </div>
 
-        <NameCandidates
-          label="Другие названия того же вещества"
-          hint="Равнозначные названия расширяют поиск. Без номера они служат основным якорем, но и с номером помогают: у карбомера запрос по номеру не нашёл ни одного поставщика, а по марке — сразу всех."
-          placeholder="например, Cocamidopropyl betaine"
-          value={synonyms}
-          onChange={setSynonyms}
-        />
-        <NameCandidates
-          label="Похожие названия, которые НЕ подходят"
-          hint="Соседние по названию вещества — другая соль, другой грейд. Они уйдут в отрицательный фильтр, иначе поиск найдёт настоящих поставщиков не того вещества."
-          placeholder="например, Betaine hydrochloride"
-          value={excludedNames}
-          onChange={setExcludedNames}
-        />
-
-        <Field
-          label="Требования к веществу"
-          hint={
-            analogAccepted
-              ? "Что аналог обязан повторить: состав, INCI, активное содержание, ключевые показатели."
-              : "То, по чему поставщик поймёт, что именно нужно: назначение, ключевые показатели, стандарт."
-          }
-        >
-          <Textarea
-            maxLength={4000}
-            placeholder="Например: неионогенный загуститель для шампуня, вязкость 4000–6000 сП, pH 5–7"
-            value={specification}
-            onChange={(event) => setSpecification(event.target.value)}
-          />
-        </Field>
-
-        <div className="row">
-          <Field label="Чистота / грейд">
-            <Input value={purity} onChange={(event) => setPurity(event.target.value)} />
+        {/* Требования участвуют в построении поисковых запросов только
+            без номера — там они второй якорь наравне с названием. При
+            известном номере вещество определено однозначно, и роль этого
+            поля выполняет «Чистота / грейд». */}
+        {!casValid && (
+          <Field
+            label="Требования к веществу"
+            hint="Номера нет — значит искать будут по этому описанию."
+          >
+            <Textarea
+              maxLength={4000}
+              placeholder="Например: неионогенный загуститель для шампуня, вязкость 4000–6000 сП, pH 5–7"
+              value={specification}
+              onChange={(event) => setSpecification(event.target.value)}
+            />
           </Field>
-          <Field label="Требуемый объём">
-            <Input value={volume} onChange={(event) => setVolume(event.target.value)} />
+        )}
+
+        <div className="row row-compact">
+          <Field className="field-grade" label="Грейд / стандарт">
+            <Select value={grade} options={GRADES} onChange={setGrade} />
+          </Field>
+          <Field
+            className="field-narrow"
+            label="Чистота не ниже, %"
+            hint="Необязательно."
+          >
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step="0.1"
+              placeholder="99"
+              value={minPurity}
+              onChange={(event) => setMinPurity(event.target.value)}
+            />
+          </Field>
+          {/* Число и единица — одно значение, поэтому и поле одно: иначе
+              единица отрывается от своего числа при переносе строки. */}
+          <Field className="field-volume" label="Требуемый объём">
+            <div className="volume-input">
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                placeholder="500"
+                value={volumeAmount}
+                onChange={(event) => setVolumeAmount(event.target.value)}
+              />
+              <Select
+                className="volume-unit"
+                ariaLabel="Единица измерения"
+                value={volumeUnit}
+                options={VOLUME_UNITS}
+                onChange={setVolumeUnit}
+              />
+            </div>
           </Field>
         </div>
 
@@ -379,25 +408,6 @@ export default function NewRfq({ onCreated }: Props) {
                 Math.min(20, Math.max(1, Number(event.target.value) || 1)),
               )
             }
-          />
-        </Field>
-
-        <Field label="Применение">
-          <Textarea
-            value={application}
-            onChange={(event) => setApplication(event.target.value)}
-          />
-        </Field>
-
-        <Field
-          label="Дополнительные требования для ИИ"
-          hint="Эти требования будут применены к автоматическому поиску и последующей обработке ответов поставщиков."
-        >
-          <Textarea
-            maxLength={4000}
-            placeholder="Например: искать только производителей фармацевтического грейда с GMP"
-            value={aiInstructions}
-            onChange={(event) => setAiInstructions(event.target.value)}
           />
         </Field>
 
