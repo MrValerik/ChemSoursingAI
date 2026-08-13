@@ -465,6 +465,7 @@ export interface CommunicationTestRun {
   generated_reply: string | null;
   model: string | null;
   reply_language: "en";
+  simulation_mode: "buyer_ai" | "supplier_ai";
   delivery_mode: "preview" | "send";
   status:
     | "classifying"
@@ -472,6 +473,7 @@ export interface CommunicationTestRun {
     | "previewed"
     | "sending"
     | "sent"
+    | "complete"
     | "escalated"
     | "llm_error"
     | "delivery_error"
@@ -480,16 +482,29 @@ export interface CommunicationTestRun {
   error: string | null;
   created_at: string;
   messages: CommunicationTestMessage[];
+  quote_assessment: CommunicationTestAssessment | null;
 }
 
 export interface CommunicationTestMessage {
   id: number;
-  sender_role: "assistant" | "supplier";
+  sender_role: "assistant" | "supplier" | "buyer";
   content: string;
   translation_ru: string | null;
   delivery_status: string;
   provider_message_id: string | null;
   created_at: string;
+}
+
+export interface CommunicationTestAssessment {
+  is_complete: boolean;
+  missing_fields: string[];
+  low_confidence_fields: string[];
+  price: number | null;
+  currency: string | null;
+  incoterm: string | null;
+  moq: string | null;
+  has_coa: boolean;
+  has_tds: boolean;
 }
 
 export type PromptKind =

@@ -13,6 +13,7 @@ const STATUS_LABELS: Record<string, string> = {
   llm_error: "Ошибка нейросети",
   delivery_error: "Ошибка доставки",
   processing_error: "Ошибка обработки",
+  complete: "Данные по котировке собраны",
 };
 
 const STATUS_TONES: Record<string, string> = {
@@ -25,7 +26,27 @@ const STATUS_TONES: Record<string, string> = {
   llm_error: "tone-warn",
   delivery_error: "tone-warn",
   processing_error: "tone-warn",
+  complete: "tone-ok",
 };
+
+const QUOTE_FIELD_LABELS: Record<string, string> = {
+  price: "цена",
+  incoterm: "Incoterm",
+  moq: "MOQ",
+  specification: "CoA/TDS",
+};
+
+const EXAMPLES = {
+  complete: {
+    title: "Полный ответ",
+    supplierMessage:
+      "USD 720/MT, MOQ: 100 kg, CIP Moscow. CoA attached.",
+  },
+  incomplete: {
+    title: "Неполный ответ",
+    supplierMessage: "Our price is USD 720 per MT, CIP Moscow.",
+  },
+} as const;
 
 const procurementContextFromRfq = (rfq: RFQRead) =>
   [
@@ -50,11 +71,15 @@ export default function CommunicationTesting({
   rfq?: RFQRead;
 } = {}) {
   const [channel, setChannel] = useState<"email" | "whatsapp">("email");
+  const [simulationMode, setSimulationMode] = useState<"buyer_ai" | "supplier_ai">(
+    "buyer_ai",
+  );
   const [recipient, setRecipient] = useState("");
   const [procurementContext, setProcurementContext] = useState(() =>
     rfq ? procurementContextFromRfq(rfq) : "",
   );
   const [supplierMessage, setSupplierMessage] = useState("");
+  const [buyerMessage, setBuyerMessage] = useState("");
   const [instructions, setInstructions] = useState("");
   const [subject, setSubject] = useState(
     rfq?.rfq_subject ?? "Request for quotation",
@@ -66,6 +91,31 @@ export default function CommunicationTesting({
   const [active, setActive] = useState<CommunicationTestRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const runExample = async (kind: keyof typeof EXAMPLES) => {
+    const example = EXAMPLES[kind];
+    if (!active) {
+      setSupplierMessage(example.supplierMessage);
+      setError("Сначала нажмите «Начать диалог» — пример уже подставлен.");
+      return;
+    }
+    if (!canContinue) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.continueCommunicationTest(active.id, {
+        message: example.supplierMessage,
+        recipient: "",
+        confirm_external_send: false,
+      });
+      setActive(updated);
+      setSupplierMessage("");
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const loadHistory = async () => {
     const items = await api.listCommunicationTests();
@@ -92,12 +142,13 @@ export default function CommunicationTesting({
     setRecipient("");
     setActive(null);
     setSupplierMessage("");
+    setBuyerMessage("");
     setError(null);
   }, [rfq]);
 
   const startDialog = async () => {
     if (!procurementContext.trim()) return;
-    const live = deliveryMode === "send";
+    const live = deliveryMode === "send" && simulationMode !== "supplier_ai";
     if (!recipient.trim() && live) return;
     if (
       live &&
@@ -117,7 +168,9 @@ export default function CommunicationTesting({
         recipient: recipient.trim(),
         procurement_context: procurementContext.trim(),
         additional_instructions: instructions.trim(),
-        delivery_mode: deliveryMode,
+        simulation_mode: simulationMode,
+        initial_message: buyerMessage.trim(),
+        delivery_mode: live ? "send" : "preview",
         subject: subject.trim() || "Request for quotation",
         confirm_external_send: live,
       });
@@ -133,7 +186,14 @@ export default function CommunicationTesting({
   };
 
   const continueDialog = async () => {
-    if (!active || !supplierMessage.trim()) return;
+    if (
+      !active ||
+      !(active.simulation_mode === "supplier_ai"
+        ? buyerMessage.trim()
+        : supplierMessage.trim())
+    ) {
+      return;
+    }
     const live = active.delivery_mode === "send";
     if (!recipient.trim() && live) return;
     if (
@@ -148,12 +208,16 @@ export default function CommunicationTesting({
     setError(null);
     try {
       const updated = await api.continueCommunicationTest(active.id, {
-        supplier_message: supplierMessage.trim(),
+        message:
+          active.simulation_mode === "supplier_ai"
+            ? buyerMessage.trim()
+            : supplierMessage.trim(),
         recipient: recipient.trim(),
         confirm_external_send: live,
       });
       setActive(updated);
       setSupplierMessage("");
+      setBuyerMessage("");
       if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
@@ -166,20 +230,25 @@ export default function CommunicationTesting({
   const openDialog = (item: CommunicationTestRun) => {
     setActive(item);
     setChannel(item.channel);
+    setSimulationMode(item.simulation_mode);
     setProcurementContext(item.procurement_context);
     setInstructions(item.additional_instructions ?? "");
     setSubject(item.subject);
     setDeliveryMode(item.delivery_mode);
     setRecipient("");
     setSupplierMessage("");
+    setBuyerMessage("");
     setError(null);
   };
 
   const canContinue =
     active !== null &&
     active.messages.length > 0 &&
-    active.messages[active.messages.length - 1].sender_role === "assistant" &&
-    active.status !== "delivery_error";
+    active.messages[active.messages.length - 1].sender_role ===
+      (active.simulation_mode === "supplier_ai" ? "supplier" : "assistant") &&
+    active.status !== "delivery_error" &&
+    active.status !== "complete" &&
+    active.status !== "escalated";
 
   return (
     <div
@@ -193,14 +262,10 @@ export default function CommunicationTesting({
         <div>
           {embedded ? <h2>Тестирование общения</h2> : <h1>Тестирование общения</h1>}
           <p className="note">
-            Администраторская песочница: {embedded
-              ? "данные текущего запроса уже подставлены, "
-              : "задайте потребность, "}
-            выделенная облачная
-            нейросеть первой обратится к поставщику, а затем будет отвечать на
-            ваши тестовые реплики с учётом всей истории. Фактически использованная
-            модель отображается под диалогом. Внешняя переписка ведётся на
-            английском, а сотруднику показывается русский перевод.
+            Администраторская песочница: выберите, будет ли нейросеть покупателем
+            или поставщиком. В обоих случаях используется вся история диалога;
+            это только симуляция без внешней отправки. Оригинал — на английском,
+            для сотрудника показывается русский перевод.
           </p>
         </div>
       </div>
@@ -243,17 +308,31 @@ export default function CommunicationTesting({
             <Field label="Язык переговоров">
               <Input disabled value="Английский · русский перевод в интерфейсе" />
             </Field>
+            <Field label="Кто пишет от нейросети">
+              <Select
+                value={simulationMode}
+                onChange={(next) => {
+                  const mode = next as "buyer_ai" | "supplier_ai";
+                  setSimulationMode(mode);
+                  if (mode === "supplier_ai") setDeliveryMode("preview");
+                }}
+                options={[
+                  { value: "buyer_ai", label: "Покупатель" },
+                  { value: "supplier_ai", label: "Поставщик" },
+                ]}
+              />
+            </Field>
             {!embedded && (
               <Field label="Режим">
                 <Select
                   value={deliveryMode}
                   onChange={(next) => setDeliveryMode(next as "preview" | "send")}
-                  options={[
-                    { value: "preview", label: "Только симуляция" },
-                    { value: "send", label: "Генерировать и отправлять реально" },
-                  ]}
-                />
-              </Field>
+                options={[
+                  { value: "preview", label: "Только симуляция" },
+                  { value: "send", label: "Генерировать и отправлять реально" },
+                ]}
+              />
+            </Field>
             )}
             {embedded && (
               <Field label="Режим">
@@ -280,6 +359,22 @@ export default function CommunicationTesting({
               onChange={(event) => setProcurementContext(event.target.value)}
             />
           </Field>
+          {simulationMode === "supplier_ai" && (
+            <Field
+              label="Первое сообщение покупателя"
+              hint="Нейросеть ответит в роли поставщика. Только симуляция, без отправки."
+            >
+              <Textarea
+                rows={3}
+                placeholder="Hello, we are looking for 50 kg of ammonia. Please send your quotation."
+                value={buyerMessage}
+                onChange={(event) => setBuyerMessage(event.target.value)}
+              />
+              {simulationMode === "supplier_ai" && deliveryMode === "send" && (
+                <p className="note">Для нейросети-поставщика доступна только симуляция.</p>
+              )}
+            </Field>
+          )}
           <Field
             label="Дополнительные инструкции"
             hint="Можно уточнить тон и цель; ограничения безопасности изменить нельзя"
@@ -309,6 +404,7 @@ export default function CommunicationTesting({
               disabled={
                 busy ||
                 !procurementContext.trim() ||
+                (simulationMode === "supplier_ai" && !buyerMessage.trim()) ||
                 (deliveryMode === "send" && !recipient.trim())
               }
               onClick={() => void startDialog()}
@@ -342,6 +438,8 @@ export default function CommunicationTesting({
                     <span className="communication-message-role">
                       {message.sender_role === "assistant"
                         ? "Нейросеть · покупатель"
+                        : message.sender_role === "buyer"
+                          ? "Вы · покупатель"
                         : active.channel === "email" &&
                             active.delivery_mode === "send"
                           ? "Поставщик · Email"
@@ -351,6 +449,8 @@ export default function CommunicationTesting({
                       <span>
                         {message.sender_role === "assistant"
                           ? "Английский оригинал"
+                          : message.sender_role === "buyer"
+                            ? "Оригинал покупателя"
                           : "Оригинал поставщика"}
                       </span>
                       <div>{message.content}</div>
@@ -374,21 +474,96 @@ export default function CommunicationTesting({
                 {STATUS_LABELS[active.status] ?? active.status}
                 {active.model ? ` · модель: ${active.model}` : ""}
               </p>
+              {active.quote_assessment && (
+                <div className="communication-assessment" role="status">
+                  <strong>
+                    {active.quote_assessment.is_complete
+                      ? "Данные собраны — нейросеть остановила диалог."
+                      : "Проверка ответа поставщика"}
+                  </strong>
+                  <span>
+                    Цена: {active.quote_assessment.price ?? "не указана"}
+                    {active.quote_assessment.currency
+                      ? ` ${active.quote_assessment.currency}`
+                      : ""}
+                    {` · Incoterm: ${active.quote_assessment.incoterm ?? "не указан"}`}
+                    {` · MOQ: ${active.quote_assessment.moq ?? "не указан"}`}
+                  </span>
+                  <span>
+                    Документы: {active.quote_assessment.has_coa ? "CoA" : ""}
+                    {active.quote_assessment.has_coa && active.quote_assessment.has_tds
+                      ? ", "
+                      : ""}
+                    {active.quote_assessment.has_tds ? "TDS" : ""}
+                    {!active.quote_assessment.has_coa && !active.quote_assessment.has_tds
+                      ? "не указаны"
+                      : ""}
+                  </span>
+                  {!active.quote_assessment.is_complete && (
+                    <span>
+                      Не хватает: {active.quote_assessment.missing_fields
+                        .map((field) => QUOTE_FIELD_LABELS[field] ?? field)
+                        .join(", ")}
+                    </span>
+                  )}
+                </div>
+              )}
               {active.error && <p className="error">{active.error}</p>}
               {canContinue && (
                 <div className="communication-reply">
-                  <Field label="Ответ поставщика (оригинал)">
+                  {embedded && (
+                    <div className="communication-test-examples">
+                      <strong>Быстрые примеры</strong>
+                      <span>Без внешней отправки: ответ проходит те же правила, что и реальный диалог.</span>
+                      <div className="actions">
+                        {(Object.entries(EXAMPLES) as Array<[keyof typeof EXAMPLES, typeof EXAMPLES[keyof typeof EXAMPLES]]>).map(
+                          ([kind, example]) => (
+                            <button
+                              className="secondary btn-small"
+                              disabled={busy}
+                              key={kind}
+                              onClick={() => void runExample(kind)}
+                              type="button"
+                            >
+                              {example.title}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <Field
+                    label={
+                      active.simulation_mode === "supplier_ai"
+                        ? "Следующее сообщение покупателя"
+                        : "Ответ поставщика (оригинал)"
+                    }
+                  >
                     <Textarea
                       rows={4}
-                      placeholder="Введите английский ответ поставщика — нейросеть продолжит диалог"
-                      value={supplierMessage}
-                      onChange={(event) => setSupplierMessage(event.target.value)}
+                      placeholder={
+                        active.simulation_mode === "supplier_ai"
+                          ? "Напишите покупателю — нейросеть ответит как поставщик"
+                          : "Введите английский ответ поставщика — нейросеть продолжит диалог"
+                      }
+                      value={
+                        active.simulation_mode === "supplier_ai"
+                          ? buyerMessage
+                          : supplierMessage
+                      }
+                      onChange={(event) =>
+                        active.simulation_mode === "supplier_ai"
+                          ? setBuyerMessage(event.target.value)
+                          : setSupplierMessage(event.target.value)
+                      }
                     />
                   </Field>
                   <button
                     disabled={
                       busy ||
-                      !supplierMessage.trim() ||
+                      !(active.simulation_mode === "supplier_ai"
+                        ? buyerMessage.trim()
+                        : supplierMessage.trim()) ||
                       (active.delivery_mode === "send" && !recipient.trim())
                     }
                     onClick={() => void continueDialog()}

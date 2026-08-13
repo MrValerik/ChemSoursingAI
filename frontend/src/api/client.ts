@@ -581,6 +581,8 @@ export const api = {
     recipient: string;
     procurement_context: string;
     additional_instructions: string;
+    simulation_mode: "buyer_ai" | "supplier_ai";
+    initial_message: string;
     delivery_mode: "preview" | "send";
     subject: string;
     confirm_external_send: boolean;
@@ -593,7 +595,7 @@ export const api = {
   continueCommunicationTest: (
     runId: number,
     payload: {
-      supplier_message: string;
+      message: string;
       recipient: string;
       confirm_external_send: boolean;
     },

@@ -11,6 +11,7 @@ import type {
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import RfqDispatchPreparation from "./RfqDispatchPreparation";
+import CommunicationTesting from "./CommunicationTesting";
 import { Textarea } from "./ui";
 
 const EMPTY_OVERVIEW: CommunicationOverviewRead = {
@@ -122,6 +123,7 @@ export default function DispatchTab({
   const rfqId = rfq.id;
   const { user } = useAuth();
   const readOnly = user?.role === "auditor";
+  const canTestCommunication = user?.role === "admin";
 
   const [overview, setOverview] = useState<CommunicationOverviewRead>(EMPTY_OVERVIEW);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -320,6 +322,10 @@ export default function DispatchTab({
           onStatusChanged();
         }}
       />
+
+      {canTestCommunication && (
+        <CommunicationTesting embedded rfq={rfq} />
+      )}
 
       <div className="panel communication-panel">
         <div className="tab-toolbar">

@@ -59,6 +59,9 @@ class CommunicationTestRun(Base, TimestampMixin):
     generated_reply: Mapped[str | None] = mapped_column(Text, default=None)
     model: Mapped[str | None] = mapped_column(String(255), default=None)
     reply_language: Mapped[str] = mapped_column(String(8), default="en")
+    simulation_mode: Mapped[str] = mapped_column(
+        String(32), default="buyer_ai", server_default="buyer_ai"
+    )
     delivery_mode: Mapped[str] = mapped_column(String(16), default="preview")
     status: Mapped[str] = mapped_column(String(32), index=True)
     provider_message_id: Mapped[str | None] = mapped_column(

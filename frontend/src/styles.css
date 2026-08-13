@@ -1550,6 +1550,24 @@ button.danger:hover {
   white-space: pre-wrap;
 }
 
+.communication-assessment,
+.communication-test-examples {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.communication-assessment strong,
+.communication-test-examples strong {
+  color: var(--text);
+}
+
 .conversation-attachments {
   display: grid;
   gap: 7px;

@@ -192,6 +192,8 @@ class CommunicationTestCreate(BaseModel):
     # совместимости, но иное значение отклоняется на границе API.
     reply_language: Literal["en"] = "en"
     additional_instructions: str = Field(default="", max_length=2000)
+    simulation_mode: Literal["buyer_ai", "supplier_ai"] = "buyer_ai"
+    initial_message: str = Field(default="", max_length=8000)
     delivery_mode: Literal["preview", "send"] = "preview"
     subject: str = Field(default="Request for quotation", max_length=998)
     confirm_external_send: bool = False
@@ -201,6 +203,7 @@ class CommunicationTestCreate(BaseModel):
         "procurement_context",
         "customer_message",
         "additional_instructions",
+        "initial_message",
         "subject",
         mode="before",
     )
@@ -212,6 +215,11 @@ class CommunicationTestCreate(BaseModel):
     def validate_scenario_and_recipient(self) -> "CommunicationTestCreate":
         if not self.procurement_context and not self.customer_message:
             raise ValueError("Укажите общую информацию о закупке или веществе")
+        if self.simulation_mode == "supplier_ai":
+            if self.delivery_mode != "preview":
+                raise ValueError("Режим «нейросеть — поставщик» доступен только в симуляции")
+            if not self.initial_message:
+                raise ValueError("Напишите первое сообщение покупателя")
         if not self.recipient:
             if self.delivery_mode == "send":
                 raise ValueError("Для реальной отправки укажите получателя")
@@ -238,26 +246,52 @@ class CommunicationTestCreate(BaseModel):
 
 
 class CommunicationTestContinue(BaseModel):
-    supplier_message: str = Field(min_length=1, max_length=8000)
+    message: str = Field(default="", max_length=8000)
+    # Старое имя сохраняется для совместимости с прежней версией интерфейса.
+    supplier_message: str = Field(default="", max_length=8000)
     recipient: str = Field(default="", max_length=320)
     confirm_external_send: bool = False
 
-    @field_validator("supplier_message", "recipient", mode="before")
+    @field_validator("message", "supplier_message", "recipient", mode="before")
     @classmethod
     def clean_text(cls, value: object) -> str:
         return str(value or "").strip()
+
+    @model_validator(mode="after")
+    def require_message(self) -> "CommunicationTestContinue":
+        if not self.message and not self.supplier_message:
+            raise ValueError("Сообщение не может быть пустым")
+        return self
+
+    @property
+    def participant_message(self) -> str:
+        return self.message or self.supplier_message
 
 
 class CommunicationTestMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    sender_role: Literal["assistant", "supplier"]
+    sender_role: Literal["assistant", "supplier", "buyer"]
     content: str
     translation_ru: str | None
     delivery_status: str
     provider_message_id: str | None
     created_at: datetime
+
+
+class CommunicationTestAssessmentRead(BaseModel):
+    """Детерминированный результат разбора тестовых ответов поставщика."""
+
+    is_complete: bool
+    missing_fields: list[str] = Field(default_factory=list)
+    low_confidence_fields: list[str] = Field(default_factory=list)
+    price: float | None = None
+    currency: str | None = None
+    incoterm: str | None = None
+    moq: str | None = None
+    has_coa: bool = False
+    has_tds: bool = False
 
 
 class CommunicationTestRead(BaseModel):
@@ -273,9 +307,11 @@ class CommunicationTestRead(BaseModel):
     generated_reply: str | None
     model: str | None
     reply_language: str
+    simulation_mode: Literal["buyer_ai", "supplier_ai"]
     delivery_mode: str
     status: str
     provider_message_id: str | None
     error: str | None
     created_at: datetime
     messages: list[CommunicationTestMessageRead] = Field(default_factory=list)
+    quote_assessment: CommunicationTestAssessmentRead | None = None

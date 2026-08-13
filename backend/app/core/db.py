@@ -145,6 +145,13 @@ def _apply_light_migrations() -> None:
                         "recipient_ciphertext TEXT"
                     )
                 )
+            if "simulation_mode" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE communication_test_runs ADD COLUMN "
+                        "simulation_mode VARCHAR(32) NOT NULL DEFAULT 'buyer_ai'"
+                    )
+                )
     if "communication_test_messages" in tables:
         cols = {
             c["name"]

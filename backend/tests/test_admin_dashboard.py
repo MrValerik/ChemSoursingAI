@@ -506,6 +506,189 @@ def test_communication_testing_escalates_social_reply_without_generation(
     assert len(dialogue_calls) == 1
 
 
+def test_communication_testing_marks_complete_quote_without_followup(
+    client, monkeypatch
+):
+    admin = _login(client)
+    generated: list[dict] = []
+
+    def fake_generate_text(self, **kwargs):
+        if "переводчик переписки" in kwargs["system_prompt"]:
+            return "Цена 720 USD за тонну, MOQ 100 кг, CIP Москва, CoA приложен."
+        generated.append(kwargs)
+        return "Hello. Please confirm CAS, grade, form and provide your quote."
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        fake_generate_text,
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Обычный ответ по закупке.",
+            method="test",
+        ),
+    )
+
+    started = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "procurement_context": "50 kg of ammonia",
+            "delivery_mode": "preview",
+        },
+        headers=admin,
+    )
+    assert started.status_code == 201
+
+    completed = client.post(
+        f"/communication-testing/{started.json()['id']}/messages",
+        json={
+            "supplier_message": (
+                "USD 720/MT, MOQ: 100 kg, CIP Moscow. CoA attached."
+            )
+        },
+        headers=admin,
+    )
+
+    assert completed.status_code == 201
+    payload = completed.json()
+    assert payload["status"] == "complete"
+    assert [message["sender_role"] for message in payload["messages"]] == [
+        "assistant",
+        "supplier",
+    ]
+    assert payload["quote_assessment"] == {
+        "is_complete": True,
+        "missing_fields": [],
+        "low_confidence_fields": [],
+        "price": 720.0,
+        "currency": "USD",
+        "incoterm": "CIP",
+        "moq": "100 kg",
+        "has_coa": True,
+        "has_tds": False,
+    }
+    assert len(generated) == 1
+
+
+def test_communication_testing_explains_missing_quote_fields(client, monkeypatch):
+    admin = _login(client)
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        lambda self, **kwargs: (
+            "Цена указана, но MOQ и документы отсутствуют."
+            if "переводчик переписки" in kwargs["system_prompt"]
+            else (
+                "Hello. We need 50 kg of ammonia. Please confirm CAS, grade, "
+                "form and provide your quote."
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Обычный ответ по закупке.",
+            method="test",
+        ),
+    )
+    started_response = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "procurement_context": "50 kg of ammonia",
+            "delivery_mode": "preview",
+        },
+        headers=admin,
+    )
+    assert started_response.status_code == 201
+    started = started_response.json()
+
+    continued = client.post(
+        f"/communication-testing/{started['id']}/messages",
+        json={"supplier_message": "Our price is USD 720 per MT, CIP Moscow."},
+        headers=admin,
+    )
+
+    assert continued.status_code == 201
+    assessment = continued.json()["quote_assessment"]
+    assert not assessment["is_complete"]
+    assert assessment["missing_fields"] == ["moq", "specification"]
+    assert len(continued.json()["messages"]) == 3
+
+
+def test_communication_testing_can_simulate_supplier_for_manual_buyer(
+    client, monkeypatch
+):
+    admin = _login(client)
+    supplier_prompts: list[str] = []
+
+    def fake_generate_text(self, **kwargs):
+        if "You simulate a chemical supplier" in kwargs["system_prompt"]:
+            supplier_prompts.append(kwargs["user_text"])
+            return "We can offer USD 720/MT, MOQ: 100 kg, CIP Moscow."
+        if "переводчик переписки" in kwargs["system_prompt"]:
+            return "Можем предложить 720 USD за тонну, MOQ 100 кг, CIP Москва."
+        raise AssertionError("Buyer-agent prompt must not be used")
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        fake_generate_text,
+    )
+
+    started = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "procurement_context": "50 kg of ammonia",
+            "simulation_mode": "supplier_ai",
+            "initial_message": "Hello, please quote 50 kg of ammonia.",
+            "delivery_mode": "preview",
+        },
+        headers=admin,
+    )
+    assert started.status_code == 201
+    assert started.json()["simulation_mode"] == "supplier_ai"
+    assert [item["sender_role"] for item in started.json()["messages"]] == [
+        "buyer",
+        "supplier",
+    ]
+    assert "BUYER_UNTRUSTED" in supplier_prompts[0]
+
+    continued = client.post(
+        f"/communication-testing/{started.json()['id']}/messages",
+        json={"message": "Could you also provide CoA?"},
+        headers=admin,
+    )
+    assert continued.status_code == 201
+    assert [item["sender_role"] for item in continued.json()["messages"]] == [
+        "buyer",
+        "supplier",
+        "buyer",
+        "supplier",
+    ]
+    assert len(supplier_prompts) == 2
+
+    rejected = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "recipient": "supplier@example.com",
+            "procurement_context": "50 kg of ammonia",
+            "simulation_mode": "supplier_ai",
+            "initial_message": "Hello",
+            "delivery_mode": "send",
+            "confirm_external_send": True,
+        },
+        headers=admin,
+    )
+    assert rejected.status_code == 422
+
+
 def test_communication_testing_preserves_reply_when_classifier_is_unavailable(
     client, monkeypatch
 ):
