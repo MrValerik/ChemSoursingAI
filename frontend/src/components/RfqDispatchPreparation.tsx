@@ -313,7 +313,7 @@ export default function RfqDispatchPreparation({
             {customized && (
               <span className="badge tone-warn">изменено вручную</span>
             )}
-            <span className="badge tone-neutral">получателей: {queued.length}</span>
+            <span className="badge tone-neutral">получателей: {recipients.length}</span>
             <button
               aria-expanded={previewOpen}
               className="secondary btn-small"
