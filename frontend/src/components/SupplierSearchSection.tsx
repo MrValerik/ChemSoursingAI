@@ -219,7 +219,6 @@ const documentsTone = (
 };
 
 type QualificationSortKey =
-  | "shortlist"
   | "company"
   | "type"
   | "confidence"
@@ -261,14 +260,12 @@ function QualificationTable({
   activeCountry: string;
   onSelect: (result: SupplierQualificationResponse["results"][number]) => void;
 }) {
-  // По умолчанию сверху стоят прошедшие отбор, внутри — по баллу. Раньше
-  // это делили на две таблицы, но сравнивать в двух таблицах нельзя: у них
-  // независимая сортировка и разная ширина колонок.
-  const [sortKey, setSortKey] = useState<QualificationSortKey>("shortlist");
+  // Балл — то, ради чего список упорядочен, поэтому он и стоит по умолчанию,
+  // от большего к меньшему.
+  const [sortKey, setSortKey] = useState<QualificationSortKey>("confidence");
   const [sortAsc, setSortAsc] = useState(false);
 
   const columns: { key: QualificationSortKey; label: string }[] = [
-    { key: "shortlist", label: "Отбор" },
     { key: "company", label: "Компания" },
     { key: "type", label: "Роль" },
     { key: "confidence", label: "Балл" },
@@ -285,7 +282,7 @@ function QualificationTable({
     }
     setSortKey(key);
     // Числовые колонки читают сверху вниз от большего, текстовые — от «а».
-    setSortAsc(!["confidence", "risks", "shortlist"].includes(key));
+    setSortAsc(!["confidence", "risks"].includes(key));
   };
 
   const sorted = useMemo(() => {
@@ -293,8 +290,6 @@ function QualificationTable({
       result: SupplierQualificationResponse["results"][number],
     ): string | number => {
       switch (sortKey) {
-        case "shortlist":
-          return result.shortlist_eligible ? 1 : 0;
         case "company":
           return result.company_name.toLocaleLowerCase();
         case "type":
@@ -357,16 +352,6 @@ function QualificationTable({
             onClick={() => onSelect(result)}
             title="Открыть подробности: проверка, расчёт балла и цитаты"
           >
-            <td>
-              <span
-                className={`badge ${
-                  result.shortlist_eligible ? "tone-ok" : "tone-neutral"
-                }`}
-                title={shortlistExplanation(result)}
-              >
-                {result.shortlist_eligible ? "в списке" : "не прошёл"}
-              </span>
-            </td>
             <td>
               <strong>{result.company_name}</strong>
             </td>
@@ -1523,6 +1508,10 @@ export default function SupplierSearchSection({
   }, [detailIndex]);
   const [trace, setTrace] = useState<SearchRunTrace | null>(null);
   const [runs, setRuns] = useState<SearchRunListItem[]>([]);
+  // Пока история запусков не пришла, вкладка не знает, был ли поиск вообще.
+  // Хранится не флагом, а номером загруженного запроса: при переходе к
+  // другому запросу ожидание начинается заново само.
+  const [loadedRfqId, setLoadedRfqId] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [restartBusy, setRestartBusy] = useState(false);
@@ -1569,6 +1558,7 @@ export default function SupplierSearchSection({
         // A transient polling failure must not hide the form or current result.
       } finally {
         refreshing = false;
+        if (active) setLoadedRfqId(rfq.id);
       }
     };
     void refresh();
@@ -1642,18 +1632,13 @@ export default function SupplierSearchSection({
     }
   };
 
+  const initialLoading = loadedRfqId !== rfq.id;
   const activeCas = trace ? runText(trace, "cas") : rfq.cas;
   const activeName = trace ? runText(trace, "name") : rfq.name;
   const activeCountry = trace
     ? runText(trace, "country")
     : selectedCountries[0] ?? "";
   const candidateResults = trace?.candidate_results ?? data?.results ?? [];
-  // Прошедшие отбор — это колонка и порядок сортировки, а не отдельный
-  // список: закупщику нужен короткий безопасный набор сверху, эксперту —
-  // всё найденное рядом, и сравнивать их надо в одной таблице.
-  const shortlisted = (qualification?.results ?? []).filter(
-    (result) => result.shortlist_eligible,
-  );
   const savedToRegistry = (resultIndex: number) =>
     !!qualification?.registry_links?.some(
       (link) => link.result_index === resultIndex,
@@ -1801,7 +1786,14 @@ export default function SupplierSearchSection({
             </label>
           )}
         </div>
-        {runs.length === 0 ? (
+        {initialLoading ? (
+          // Пустая вкладка молчала, пока шли два запроса подряд, и успевала
+          // соврать «поиск ещё не запускался» у запроса с запусками.
+          <p className="note current-search-loading">
+            <span className="loading-spinner" aria-hidden="true" />
+            Загружаем историю поиска…
+          </p>
+        ) : runs.length === 0 ? (
           <p className="note">Поиск ещё не запускался.</p>
         ) : (
           activeRun && (
@@ -2095,7 +2087,7 @@ export default function SupplierSearchSection({
           <div className="search-results-header">
             <div className="heading-with-help">
               <h2>Найденные поставщики</h2>
-              <HelpTip text="Отметку «в списке» получают кандидаты с подтверждённым веществом, ролью производителя и решением аудитора; по умолчанию они стоят сверху. Проверка предварительная: перед решением откройте первичные источники и запросите документы у поставщика." />
+              <HelpTip text="Кандидаты, найденные по этому запросу, от большего балла к меньшему. Заголовки сортируют, строка открывает подробности. Проверка предварительная: перед решением откройте первичные источники и запросите документы у поставщика." />
             </div>
           </div>
           {!data && (
@@ -2155,13 +2147,6 @@ export default function SupplierSearchSection({
                   безопасный список, эксперту — всё найденное. Раньше они шли
                   вперемешку, и принадлежность к короткому списку отличалась
                   только цветом одного тега из десяти. */}
-              {shortlisted.length === 0 && (
-                <p className="note">
-                  Отбор не прошёл никто: ни у одного кандидата нет одновременно
-                  подтверждённого вещества, роли производителя и решения
-                  аудитора. Проверяйте найденных вручную.
-                </p>
-              )}
               <QualificationTable
                 results={qualification.results}
                 activeCas={activeCas}

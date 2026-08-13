@@ -2686,6 +2686,13 @@ button.danger:hover {
   font-size: 12px;
 }
 
+/* Ожидание истории запусков: строка со спиннером вместо пустоты. */
+.current-search-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .current-search-summary {
   display: flex;
   align-items: center;
