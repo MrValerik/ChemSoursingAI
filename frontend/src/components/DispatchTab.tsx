@@ -136,6 +136,11 @@ export default function DispatchTab({
   const [sendingMessage, setSendingMessage] = useState(false);
   const [draftBusy, setDraftBusy] = useState<number | null>(null);
   const [downloadBusy, setDownloadBusy] = useState<number | null>(null);
+  const [dialogueTranslations, setDialogueTranslations] = useState<
+    Record<number, string>
+  >({});
+  const [translationRevealed, setTranslationRevealed] = useState(false);
+  const [translationBusy, setTranslationBusy] = useState(false);
 
   const canSyncEmail = user?.role === "head" || user?.role === "admin";
 
@@ -178,6 +183,41 @@ export default function DispatchTab({
   const selectedConversation =
     overview.conversations.find((item) => conversationKey(item) === selectedKey) ??
     null;
+  const selectedMessageSignature =
+    selectedConversation?.messages.map((message) => message.id).join(",") ?? "";
+
+  useEffect(() => {
+    setDialogueTranslations({});
+    setTranslationRevealed(false);
+  }, [selectedKey, selectedMessageSignature]);
+
+  const toggleDialogueTranslation = async () => {
+    if (translationRevealed) {
+      setTranslationRevealed(false);
+      return;
+    }
+    if (!selectedConversation) return;
+    const messageIds = selectedConversation.messages
+      .filter((message) => message.body?.trim())
+      .map((message) => message.id);
+    if (messageIds.length === 0) return;
+
+    setTranslationBusy(true);
+    setError(null);
+    try {
+      const result = await api.translateCommunicationDialogue(rfqId, messageIds);
+      setDialogueTranslations(
+        Object.fromEntries(
+          result.translations.map((item) => [item.message_id, item.translation_ru]),
+        ),
+      );
+      setTranslationRevealed(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setTranslationBusy(false);
+    }
+  };
   const activeEscalations = [
     ...overview.unassigned_escalations,
     ...overview.conversations.flatMap((item) => item.escalations),
@@ -438,6 +478,22 @@ export default function DispatchTab({
                       </div>
                     </div>
                     <div className="stack-inline">
+                      {selectedConversation.messages.some((message) =>
+                        message.body?.trim(),
+                      ) && (
+                        <button
+                          className="secondary btn-small"
+                          disabled={translationBusy}
+                          onClick={() => void toggleDialogueTranslation()}
+                          type="button"
+                        >
+                          {translationBusy
+                            ? "Переводим…"
+                            : translationRevealed
+                              ? "Скрыть перевод диалога"
+                              : "Перевести диалог"}
+                        </button>
+                      )}
                       {collectionStatus(selectedConversation) && (
                         <span
                           className={`badge ${
@@ -484,7 +540,11 @@ export default function DispatchTab({
                             </strong>
                             <span>{formatMoment(message.created_at)}</span>
                           </div>
-                          <p>{message.body || "—"}</p>
+                          <p>
+                            {translationRevealed && dialogueTranslations[message.id]
+                              ? dialogueTranslations[message.id]
+                              : message.body || "—"}
+                          </p>
                           {message.channel === "email" &&
                             message.attachments &&
                             message.attachments.length > 0 && (

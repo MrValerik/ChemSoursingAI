@@ -842,6 +842,80 @@ def test_manual_email_message_is_live_idempotent_and_threaded(client, monkeypatc
     )
 
 
+def test_real_supplier_dialogue_translation_is_temporary_and_scoped(
+    client, monkeypatch
+):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="translate@supplier.example",
+    )
+    monkeypatch.setattr(
+        "app.services.communication_translation.GoogleTranslateConnector.translate",
+        lambda self, text, **kwargs: f"RU: {text}",
+    )
+
+    response = client.post(
+        f"/rfq/{rfq['id']}/communications/translation",
+        json={"message_ids": [first.id, first.id]},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "translations": [
+            {"message_id": first.id, "translation_ru": f"RU: {first.body}"}
+        ]
+    }
+    assert _communications(rfq["id"])[0].body == first.body
+
+    other_rfq, other_message = _started_conversation(
+        client,
+        headers,
+        channel="whatsapp",
+        contact="+7 900 555-01-02",
+    )
+    assert other_rfq["id"] != rfq["id"]
+    foreign = client.post(
+        f"/rfq/{rfq['id']}/communications/translation",
+        json={"message_ids": [other_message.id]},
+        headers=headers,
+    )
+    assert foreign.status_code == 422
+
+
+def test_real_supplier_dialogue_translation_reports_provider_error(
+    client, monkeypatch
+):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="translate-error@supplier.example",
+    )
+
+    def fail_translation(self, text, **kwargs):
+        from app.connectors.google_translate import GoogleTranslateError
+
+        raise GoogleTranslateError("Google Translate недоступен")
+
+    monkeypatch.setattr(
+        "app.services.communication_translation.GoogleTranslateConnector.translate",
+        fail_translation,
+    )
+    response = client.post(
+        f"/rfq/{rfq['id']}/communications/translation",
+        json={"message_ids": [first.id]},
+        headers=headers,
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Google Translate недоступен"
+
+
 def test_manual_whatsapp_message_records_provider_error_without_retry(
     client, monkeypatch
 ):

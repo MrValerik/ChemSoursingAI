@@ -105,6 +105,26 @@ class CommunicationOverviewRead(BaseModel):
     )
 
 
+class CommunicationTranslationCreate(BaseModel):
+    message_ids: list[int] = Field(min_length=1, max_length=500)
+
+    @field_validator("message_ids")
+    @classmethod
+    def validate_message_ids(cls, value: list[int]) -> list[int]:
+        if any(message_id <= 0 for message_id in value):
+            raise ValueError("Идентификаторы сообщений должны быть положительными")
+        return list(dict.fromkeys(value))
+
+
+class CommunicationMessageTranslationRead(BaseModel):
+    message_id: int
+    translation_ru: str
+
+
+class CommunicationTranslationRead(BaseModel):
+    translations: list[CommunicationMessageTranslationRead]
+
+
 class EmailSyncRead(BaseModel):
     fetched: int
     processed: int

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.connectors.email import EmailConfigurationError, EmailDeliveryError
+from app.connectors.google_translate import GoogleTranslateError
 from app.core.db import get_db
 from app.models import Communication, RFQ, User
 from app.models.enums import UserRole
@@ -13,6 +14,8 @@ from app.schemas.communication import (
     CommunicationMessageRead,
     CommunicationOverviewRead,
     CommunicationSendCreate,
+    CommunicationTranslationCreate,
+    CommunicationTranslationRead,
     EmailSyncRead,
 )
 from app.services.communication_delivery import (
@@ -21,6 +24,7 @@ from app.services.communication_delivery import (
     send_email_draft,
 )
 from app.services.communication_history import list_communication_overview
+from app.services.communication_translation import translate_communication_messages
 from app.services.email_workflow import sync_inbox
 
 router = APIRouter(tags=["communications"])
@@ -52,6 +56,31 @@ def communication_overview(
 ) -> CommunicationOverviewRead:
     _visible_rfq(db, rfq_id, user)
     return list_communication_overview(db, rfq_id)
+
+
+@router.post(
+    "/rfq/{rfq_id}/communications/translation",
+    response_model=CommunicationTranslationRead,
+)
+def translate_communications(
+    rfq_id: int,
+    payload: CommunicationTranslationCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CommunicationTranslationRead:
+    """Переводит выбранную переписку для интерфейса, не меняя оригиналы."""
+    _visible_rfq(db, rfq_id, user)
+    try:
+        translations = translate_communication_messages(
+            db,
+            rfq_id=rfq_id,
+            message_ids=payload.message_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except GoogleTranslateError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return CommunicationTranslationRead(translations=translations)
 
 
 def _message_read(message: Communication) -> CommunicationMessageRead:

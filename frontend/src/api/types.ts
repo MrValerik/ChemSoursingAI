@@ -348,6 +348,13 @@ export interface CommunicationOverviewRead {
   unassigned_escalations: CommunicationEscalationRead[];
 }
 
+export interface CommunicationTranslationRead {
+  translations: Array<{
+    message_id: number;
+    translation_ru: string;
+  }>;
+}
+
 export interface EmailSyncRead {
   fetched: number;
   processed: number;

@@ -6,6 +6,7 @@ import type {
   ChannelStatus,
   CommunicationMessageRead,
   CommunicationOverviewRead,
+  CommunicationTranslationRead,
   IdentificationMethod,
   EmailIntegration,
   EmailSyncRead,
@@ -416,6 +417,15 @@ export const api = {
 
   communicationOverview: (rfqId: number) =>
     request<CommunicationOverviewRead>(`/rfq/${rfqId}/communications`),
+
+  translateCommunicationDialogue: (rfqId: number, messageIds: number[]) =>
+    request<CommunicationTranslationRead>(
+      `/rfq/${rfqId}/communications/translation`,
+      {
+        method: "POST",
+        body: JSON.stringify({ message_ids: messageIds }),
+      },
+    ),
 
   sendCommunicationMessage: (
     rfqId: number,
