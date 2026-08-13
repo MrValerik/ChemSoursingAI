@@ -323,10 +323,6 @@ export default function DispatchTab({
         }}
       />
 
-      {canTestCommunication && (
-        <CommunicationTesting embedded rfq={rfq} />
-      )}
-
       <div className="panel communication-panel">
         <div className="tab-toolbar">
           <div>
@@ -367,6 +363,21 @@ export default function DispatchTab({
               onAction={updateEscalation}
             />
           ))}
+
+        {canTestCommunication && (
+          <details className="conversation-test-dialog">
+            <summary>
+              <span>
+                <strong>Тестовый поставщик</strong>
+                <small>
+                  Полный и неполный ответы · ручной диалог с нейросетью
+                </small>
+              </span>
+              <span className="badge tone-info">Тестовый режим</span>
+            </summary>
+            <CommunicationTesting embedded rfq={rfq} />
+          </details>
+        )}
 
         {overview.conversations.length === 0 ? (
           <p className="note">

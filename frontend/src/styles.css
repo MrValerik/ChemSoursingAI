@@ -1568,6 +1568,57 @@ button.danger:hover {
   color: var(--text);
 }
 
+.conversation-test-dialog {
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.conversation-test-dialog > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  list-style: none;
+}
+
+.conversation-test-dialog > summary::-webkit-details-marker {
+  display: none;
+}
+
+.conversation-test-dialog > summary > span:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.conversation-test-dialog > summary small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.conversation-test-dialog > summary::after {
+  content: "Развернуть";
+  color: var(--brand);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.conversation-test-dialog[open] > summary::after {
+  content: "Свернуть";
+}
+
+.conversation-test-dialog[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.conversation-test-dialog .communication-testing-embedded {
+  padding: 16px;
+}
+
 .conversation-attachments {
   display: grid;
   gap: 7px;

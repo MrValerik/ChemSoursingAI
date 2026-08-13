@@ -94,20 +94,34 @@ export default function CommunicationTesting({
 
   const runExample = async (kind: keyof typeof EXAMPLES) => {
     const example = EXAMPLES[kind];
-    if (!active) {
-      setSupplierMessage(example.supplierMessage);
-      setError("Сначала нажмите «Начать диалог» — пример уже подставлен.");
+    if (!procurementContext.trim()) {
+      setError("Сначала укажите общую информацию о закупке.");
       return;
     }
-    if (!canContinue) return;
     setBusy(true);
     setError(null);
     try {
-      const updated = await api.continueCommunicationTest(active.id, {
+      const dialog =
+        active?.simulation_mode === "buyer_ai" && canContinue
+          ? active
+          : await api.runCommunicationTest({
+              channel,
+              recipient: "",
+              procurement_context: procurementContext.trim(),
+              additional_instructions: instructions.trim(),
+              simulation_mode: "buyer_ai",
+              initial_message: "",
+              delivery_mode: "preview",
+              subject: subject.trim() || "Request for quotation",
+              confirm_external_send: false,
+            });
+      const updated = await api.continueCommunicationTest(dialog.id, {
         message: example.supplierMessage,
         recipient: "",
         confirm_external_send: false,
       });
+      setSimulationMode("buyer_ai");
+      setDeliveryMode("preview");
       setActive(updated);
       setSupplierMessage("");
     } catch (reason) {
@@ -260,12 +274,11 @@ export default function CommunicationTesting({
     >
       <div className="requests-header">
         <div>
-          {embedded ? <h2>Тестирование общения</h2> : <h1>Тестирование общения</h1>}
+          {embedded ? <h3>Диалог с тестовым поставщиком</h3> : <h1>Тестирование общения</h1>}
           <p className="note">
-            Администраторская песочница: выберите, будет ли нейросеть покупателем
-            или поставщиком. В обоих случаях используется вся история диалога;
-            это только симуляция без внешней отправки. Оригинал — на английском,
-            для сотрудника показывается русский перевод.
+            {embedded
+              ? "Выберите готовый ответ или ручной режим. Сообщения никуда не отправляются."
+              : "Администраторская песочница: выберите, будет ли нейросеть покупателем или поставщиком. В обоих случаях используется вся история диалога; это только симуляция без внешней отправки. Оригинал — на английском, для сотрудника показывается русский перевод."}
           </p>
         </div>
       </div>
@@ -386,6 +399,30 @@ export default function CommunicationTesting({
               onChange={(event) => setInstructions(event.target.value)}
             />
           </Field>
+          {embedded && (
+            <div className="communication-test-examples">
+              <strong>Примеры ответа поставщика</strong>
+              <span>
+                Запускают тестовый диалог одним нажатием. Внешняя отправка не
+                выполняется.
+              </span>
+              <div className="actions">
+                {(Object.entries(EXAMPLES) as Array<
+                  [keyof typeof EXAMPLES, (typeof EXAMPLES)[keyof typeof EXAMPLES]]
+                >).map(([kind, example]) => (
+                  <button
+                    className="secondary btn-small"
+                    disabled={busy || !procurementContext.trim()}
+                    key={kind}
+                    onClick={() => void runExample(kind)}
+                    type="button"
+                  >
+                    {example.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {deliveryMode === "send" && channel === "email" && (
             <p className="external-action-warning">
               Первое письмо будет отправлено после подтверждения. Ответы на него
@@ -511,27 +548,6 @@ export default function CommunicationTesting({
               {active.error && <p className="error">{active.error}</p>}
               {canContinue && (
                 <div className="communication-reply">
-                  {embedded && (
-                    <div className="communication-test-examples">
-                      <strong>Быстрые примеры</strong>
-                      <span>Без внешней отправки: ответ проходит те же правила, что и реальный диалог.</span>
-                      <div className="actions">
-                        {(Object.entries(EXAMPLES) as Array<[keyof typeof EXAMPLES, typeof EXAMPLES[keyof typeof EXAMPLES]]>).map(
-                          ([kind, example]) => (
-                            <button
-                              className="secondary btn-small"
-                              disabled={busy}
-                              key={kind}
-                              onClick={() => void runExample(kind)}
-                              type="button"
-                            >
-                              {example.title}
-                            </button>
-                          ),
-                        )}
-                      </div>
-                    </div>
-                  )}
                   <Field
                     label={
                       active.simulation_mode === "supplier_ai"
