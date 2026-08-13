@@ -130,6 +130,9 @@ function MessageTranslation({
 function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
   const [active, setActive] = useState<CommunicationTestRun | null>(null);
   const [supplierMessage, setSupplierMessage] = useState("");
+  const [rfqTranslation, setRfqTranslation] = useState<string | null>(null);
+  const [rfqTranslationVisible, setRfqTranslationVisible] = useState(false);
+  const [translationBusy, setTranslationBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const context = procurementContextFromRfq(rfq);
@@ -142,8 +145,33 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
   useEffect(() => {
     setActive(null);
     setSupplierMessage("");
+    setRfqTranslation(null);
+    setRfqTranslationVisible(false);
     setError(null);
   }, [rfq.id, rfq.rfq_body]);
+
+  const toggleRfqTranslation = async () => {
+    if (rfqTranslationVisible) {
+      setRfqTranslationVisible(false);
+      return;
+    }
+    if (rfqTranslation) {
+      setRfqTranslationVisible(true);
+      return;
+    }
+    if (!rfqBody) return;
+    setTranslationBusy(true);
+    setError(null);
+    try {
+      const result = await api.translateCommunicationPreview(rfqBody);
+      setRfqTranslation(result.translation_ru);
+      setRfqTranslationVisible(true);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setTranslationBusy(false);
+    }
+  };
 
   const start = async () => {
     if (!rfqBody) return;
@@ -205,12 +233,40 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
 
       {!active ? (
         <div className="embedded-test-start">
-          <div className="communication-message from-assistant">
-            <span className="communication-message-role">RFQ покупателя</span>
-            <div className="communication-message-original">
-              <div>{rfqBody || "Сначала сформируйте RFQ для этого запроса."}</div>
+          <details className="rfq-preview-accordion">
+            <summary>
+              <span>
+                <strong>Предпросмотр RFQ</strong>
+                <small>Английский текст первого сообщения поставщику</small>
+              </span>
+            </summary>
+            <div className="rfq-preview-content">
+              <div className="communication-message from-assistant">
+                <span className="communication-message-role">RFQ покупателя</span>
+                <div className="communication-message-original">
+                  <div>{rfqBody || "Сначала сформируйте RFQ для этого запроса."}</div>
+                </div>
+              </div>
+              <button
+                className="secondary btn-small"
+                disabled={translationBusy || !rfqBody}
+                onClick={() => void toggleRfqTranslation()}
+                type="button"
+              >
+                {translationBusy
+                  ? "Переводим…"
+                  : rfqTranslationVisible
+                    ? "Скрыть перевод"
+                    : "Перевести на русский"}
+              </button>
+              {rfqTranslationVisible && rfqTranslation && (
+                <div className="communication-message-translation">
+                  <span>Русский перевод RFQ</span>
+                  <div>{rfqTranslation}</div>
+                </div>
+              )}
             </div>
-          </div>
+          </details>
           <button disabled={busy || !rfqBody} onClick={() => void start()} type="button">
             {busy ? "Начинаем…" : "Начать диалог"}
           </button>

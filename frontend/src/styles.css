@@ -1629,6 +1629,64 @@ button.danger:hover {
   justify-self: start;
 }
 
+.rfq-preview-accordion {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.rfq-preview-accordion > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  list-style: none;
+}
+
+.rfq-preview-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rfq-preview-accordion > summary > span {
+  display: grid;
+  gap: 3px;
+}
+
+.rfq-preview-accordion > summary small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.rfq-preview-accordion > summary::after {
+  content: "Развернуть";
+  color: var(--brand);
+  font-size: 12px;
+}
+
+.rfq-preview-accordion[open] > summary::after {
+  content: "Свернуть";
+}
+
+.rfq-preview-accordion[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.rfq-preview-content {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.rfq-preview-content .communication-message,
+.rfq-preview-content .communication-message-translation {
+  width: 100%;
+  margin: 0;
+}
+
 .embedded-test-thread.communication-dialog-panel {
   min-height: 0;
 }

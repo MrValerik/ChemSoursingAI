@@ -772,6 +772,43 @@ def test_communication_testing_uses_saved_rfq_as_first_buyer_message(
     assert rejected.status_code == 422
 
 
+def test_communication_testing_translates_rfq_preview_without_starting_dialog(
+    client, monkeypatch
+):
+    admin = _login(client)
+    buyer = _login(client, "ivanov")
+    calls: list[str] = []
+
+    def fake_generate_text(self, **kwargs):
+        calls.append(kwargs["system_prompt"])
+        return "Здравствуйте. Просим предоставить предложение на 50 кг аммиака."
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        fake_generate_text,
+    )
+    before = client.get("/communication-testing", headers=admin).json()
+
+    translated = client.post(
+        "/communication-testing/translation",
+        json={"content": "Hello. Please quote 50 kg of ammonia."},
+        headers=admin,
+    )
+
+    assert translated.status_code == 200
+    assert translated.json()["translation_ru"].startswith("Здравствуйте")
+    assert len(calls) == 1
+    assert len(client.get("/communication-testing", headers=admin).json()) == len(before)
+    assert (
+        client.post(
+            "/communication-testing/translation",
+            json={"content": "Hello"},
+            headers=buyer,
+        ).status_code
+        == 403
+    )
+
+
 def test_communication_testing_preserves_reply_when_classifier_is_unavailable(
     client, monkeypatch
 ):

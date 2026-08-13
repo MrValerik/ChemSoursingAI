@@ -615,6 +615,12 @@ export const api = {
       { method: "POST" },
     ),
 
+  translateCommunicationPreview: (content: string) =>
+    request<{ translation_ru: string }>(`/communication-testing/translation`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
   listTemplates: () => request<TemplateRead[]>(`/templates`),
 
   createTemplate: (payload: { kind: string; name: string; body: string }) =>

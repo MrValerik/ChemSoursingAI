@@ -356,6 +356,18 @@ def translate_test_message(
     return message
 
 
+def translate_preview_text(
+    content: str,
+    *,
+    llm: LLMClient | None = None,
+) -> str:
+    """Переводит непосланный предпросмотр без создания тестового диалога."""
+    translation = _translate_for_user(content, llm=llm)
+    if not translation:
+        raise CommunicationTestError("Не удалось перевести RFQ на русский")
+    return translation
+
+
 def _attach_quote_assessment(run: CommunicationTestRun) -> CommunicationTestRun:
     """Добавляет объяснимую оценку полноты, не меняя исходные сообщения."""
     supplier_quotes = [
