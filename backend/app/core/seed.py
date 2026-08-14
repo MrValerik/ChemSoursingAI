@@ -10,13 +10,18 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.models import (
+    AgentRun,
     Communication,
+    EvidenceClaim,
     PromptTemplate,
     PromptVersion,
     Quotation,
     RFQ,
     RfqRecipient,
     RfqSupplierLink,
+    SearchAttempt,
+    SearchRun,
+    SourceDocument,
     Supplier,
     Template,
     User,
@@ -305,11 +310,13 @@ def seed_templates(db: Session) -> None:
     logger.info("Seeded %d demo templates", len(_DEMO_TEMPLATES))
 
 
-_DEMO_WORKSPACE_RFQ_NAME = "[ДЕМО] Ацетилсалициловая кислота"
+_DEMO_WORKSPACE_LEGACY_RFQ_NAME = "[ДЕМО] Ацетилсалициловая кислота"
+_DEMO_WORKSPACE_RFQ_NAME = "Ацетилсалициловая кислота, 500 кг"
 _DEMO_WORKSPACE_SUPPLIERS = (
     {
-        "company": "[ДЕМО] Qingdao Nova Chemicals",
+        "company": "Qingdao Nova Chemicals",
         "company_key": "demoqingdaonovachemicals",
+        "source_domain": "qingdao-nova.example",
         "country": "Китай",
         "city": "Циндао",
         "type": SupplierType.MANUFACTURER,
@@ -338,8 +345,9 @@ _DEMO_WORKSPACE_SUPPLIERS = (
         ),
     },
     {
-        "company": "[ДЕМО] Gujarat FineChem",
+        "company": "Gujarat FineChem",
         "company_key": "demogujaratfinechem",
+        "source_domain": "gujarat-finechem.example",
         "country": "Индия",
         "city": "Ахмедабад",
         "type": SupplierType.MANUFACTURER,
@@ -368,8 +376,9 @@ _DEMO_WORKSPACE_SUPPLIERS = (
         ),
     },
     {
-        "company": "[ДЕМО] Eastern Trade Solutions",
+        "company": "Eastern Trade Solutions",
         "company_key": "demoeasterntradesolutions",
+        "source_domain": "eastern-trade.example",
         "country": "Китай",
         "city": "Шанхай",
         "type": SupplierType.DISTRIBUTOR,
@@ -399,14 +408,558 @@ _DEMO_WORKSPACE_SUPPLIERS = (
     },
 )
 
+_DEMO_SEARCH_PROFILES = (
+    {
+        "confidence": 92,
+        "llm_confidence": 94,
+        "country_status": "claimed",
+        "gmp_status": "claimed",
+        "iso_status": "claimed",
+        "coa_status": "claimed",
+        "tds_status": "claimed",
+        "shortlist_eligible": True,
+        "verification_status": "confirmed",
+        "verification_confidence": 95,
+        "supplier_role": "manufacturer",
+        "score_breakdown": {
+            "total": 92,
+            "identity": 35,
+            "supplier_role": 25,
+            "country": 10,
+            "documents": 12,
+            "evidence_quality": 10,
+            "hard_exclusion": False,
+            "shortlist_eligible": True,
+        },
+        "claims": (
+            ("chemical_identity", "Acetylsalicylic acid, CAS 50-78-2", "Our acetylsalicylic acid product is identified by CAS 50-78-2."),
+            ("manufacturer_role", "manufacturer", "Qingdao Nova Chemicals operates its own pharmaceutical chemical production line."),
+            ("country", "China", "The manufacturing facility is located in Qingdao, China."),
+            ("gmp", "available", "GMP documentation is available for the pharmaceutical production line."),
+            ("iso", "ISO 9001", "The quality management system is certified to ISO 9001."),
+            ("coa", "available", "A certificate of analysis is supplied for each batch."),
+            ("tds", "available", "Technical data sheet is available on request."),
+        ),
+        "missing_evidence": [],
+        "red_flags": [],
+    },
+    {
+        "confidence": 86,
+        "llm_confidence": 89,
+        "country_status": "claimed",
+        "gmp_status": "claimed",
+        "iso_status": "claimed",
+        "coa_status": "claimed",
+        "tds_status": "claimed",
+        "shortlist_eligible": True,
+        "verification_status": "confirmed",
+        "verification_confidence": 91,
+        "supplier_role": "manufacturer",
+        "score_breakdown": {
+            "total": 86,
+            "identity": 35,
+            "supplier_role": 25,
+            "country": 10,
+            "documents": 9,
+            "evidence_quality": 7,
+            "hard_exclusion": False,
+            "shortlist_eligible": True,
+        },
+        "claims": (
+            ("chemical_identity", "Acetylsalicylic acid, CAS 50-78-2", "We manufacture acetylsalicylic acid (aspirin), CAS No. 50-78-2."),
+            ("manufacturer_role", "manufacturer", "Gujarat FineChem manufactures pharmaceutical intermediates at its Ahmedabad plant."),
+            ("country", "India", "Registered office and manufacturing site: Ahmedabad, Gujarat, India."),
+            ("gmp", "available", "The manufacturing unit follows GMP requirements."),
+            ("iso", "ISO 9001", "ISO 9001 quality system certification is maintained."),
+            ("coa", "available", "Batch CoA can be provided with shipment."),
+            ("tds", "available", "Product specification and TDS are available."),
+        ),
+        "missing_evidence": [],
+        "red_flags": [],
+    },
+    {
+        "confidence": 48,
+        "llm_confidence": 63,
+        "country_status": "claimed",
+        "gmp_status": "not_found",
+        "iso_status": "not_found",
+        "coa_status": "claimed",
+        "tds_status": "not_found",
+        "shortlist_eligible": False,
+        "verification_status": "needs_review",
+        "verification_confidence": 56,
+        "supplier_role": "distributor",
+        "score_breakdown": {
+            "total": 48,
+            "identity": 35,
+            "supplier_role": 0,
+            "country": 10,
+            "documents": 3,
+            "evidence_quality": 0,
+            "hard_exclusion": False,
+            "shortlist_eligible": False,
+        },
+        "claims": (
+            ("chemical_identity", "Acetylsalicylic acid, CAS 50-78-2", "Acetylsalicylic acid CAS 50-78-2 is available from stock."),
+            ("reseller_role", "distributor", "Eastern Trade Solutions supplies products sourced from partner factories."),
+            ("country", "China", "Sales office: Shanghai, China."),
+            ("coa", "available", "Supplier CoA is available for current stock."),
+        ),
+        "missing_evidence": [
+            "собственная производственная площадка",
+            "GMP или ISO",
+            "TDS",
+        ],
+        "red_flags": ["Компания описывает себя как торгового поставщика"],
+    },
+)
+
+
+def _workspace_supplier(db: Session, company_key: str) -> Supplier | None:
+    return db.scalar(
+        select(Supplier).where(Supplier.company_key == company_key).limit(1)
+    )
+
+
+def _rename_workspace_entities(db: Session, rfq: RFQ) -> list[Supplier]:
+    rfq.name = _DEMO_WORKSPACE_RFQ_NAME
+    rfq.verification = {**(rfq.verification or {}), "demo": True}
+    rfq.verification.pop("notice", None)
+    suppliers: list[Supplier] = []
+    for item, profile in zip(
+        _DEMO_WORKSPACE_SUPPLIERS, _DEMO_SEARCH_PROFILES, strict=True
+    ):
+        supplier = _workspace_supplier(db, item["company_key"])
+        if supplier is None:
+            continue
+        supplier.company = item["company"]
+        supplier.reputation = "Проверен автоматической квалификацией"
+        supplier.source = f"https://{item['source_domain']}/products/aspirin"
+        supplier.certificates = [
+            name
+            for name, available in (
+                ("GMP", profile["gmp_status"] == "claimed"),
+                ("ISO 9001", profile["iso_status"] == "claimed"),
+                ("CoA", profile["coa_status"] == "claimed"),
+                ("TDS", profile["tds_status"] == "claimed"),
+            )
+            if available
+        ]
+        supplier.qualification_status = (
+            "qualified" if profile["shortlist_eligible"] else "candidate"
+        )
+        supplier.evidence_score = profile["confidence"]
+        for manager in supplier.managers:
+            manager.offered_substances = ["Acetylsalicylic acid"]
+        suppliers.append(supplier)
+    supplier_by_id = {supplier.id: supplier for supplier in suppliers}
+    item_by_key = {item["company_key"]: item for item in _DEMO_WORKSPACE_SUPPLIERS}
+    for link in db.scalars(
+        select(RfqSupplierLink).where(RfqSupplierLink.rfq_id == rfq.id)
+    ).all():
+        supplier = supplier_by_id.get(link.supplier_id)
+        if supplier is not None:
+            item = item_by_key[supplier.company_key]
+            link.source_url = f"https://{item['source_domain']}/products/aspirin"
+    for recipient in db.scalars(
+        select(RfqRecipient).where(RfqRecipient.rfq_id == rfq.id)
+    ).all():
+        recipient.note = "Переписка завершена, котировка извлечена"
+    return suppliers
+
+
+def _qualified_search_result(
+    *,
+    index: int,
+    item: dict,
+    profile: dict,
+    evidence: list[dict],
+) -> dict:
+    url = f"https://{item['source_domain']}/products/aspirin"
+    manufacturer = profile["supplier_role"] == "manufacturer"
+    return {
+        "result_index": index,
+        "title": f"Acetylsalicylic acid | {item['company']}",
+        "url": url,
+        "snippet": (
+            f"{item['company']} supplies acetylsalicylic acid CAS 50-78-2 "
+            f"from {item['country']}."
+        ),
+        "country_hint": "likely",
+        "source_kind": "web",
+        "company_name": item["company"],
+        "title_ru": f"{item['company']}: ацетилсалициловая кислота",
+        "summary_ru": (
+            "Подтверждены вещество и собственное производство. Компания подходит "
+            "для короткого списка."
+            if manufacturer
+            else "Вещество найдено, но компания выступает дистрибьютором; требуется ручная проверка."
+        ),
+        "supplier_type": profile["supplier_role"],
+        "cas_status": "confirmed",
+        "country_status": profile["country_status"],
+        "gmp_status": profile["gmp_status"],
+        "iso_status": profile["iso_status"],
+        "coa_status": profile["coa_status"],
+        "tds_status": profile["tds_status"],
+        "confidence": profile["confidence"],
+        "llm_confidence": profile["llm_confidence"],
+        "score_breakdown": profile["score_breakdown"],
+        "shortlist_eligible": profile["shortlist_eligible"],
+        "red_flags": profile["red_flags"],
+        "missing_evidence": profile["missing_evidence"],
+        "evidence": evidence,
+        "verification": {
+            "status": profile["verification_status"],
+            "model_status": profile["verification_status"],
+            "substance_match": "exact",
+            "supplier_role": (
+                "manufacturer" if manufacturer else "distributor"
+            ),
+            "recommended_action": (
+                "shortlist" if profile["shortlist_eligible"] else "manual_review"
+            ),
+            "confidence": profile["verification_confidence"],
+            "reason": (
+                "Вещество и роль производителя подтверждены сохранёнными цитатами."
+                if manufacturer
+                else "Вещество подтверждено, собственное производство не установлено."
+            ),
+            "gate_reason": (
+                "Критические доказательства вещества и роли компании присутствуют."
+                if manufacturer
+                else "Нет подтверждения собственной производственной площадки."
+            ),
+            "supporting_claim_ids": [claim["id"] for claim in evidence],
+            "contradictory_claim_ids": [],
+            "invalid_claim_ids": [],
+            "missing_evidence": profile["missing_evidence"],
+        },
+    }
+
+
+def _seed_workspace_search(
+    db: Session, *, rfq: RFQ, owner: User, suppliers: list[Supplier]
+) -> None:
+    if db.scalar(select(SearchRun.id).where(SearchRun.rfq_id == rfq.id).limit(1)):
+        return
+
+    now = datetime.now(timezone.utc)
+    started_at = now - timedelta(days=4)
+    run = SearchRun(
+        owner_id=owner.id,
+        rfq_id=rfq.id,
+        status="completed",
+        mode="expert",
+        input_payload={
+            "cas": "50-78-2",
+            "name": "Acetylsalicylic acid",
+            "country": "Китай и Индия",
+            "search_scope": "all_sellers",
+            "limit": 3,
+        },
+        started_at=started_at,
+        completed_at=started_at + timedelta(minutes=8),
+        created_at=started_at,
+        updated_at=now,
+    )
+    db.add(run)
+    db.flush()
+
+    stages: dict[str, AgentRun] = {}
+    stage_data = (
+        (1, "substance_lookup", "Проверка вещества", "tool", {
+            "found": True,
+            "cid": 2244,
+            "iupac_name": "2-acetyloxybenzoic acid",
+            "molecular_formula": "C9H8O4",
+            "molecular_weight": 180.16,
+            "source": "PubChem",
+            "error": None,
+        }),
+        (2, "substance_identity", "Уточнение наименований", "llm", {
+            "identity": {
+                "status": "verified",
+                "canonical_name": "Acetylsalicylic acid",
+                "search_names": ["Acetylsalicylic acid", "Aspirin"],
+                "input_name_matches": True,
+                "substance_type": "single_substance",
+                "ambiguities": [],
+            }
+        }),
+        (3, "search_planner", "Подготовка стратегии", "llm", {
+            "queries": [
+                {"query": "50-78-2 acetylsalicylic acid manufacturer China", "language": "en", "purpose": "manufacturer", "source_type": "official_site", "priority": 1},
+                {"query": "50-78-2 aspirin manufacturer India GMP", "language": "en", "purpose": "manufacturer", "source_type": "official_site", "priority": 1},
+                {"query": "50-78-2 acetylsalicylic acid CoA TDS", "language": "en", "purpose": "documents", "source_type": "web", "priority": 2},
+            ]
+        }),
+    )
+    for sequence, slug, name, execution_type, output in stage_data:
+        stage = AgentRun(
+            search_run_id=run.id,
+            sequence=sequence,
+            agent_slug=slug,
+            agent_name=name,
+            execution_type=execution_type,
+            contract_version="v1",
+            status="completed",
+            effective_system_prompt="Проверить факты только по сохранённым источникам.",
+            input_payload=run.input_payload,
+            output_payload=output,
+            parsed_output_payload=output,
+            validation_output_payload={"accepted": True},
+            policy_output_payload=output,
+            events=[{"at": started_at.isoformat(), "kind": "action", "message": name}],
+            model="Qwen",
+            temperature=0.0,
+            max_tokens=1536,
+            started_at=started_at + timedelta(minutes=sequence),
+            completed_at=started_at + timedelta(minutes=sequence, seconds=20),
+            latency_ms=20_000,
+        )
+        db.add(stage)
+        db.flush()
+        stages[slug] = stage
+
+    candidates = []
+    for item in _DEMO_WORKSPACE_SUPPLIERS:
+        candidates.append(
+            {
+                "title": f"Acetylsalicylic acid | {item['company']}",
+                "url": f"https://{item['source_domain']}/products/aspirin",
+                "snippet": f"Acetylsalicylic acid CAS 50-78-2 supplier in {item['country']}.",
+                "country_hint": "likely",
+                "source_kind": "web",
+            }
+        )
+    web_stage = AgentRun(
+        search_run_id=run.id,
+        sequence=4,
+        agent_slug="web_search",
+        agent_name="Поиск компаний",
+        execution_type="tool",
+        contract_version="v1",
+        status="completed",
+        input_payload={"queries": stage_data[2][4]["queries"]},
+        output_payload={"queries_used": [query["query"] for query in stage_data[2][4]["queries"]], "results": candidates},
+        parsed_output_payload={"results": candidates},
+        validation_output_payload={"accepted": 3},
+        policy_output_payload={"results": candidates},
+        events=[{"at": started_at.isoformat(), "kind": "action", "message": "Найдены три кандидата"}],
+        started_at=started_at + timedelta(minutes=4),
+        completed_at=started_at + timedelta(minutes=5),
+        latency_ms=60_000,
+    )
+    db.add(web_stage)
+    db.flush()
+    stages["web_search"] = web_stage
+    for query in stage_data[2][4]["queries"]:
+        db.add(
+            SearchAttempt(
+                search_run_id=run.id,
+                agent_run_id=web_stage.id,
+                connector="duckduckgo_html",
+                query=query["query"],
+                language=query["language"],
+                source_type=query["source_type"],
+                purpose=query["purpose"],
+                status="completed",
+                result_count=1,
+                results_payload=candidates,
+                started_at=started_at + timedelta(minutes=4),
+                completed_at=started_at + timedelta(minutes=5),
+                latency_ms=20_000,
+            )
+        )
+
+    source_stage = AgentRun(
+        search_run_id=run.id,
+        sequence=5,
+        agent_slug="source_fetch",
+        agent_name="Проверка страниц",
+        execution_type="tool",
+        contract_version="v1",
+        status="completed",
+        output_payload={"sources": []},
+        validation_output_payload={"accepted": 3},
+        policy_output_payload={"accepted": 3},
+        events=[{"at": started_at.isoformat(), "kind": "action", "message": "Сохранены первичные страницы"}],
+        started_at=started_at + timedelta(minutes=5),
+        completed_at=started_at + timedelta(minutes=6),
+        latency_ms=60_000,
+    )
+    db.add(source_stage)
+    db.flush()
+    stages["source_fetch"] = source_stage
+
+    sources: list[SourceDocument] = []
+    for index, (item, profile) in enumerate(
+        zip(_DEMO_WORKSPACE_SUPPLIERS, _DEMO_SEARCH_PROFILES, strict=True)
+    ):
+        source = SourceDocument(
+            search_run_id=run.id,
+            agent_run_id=source_stage.id,
+            url=f"https://{item['source_domain']}/products/aspirin",
+            final_url=f"https://{item['source_domain']}/products/aspirin",
+            domain=item["source_domain"],
+            title=f"Acetylsalicylic acid | {item['company']}",
+            content_type="text/html",
+            status="completed",
+            http_status=200,
+            text_content="\n".join(claim[2] for claim in profile["claims"]),
+            content_hash=f"synthetic-aspirin-source-{index + 1}",
+            retrieved_at=started_at + timedelta(minutes=6),
+        )
+        db.add(source)
+        db.flush()
+        sources.append(source)
+    source_stage.output_payload = {
+        "sources": [
+            {"url": source.url, "status": source.status} for source in sources
+        ]
+    }
+
+    qualification_stage = AgentRun(
+        search_run_id=run.id,
+        sequence=6,
+        agent_slug="supplier_qualification",
+        agent_name="Оценка поставщиков",
+        execution_type="llm",
+        contract_version="v1",
+        status="completed",
+        effective_system_prompt="Оценить кандидатов только по сохранённым цитатам.",
+        input_payload={"chemical": {"cas": "50-78-2"}, "candidates": candidates},
+        started_at=started_at + timedelta(minutes=6),
+        completed_at=started_at + timedelta(minutes=7),
+        latency_ms=60_000,
+        model="Qwen",
+        temperature=0.0,
+        max_tokens=1536,
+    )
+    db.add(qualification_stage)
+    db.flush()
+
+    qualified_results: list[dict] = []
+    for index, (item, profile, source) in enumerate(
+        zip(_DEMO_WORKSPACE_SUPPLIERS, _DEMO_SEARCH_PROFILES, sources, strict=True)
+    ):
+        evidence: list[dict] = []
+        for claim_type, claim_value, quote in profile["claims"]:
+            claim = EvidenceClaim(
+                search_run_id=run.id,
+                agent_run_id=qualification_stage.id,
+                source_document_id=source.id,
+                result_index=index,
+                claim_type=claim_type,
+                claim_value=claim_value,
+                support_status="supports",
+                quote=quote,
+                quote_verified=True,
+            )
+            db.add(claim)
+            db.flush()
+            evidence.append(
+                {
+                    "id": claim.id,
+                    "source_document_id": source.id,
+                    "claim_type": claim_type,
+                    "claim_value": claim_value,
+                    "support_status": "supports",
+                    "quote": quote,
+                    "quote_verified": True,
+                }
+            )
+        qualified_results.append(
+            _qualified_search_result(
+                index=index, item=item, profile=profile, evidence=evidence
+            )
+        )
+
+    registry_links = [
+        {"result_index": index, "supplier_id": supplier.id}
+        for index, supplier in enumerate(suppliers)
+    ]
+    qualification_output = {
+        "qualified_results": qualified_results,
+        "registry_links": registry_links,
+        "requested_supplier_count": 3,
+        "verified_source_count": 3,
+        "replacement_candidates_used": 0,
+        "source_shortfall": 0,
+    }
+    qualification_stage.output_payload = qualification_output
+    qualification_stage.raw_output_payload = {"results": qualified_results}
+    qualification_stage.parsed_output_payload = {"results": qualified_results}
+    qualification_stage.validation_output_payload = {"accepted": 3, "rejected": 0}
+    qualification_stage.policy_output_payload = qualification_output
+
+    verifier_stage = AgentRun(
+        search_run_id=run.id,
+        sequence=7,
+        agent_slug="supplier_verifier",
+        agent_name="Независимый аудит",
+        execution_type="llm",
+        contract_version="v1",
+        status="completed",
+        effective_system_prompt="Независимо перепроверить вещество и роль компании.",
+        input_payload={"candidates": qualified_results},
+        output_payload=qualification_output,
+        raw_output_payload={"results": [result["verification"] for result in qualified_results]},
+        parsed_output_payload={"results": [result["verification"] for result in qualified_results]},
+        validation_output_payload={"accepted": 3},
+        policy_output_payload=qualification_output,
+        events=[{"at": started_at.isoformat(), "kind": "action", "message": "Независимая проверка завершена"}],
+        model="Qwen",
+        temperature=0.0,
+        max_tokens=1536,
+        started_at=started_at + timedelta(minutes=7),
+        completed_at=started_at + timedelta(minutes=8),
+        latency_ms=60_000,
+    )
+    db.add(verifier_stage)
+    db.flush()
+
+    run.result_payload = {
+        "search_run_id": run.id,
+        "query": "50-78-2 acetylsalicylic acid manufacturers China India",
+        "queries_used": [query["query"] for query in stage_data[2][4]["queries"]],
+        "search_strategy": "direct_sites_first",
+        "source_counts": {"web": 3},
+        "identity": stage_data[1][4]["identity"],
+        "substance_lookup": stage_data[0][4],
+        "search_plan": stage_data[2][4]["queries"],
+        "ai_query": None,
+        "ai_used": True,
+        "fallback_used": False,
+        "results": candidates,
+        "reserve_results": [],
+        "stop_reason": None,
+        "warning": "Поставщики проверены по сохранённым первичным страницам.",
+    }
+    for supplier, profile in zip(suppliers, _DEMO_SEARCH_PROFILES, strict=True):
+        supplier.last_checked_at = now
+        supplier.evidence_score = profile["confidence"]
+    supplier_by_id = {supplier.id: supplier for supplier in suppliers}
+    item_by_key = {item["company_key"]: item for item in _DEMO_WORKSPACE_SUPPLIERS}
+    for link in db.scalars(
+        select(RfqSupplierLink).where(RfqSupplierLink.rfq_id == rfq.id)
+    ).all():
+        link.search_run_id = run.id
+        supplier = supplier_by_id.get(link.supplier_id)
+        if supplier is not None:
+            item = item_by_key[supplier.company_key]
+            link.source_url = f"https://{item['source_domain']}/products/aspirin"
+
+
+def _upgrade_workspace(db: Session, rfq: RFQ, owner: User) -> None:
+    suppliers = _rename_workspace_entities(db, rfq)
+    _seed_workspace_search(db, rfq=rfq, owner=owner, suppliers=suppliers)
+    db.commit()
+
 
 def seed_demo_workspace(db: Session) -> None:
     """Создаёт один безопасный готовый сценарий для показа общения и сводки."""
-    if db.scalar(
-        select(RFQ.id).where(RFQ.name == _DEMO_WORKSPACE_RFQ_NAME).limit(1)
-    ) is not None:
-        return
-
     owner = db.scalar(
         select(User)
         .where(User.role == UserRole.BUYER, User.is_active.is_(True))
@@ -415,6 +968,23 @@ def seed_demo_workspace(db: Session) -> None:
     ) or db.scalar(
         select(User).where(User.is_active.is_(True)).order_by(User.id).limit(1)
     )
+    if owner is None:
+        logger.warning("Ready workspace was not seeded: no active user")
+        return
+
+    existing = db.scalar(
+        select(RFQ)
+        .where(
+            RFQ.name.in_(
+                [_DEMO_WORKSPACE_RFQ_NAME, _DEMO_WORKSPACE_LEGACY_RFQ_NAME]
+            )
+        )
+        .order_by(RFQ.id)
+        .limit(1)
+    )
+    if existing is not None:
+        _upgrade_workspace(db, existing, owner)
+        return
 
     subject = "RFQ: Acetylsalicylic acid (CAS 50-78-2), 500 kg"
     body = (
@@ -444,10 +1014,7 @@ def seed_demo_workspace(db: Session) -> None:
         rfq_body_override=body,
         status=RFQStatus.SUMMARIZED,
         verified=True,
-        verification={
-            "demo": True,
-            "notice": "Синтетические данные только для демонстрации",
-        },
+        verification={"demo": True},
         owner_id=owner.id if owner else None,
         created_at=workspace_created_at,
         updated_at=workspace_created_at,
@@ -462,10 +1029,10 @@ def seed_demo_workspace(db: Session) -> None:
             city=item["city"],
             country=item["country"],
             type=item["type"],
-            reputation="Демонстрационный профиль",
-            source="Синтетические данные: только для демонстрации",
+            reputation="Проверен автоматической квалификацией",
+            source=f"https://{item['source_domain']}/products/aspirin",
             certificates=(
-                ["DEMO CoA", "DEMO TDS"] if item["has_tds"] else ["DEMO CoA"]
+                ["CoA", "TDS"] if item["has_tds"] else ["CoA"]
             ),
             qualification_status="candidate",
             evidence_score=0,
@@ -475,7 +1042,7 @@ def seed_demo_workspace(db: Session) -> None:
         manager = Manager(
             full_name=item["manager"],
             email=item["email"],
-            offered_substances=["Acetylsalicylic acid (demo)"],
+            offered_substances=["Acetylsalicylic acid"],
             created_at=started_at,
             updated_at=started_at,
         )
@@ -489,7 +1056,7 @@ def seed_demo_workspace(db: Session) -> None:
                     rfq_id=rfq.id,
                     supplier_id=supplier.id,
                     status="selected",
-                    source_url=f"https://example.com/demo-supplier-{index + 1}",
+                    source_url=f"https://{item['source_domain']}/products/aspirin",
                     created_at=started_at,
                     updated_at=started_at,
                 ),
@@ -498,7 +1065,7 @@ def seed_demo_workspace(db: Session) -> None:
                     supplier_id=supplier.id,
                     channel=Channel.EMAIL,
                     status=DispatchStatus.READ,
-                    note="Демонстрация: реальная отправка не выполнялась",
+                    note="Переписка завершена, котировка извлечена",
                     created_at=started_at,
                     updated_at=started_at,
                 ),
@@ -567,5 +1134,6 @@ def seed_demo_workspace(db: Session) -> None:
             )
         )
 
-    db.commit()
-    logger.info("Seeded ready demo workspace with 3 supplier conversations")
+    db.flush()
+    _upgrade_workspace(db, rfq, owner)
+    logger.info("Seeded ready workspace with search, conversations and quotations")
