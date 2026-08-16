@@ -952,6 +952,24 @@ button.request-delete-button:focus-visible {
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* Карточка прокручивается, а значит обрезает всё, что вылезает за её край.
+   Подсказка раскрывалась вверх от значка и упиралась в границу окна:
+   текст оказывался прижат к самому краю, будто у него нет полей. Внутри
+   карточки она открывается вниз и отсчитывается от всей строки значения,
+   а не от восемнадцати пикселей самого значка, — тогда она встаёт по
+   левому краю столбца, где места хватает на всю её ширину. */
+.supplier-detail-fields dd {
+  position: relative;
+}
+.supplier-detail .help-tip {
+  position: static;
+}
+.supplier-detail .help-tip > span[role="tooltip"] {
+  top: calc(100% + 8px);
+  right: auto;
+  bottom: auto;
+  left: 0;
+}
 .supplier-detail-contacts {
   margin: 0;
   padding-left: 18px;

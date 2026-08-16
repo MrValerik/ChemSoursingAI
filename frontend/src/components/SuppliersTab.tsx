@@ -429,10 +429,11 @@ export default function SuppliersTab({
                 className={locked ? "row-muted" : "clickable"}
                 onClick={() => setDetailId(s.id)}
               >
-                <td onClick={(e) => e.stopPropagation()}>
+                <td>
                   <input
                     type="checkbox"
                     checked={selected}
+                    onClick={(e) => e.stopPropagation()}
                     disabled={
                       readOnly || busy || locked || s.channels.length === 0
                     }
@@ -454,12 +455,18 @@ export default function SuppliersTab({
                   )}
                 </td>
                 <td>{s.type ? TYPE_LABELS[s.type] : "—"}</td>
-                <td onClick={(e) => e.stopPropagation()}>
+                {/* Щелчок по ячейке раскрывает карточку наравне с остальной
+                    строкой: закупщик метит в строку, а не в клетку таблицы.
+                    Собственный щелчок остаётся только у того, что делает
+                    своё дело, — у подсказки и у выбора канала. */}
+                <td>
                   {s.channels.length === 0 &&
                     (s.contact_barrier ? (
                       <span className="note contact-barrier">
                         {BARRIER_LABELS[s.contact_barrier]}
-                        <HelpTip text={BARRIER_HELP[s.contact_barrier]} />
+                        <span onClick={(e) => e.stopPropagation()}>
+                          <HelpTip text={BARRIER_HELP[s.contact_barrier]} />
+                        </span>
                       </span>
                     ) : (
                       <span className="note">нет контакта</span>
@@ -468,6 +475,7 @@ export default function SuppliersTab({
                     <select
                       value={recipient?.channel}
                       disabled={busy}
+                      onClick={(e) => e.stopPropagation()}
                       onChange={(e) =>
                         void setChannel(s.id, e.target.value as ChannelKind)
                       }
