@@ -46,6 +46,10 @@ const EXAMPLES = {
     title: "Неполный ответ",
     supplierMessage: "Our price is USD 720 per MT, CIP Moscow.",
   },
+  nonstandard: {
+    title: "Нестандартный ответ",
+    supplierMessage: "Before we proceed, how are you today?",
+  },
 } as const;
 
 const procurementContextFromRfq = (rfq: RFQRead) =>

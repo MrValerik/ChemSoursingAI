@@ -1442,7 +1442,7 @@ button.danger:hover {
 
 .rfq-recipient-row,
 .rfq-recipient-status,
-.rfq-preview-confirmation {
+.rfq-dispatch-confirmation {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1561,12 +1561,12 @@ button.danger:hover {
   white-space: pre-wrap;
 }
 
-.rfq-preview-confirmation {
+.rfq-dispatch-confirmation {
   justify-content: space-between;
   margin-top: 14px;
 }
 
-.rfq-preview-confirmation label {
+.rfq-dispatch-confirmation label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1960,7 +1960,7 @@ button.danger:hover {
 @media (max-width: 800px) {
   .rfq-recipient-empty,
   .rfq-recipient-row,
-  .rfq-preview-confirmation {
+  .rfq-dispatch-confirmation {
     align-items: stretch;
     flex-direction: column;
   }

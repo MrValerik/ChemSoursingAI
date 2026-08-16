@@ -300,6 +300,26 @@ export default function RfqDispatchPreparation({
             ))}
           </div>
         )}
+
+        {!readOnly && !editing && queued.length > 0 && (
+          <div className="rfq-dispatch-confirmation">
+            <label>
+              <input
+                checked={reviewed}
+                onChange={(event) => setReviewed(event.target.checked)}
+                type="checkbox"
+              />
+              Я проверил RFQ, каналы и список получателей
+            </label>
+            <button
+              disabled={busy || !reviewed}
+              onClick={() => void dispatch()}
+              type="button"
+            >
+              {busy ? "Отправка…" : `Отправить RFQ (${queued.length})`}
+            </button>
+          </div>
+        )}
       </section>
 
       <section className={`panel rfq-preview-panel${previewOpen ? " is-open" : ""}`}>
@@ -437,25 +457,6 @@ export default function RfqDispatchPreparation({
         {notice && <p className="success-note">{notice}</p>}
         {error && <p className="error">{error}</p>}
 
-        {previewOpen && !readOnly && !editing && queued.length > 0 && (
-          <div className="rfq-preview-confirmation">
-            <label>
-              <input
-                checked={reviewed}
-                onChange={(event) => setReviewed(event.target.checked)}
-                type="checkbox"
-              />
-              Я проверил RFQ, каналы и список получателей
-            </label>
-            <button
-              disabled={busy || !reviewed}
-              onClick={() => void dispatch()}
-              type="button"
-            >
-              {busy ? "Отправка…" : `Отправить RFQ (${queued.length})`}
-            </button>
-          </div>
-        )}
       </section>
     </div>
   );
