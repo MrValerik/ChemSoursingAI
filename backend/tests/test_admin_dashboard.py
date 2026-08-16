@@ -531,6 +531,68 @@ def test_communication_testing_escalates_social_reply_without_generation(
     ]
     assert len(dialogue_calls) == 1
 
+    buyer = _login(client, "ivanov")
+    forbidden = client.post(
+        f"/communication-testing/{preview.json()['id']}/escalation-reply",
+        json={"message": "Thank you. Let us continue with the quotation."},
+        headers=buyer,
+    )
+    assert forbidden.status_code == 403
+
+    answered = client.post(
+        f"/communication-testing/{preview.json()['id']}/escalation-reply",
+        json={"message": "Thank you. Let us continue with the quotation."},
+        headers=admin,
+    )
+    assert answered.status_code == 201
+    assert answered.json()["status"] == "previewed"
+    assert answered.json()["error"] is None
+    assert [message["sender_role"] for message in answered.json()["messages"]] == [
+        "assistant",
+        "supplier",
+        "assistant",
+    ]
+    assert answered.json()["messages"][-1]["delivery_status"] == "manual"
+    assert answered.json()["messages"][-1]["content"] == (
+        "Thank you. Let us continue with the quotation."
+    )
+    assert len(dialogue_calls) == 1
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Обычный ответ по закупке.",
+            method="test",
+        ),
+    )
+    resumed = client.post(
+        f"/communication-testing/{preview.json()['id']}/messages",
+        json={
+            "supplier_message": "Our price is USD 700 per ton, CIP Moscow.",
+            "confirm_external_send": False,
+        },
+        headers=admin,
+    )
+    assert resumed.status_code == 201
+    assert resumed.json()["status"] == "previewed"
+    assert [message["sender_role"] for message in resumed.json()["messages"]] == [
+        "assistant",
+        "supplier",
+        "assistant",
+        "supplier",
+        "assistant",
+    ]
+    assert len(dialogue_calls) == 2
+
+    not_escalated = client.post(
+        f"/communication-testing/{preview.json()['id']}/escalation-reply",
+        json={"message": "This must not be accepted twice."},
+        headers=admin,
+    )
+    assert not_escalated.status_code == 422
+
 
 def test_communication_testing_marks_complete_quote_without_followup(
     client, monkeypatch

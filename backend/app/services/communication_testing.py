@@ -1235,3 +1235,39 @@ def continue_communication_test(
         translation_ru=None,
         recipient=payload.recipient,
     )
+
+
+def answer_test_escalation(
+    db: Session,
+    *,
+    run_id: int,
+    message: str,
+) -> CommunicationTestRun:
+    """Сохраняет ручной ответ сотрудника и возвращает симуляцию в диалог."""
+    run = _load_run(db, run_id)
+    if run is None:
+        raise LookupError("Тестовый диалог не найден")
+    if run.status != "escalated":
+        raise ValueError("Ручной ответ доступен только для эскалированного диалога")
+    if run.simulation_mode != "buyer_ai":
+        raise ValueError("В этом режиме ручной ответ сотрудника не требуется")
+    if not run.messages or run.messages[-1].sender_role != "supplier":
+        raise ValueError("В диалоге нет вопроса поставщика для ручного ответа")
+
+    clean_message = message.strip()
+    if not clean_message:
+        raise ValueError("Введите ответ поставщику")
+    run.messages.append(
+        CommunicationTestMessage(
+            run_id=run.id,
+            sender_role="assistant",
+            content=clean_message,
+            translation_ru=None,
+            delivery_status="manual",
+        )
+    )
+    run.generated_reply = clean_message
+    run.status = "previewed"
+    run.error = None
+    db.commit()
+    return _attach_quote_assessment(_load_run(db, run.id) or run)

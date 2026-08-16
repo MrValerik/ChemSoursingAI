@@ -114,16 +114,26 @@ function DialogueTranslation({
   );
 }
 
-function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
+function EmbeddedCommunicationTesting({
+  rfq,
+  selectedRunId,
+  onRunChanged,
+}: {
+  rfq: RFQRead;
+  selectedRunId?: number | null;
+  onRunChanged?: (run: CommunicationTestRun) => void;
+}) {
   const [active, setActive] = useState<CommunicationTestRun | null>(null);
   const [history, setHistory] = useState<CommunicationTestRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [supplierMessage, setSupplierMessage] = useState("");
+  const [humanMessage, setHumanMessage] = useState("");
   const [translationRevealed, setTranslationRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const context = procurementContextFromRfq(rfq);
   const rfqBody = rfq.rfq_body?.trim() ?? "";
+  const selectionManagedByParent = selectedRunId !== undefined;
   const canContinue =
     active !== null &&
     active.messages[active.messages.length - 1]?.sender_role === "assistant" &&
@@ -132,6 +142,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
   const rememberRun = (run: CommunicationTestRun) => {
     setActive(run);
     setHistory((current) => [run, ...current.filter((item) => item.id !== run.id)]);
+    onRunChanged?.(run);
   };
 
   useEffect(() => {
@@ -140,6 +151,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
     setHistory([]);
     setHistoryLoading(true);
     setSupplierMessage("");
+    setHumanMessage("");
     setTranslationRevealed(false);
     setError(null);
     api
@@ -152,7 +164,11 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
             item.delivery_mode === "preview",
         );
         setHistory(saved);
-        setActive(saved[0] ?? null);
+        setActive(
+          selectionManagedByParent
+            ? (saved.find((item) => item.id === selectedRunId) ?? null)
+            : (saved[0] ?? null),
+        );
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -163,7 +179,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
     return () => {
       cancelled = true;
     };
-  }, [rfq.id, rfq.rfq_body]);
+  }, [rfq.id, rfq.rfq_body, selectedRunId, selectionManagedByParent]);
 
   const start = async () => {
     if (!rfqBody) return;
@@ -184,6 +200,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
       });
       rememberRun(created);
       setSupplierMessage("");
+      setHumanMessage("");
       setTranslationRevealed(false);
     } catch (reason) {
       setError(String(reason));
@@ -204,6 +221,26 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
       });
       rememberRun(updated);
       setSupplierMessage("");
+      setHumanMessage("");
+      setTranslationRevealed(false);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const answerEscalation = async () => {
+    if (!active || active.status !== "escalated" || !humanMessage.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.answerCommunicationTestEscalation(
+        active.id,
+        humanMessage.trim(),
+      );
+      rememberRun(updated);
+      setHumanMessage("");
       setTranslationRevealed(false);
     } catch (reason) {
       setError(String(reason));
@@ -217,6 +254,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
     if (!saved) return;
     setActive(saved);
     setSupplierMessage("");
+    setHumanMessage("");
     setTranslationRevealed(false);
     setError(null);
   };
@@ -245,7 +283,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
 
       {historyLoading && <p className="note">Загружаем сохранённый диалог…</p>}
 
-      {active && history.length > 0 && (
+      {!selectionManagedByParent && active && history.length > 0 && (
         <div className="embedded-test-history">
           <Field label="Сохранённые диалоги">
             <Select
@@ -293,7 +331,9 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
               >
                 <span className="communication-message-role">
                   {message.sender_role === "assistant"
-                    ? "Нейросеть · покупатель"
+                    ? message.delivery_status === "manual"
+                      ? "Сотрудник · покупатель"
+                      : "Нейросеть · покупатель"
                     : "Вы · поставщик"}
                 </span>
                 <div className="communication-message-original">
@@ -343,6 +383,26 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
           )}
 
           {active.error && <p className="error">{active.error}</p>}
+
+          {active.status === "escalated" && (
+            <div className="communication-reply communication-escalation-reply">
+              <Field label="Ответ сотрудника поставщику">
+                <Textarea
+                  rows={4}
+                  placeholder="Введите ручной ответ — нейросеть не будет отвечать на эскалированный вопрос"
+                  value={humanMessage}
+                  onChange={(event) => setHumanMessage(event.target.value)}
+                />
+              </Field>
+              <button
+                disabled={busy || !humanMessage.trim()}
+                onClick={() => void answerEscalation()}
+                type="button"
+              >
+                {busy ? "Сохраняем…" : "Ответить и продолжить диалог"}
+              </button>
+            </div>
+          )}
 
           {canContinue && (
             <div className="communication-reply">
@@ -401,6 +461,7 @@ function FullCommunicationTesting({
   );
   const [supplierMessage, setSupplierMessage] = useState("");
   const [buyerMessage, setBuyerMessage] = useState("");
+  const [humanMessage, setHumanMessage] = useState("");
   const [instructions, setInstructions] = useState("");
   const [subject, setSubject] = useState(
     rfq?.rfq_subject ?? "Request for quotation",
@@ -481,6 +542,7 @@ function FullCommunicationTesting({
     setTranslationRevealed(false);
     setSupplierMessage("");
     setBuyerMessage("");
+    setHumanMessage("");
     setError(null);
   }, [rfq]);
 
@@ -515,6 +577,7 @@ function FullCommunicationTesting({
       setActive(created);
       setTranslationRevealed(false);
       setSupplierMessage("");
+      setHumanMessage("");
       if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
@@ -558,6 +621,28 @@ function FullCommunicationTesting({
       setTranslationRevealed(false);
       setSupplierMessage("");
       setBuyerMessage("");
+      setHumanMessage("");
+      if (!embedded) await loadHistory();
+    } catch (reason) {
+      setError(String(reason));
+      if (!embedded) await loadHistory().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const answerEscalation = async () => {
+    if (!active || active.status !== "escalated" || !humanMessage.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.answerCommunicationTestEscalation(
+        active.id,
+        humanMessage.trim(),
+      );
+      setActive(updated);
+      setHumanMessage("");
+      setTranslationRevealed(false);
       if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
@@ -579,6 +664,7 @@ function FullCommunicationTesting({
     setRecipient("");
     setSupplierMessage("");
     setBuyerMessage("");
+    setHumanMessage("");
     setError(null);
   };
 
@@ -811,7 +897,9 @@ function FullCommunicationTesting({
                   >
                     <span className="communication-message-role">
                       {message.sender_role === "assistant"
-                        ? "Нейросеть · покупатель"
+                        ? message.delivery_status === "manual"
+                          ? "Сотрудник · покупатель"
+                          : "Нейросеть · покупатель"
                         : message.sender_role === "buyer"
                           ? "Вы · покупатель"
                         : active.channel === "email" &&
@@ -877,6 +965,26 @@ function FullCommunicationTesting({
                 </div>
               )}
               {active.error && <p className="error">{active.error}</p>}
+              {active.status === "escalated" &&
+                active.simulation_mode === "buyer_ai" && (
+                  <div className="communication-reply communication-escalation-reply">
+                    <Field label="Ответ сотрудника поставщику">
+                      <Textarea
+                        rows={4}
+                        placeholder="Введите ручной ответ поставщику"
+                        value={humanMessage}
+                        onChange={(event) => setHumanMessage(event.target.value)}
+                      />
+                    </Field>
+                    <button
+                      disabled={busy || !humanMessage.trim()}
+                      onClick={() => void answerEscalation()}
+                      type="button"
+                    >
+                      {busy ? "Сохраняем…" : "Ответить и продолжить диалог"}
+                    </button>
+                  </div>
+                )}
               {canContinue && (
                 <div className="communication-reply">
                   <Field
@@ -984,12 +1092,22 @@ function FullCommunicationTesting({
 export default function CommunicationTesting({
   embedded = false,
   rfq,
+  selectedRunId,
+  onRunChanged,
 }: {
   embedded?: boolean;
   rfq?: RFQRead;
+  selectedRunId?: number | null;
+  onRunChanged?: (run: CommunicationTestRun) => void;
 } = {}) {
   if (embedded && rfq) {
-    return <EmbeddedCommunicationTesting rfq={rfq} />;
+    return (
+      <EmbeddedCommunicationTesting
+        rfq={rfq}
+        selectedRunId={selectedRunId}
+        onRunChanged={onRunChanged}
+      />
+    );
   }
   return <FullCommunicationTesting embedded={embedded} rfq={rfq} />;
 }

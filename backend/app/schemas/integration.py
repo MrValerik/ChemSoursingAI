@@ -271,6 +271,17 @@ class CommunicationTestContinue(BaseModel):
         return self.message or self.supplier_message
 
 
+class CommunicationTestEscalationReply(BaseModel):
+    """Ручной ответ сотрудника в остановленном тестовом диалоге."""
+
+    message: str = Field(min_length=1, max_length=8000)
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def clean_message(cls, value: object) -> str:
+        return str(value or "").strip()
+
+
 class CommunicationTestMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

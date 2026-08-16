@@ -10,10 +10,12 @@ from app.models.enums import UserRole
 from app.schemas.integration import (
     CommunicationTestContinue,
     CommunicationTestCreate,
+    CommunicationTestEscalationReply,
     CommunicationTestRead,
 )
 from app.services.communication_testing import (
     CommunicationTestError,
+    answer_test_escalation,
     continue_communication_test,
     list_test_runs,
     run_communication_test,
@@ -64,6 +66,28 @@ def continue_test(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except CommunicationTestError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{run_id}/escalation-reply",
+    response_model=CommunicationTestRead,
+    status_code=201,
+)
+def reply_to_escalation(
+    run_id: int,
+    payload: CommunicationTestEscalationReply,
+    db: Session = Depends(get_db),
+) -> CommunicationTestRun:
+    try:
+        return answer_test_escalation(
+            db,
+            run_id=run_id,
+            message=payload.message,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post(

@@ -1930,6 +1930,31 @@ button.danger:hover {
   gap: 8px;
   flex-wrap: wrap;
   flex-shrink: 0;
+  flex: 1 1 360px;
+  justify-content: flex-end;
+}
+
+.communication-escalation > div:first-child {
+  flex: 1 1 300px;
+}
+
+.communication-escalation-composer {
+  display: grid;
+  flex: 1 0 100%;
+  gap: 8px;
+}
+
+.communication-escalation-composer textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.communication-escalation-composer button {
+  justify-self: end;
+}
+
+.conversation-test-new {
+  border-top-style: dashed;
 }
 
 @media (max-width: 800px) {

@@ -651,6 +651,15 @@ export const api = {
       },
     ),
 
+  answerCommunicationTestEscalation: (runId: number, message: string) =>
+    request<CommunicationTestRun>(
+      `/communication-testing/${runId}/escalation-reply`,
+      {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      },
+    ),
+
   translateCommunicationTestDialogue: (runId: number) =>
     request<CommunicationTestRun>(`/communication-testing/${runId}/translation`, {
       method: "POST",

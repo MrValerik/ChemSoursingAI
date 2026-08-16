@@ -6,6 +6,7 @@ import type {
   CommunicationAttachmentRead,
   CommunicationEscalationRead,
   CommunicationOverviewRead,
+  CommunicationTestRun,
   RFQRead,
   SupplierConversationRead,
 } from "../api/types";
@@ -21,6 +22,17 @@ const EMPTY_OVERVIEW: CommunicationOverviewRead = {
 
 const conversationKey = (item: SupplierConversationRead) =>
   `${item.supplier_id ?? item.contact ?? "unknown"}:${item.channel}`;
+
+const testConversationKey = (runId: number) => `test:${runId}`;
+const NEW_TEST_CONVERSATION_KEY = "test:new";
+
+const TEST_STATUS_LABELS: Record<string, string> = {
+  previewed: "Диалог активен",
+  escalated: "Нужен человек",
+  complete: "Данные собраны",
+  llm_error: "Ошибка нейросети",
+  processing_error: "Ошибка обработки",
+};
 
 const QUOTE_FIELD_LABELS: Record<string, string> = {
   price: "цена",
@@ -126,6 +138,7 @@ export default function DispatchTab({
   const canTestCommunication = user?.role === "admin";
 
   const [overview, setOverview] = useState<CommunicationOverviewRead>(EMPTY_OVERVIEW);
+  const [testRuns, setTestRuns] = useState<CommunicationTestRun[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -146,20 +159,36 @@ export default function DispatchTab({
 
   const load = async () => {
     try {
-      const communicationItems = await api.communicationOverview(rfqId);
+      const [communicationItems, testItems] = await Promise.all([
+        api.communicationOverview(rfqId),
+        canTestCommunication
+          ? api.listCommunicationTests(100, rfqId)
+          : Promise.resolve([] as CommunicationTestRun[]),
+      ]);
+      const embeddedTests = testItems.filter(
+        (item) =>
+          item.simulation_mode === "buyer_ai" && item.delivery_mode === "preview",
+      );
       setOverview(communicationItems);
+      setTestRuns(embeddedTests);
       setSelectedKey((current) => {
         if (
           current &&
-          communicationItems.conversations.some(
+          (communicationItems.conversations.some(
             (item) => conversationKey(item) === current,
-          )
+          ) ||
+            embeddedTests.some(
+              (item) => testConversationKey(item.id) === current,
+            ) ||
+            (canTestCommunication && current === NEW_TEST_CONVERSATION_KEY))
         ) {
           return current;
         }
-        return communicationItems.conversations[0]
-          ? conversationKey(communicationItems.conversations[0])
-          : null;
+        if (communicationItems.conversations[0]) {
+          return conversationKey(communicationItems.conversations[0]);
+        }
+        if (embeddedTests[0]) return testConversationKey(embeddedTests[0].id);
+        return canTestCommunication ? NEW_TEST_CONVERSATION_KEY : null;
       });
       setError(null);
     } catch (e) {
@@ -172,7 +201,7 @@ export default function DispatchTab({
     const timer = window.setInterval(() => void load(), 10_000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rfqId]);
+  }, [rfqId, canTestCommunication]);
 
   useEffect(() => {
     // Текст одного поставщика нельзя случайно перенести в другой диалог.
@@ -183,6 +212,9 @@ export default function DispatchTab({
   const selectedConversation =
     overview.conversations.find((item) => conversationKey(item) === selectedKey) ??
     null;
+  const selectedTestRunId = selectedKey?.startsWith("test:")
+    ? Number(selectedKey.slice("test:".length)) || null
+    : undefined;
   const selectedMessageSignature =
     selectedConversation?.messages.map((message) => message.id).join(",") ?? "";
 
@@ -351,6 +383,66 @@ export default function DispatchTab({
     }
   };
 
+  const replyToEscalation = async (
+    escalation: CommunicationEscalationRead,
+    conversation: SupplierConversationRead,
+    body: string,
+    idempotencyKey: string,
+  ): Promise<boolean> => {
+    if (
+      !user ||
+      !conversation.manager_id ||
+      !conversation.contact ||
+      !body.trim()
+    ) {
+      return false;
+    }
+    const channelLabel = conversation.channel === "email" ? "Email" : "WhatsApp";
+    if (
+      !window.confirm(
+        `Реально отправить ручной ответ через ${channelLabel} контакту ${conversation.contact} и закрыть эскалацию?`,
+      )
+    ) {
+      return false;
+    }
+
+    setEscalationBusy(escalation.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.sendCommunicationMessage(rfqId, {
+        manager_id: conversation.manager_id,
+        channel: conversation.channel,
+        body: body.trim(),
+        idempotency_key: idempotencyKey,
+        confirm_external_send: true,
+      });
+      await api.updateEscalation(escalation.id, {
+        assignee: escalation.assignee ?? user.full_name,
+        status: "resolved",
+      });
+      setNotice(`Ответ отправлен через ${channelLabel}, эскалация закрыта.`);
+      await load();
+      onStatusChanged();
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      await load();
+      return false;
+    } finally {
+      setEscalationBusy(null);
+    }
+  };
+
+  const updateTestRun = (run: CommunicationTestRun) => {
+    setTestRuns((current) => [
+      run,
+      ...current.filter((item) => item.id !== run.id),
+    ]);
+    setSelectedKey(testConversationKey(run.id));
+    onStatusChanged();
+  };
+
   return (
     <div>
       <RfqDispatchPreparation
@@ -404,22 +496,7 @@ export default function DispatchTab({
             />
           ))}
 
-        {canTestCommunication && (
-          <details className="conversation-test-dialog">
-            <summary>
-              <span>
-                <strong>Тестовый поставщик</strong>
-                <small>
-                  Ответьте на RFQ сами или выберите полный/неполный пример
-                </small>
-              </span>
-              <span className="badge tone-info">Тестовый режим</span>
-            </summary>
-            <CommunicationTesting embedded rfq={rfq} />
-          </details>
-        )}
-
-        {overview.conversations.length === 0 ? (
+        {overview.conversations.length === 0 && !canTestCommunication ? (
           <p className="note">
             Диалогов пока нет. После отправки запроса или получения ответа
             поставщик появится здесь.
@@ -465,9 +542,70 @@ export default function DispatchTab({
                   </button>
                 );
               })}
+              {canTestCommunication &&
+                testRuns.map((run) => {
+                  const lastMessage =
+                    run.messages[run.messages.length - 1]?.content ??
+                    "Сообщений пока нет";
+                  const tone =
+                    run.status === "escalated"
+                      ? "tone-warn"
+                      : run.status === "complete"
+                        ? "tone-ok"
+                        : "tone-info";
+                  return (
+                    <button
+                      className={`conversation-supplier ${
+                        selectedKey === testConversationKey(run.id) ? "active" : ""
+                      }`}
+                      key={testConversationKey(run.id)}
+                      onClick={() => setSelectedKey(testConversationKey(run.id))}
+                      type="button"
+                    >
+                      <span className="conversation-supplier-title">
+                        Тестовый поставщик
+                      </span>
+                      <span className="conversation-supplier-meta">
+                        Тестовый диалог · {formatMoment(run.created_at)}
+                      </span>
+                      <span className="conversation-preview">{lastMessage}</span>
+                      <span className={`badge ${tone}`}>
+                        {TEST_STATUS_LABELS[run.status] ?? run.status}
+                      </span>
+                    </button>
+                  );
+                })}
+              {canTestCommunication && (
+                <button
+                  className={`conversation-supplier conversation-test-new ${
+                    selectedKey === NEW_TEST_CONVERSATION_KEY ? "active" : ""
+                  }`}
+                  onClick={() => setSelectedKey(NEW_TEST_CONVERSATION_KEY)}
+                  type="button"
+                >
+                  <span className="conversation-supplier-title">
+                    Новый тестовый диалог
+                  </span>
+                  <span className="conversation-supplier-meta">
+                    Без Email и WhatsApp
+                  </span>
+                  <span className="conversation-preview">
+                    Начать симуляцию с текущего RFQ
+                  </span>
+                  <span className="badge tone-neutral">Создать</span>
+                </button>
+              )}
             </div>
 
             <div className="conversation-thread">
+              {selectedTestRunId !== undefined && (
+                <CommunicationTesting
+                  embedded
+                  rfq={rfq}
+                  selectedRunId={selectedTestRunId}
+                  onRunChanged={updateTestRun}
+                />
+              )}
               {selectedConversation && (
                 <>
                   <div className="conversation-thread-header">
@@ -520,6 +658,8 @@ export default function DispatchTab({
                         busy={escalationBusy === item.id}
                         readOnly={readOnly}
                         onAction={updateEscalation}
+                        conversation={selectedConversation}
+                        onReply={replyToEscalation}
                       />
                     ))}
 
@@ -680,15 +820,44 @@ function EscalationNotice({
   busy,
   readOnly,
   onAction,
+  conversation,
+  onReply,
 }: {
   escalation: CommunicationEscalationRead;
   busy: boolean;
   readOnly: boolean;
+  conversation?: SupplierConversationRead;
   onAction: (
     escalation: CommunicationEscalationRead,
     action: "take" | "resolve",
   ) => Promise<void>;
+  onReply?: (
+    escalation: CommunicationEscalationRead,
+    conversation: SupplierConversationRead,
+    body: string,
+    idempotencyKey: string,
+  ) => Promise<boolean>;
 }) {
+  const [replyBody, setReplyBody] = useState("");
+  const [replyActionId, setReplyActionId] = useState(createActionId);
+  const canReply = Boolean(
+    conversation?.manager_id && conversation.contact && onReply,
+  );
+
+  const submitReply = async () => {
+    if (!conversation || !onReply || !replyBody.trim()) return;
+    const sent = await onReply(
+      escalation,
+      conversation,
+      replyBody.trim(),
+      replyActionId,
+    );
+    if (sent) {
+      setReplyBody("");
+      setReplyActionId(createActionId());
+    }
+  };
+
   return (
     <section className="communication-escalation" role="alert">
       <div>
@@ -705,6 +874,26 @@ function EscalationNotice({
       </div>
       {!readOnly && (
         <div className="communication-escalation-actions">
+          {canReply && (
+            <div className="communication-escalation-composer">
+              <Textarea
+                rows={3}
+                placeholder="Напишите ручной ответ поставщику"
+                value={replyBody}
+                onChange={(event) => {
+                  setReplyBody(event.target.value);
+                  setReplyActionId(createActionId());
+                }}
+              />
+              <button
+                disabled={busy || !replyBody.trim()}
+                onClick={() => void submitReply()}
+                type="button"
+              >
+                {busy ? "Отправка…" : "Ответить поставщику"}
+              </button>
+            </div>
+          )}
           {!escalation.assignee && (
             <button
               className="secondary btn-small"
