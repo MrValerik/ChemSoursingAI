@@ -30,9 +30,10 @@ router = APIRouter(
 @router.get("", response_model=list[CommunicationTestRead])
 def history(
     limit: int = Query(default=30, ge=1, le=100),
+    rfq_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
 ) -> list[CommunicationTestRun]:
-    return list_test_runs(db, limit=limit)
+    return list_test_runs(db, limit=limit, rfq_id=rfq_id)
 
 
 @router.post("", response_model=CommunicationTestRead, status_code=201)

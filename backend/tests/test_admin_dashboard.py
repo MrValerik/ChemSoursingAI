@@ -696,6 +696,21 @@ def test_embedded_communication_test_updates_one_summary_quotation(
     assert first_payload["rfq_id"] == rfq["id"]
     assert first_payload["quotation_id"] is not None
 
+    saved_dialogues = client.get(
+        f"/communication-testing?rfq_id={rfq['id']}", headers=admin
+    )
+    assert saved_dialogues.status_code == 200
+    assert [item["id"] for item in saved_dialogues.json()] == [started["id"]]
+    assert [
+        message["sender_role"] for message in saved_dialogues.json()[0]["messages"]
+    ] == ["assistant", "supplier", "assistant"]
+    assert client.get(
+        f"/communication-testing?rfq_id={rfq['id'] + 1000}", headers=admin
+    ).json() == []
+    assert client.get(
+        "/communication-testing?rfq_id=0", headers=admin
+    ).status_code == 422
+
     first_summary = client.get(
         f"/rfq/{rfq['id']}/summary", headers=admin
     ).json()

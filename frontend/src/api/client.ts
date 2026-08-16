@@ -610,8 +610,13 @@ export const api = {
       { method: "POST" },
     ),
 
-  listCommunicationTests: (limit = 30) =>
-    request<CommunicationTestRun[]>(`/communication-testing?limit=${limit}`),
+  listCommunicationTests: (limit = 30, rfqId?: number) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (rfqId !== undefined) params.set("rfq_id", String(rfqId));
+    return request<CommunicationTestRun[]>(
+      `/communication-testing?${params.toString()}`,
+    );
+  },
 
   runCommunicationTest: (payload: {
     rfq_id?: number;

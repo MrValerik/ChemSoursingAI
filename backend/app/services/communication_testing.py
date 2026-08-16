@@ -290,18 +290,22 @@ def _load_run(db: Session, run_id: int) -> CommunicationTestRun | None:
     )
 
 
-def list_test_runs(db: Session, *, limit: int = 50) -> list[CommunicationTestRun]:
-    runs = list(
-        db.scalars(
-            select(CommunicationTestRun)
-            .options(selectinload(CommunicationTestRun.messages))
-            .order_by(
-                CommunicationTestRun.created_at.desc(),
-                CommunicationTestRun.id.desc(),
-            )
-            .limit(limit)
-        ).all()
+def list_test_runs(
+    db: Session,
+    *,
+    limit: int = 50,
+    rfq_id: int | None = None,
+) -> list[CommunicationTestRun]:
+    statement = select(CommunicationTestRun).options(
+        selectinload(CommunicationTestRun.messages)
     )
+    if rfq_id is not None:
+        statement = statement.where(CommunicationTestRun.rfq_id == rfq_id)
+    statement = statement.order_by(
+        CommunicationTestRun.created_at.desc(),
+        CommunicationTestRun.id.desc(),
+    ).limit(limit)
+    runs = list(db.scalars(statement).all())
     return [_attach_quote_assessment(run) for run in runs]
 
 

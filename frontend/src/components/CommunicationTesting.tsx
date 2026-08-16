@@ -116,6 +116,8 @@ function DialogueTranslation({
 
 function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
   const [active, setActive] = useState<CommunicationTestRun | null>(null);
+  const [history, setHistory] = useState<CommunicationTestRun[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [supplierMessage, setSupplierMessage] = useState("");
   const [translationRevealed, setTranslationRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -127,11 +129,40 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
     active.messages[active.messages.length - 1]?.sender_role === "assistant" &&
     !["delivery_error", "complete", "escalated"].includes(active.status);
 
+  const rememberRun = (run: CommunicationTestRun) => {
+    setActive(run);
+    setHistory((current) => [run, ...current.filter((item) => item.id !== run.id)]);
+  };
+
   useEffect(() => {
+    let cancelled = false;
     setActive(null);
+    setHistory([]);
+    setHistoryLoading(true);
     setSupplierMessage("");
     setTranslationRevealed(false);
     setError(null);
+    api
+      .listCommunicationTests(100, rfq.id)
+      .then((items) => {
+        if (cancelled) return;
+        const saved = items.filter(
+          (item) =>
+            item.simulation_mode === "buyer_ai" &&
+            item.delivery_mode === "preview",
+        );
+        setHistory(saved);
+        setActive(saved[0] ?? null);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(String(reason));
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [rfq.id, rfq.rfq_body]);
 
   const start = async () => {
@@ -151,7 +182,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
         subject: rfq.rfq_subject?.trim() || "Request for quotation",
         confirm_external_send: false,
       });
-      setActive(created);
+      rememberRun(created);
       setSupplierMessage("");
       setTranslationRevealed(false);
     } catch (reason) {
@@ -171,7 +202,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
         recipient: "",
         confirm_external_send: false,
       });
-      setActive(updated);
+      rememberRun(updated);
       setSupplierMessage("");
       setTranslationRevealed(false);
     } catch (reason) {
@@ -180,6 +211,22 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
       setBusy(false);
     }
   };
+
+  const openSaved = (id: string) => {
+    const saved = history.find((item) => item.id === Number(id));
+    if (!saved) return;
+    setActive(saved);
+    setSupplierMessage("");
+    setTranslationRevealed(false);
+    setError(null);
+  };
+
+  const savedDialogOptions = history.map((item) => ({
+    value: String(item.id),
+    label: `${new Date(item.created_at).toLocaleString("ru-RU")} · ${
+      STATUS_LABELS[item.status] ?? item.status
+    }`,
+  }));
 
   return (
     <div className="communication-testing communication-testing-embedded">
@@ -196,7 +243,31 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
 
       {error && <p className="error">{error}</p>}
 
-      {!active ? (
+      {historyLoading && <p className="note">Загружаем сохранённый диалог…</p>}
+
+      {active && history.length > 0 && (
+        <div className="embedded-test-history">
+          <Field label="Сохранённые диалоги">
+            <Select
+              ariaLabel="Выбрать сохранённый тестовый диалог"
+              disabled={busy}
+              onChange={openSaved}
+              options={savedDialogOptions}
+              value={String(active.id)}
+            />
+          </Field>
+          <button
+            className="secondary"
+            disabled={busy || !rfqBody}
+            onClick={() => void start()}
+            type="button"
+          >
+            Новый диалог
+          </button>
+        </div>
+      )}
+
+      {!historyLoading && (!active ? (
         <div className="embedded-test-start">
           <button disabled={busy || !rfqBody} onClick={() => void start()} type="button">
             {busy ? "Начинаем…" : "Начать диалог"}
@@ -208,7 +279,7 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
             run={active}
             revealed={translationRevealed}
             onRevealedChange={setTranslationRevealed}
-            onTranslated={setActive}
+            onTranslated={rememberRun}
           />
           <div className="communication-messages">
             {active.messages.map((message) => (
@@ -307,14 +378,8 @@ function EmbeddedCommunicationTesting({ rfq }: { rfq: RFQRead }) {
               </div>
             </div>
           )}
-
-          {!canContinue && (
-            <button className="secondary" disabled={busy} onClick={() => void start()}>
-              Начать заново
-            </button>
-          )}
         </div>
-      )}
+      ))}
     </div>
   );
 }
