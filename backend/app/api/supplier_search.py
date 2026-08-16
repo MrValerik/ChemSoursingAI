@@ -60,7 +60,11 @@ from app.services.search_trace import (
     start_search_attempt,
     utc_now,
 )
-from app.services.search_countries import normalize_search_country
+from app.services.search_countries import (
+    contradicts_search_country,
+    mentioned_countries,
+    normalize_search_country,
+)
 from app.services.supplier_search_continuation import (
     country_runs,
     result_is_excluded,
@@ -1105,6 +1109,7 @@ def _apply_evidence_gates(
     *,
     page_url: str = "",
     intermediary_domains: set[str] | None = None,
+    search_country: str = "",
 ) -> dict:
     """Prevent high-confidence labels without a validated atomic source."""
     payload = qualification.model_dump(exclude={"evidence"})
@@ -1224,8 +1229,27 @@ def _apply_evidence_gates(
         # подтверждает статус, и снимает его.
         payload["cas_status"] = "confirmed"
 
-    if "country" in contradicted:
+    # Подтверждена другая страна, а не та, где искали. Модель это видит и
+    # всё равно засчитывает: по Simson Pharma она сама записала claim
+    # «India» с цитатой «+91 8767360663», поставила country_status likely и
+    # принесла компании 10 баллов из 10 в поиске по Китаю. Ворота смотрят в
+    # значение claim, а не только в его наличие.
+    foreign_countries: set[str] = set()
+    for item in evidence_items:
+        if item["claim_type"] != "country" or item["support_status"] != "supports":
+            continue
+        value = str(item.get("claim_value") or "")
+        if contradicts_search_country(value, search_country):
+            foreign_countries |= mentioned_countries(value)
+
+    if "country" in contradicted or foreign_countries:
         payload["country_status"] = "mismatch"
+        if foreign_countries:
+            flag(
+                "Подтверждена другая страна: "
+                + ", ".join(sorted(foreign_countries))
+                + f" вместо «{search_country}»"
+            )
     elif payload["country_status"] == "claimed" and "country" not in supported:
         payload["country_status"] = "not_found"
         flag("Страна не подтверждена проверенной цитатой")
@@ -2769,6 +2793,13 @@ def execute_supplier_qualification(
         )
         db.commit()
 
+    # Страна, в которой искали. Из запроса, а если его собрали без неё —
+    # из журнала самого запуска: сверять значение claim не с чем, когда
+    # неизвестно, чего мы хотели.
+    search_country = str(
+        data.country or (search_run.input_payload or {}).get("country") or ""
+    )
+
     prompt = db.scalar(
         select(PromptTemplate)
         .where(
@@ -3312,6 +3343,7 @@ def execute_supplier_qualification(
                 candidates[index].url if index < len(candidates) else ""
             ),
             intermediary_domains=intermediary_domains,
+            search_country=search_country,
         )
         score = score_supplier(qualification_payload, evidence_items)
         qualification_payload["llm_confidence"] = qualification.confidence

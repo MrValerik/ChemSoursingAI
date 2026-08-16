@@ -73,7 +73,17 @@ def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
         and {"manufacturer_role", "reseller_role"} & supported
         else 0
     )
-    country = 10 if "country" in supported else 0
+    # Подтверждение страны стоит баллов только тогда, когда подтверждена
+    # искомая страна. Раньше здесь проверялось лишь наличие claim, и
+    # доказательство «India» с цитатой «+91 8767360663» приносило те же 10
+    # баллов в поиске по Китаю: так Simson Pharma набрала 63 и попала в
+    # запрос #30. Значение claim сверяют ворота, сюда приходит готовый
+    # статус.
+    country = (
+        10
+        if "country" in supported and assessment.get("country_status") != "mismatch"
+        else 0
+    )
     documents = sum(
         weight
         for claim_type, weight in (
