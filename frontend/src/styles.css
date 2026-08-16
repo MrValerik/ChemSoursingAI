@@ -959,6 +959,32 @@ button.request-delete-button:focus-visible {
 .supplier-detail-contacts li + li {
   margin-top: 6px;
 }
+/* «убрать» стоит в строке контакта и не должно спорить с самим адресом. */
+.supplier-detail-contacts .link-btn {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+/* Три поля в ряд на широком экране, столбиком на узком: форму заполняют,
+   держа перед глазами открытый сайт поставщика. */
+.supplier-contact-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+.supplier-contact-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 160px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.supplier-contact-form input {
+  width: 100%;
+}
 @media (max-width: 620px) {
   .supplier-detail-fields {
     grid-template-columns: 1fr;
@@ -966,6 +992,9 @@ button.request-delete-button:focus-visible {
   }
   .supplier-detail-fields dd {
     margin-bottom: 8px;
+  }
+  .supplier-contact-form label {
+    flex-basis: 100%;
   }
 }
 

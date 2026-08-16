@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import Channel, DispatchStatus, SupplierType
+from app.services.contacts import looks_like_email
 
 
 class SupplierCreate(BaseModel):
@@ -37,6 +38,45 @@ class SupplierContact(BaseModel):
     email: str | None = None
     whatsapp: str | None = None
     offered_substances: list[str] | None = None
+
+
+class SupplierContactCreate(BaseModel):
+    """Контакт, который закупщик вписал руками, открыв сайт компании.
+
+    Поиск доводит до компании и останавливается там, где адрес закрыт
+    подменой, спрятан за формой или лежит только в личном кабинете
+    площадки. Человек эти преграды проходит: открывает страницу глазами и
+    переносит адрес сюда.
+    """
+
+    full_name: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+    whatsapp: str | None = Field(default=None, max_length=64)
+
+    @field_validator("full_name", "email", "whatsapp")
+    @classmethod
+    def _strip(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    def refusal(self) -> str | None:
+        """Почему контакт не годится — словами, понятными закупщику.
+
+        Проверка живёт здесь, а не в валидаторе pydantic: тот отвечает
+        422 со служебной обёрткой, и в карточке появлялось «Проверьте
+        данные: «Данные»: Value error, Адрес почты введён с ошибкой».
+        Человек, переносящий адрес с сайта, должен прочитать одну фразу.
+        """
+        # Имя без адреса — не канал связи: галочку рассылки по такому
+        # контакту всё равно не поставить, а в таблице компания так и
+        # останется без связи.
+        if not self.email and not self.whatsapp:
+            return "Нужен адрес почты или номер WhatsApp"
+        if self.email and not looks_like_email(self.email):
+            return "Адрес почты введён с ошибкой"
+        return None
 
 
 class SupplierRequestLink(BaseModel):

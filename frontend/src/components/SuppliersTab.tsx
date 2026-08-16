@@ -89,6 +89,12 @@ export default function SuppliersTab({
   // Компания, раскрытая в подробной карточке.
   const [detailId, setDetailId] = useState<number | null>(null);
 
+  // Контакт, вписываемый руками в карточке компании.
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactWhatsapp, setContactWhatsapp] = useState("");
+  const [contactError, setContactError] = useState<string | null>(null);
+
   const [addOpen, setAddOpen] = useState(false);
   const [newCompany, setNewCompany] = useState("");
   const [newType, setNewType] = useState("manufacturer");
@@ -249,6 +255,51 @@ export default function SuppliersTab({
       await load();
     } catch (e) {
       setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Закупщик открыл сайт компании глазами и перенёс адрес сюда. После
+  // этого у компании появляется канал и её можно включить в рассылку.
+  const addContact = async () => {
+    if (!detail || readOnly || busy) return;
+    setBusy(true);
+    setContactError(null);
+    setError(null);
+    try {
+      await api.addSupplierContact(
+        detail.id,
+        {
+          full_name: contactName.trim() || null,
+          email: contactEmail.trim() || null,
+          whatsapp: contactWhatsapp.trim() || null,
+        },
+        rfqId,
+      );
+      setContactName("");
+      setContactEmail("");
+      setContactWhatsapp("");
+      setNotice(`Контакт добавлен: ${detail.company}`);
+      await load();
+    } catch (e) {
+      setContactError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Опечатка в адресе иначе неисправима, а письмо по нему уходит
+  // постороннему человеку.
+  const removeContact = async (contactId: number) => {
+    if (!detail || readOnly || busy) return;
+    setBusy(true);
+    setContactError(null);
+    try {
+      await api.removeSupplierContact(detail.id, contactId);
+      await load();
+    } catch (e) {
+      setContactError(String(e));
     } finally {
       setBusy(false);
     }
@@ -514,6 +565,17 @@ export default function SuppliersTab({
                         )}
                         {contact.email && contact.whatsapp && " · "}
                         {contact.whatsapp && <span>WhatsApp {contact.whatsapp}</span>}
+                        {!readOnly && (
+                          <button
+                            className="link-btn"
+                            type="button"
+                            disabled={busy}
+                            title="Убрать контакт"
+                            onClick={() => void removeContact(contact.id)}
+                          >
+                            убрать
+                          </button>
+                        )}
                         {contact.offered_substances &&
                           contact.offered_substances.length > 0 && (
                             <div className="cas">
@@ -525,6 +587,62 @@ export default function SuppliersTab({
                   </ul>
                 )}
               </dd>
+
+              {!readOnly && (
+                <>
+                  <dt>Вписать контакт</dt>
+                  <dd>
+                    <p className="note">
+                      Откройте источник выше и перенесите адрес сюда. Машинное
+                      чтение страницы адрес не берёт, когда он подменён
+                      заглушкой, спрятан за формой или лежит в личном кабинете
+                      площадки, — а человеку он виден.
+                    </p>
+                    <div className="supplier-contact-form">
+                      <label>
+                        Имя или отдел
+                        <input
+                          value={contactName}
+                          placeholder="необязательно"
+                          onChange={(e) => setContactName(e.target.value)}
+                        />
+                      </label>
+                      <label>
+                        Email
+                        <input
+                          value={contactEmail}
+                          placeholder="sales@company.com"
+                          onChange={(e) => setContactEmail(e.target.value)}
+                        />
+                      </label>
+                      <label>
+                        WhatsApp
+                        <input
+                          value={contactWhatsapp}
+                          placeholder="+86 ..."
+                          onChange={(e) => setContactWhatsapp(e.target.value)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={
+                          busy ||
+                          (!contactEmail.trim() && !contactWhatsapp.trim())
+                        }
+                        title={
+                          !contactEmail.trim() && !contactWhatsapp.trim()
+                            ? "Нужен адрес почты или номер WhatsApp"
+                            : undefined
+                        }
+                        onClick={() => void addContact()}
+                      >
+                        Добавить контакт
+                      </button>
+                    </div>
+                    {contactError && <p className="error">{contactError}</p>}
+                  </dd>
+                </>
+              )}
 
               <dt>Сертификаты</dt>
               <dd>
@@ -554,8 +672,8 @@ export default function SuppliersTab({
             </dl>
 
             <p className="note">
-              Роль и контакты прочитаны со страницы компании и подтверждения не
-              заменяют: точный ответ даст переписка.
+              Роль и найденные контакты прочитаны со страницы компании и
+              подтверждения не заменяют: точный ответ даст переписка.
             </p>
           </section>
         </div>

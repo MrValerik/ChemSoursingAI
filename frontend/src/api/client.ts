@@ -390,6 +390,30 @@ export const api = {
     });
   },
 
+  // Контакт, вписанный закупщиком с сайта компании: поиск на скрытом
+  // адресе, форме обратной связи или странице площадки останавливается, а
+  // человек эти преграды проходит.
+  addSupplierContact: (
+    supplierId: number,
+    payload: {
+      full_name?: string | null;
+      email?: string | null;
+      whatsapp?: string | null;
+    },
+    rfqId?: number,
+  ) => {
+    const query = rfqId === undefined ? "" : `?rfq_id=${rfqId}`;
+    return request<SupplierRead>(`/suppliers/${supplierId}/contacts${query}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  removeSupplierContact: (supplierId: number, contactId: number) =>
+    request<SupplierRead>(`/suppliers/${supplierId}/contacts/${contactId}`, {
+      method: "DELETE",
+    }),
+
   listRecipients: (rfqId: number) =>
     request<RecipientRead[]>(`/rfq/${rfqId}/recipients`),
 

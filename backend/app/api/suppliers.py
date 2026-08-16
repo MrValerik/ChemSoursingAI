@@ -41,8 +41,9 @@ from app.models.manager import Manager
 from app.schemas.supplier import (
     RecipientRead,
     RecipientsSelect,
-    SupplierCreate,
     SupplierContact,
+    SupplierContactCreate,
+    SupplierCreate,
     SupplierRead,
     SupplierRequestLink,
 )
@@ -253,6 +254,126 @@ def add_supplier(
         else []
     )
     return _to_supplier_read(supplier, linked_requests=linked_requests)
+
+
+def _supplier_for_edit(db: Session, supplier_id: int, user: User) -> Supplier:
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    supplier = db.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(status_code=404, detail="Поставщик не найден")
+    return supplier
+
+
+def _supplier_with_links(db: Session, supplier: Supplier) -> SupplierRead:
+    rows = db.execute(
+        select(RFQ.id, RFQ.name, RFQ.cas)
+        .join(RfqSupplierLink, RfqSupplierLink.rfq_id == RFQ.id)
+        .where(RfqSupplierLink.supplier_id == supplier.id)
+    ).all()
+    return _to_supplier_read(
+        supplier,
+        linked_requests=[
+            SupplierRequestLink(rfq_id=rfq_id, name=name, cas=cas)
+            for rfq_id, name, cas in rows
+        ],
+    )
+
+
+@router.post(
+    "/suppliers/{supplier_id}/contacts",
+    response_model=SupplierRead,
+    status_code=201,
+)
+def add_supplier_contact(
+    supplier_id: int,
+    data: SupplierContactCreate,
+    rfq_id: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SupplierRead:
+    """Контакт, вписанный закупщиком с сайта компании.
+
+    Поиск читает страницу машиной и на трёх преградах останавливается:
+    адрес подменён заглушкой от спам-ботов, вместо адреса форма, компанию
+    назвала площадка и своей страницы у нас нет. Человек эти преграды
+    проходит — открывает сайт и переносит адрес сюда, после чего компания
+    получает канал и её можно включить в рассылку.
+    """
+    supplier = _supplier_for_edit(db, supplier_id, user)
+    refusal = data.refusal()
+    if refusal:
+        raise HTTPException(status_code=400, detail=refusal)
+
+    existing = db.scalars(
+        select(Manager).where(Manager.supplier_id == supplier.id)
+    ).all()
+    if data.email and any(
+        (manager.email or "").casefold() == data.email.casefold()
+        for manager in existing
+    ):
+        raise HTTPException(status_code=409, detail="Такой адрес у компании уже есть")
+    if data.whatsapp and any(
+        (manager.whatsapp or "").strip() == data.whatsapp
+        for manager in existing
+    ):
+        raise HTTPException(status_code=409, detail="Такой номер у компании уже есть")
+
+    substance: str | None = None
+    if rfq_id is not None:
+        rfq = db.get(RFQ, rfq_id)
+        if rfq is None or rfq.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="Запрос не найден")
+        substance = rfq.name
+
+    db.add(
+        Manager(
+            supplier_id=supplier.id,
+            full_name=data.full_name,
+            email=data.email,
+            whatsapp=data.whatsapp,
+            offered_substances=[substance] if substance else None,
+        )
+    )
+    # Преграду не стираем. Она говорит про наши источники — «своей
+    # страницы компании у нас нет, её назвала площадка», — и от того, что
+    # человек вписал адрес, это не перестало быть правдой. Показывается
+    # она только там, где канала нет, так что живому адресу не помешает, а
+    # если вписанный контакт потом уберут, объяснение вернётся на место.
+    db.commit()
+    db.refresh(supplier)
+    return _supplier_with_links(db, supplier)
+
+
+@router.delete(
+    "/suppliers/{supplier_id}/contacts/{contact_id}",
+    response_model=SupplierRead,
+)
+def remove_supplier_contact(
+    supplier_id: int,
+    contact_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SupplierRead:
+    """Убрать контакт: без этого опечатка в адресе неисправима.
+
+    Письмо по ошибочному адресу уходит постороннему человеку, а вписывают
+    адрес руками — значит, и стереть его надо уметь руками.
+    """
+    supplier = _supplier_for_edit(db, supplier_id, user)
+    manager = db.get(Manager, contact_id)
+    if manager is None or manager.supplier_id != supplier.id:
+        raise HTTPException(status_code=404, detail="Контакт не найден")
+    if manager.communications:
+        # По этому адресу уже писали, и переписка на него ссылается.
+        raise HTTPException(
+            status_code=409,
+            detail="По этому контакту уже шла переписка — его нельзя убрать",
+        )
+    db.delete(manager)
+    db.commit()
+    db.refresh(supplier)
+    return _supplier_with_links(db, supplier)
 
 
 def _get_rfq(db: Session, rfq_id: int) -> RFQ:

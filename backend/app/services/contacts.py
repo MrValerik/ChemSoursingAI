@@ -177,3 +177,13 @@ def has_contacts(contacts: dict[str, list[str]] | None) -> bool:
     if not contacts:
         return False
     return any(contacts.get(kind) for kind in ("emails", "phones", "whatsapp", "wechat"))
+
+
+def looks_like_email(value: str) -> bool:
+    """Похоже ли на адрес почты целиком, а не куском внутри строки.
+
+    Тем же выражением, что и поиск адресов на странице: закупщик вводит
+    адрес руками, глядя на сайт, и опечатка «info@company» должна отсеяться
+    до того, как по ней уйдёт письмо.
+    """
+    return bool(_EMAIL_RE.fullmatch(value.strip()))
