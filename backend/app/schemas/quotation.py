@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class QuotationCreate(BaseModel):
@@ -60,7 +60,34 @@ class SummaryRow(BaseModel):
     incoterm: str | None = None
     moq: str | None = None
     grade: str | None = None
+    payment_terms: str | None = None
     lead_time: str | None = None
     has_coa: bool = False
     has_tds: bool = False
     is_complete: bool = False
+    field_confidence: dict[str, float] | None = None
+    created_at: datetime
+
+
+class PurchaseDecisionUpdate(BaseModel):
+    """Ручной выбор предложения для итогового решения по закупке."""
+
+    quotation_id: int = Field(gt=0)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def clean_note(cls, value: object) -> str | None:
+        cleaned = str(value or "").strip()
+        return cleaned or None
+
+
+class PurchaseDecisionRead(BaseModel):
+    id: int
+    rfq_id: int
+    quotation_id: int
+    selected_by_id: int | None
+    selected_by_name: str | None = None
+    note: str | None
+    created_at: datetime
+    updated_at: datetime

@@ -260,6 +260,101 @@ def test_manual_rfq_draft_is_validated_persisted_and_dispatched(client):
     assert history[0].body == custom_body
 
 
+def test_purchase_decision_is_detailed_persisted_and_role_protected(client):
+    headers = _login(client)
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={
+            "cas": "64-17-5",
+            "name": "Ethanol",
+            "volume": "500 kg",
+            "incoterms": ["CIP"],
+        },
+        headers=headers,
+    ).json()
+    quotation = client.post(
+        "/quotations",
+        json={
+            "rfq_id": rfq["id"],
+            "price": 12.5,
+            "currency": "USD",
+            "incoterm": "CIP",
+            "moq": "100 kg",
+            "grade": "USP",
+            "payment_terms": "30% advance, 70% before shipment",
+            "lead_time": "15 days",
+            "has_coa": True,
+            "has_tds": False,
+            "field_confidence": {"price": 0.98, "incoterm": 0.95},
+        },
+        headers=headers,
+    ).json()
+
+    summary = client.get(f"/rfq/{rfq['id']}/summary", headers=headers)
+    assert summary.status_code == 200
+    assert summary.json()[0]["payment_terms"] == (
+        "30% advance, 70% before shipment"
+    )
+    assert summary.json()[0]["field_confidence"]["price"] == 0.98
+    assert summary.json()[0]["created_at"] is not None
+
+    empty = client.get(
+        f"/rfq/{rfq['id']}/purchase-decision", headers=headers
+    )
+    assert empty.status_code == 200
+    assert empty.json() is None
+
+    saved = client.put(
+        f"/rfq/{rfq['id']}/purchase-decision",
+        json={
+            "quotation_id": quotation["id"],
+            "note": "  Выбрано после технической проверки.  ",
+        },
+        headers=headers,
+    )
+    assert saved.status_code == 200
+    assert saved.json()["quotation_id"] == quotation["id"]
+    assert saved.json()["note"] == "Выбрано после технической проверки."
+    assert saved.json()["selected_by_name"] == "Иван Иванов"
+
+    persisted = client.get(
+        f"/rfq/{rfq['id']}/purchase-decision", headers=headers
+    )
+    assert persisted.status_code == 200
+    assert persisted.json()["id"] == saved.json()["id"]
+
+    another_rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "67-56-1", "name": "Methanol", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+    foreign_quote = client.post(
+        "/quotations",
+        json={"rfq_id": another_rfq["id"], "price": 8, "currency": "USD"},
+        headers=headers,
+    ).json()
+    wrong_rfq = client.put(
+        f"/rfq/{rfq['id']}/purchase-decision",
+        json={"quotation_id": foreign_quote["id"]},
+        headers=headers,
+    )
+    assert wrong_rfq.status_code == 422
+
+    auditor = _login(client, "auditor")
+    assert (
+        client.get(
+            f"/rfq/{rfq['id']}/purchase-decision", headers=auditor
+        ).status_code
+        == 200
+    )
+    forbidden = client.put(
+        f"/rfq/{rfq['id']}/purchase-decision",
+        json={"quotation_id": quotation["id"]},
+        headers=auditor,
+    )
+    assert forbidden.status_code == 403
+
+
 def test_saved_rfq_preview_can_be_translated_without_changing_it(client, monkeypatch):
     headers = _login(client)
     rfq = client.post(

@@ -1,87 +1,328 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { SummaryRow } from "../api/types";
+import type {
+  PurchaseDecisionRead,
+  RFQRead,
+  SummaryRow,
+} from "../api/types";
+import { useAuth } from "../auth/AuthContext";
+import { Textarea } from "./ui";
 
 interface Props {
-  rfqId: number;
-  // Пересобрать таблицу без размонтирования вкладки.
+  rfq: RFQRead;
   refreshKey?: number;
 }
 
-export default function Summary({ rfqId, refreshKey = 0 }: Props) {
+const formatPrice = (value: number | null, currency: string | null) => {
+  if (value === null) return "—";
+  const amount = new Intl.NumberFormat("ru-RU", {
+    maximumFractionDigits: 4,
+  }).format(value);
+  return `${amount}${currency ? ` ${currency}` : ""}`;
+};
+
+const formatMoment = (value: string) =>
+  new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+
+const supplierName = (row: SummaryRow) => row.supplier ?? row.manager ?? "—";
+
+const documentsLabel = (row: SummaryRow) => {
+  const documents = [row.has_coa ? "CoA" : null, row.has_tds ? "TDS" : null].filter(
+    Boolean,
+  );
+  return documents.length > 0 ? documents.join(" · ") : "нет";
+};
+
+const confidenceLabel = (row: SummaryRow) => {
+  const values = Object.values(row.field_confidence ?? {}).filter((value) =>
+    Number.isFinite(value),
+  );
+  if (values.length === 0) return "не указана";
+  return `${Math.round(Math.min(...values) * 100)}% минимум`;
+};
+
+export default function Summary({ rfq, refreshKey = 0 }: Props) {
+  const { user } = useAuth();
+  const readOnly = user?.role === "auditor";
   const [rows, setRows] = useState<SummaryRow[]>([]);
+  const [decision, setDecision] = useState<PurchaseDecisionRead | null>(null);
+  const [selectedQuotationId, setSelectedQuotationId] = useState<number | null>(
+    null,
+  );
+  const [decisionNote, setDecisionNote] = useState("");
   const [onlyComplete, setOnlyComplete] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        setRows(await api.getSummary(rfqId));
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([api.getSummary(rfq.id), api.getPurchaseDecision(rfq.id)])
+      .then(([summaryRows, savedDecision]) => {
+        if (cancelled) return;
+        setRows(summaryRows);
+        setDecision(savedDecision);
+        setSelectedQuotationId(savedDecision?.quotation_id ?? null);
+        setDecisionNote(savedDecision?.note ?? "");
         setError(null);
-      } catch (e) {
-        setError(String(e));
-      }
-    })();
-  }, [rfqId, refreshKey]);
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : String(caught));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rfq.id, refreshKey]);
 
-  const shown = onlyComplete ? rows.filter((r) => r.is_complete) : rows;
+  const shown = onlyComplete ? rows.filter((row) => row.is_complete) : rows;
+  const selectedRow =
+    rows.find((row) => row.quotation_id === selectedQuotationId) ?? null;
+  const completeCount = rows.filter((row) => row.is_complete).length;
+  const documentedCount = rows.filter((row) => row.has_coa || row.has_tds).length;
+  const currencies = useMemo(
+    () => Array.from(new Set(rows.map((row) => row.currency).filter(Boolean))),
+    [rows],
+  );
+  const decisionChanged =
+    selectedQuotationId !== (decision?.quotation_id ?? null) ||
+    decisionNote.trim() !== (decision?.note ?? "");
+
+  const saveDecision = async () => {
+    if (!selectedRow || readOnly) return;
+    if (
+      !selectedRow.is_complete &&
+      !window.confirm(
+        "В выбранном предложении не хватает обязательных условий. Всё равно сохранить его как итог закупки?",
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const saved = await api.savePurchaseDecision(rfq.id, {
+        quotation_id: selectedRow.quotation_id,
+        note: decisionNote.trim() || null,
+      });
+      setDecision(saved);
+      setDecisionNote(saved.note ?? "");
+      setNotice("Итог закупки сохранён.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="panel">
-      <h2>Сводная сравнительная таблица</h2>
-      {error && <p className="error">{error}</p>}
+    <div className="summary-workspace">
+      <section className="panel">
+        <div className="summary-heading">
+          <div>
+            <h2>Сводная сравнительная таблица</h2>
+            <p className="note">
+              Сравните условия и вручную отметьте предложение для итоговой закупки.
+            </p>
+          </div>
+          <label className="summary-complete-filter">
+            <input
+              checked={onlyComplete}
+              onChange={(event) => setOnlyComplete(event.target.checked)}
+              type="checkbox"
+            />
+            Только полные
+          </label>
+        </div>
 
-      <div className="checks" style={{ marginBottom: 8 }}>
-        <label>
-          <input
-            type="checkbox"
-            checked={onlyComplete}
-            onChange={(e) => setOnlyComplete(e.target.checked)}
-          />
-          Только полные котировки
-        </label>
-      </div>
+        {error && <p className="error">{error}</p>}
+        {notice && <p className="success-note">{notice}</p>}
+        {loading ? (
+          <p className="note">Загружаем предложения…</p>
+        ) : (
+          <>
+            <div className="summary-metrics" aria-label="Показатели предложений">
+              <div><span>Предложений</span><strong>{rows.length}</strong></div>
+              <div><span>Полных</span><strong>{completeCount}</strong></div>
+              <div><span>С CoA или TDS</span><strong>{documentedCount}</strong></div>
+              <div><span>Валют</span><strong>{currencies.length}</strong></div>
+            </div>
 
-      {shown.length === 0 ? (
-        <p className="note">Котировок пока нет — извлеките ответы поставщиков выше.</p>
-      ) : (
-        <table className="summary">
-          <thead>
-            <tr>
-              <th>Поставщик</th>
-              <th>Цена</th>
-              <th>Вал.</th>
-              <th>Базис</th>
-              <th>MOQ</th>
-              <th>Грейд</th>
-              <th>Срок</th>
-              <th>CoA</th>
-              <th>TDS</th>
-              <th>Статус</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r) => (
-              <tr key={r.quotation_id} className={r.is_complete ? "" : "incomplete"}>
-                <td>{r.supplier ?? r.manager ?? "—"}</td>
-                <td>{r.price ?? "—"}</td>
-                <td>{r.currency ?? "—"}</td>
-                <td>{r.incoterm ?? "—"}</td>
-                <td>{r.moq ?? "—"}</td>
-                <td>{r.grade ?? "—"}</td>
-                <td>{r.lead_time ?? "—"}</td>
-                <td>{r.has_coa ? "✓" : "—"}</td>
-                <td>{r.has_tds ? "✓" : "—"}</td>
-                <td>
-                  <span className={`badge ${r.is_complete ? "ok" : "err"}`}>
-                    {r.is_complete ? "полная" : "неполная"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            {currencies.length > 1 && (
+              <p className="summary-warning">
+                Цены указаны в разных валютах и пока не нормализованы — сравнивать
+                их напрямую нельзя.
+              </p>
+            )}
+
+            {shown.length === 0 ? (
+              <p className="note">
+                {rows.length === 0
+                  ? "Котировок пока нет — получите ответы поставщиков в разделе «Общение»."
+                  : "Полных котировок пока нет. Отключите фильтр, чтобы увидеть неполные ответы."}
+              </p>
+            ) : (
+              <div className="summary-table-scroll">
+                <table className="summary summary-detailed-table">
+                  <thead>
+                    <tr>
+                      <th>Итог</th>
+                      <th>Поставщик</th>
+                      <th>Цена</th>
+                      <th>Базис</th>
+                      <th>MOQ</th>
+                      <th>Грейд</th>
+                      <th>Оплата</th>
+                      <th>Срок</th>
+                      <th>Документы</th>
+                      <th>Уверенность</th>
+                      <th>Получено</th>
+                      <th>Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((row) => (
+                      <tr
+                        className={`${row.is_complete ? "" : "incomplete"} ${
+                          row.quotation_id === selectedQuotationId
+                            ? "summary-selected-row"
+                            : ""
+                        }`}
+                        key={row.quotation_id}
+                      >
+                        <td>
+                          <input
+                            aria-label={`Выбрать предложение ${supplierName(row)}`}
+                            checked={row.quotation_id === selectedQuotationId}
+                            disabled={readOnly}
+                            name="purchase-decision"
+                            onChange={() => {
+                              setSelectedQuotationId(row.quotation_id);
+                              setDecisionNote(
+                                row.quotation_id === decision?.quotation_id
+                                  ? (decision.note ?? "")
+                                  : "",
+                              );
+                              setNotice(null);
+                            }}
+                            type="radio"
+                          />
+                        </td>
+                        <td><strong>{supplierName(row)}</strong></td>
+                        <td>{formatPrice(row.price, row.currency)}</td>
+                        <td>{row.incoterm ?? "—"}</td>
+                        <td>{row.moq ?? "—"}</td>
+                        <td>{row.grade ?? "—"}</td>
+                        <td>{row.payment_terms ?? "—"}</td>
+                        <td>{row.lead_time ?? "—"}</td>
+                        <td>{documentsLabel(row)}</td>
+                        <td>{confidenceLabel(row)}</td>
+                        <td>{formatMoment(row.created_at)}</td>
+                        <td>
+                          <span className={`badge ${row.is_complete ? "tone-ok" : "tone-warn"}`}>
+                            {row.is_complete ? "полная" : "неполная"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="panel purchase-result">
+        <div className="purchase-result-heading">
+          <div>
+            <h2>Итог закупки</h2>
+            <p className="note">
+              Финальное предложение выбирает сотрудник. Это решение не отправляет
+              заказ, не заключает договор и не проводит оплату.
+            </p>
+          </div>
+          {decision && <span className="badge tone-ok">выбор сохранён</span>}
+        </div>
+
+        {!selectedRow ? (
+          <p className="note">
+            Выберите предложение в таблице выше, чтобы сформировать итог закупки.
+          </p>
+        ) : (
+          <>
+            <div className="purchase-result-grid">
+              <div><span>Товар</span><strong>{rfq.name}</strong></div>
+              <div><span>Планируемый объём</span><strong>{rfq.volume ?? "не указан"}</strong></div>
+              <div><span>Поставщик</span><strong>{supplierName(selectedRow)}</strong></div>
+              <div><span>Предложенная цена</span><strong>{formatPrice(selectedRow.price, selectedRow.currency)}</strong></div>
+              <div><span>Базис поставки</span><strong>{selectedRow.incoterm ?? "не указан"}</strong></div>
+              <div><span>MOQ</span><strong>{selectedRow.moq ?? "не указан"}</strong></div>
+              <div><span>Условия оплаты</span><strong>{selectedRow.payment_terms ?? "не указаны"}</strong></div>
+              <div><span>Срок</span><strong>{selectedRow.lead_time ?? "не указан"}</strong></div>
+              <div><span>Документы</span><strong>{documentsLabel(selectedRow)}</strong></div>
+              <div><span>Полнота</span><strong>{selectedRow.is_complete ? "полная котировка" : "есть недостающие условия"}</strong></div>
+            </div>
+
+            <p className="summary-warning">
+              Итоговая сумма не рассчитывается: поставщик указал цену, но в текущих
+              данных нет подтверждённой единицы цены. Объём и цену нельзя перемножать
+              без риска ошибки.
+            </p>
+
+            {readOnly ? (
+              <div className="purchase-decision-note">
+                <span>Комментарий к выбору</span>
+                <p>{decision?.note ?? "Комментарий не указан."}</p>
+              </div>
+            ) : (
+              <label className="purchase-decision-note">
+                <span>Комментарий к выбору</span>
+                <Textarea
+                  maxLength={2000}
+                  placeholder="Например: согласовано после проверки CoA и условий оплаты"
+                  rows={3}
+                  value={decisionNote}
+                  onChange={(event) => {
+                    setDecisionNote(event.target.value);
+                    setNotice(null);
+                  }}
+                />
+              </label>
+            )}
+
+            <div className="purchase-result-footer">
+              <span className="note">
+                {decision
+                  ? `Последнее решение: ${decision.selected_by_name ?? "сотрудник"}, ${formatMoment(decision.updated_at)}`
+                  : "Итог ещё не сохранён"}
+              </span>
+              {!readOnly && (
+                <button
+                  disabled={saving || !decisionChanged}
+                  onClick={() => void saveDecision()}
+                  type="button"
+                >
+                  {saving ? "Сохраняем…" : "Сохранить итог закупки"}
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

@@ -21,7 +21,6 @@ export default function RfqDispatchPreparation({
   onChanged: () => void;
 }) {
   const [recipients, setRecipients] = useState<RecipientRead[]>([]);
-  const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -44,8 +43,6 @@ export default function RfqDispatchPreparation({
     () => recipients.filter((item) => item.status === "queued"),
     [recipients],
   );
-  const queueKey = queued.map((item) => `${item.id}:${item.updated_at}`).join("|");
-
   const load = async () => {
     try {
       setRecipients(await api.listRecipients(rfq.id));
@@ -73,11 +70,6 @@ export default function RfqDispatchPreparation({
     setTranslationVisible(false);
   }, [rfq.id, rfq.rfq_subject, rfq.rfq_body, rfq.rfq_is_customized]);
 
-  useEffect(() => {
-    // Изменился список или статус получателей — RFQ нужно проверить заново.
-    setReviewed(false);
-  }, [queueKey]);
-
   const removeRecipient = async (recipient: RecipientRead) => {
     setBusy(true);
     setError(null);
@@ -96,7 +88,6 @@ export default function RfqDispatchPreparation({
     setDraftSubject(savedSubject);
     setDraftBody(savedBody);
     setEditing(true);
-    setReviewed(false);
     setError(null);
     setNotice(null);
     setTranslationVisible(false);
@@ -117,7 +108,6 @@ export default function RfqDispatchPreparation({
     setDraftSubject(subject);
     setDraftBody(body);
     setCustomized(updated.rfq_is_customized);
-    setReviewed(false);
     setTranslation(null);
     setTranslationVisible(false);
   };
@@ -195,7 +185,7 @@ export default function RfqDispatchPreparation({
   };
 
   const dispatch = async () => {
-    if (!reviewed || queued.length === 0) return;
+    if (queued.length === 0) return;
     const names = queued
       .map((item) => item.supplier_company ?? `Поставщик #${item.supplier_id}`)
       .join(", ");
@@ -214,7 +204,6 @@ export default function RfqDispatchPreparation({
       const result = await api.dispatchRfq(rfq.id, true);
       const failed = result.filter((item) => item.status === "error");
       setRecipients(result);
-      setReviewed(false);
       if (failed.length > 0) {
         setError(
           `Не отправлено: ${failed.length}. Проверьте контакты и настройки каналов.`,
@@ -302,17 +291,12 @@ export default function RfqDispatchPreparation({
         )}
 
         {!readOnly && !editing && queued.length > 0 && (
-          <div className="rfq-dispatch-confirmation">
-            <label>
-              <input
-                checked={reviewed}
-                onChange={(event) => setReviewed(event.target.checked)}
-                type="checkbox"
-              />
-              Я проверил RFQ, каналы и список получателей
-            </label>
+          <div className="rfq-dispatch-action">
+            <span className="note">
+              Перед отправкой ещё раз покажем каналы и получателей.
+            </span>
             <button
-              disabled={busy || !reviewed}
+              disabled={busy}
               onClick={() => void dispatch()}
               type="button"
             >
@@ -380,10 +364,7 @@ export default function RfqDispatchPreparation({
                 <Input
                   maxLength={500}
                   value={draftSubject}
-                  onChange={(event) => {
-                    setDraftSubject(event.target.value);
-                    setReviewed(false);
-                  }}
+                  onChange={(event) => setDraftSubject(event.target.value)}
                 />
               </div>
             </label>
@@ -393,10 +374,7 @@ export default function RfqDispatchPreparation({
                 maxLength={20_000}
                 rows={18}
                 value={draftBody}
-                onChange={(event) => {
-                  setDraftBody(event.target.value);
-                  setReviewed(false);
-                }}
+                onChange={(event) => setDraftBody(event.target.value)}
               />
             </label>
             <div className="rfq-editor-actions">

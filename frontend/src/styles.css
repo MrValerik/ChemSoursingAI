@@ -420,6 +420,115 @@ table.summary th { color: var(--muted); font-weight: 600; font-size: 12px; }
 table.summary tr.incomplete { background: var(--warn-soft); }
 table.summary tbody tr:hover { background: var(--panel-2); }
 
+.summary-workspace {
+  display: grid;
+  gap: 16px;
+}
+
+.summary-heading,
+.purchase-result-heading,
+.purchase-result-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.summary-complete-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.summary-metrics > div,
+.purchase-result-grid > div {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.summary-metrics span,
+.purchase-result-grid span,
+.purchase-decision-note > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.summary-metrics strong {
+  font-size: 20px;
+}
+
+.summary-warning {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: var(--text);
+}
+
+.summary-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+table.summary-detailed-table {
+  min-width: 1280px;
+}
+
+table.summary-detailed-table tr.summary-selected-row,
+table.summary-detailed-table tr.summary-selected-row:hover {
+  background: var(--brand-soft);
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.purchase-result {
+  display: grid;
+  gap: 14px;
+}
+
+.purchase-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.purchase-result-grid strong {
+  overflow-wrap: anywhere;
+}
+
+.purchase-decision-note {
+  display: grid;
+  gap: 7px;
+}
+
+.purchase-decision-note p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.purchase-decision-note textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.purchase-result-footer {
+  align-items: center;
+}
+
 /* ===== Знак ChemSource AI и заставка загрузки ===== */
 
 .logo-mark {
@@ -1442,7 +1551,7 @@ button.danger:hover {
 
 .rfq-recipient-row,
 .rfq-recipient-status,
-.rfq-dispatch-confirmation {
+.rfq-dispatch-action {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1561,15 +1670,9 @@ button.danger:hover {
   white-space: pre-wrap;
 }
 
-.rfq-dispatch-confirmation {
+.rfq-dispatch-action {
   justify-content: space-between;
   margin-top: 14px;
-}
-
-.rfq-dispatch-confirmation label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .communication-toolbar-actions {
@@ -1958,9 +2061,21 @@ button.danger:hover {
 }
 
 @media (max-width: 800px) {
+  .summary-heading,
+  .purchase-result-heading,
+  .purchase-result-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .summary-metrics,
+  .purchase-result-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .rfq-recipient-empty,
   .rfq-recipient-row,
-  .rfq-dispatch-confirmation {
+  .rfq-dispatch-action {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1986,6 +2101,13 @@ button.danger:hover {
   .conversation-composer-footer {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 520px) {
+  .summary-metrics,
+  .purchase-result-grid {
+    grid-template-columns: 1fr;
   }
 }
 .esc-note { color: var(--attention); margin-top: 8px; }

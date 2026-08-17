@@ -14,6 +14,7 @@ from app.models.integration import (
 from app.models.intermediary import Intermediary
 from app.models.manager import Manager
 from app.models.prompt import PromptTemplate, PromptVersion, RfqAiSetting
+from app.models.purchase_decision import PurchaseDecision
 from app.models.quotation import Quotation
 from app.models.recipient import RfqRecipient
 from app.models.rfq import RFQ
@@ -42,6 +43,7 @@ __all__ = [
     "PromptVersion",
     "RfqAiSetting",
     "Quotation",
+    "PurchaseDecision",
     "RfqRecipient",
     "Communication",
     "SupplierDocument",

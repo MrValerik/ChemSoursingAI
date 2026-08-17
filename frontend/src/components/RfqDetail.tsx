@@ -519,7 +519,7 @@ export default function RfqDetail({
             </>
           )}
 
-          {tab === "summary" && <Summary rfqId={rfq.id} />}
+          {tab === "summary" && <Summary rfq={rfq} />}
         </div>
       </div>
     </div>

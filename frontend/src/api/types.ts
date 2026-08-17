@@ -193,10 +193,24 @@ export interface SummaryRow {
   incoterm: string | null;
   moq: string | null;
   grade: string | null;
+  payment_terms: string | null;
   lead_time: string | null;
   has_coa: boolean;
   has_tds: boolean;
   is_complete: boolean;
+  field_confidence: Record<string, number> | null;
+  created_at: string;
+}
+
+export interface PurchaseDecisionRead {
+  id: number;
+  rfq_id: number;
+  quotation_id: number;
+  selected_by_id: number | null;
+  selected_by_name: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface EscalationRead {

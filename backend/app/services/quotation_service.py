@@ -9,8 +9,10 @@ from sqlalchemy.orm import Session
 from app.models.escalation import Escalation
 from app.models.integration import CommunicationTestRun
 from app.models.enums import EscalationStatus, RFQStatus
+from app.models.purchase_decision import PurchaseDecision
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
+from app.models.user import User
 from app.schemas.quotation import QuotationCreate, SummaryRow
 from app.services.completeness import evaluate_completeness
 from app.services.escalation_rules import detect_escalation
@@ -93,10 +95,13 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
                 incoterm=q.incoterm,
                 moq=q.moq,
                 grade=q.grade,
+                payment_terms=q.payment_terms,
                 lead_time=q.lead_time,
                 has_coa=q.has_coa,
                 has_tds=q.has_tds,
                 is_complete=q.is_complete,
+                field_confidence=q.field_confidence,
+                created_at=q.created_at,
             )
         )
 
@@ -110,3 +115,30 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
             rfq.status = RFQStatus.SUMMARIZED
             db.commit()
     return rows
+
+
+def save_purchase_decision(
+    db: Session,
+    *,
+    rfq: RFQ,
+    quotation_id: int,
+    note: str | None,
+    actor: User,
+) -> PurchaseDecision:
+    """Сохраняет выбор человека без отправки заказа или внешнего действия."""
+    quotation = db.get(Quotation, quotation_id)
+    if quotation is None or quotation.rfq_id != rfq.id:
+        raise ValueError("Предложение не относится к этому запросу")
+
+    decision = db.scalar(
+        select(PurchaseDecision).where(PurchaseDecision.rfq_id == rfq.id)
+    )
+    if decision is None:
+        decision = PurchaseDecision(rfq_id=rfq.id, quotation_id=quotation.id)
+        db.add(decision)
+    decision.quotation_id = quotation.id
+    decision.selected_by_id = actor.id
+    decision.note = note
+    db.commit()
+    db.refresh(decision)
+    return decision

@@ -47,6 +47,7 @@ import type {
   SubstanceHistoryEntry,
   SubstanceRecord,
   SummaryRow,
+  PurchaseDecisionRead,
   TokenResponse,
 } from "./types";
 import {
@@ -326,6 +327,18 @@ export const api = {
 
   getSummary: (rfqId: number) =>
     request<SummaryRow[]>(`/rfq/${rfqId}/summary`),
+
+  getPurchaseDecision: (rfqId: number) =>
+    request<PurchaseDecisionRead | null>(`/rfq/${rfqId}/purchase-decision`),
+
+  savePurchaseDecision: (
+    rfqId: number,
+    payload: { quotation_id: number; note: string | null },
+  ) =>
+    request<PurchaseDecisionRead>(`/rfq/${rfqId}/purchase-decision`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 
   listEscalations: (rfqId: number) =>
     request<EscalationRead[]>(`/rfq/${rfqId}/escalations`),
