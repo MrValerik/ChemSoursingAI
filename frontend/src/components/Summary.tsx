@@ -175,7 +175,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                   : "Полных котировок пока нет. Отключите фильтр, чтобы увидеть неполные ответы."}
               </p>
             ) : (
-              <div className="summary-table-scroll">
+              <div className="summary-table-frame">
                 <table className="summary summary-detailed-table">
                   <thead>
                     <tr>
