@@ -190,4 +190,6 @@ class RFQListItem(BaseModel):
     n_quotations: int = 0
     n_complete: int = 0
     completeness_pct: int = 0
+    # Поставщики, которым RFQ разослан: знаменатель к числу ответов.
+    n_recipients: int = 0
     has_open_escalation: bool = False

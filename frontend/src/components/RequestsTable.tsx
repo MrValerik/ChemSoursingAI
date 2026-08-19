@@ -10,7 +10,30 @@ import { Icon, Input, MultiSelect, Toast } from "./ui";
 
 type QuickFilter = "all" | "attention" | "incomplete" | "review";
 type ScopeFilter = "mine" | "all";
-type SortKey = "id" | "name" | "status" | "n_quotations" | "completeness_pct" | "owner_name";
+type SortKey = "id" | "name" | "status" | "created_at" | "owner_name";
+
+const formatDate = (value: string) => new Date(value).toLocaleDateString("ru-RU");
+
+const formatMoment = (value: string) =>
+  new Date(value).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+// Статус описывает стадию обработки, а не охват: «Сводка готова» появляется
+// и при одном ответе из шести. Поэтому под бейджем идёт доля ответивших, а
+// если ответила меньше половины разосланных — она подсвечивается.
+const responseLabel = (r: RFQListItem) => {
+  if (r.n_recipients > 0) return `ответили ${r.n_quotations} из ${r.n_recipients}`;
+  if (r.n_quotations > 0) return `ответов: ${r.n_quotations}`;
+  return null;
+};
+
+const THIN_RESPONSE = (r: RFQListItem) =>
+  r.n_recipients > 0 && r.n_quotations * 2 < r.n_recipients;
 
 const NEEDS_ATTENTION = (r: RFQListItem) =>
   r.has_open_escalation ||
@@ -109,7 +132,7 @@ export default function RequestsTable({
   };
 
   const exportCsv = () => {
-    const header = ["№", "Вещество", "CAS", "Статус", "Котировки", "Полные", "Полнота %"];
+    const header = ["№", "Вещество", "CAS", "Статус", "Ответили", "Разослано", "Создан"];
     if (showOwner) header.push("Ответственный");
     const lines = [header.join(";")];
     for (const r of filtered) {
@@ -119,8 +142,8 @@ export default function RequestsTable({
         r.cas,
         STATUS_LABELS[r.status],
         r.n_quotations,
-        r.n_complete,
-        r.completeness_pct,
+        r.n_recipients,
+        formatDate(r.created_at),
       ];
       if (showOwner) row.push(`"${r.owner_name ?? ""}"`);
       lines.push(row.join(";"));
@@ -262,12 +285,7 @@ export default function RequestsTable({
                 <th onClick={() => toggleSort("id")}>№{arrow("id")}</th>
                 <th onClick={() => toggleSort("name")}>Вещество / CAS{arrow("name")}</th>
                 <th onClick={() => toggleSort("status")}>Статус{arrow("status")}</th>
-                <th onClick={() => toggleSort("n_quotations")}>
-                  Котировки{arrow("n_quotations")}
-                </th>
-                <th onClick={() => toggleSort("completeness_pct")}>
-                  Полнота{arrow("completeness_pct")}
-                </th>
+                <th onClick={() => toggleSort("created_at")}>Дата{arrow("created_at")}</th>
                 {showOwner && (
                   <th onClick={() => toggleSort("owner_name")}>
                     Ответственный{arrow("owner_name")}
@@ -293,22 +311,14 @@ export default function RequestsTable({
                         !
                       </span>
                     )}
-                  </td>
-                  <td>
-                    {r.n_quotations > 0 ? `${r.n_complete} / ${r.n_quotations} полн.` : "—"}
-                  </td>
-                  <td>
-                    {r.n_quotations > 0 ? (
-                      <div className="meter" title={`${r.completeness_pct}%`}>
-                        <div
-                          className={`meter-fill ${r.completeness_pct === 100 ? "ok" : "warn"}`}
-                          style={{ width: `${r.completeness_pct}%` }}
-                        />
-                        <span className="meter-label">{r.completeness_pct}%</span>
+                    {responseLabel(r) && (
+                      <div className={`status-coverage ${THIN_RESPONSE(r) ? "thin" : ""}`}>
+                        {responseLabel(r)}
                       </div>
-                    ) : (
-                      "—"
                     )}
+                  </td>
+                  <td className="request-date" title={formatMoment(r.created_at)}>
+                    {formatDate(r.created_at)}
                   </td>
                   {showOwner && <td>{r.owner_name ?? "—"}</td>}
                   {showDeleteAction && (

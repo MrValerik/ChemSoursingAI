@@ -140,6 +140,7 @@ export interface RFQListItem {
   n_quotations: number;
   n_complete: number;
   completeness_pct: number;
+  n_recipients: number;
   has_open_escalation: boolean;
   id: number;
   cas: string | null;

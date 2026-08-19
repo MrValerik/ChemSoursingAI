@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_current_user
 from app.core.db import get_db
 from app.models import RfqAiSetting, Substance, User
-from app.models.enums import EscalationStatus, UserRole
+from app.models.enums import DispatchStatus, EscalationStatus, UserRole
 from app.models.escalation import Escalation
 from app.models.quotation import Quotation
+from app.models.recipient import RfqRecipient
 from app.models.rfq import RFQ
 from app.schemas.rfq import (
     RFQCreate,
@@ -329,6 +330,21 @@ def list_rfqs(
     ).all()
     quotes = {rfq_id: (total or 0, int(complete or 0)) for rfq_id, total, complete in quote_rows}
 
+    # Знаменатель охвата: скольким поставщикам RFQ действительно ушёл. Один
+    # поставщик может стоять в двух каналах — считаем компании, не отправки.
+    recipient_rows = db.execute(
+        select(
+            RfqRecipient.rfq_id,
+            func.count(func.distinct(RfqRecipient.supplier_id)),
+        )
+        .where(
+            RfqRecipient.rfq_id.in_(ids),
+            RfqRecipient.status != DispatchStatus.QUEUED,
+        )
+        .group_by(RfqRecipient.rfq_id)
+    ).all()
+    recipients = {rfq_id: int(total or 0) for rfq_id, total in recipient_rows}
+
     esc_rows = db.execute(
         select(Escalation.rfq_id)
         .where(
@@ -347,6 +363,7 @@ def list_rfqs(
         item.n_quotations = total
         item.n_complete = complete
         item.completeness_pct = round(100 * complete / total) if total else 0
+        item.n_recipients = recipients.get(r.id, 0)
         item.has_open_escalation = r.id in escalated
         items.append(item)
     return items

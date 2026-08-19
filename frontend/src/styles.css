@@ -1023,6 +1023,10 @@ button.is-busy:disabled {
 .requests-table th:hover { color: var(--text); }
 tr.clickable { cursor: pointer; }
 .requests-table td .cas { font-size: 12px; color: var(--muted); }
+/* Доля ответивших под бейджем статуса: статус — стадия, охват — факт. */
+.requests-table td .status-coverage { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.requests-table td .status-coverage.thin { color: var(--warn); }
+.requests-table td.request-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .requests-table .request-actions-column {
   width: 1%;
   text-align: right;
