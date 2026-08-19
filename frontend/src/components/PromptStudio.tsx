@@ -7,7 +7,7 @@ const KIND_LABELS: Record<PromptKind, string> = {
   extraction: "Извлечение котировки",
   rfq_generation: "Формирование первого письма",
   substance_identity: "Идентификация вещества",
-  supplier_search: "Поиск поставщиков",
+  supplier_search: "Поиск компаний",
   qualification: "Квалификация",
   followup: "Дозапрос данных",
   supplier_communication: "Общение с поставщиком",

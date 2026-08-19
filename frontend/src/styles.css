@@ -1236,6 +1236,12 @@ button.request-delete-button:focus-visible {
   align-items: center;
   gap: 2px;
 }
+/* У крайней правой колонки подсказка раскрывается влево: вправо от неё
+   край таблицы, и общее правило уводило её за пределы экрана. */
+.summary th:last-child .help-tip > span[role="tooltip"] {
+  right: 0;
+  left: auto;
+}
 .table-sort-mark {
   width: 10px;
   color: var(--muted);
@@ -2583,6 +2589,17 @@ button.danger:hover {
   color: var(--err);
   border-radius: var(--radius-sm);
   font-size: 12px;
+}
+/* Каждое замечание — своя строка с маркером: их формулировки длинные, и
+   в сплошном абзаце граница между ними теряется. */
+.qualification-warning ul,
+.qualification-missing ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.qualification-warning li + li,
+.qualification-missing li + li {
+  margin-top: 4px;
 }
 .qualification-card details { font-size: 12px; }
 .qualification-card summary { cursor: pointer; color: var(--brand); }

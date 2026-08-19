@@ -38,6 +38,34 @@ const CAS_LABELS: Record<CasEvidenceStatus, string> = {
   mismatch: "не совпадает",
 };
 
+// Колонка отвечает на вопрос «то ли это вещество», и называется так же.
+// «Идентичность» этого не сообщала: слово из отчёта, а не из закупки.
+// Значение зависит от того, есть ли в запросе номер: с номером сверяется
+// он, без номера — название, состав и грейд.
+const SUBSTANCE_CELL_WITH_CAS: Record<CasEvidenceStatus, string> = {
+  confirmed: "CAS подтверждён",
+  mentioned: "CAS упомянут",
+  not_found: "CAS не найден",
+  mismatch: "CAS не совпадает",
+};
+
+const SUBSTANCE_CELL_BY_NAME: Record<CasEvidenceStatus, string> = {
+  confirmed: "то же вещество",
+  mentioned: "упомянуто вскользь",
+  not_found: "не подтверждено",
+  mismatch: "другое вещество",
+};
+
+// Сколько «замечаний» — число само по себе не говорит, чего именно.
+const riskWord = (count: number) => {
+  const tail = count % 10;
+  const teen = count % 100;
+  if (teen >= 11 && teen <= 14) return "замечаний";
+  if (tail === 1) return "замечание";
+  if (tail >= 2 && tail <= 4) return "замечания";
+  return "замечаний";
+};
+
 const COUNTRY_LABELS: Record<CountryEvidenceStatus, string> = {
   claimed: "страна заявлена",
   likely: "страна вероятна",
@@ -51,11 +79,14 @@ const EVIDENCE_LABELS: Record<EvidenceStatus, string> = {
   contradicted: "есть противоречие",
 };
 
+// «Аудитор» в закупке химии — это внешний GMP-аудит предприятия, а здесь
+// речь о втором автоматическом проходе по тем же цитатам. Совпадение слова
+// обещало закупщику подтверждение, которого никто не давал.
 const VERIFICATION_LABELS: Record<SupplierVerificationStatus, string> = {
-  confirmed: "Аудитор подтвердил",
-  needs_review: "Нужна ручная проверка",
-  rejected: "Аудитор отклонил",
-  unavailable: "Аудитор недоступен",
+  confirmed: "Повторная проверка подтвердила",
+  needs_review: "Повторная проверка требует человека",
+  rejected: "Повторная проверка отклонила",
+  unavailable: "Повторная проверка не выполнена",
 };
 
 const verificationTone = (status: SupplierVerificationStatus) => {
@@ -168,12 +199,12 @@ const shortlistExplanation = (
       item.support_status === "supports",
   );
   return [
-    "Для включения в короткий список нужны одновременно:",
+    "Компания готова к запросу, когда выполнено всё сразу:",
     `балл не ниже 70 (${result.confidence >= 70 ? "выполнено" : `сейчас ${result.confidence}`});`,
     `тип «Производитель» (${result.supplier_type === "manufacturer" ? "выполнено" : "не подтверждено"});`,
     `подтверждение вещества (${hasIdentity ? "есть" : "нет"});`,
     `подтверждение собственного производства (${hasManufacturerRole ? "есть" : "нет"});`,
-    `решение независимого аудитора (${result.verification?.status === "confirmed" ? "подтверждено" : "не подтверждено"}).`,
+    `повторная автоматическая проверка (${result.verification?.status === "confirmed" ? "подтвердила" : "не подтвердила"}).`,
   ].join(" ");
 };
 
@@ -182,14 +213,14 @@ const verificationExplanation = (
 ) => {
   if (!result.verification) {
     return (
-      "Для этого сохранённого результата независимая проверка не выполнялась. " +
-      "Кандидат требует ручной проверки."
+      "Для этого сохранённого результата повторная проверка не выполнялась. " +
+      "Кандидата нужно проверить руками."
     );
   }
   return [
     result.verification.reason,
     result.verification.gate_reason,
-    `Уверенность аудитора: ${result.verification.confidence}%.`,
+    `Уверенность повторной проверки: ${result.verification.confidence}%.`,
   ].join(" ");
 };
 
@@ -290,20 +321,34 @@ function QualificationTable({
         "производителя — до 25, страна — до 10, документы — до 15, качество " +
         "самих доказательств — до 15. Баллы даются только за дословно " +
         "найденную цитату; при противоречии по веществу балл обнуляется. " +
-        "От 70 компания проходит в короткий список.",
+        "Балл от 70 — одно из условий готовности к запросу.",
     },
     {
       key: "cas",
-      label: activeCas ? "CAS" : "Идентичность",
+      label: "Вещество",
       hint: activeCas
-        ? `Подтверждает ли страница компании, что речь о том же веществе с номером CAS ${activeCas}: подтверждён — номер найден дословно, упомянут — номер есть, но рядом с другим продуктом, не найден, не совпадает — на странице другой номер.`
-        : "Подтверждает ли страница компании, что речь о том же продукте. " +
-          "Номера у смесей и промышленных марок нет, поэтому сверяются " +
-          "название, состав и грейд, а не номер.",
+        ? `То ли это вещество: сверяется номер CAS ${activeCas}. Подтверждён — номер найден на странице дословно; упомянут — номер есть, но рядом с другим продуктом; не найден; не совпадает — на странице другой номер.`
+        : "То ли это вещество. Номера у смесей и промышленных марок нет, " +
+          "поэтому сверяются название, состав и грейд: «то же вещество» — " +
+          "страница подтверждает продукт, «упомянуто вскользь» — название " +
+          "встречается, но продукт другой, «другое вещество» — противоречие.",
     },
-    { key: "country", label: activeCountry || "Страна" },
+    {
+      key: "country",
+      label: "Страна",
+      hint: `Подтверждает ли страница компании связь со страной поиска (${activeCountry || "страна не выбрана"}). Название страны в ячейке — связь подтверждена самой страницей; «вероятно» — подтверждена косвенно, например доменом или адресом склада.`,
+    },
     { key: "documents", label: "Документы" },
-    { key: "risks", label: "Риски" },
+    {
+      key: "risks",
+      label: "Риски",
+      hint:
+        "Сомнительные места, найденные проверкой на странице компании: " +
+        "заявления без подтверждения, отсутствие сертификатов, " +
+        "противоречия требованиям запроса. Это не приговор, а список того, " +
+        "о чём стоит спросить в переписке. Сами формулировки — в карточке " +
+        "компании, строка открывается по нажатию.",
+    },
   ];
 
   const sortBy = (key: QualificationSortKey) => {
@@ -433,7 +478,9 @@ function QualificationTable({
                     : "cell-muted"
               }
             >
-              {CAS_LABELS[result.cas_status]}
+              {activeCas
+                ? SUBSTANCE_CELL_WITH_CAS[result.cas_status]
+                : SUBSTANCE_CELL_BY_NAME[result.cas_status]}
             </td>
             <td
               className={
@@ -444,13 +491,29 @@ function QualificationTable({
                     : "cell-muted"
               }
             >
-              {COUNTRY_LABELS[result.country_status]}
+              {/* Страна названа словом, а не статусом: закупщику нужна
+                  страна, а «заявлена» без неё ничего не значит. Там, где
+                  страницей она не подтверждена, называть её нельзя — стоит
+                  причина. */}
+              {result.country_status === "claimed" ||
+              result.country_status === "likely" ? (
+                <>
+                  <div>{activeCountry || "—"}</div>
+                  {result.country_status === "likely" && (
+                    <div className="cas">вероятно</div>
+                  )}
+                </>
+              ) : (
+                COUNTRY_LABELS[result.country_status]
+              )}
             </td>
             <td className={`cell-${documentsTone(result)}`}>
               {documentsCell(result)}
             </td>
             <td className={result.red_flags.length > 0 ? "cell-danger" : "cell-muted"}>
-              {result.red_flags.length > 0 ? result.red_flags.length : "—"}
+              {result.red_flags.length > 0
+                ? `${result.red_flags.length} ${riskWord(result.red_flags.length)}`
+                : "нет"}
             </td>
           </tr>
         ))}
@@ -462,7 +525,7 @@ function QualificationTable({
 // Подробности поставщика: то, что не помещается в строку таблицы.
 //
 // Здесь всё, чем вывод доказывается: суть, статусы с объяснениями, решение
-// аудитора, правило отбора, расчёт балла, дословные цитаты и исходная выдача.
+// повторной проверки, правило отбора, расчёт балла, цитаты и исходная выдача.
 function QualificationDetail({
   result,
   activeCas,
@@ -522,7 +585,11 @@ function QualificationDetail({
                 ? "tone-danger"
                 : "tone-neutral"
           }
-          label={`${activeCas ? "CAS" : "Идентичность"}: ${CAS_LABELS[result.cas_status]}`}
+          label={`Вещество: ${
+            activeCas
+              ? SUBSTANCE_CELL_WITH_CAS[result.cas_status]
+              : SUBSTANCE_CELL_BY_NAME[result.cas_status]
+          }`}
           explanation={evidenceExplanation(
             result,
             "chemical_identity",
@@ -574,14 +641,30 @@ function QualificationDetail({
         />
       </div>
 
+      {/* Замечания приходят отдельными формулировками, и склеенные в один
+          абзац через «;» читались как одно длинное предложение: где
+          кончается первое и начинается второе, видно только по точке с
+          запятой. Каждое — своя строка. */}
       {result.red_flags.length > 0 && (
         <div className="qualification-warning">
-          <strong>Риски:</strong> {result.red_flags.join("; ")}
+          <strong>
+            Риски ({result.red_flags.length} {riskWord(result.red_flags.length)})
+          </strong>
+          <ul>
+            {result.red_flags.map((flag) => (
+              <li key={flag}>{flag.replace(/[;\s]+$/, "")}</li>
+            ))}
+          </ul>
         </div>
       )}
       {result.missing_evidence.length > 0 && (
-        <div className="note">
-          <strong>Запросить:</strong> {result.missing_evidence.join("; ")}
+        <div className="note qualification-missing">
+          <strong>Запросить у поставщика</strong>
+          <ul>
+            {result.missing_evidence.map((item) => (
+              <li key={item}>{item.replace(/[;\s]+$/, "")}</li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -603,24 +686,32 @@ function QualificationDetail({
       </div>
 
       <div className="qualification-details-body">
+        {/* «Короткий список» — слово из нашего конвейера, а не из закупки:
+            никакого отдельного списка закупщик не ведёт. По делу здесь
+            один вопрос — можно ли уже писать этой компании. */}
         <EvidenceBadge
-            className={result.shortlist_eligible ? "tone-ok" : "tone-neutral"}
-            label={
-              result.shortlist_eligible
-                ? "В коротком списке"
-                : "Не в коротком списке"
-            }
+          className={result.shortlist_eligible ? "tone-ok" : "tone-neutral"}
+          label={
+            result.shortlist_eligible
+              ? "Готова к запросу"
+              : "Ещё не готова к запросу"
+          }
           explanation={shortlistExplanation(result)}
         />
-        <EvidenceBadge
-          className={verificationTone(
-            result.verification?.status ?? "unavailable",
-          )}
-          label={
-            VERIFICATION_LABELS[result.verification?.status ?? "unavailable"]
-          }
-          explanation={verificationExplanation(result)}
-        />
+        {/* Итог повторной проверки показывается, только когда он что-то
+            меняет. Подтвердила — это уже сказано строкой выше, и второй
+            бейдж рядом означал бы вторую, отдельную проверку. */}
+        {(result.verification?.status ?? "unavailable") !== "confirmed" && (
+          <EvidenceBadge
+            className={verificationTone(
+              result.verification?.status ?? "unavailable",
+            )}
+            label={
+              VERIFICATION_LABELS[result.verification?.status ?? "unavailable"]
+            }
+            explanation={verificationExplanation(result)}
+          />
+        )}
 
         <ul className="score-list">
             <li>Совпадение вещества: {result.score_breakdown.identity}/35</li>
@@ -632,12 +723,6 @@ function QualificationDetail({
               /15
             </li>
           </ul>
-          {result.llm_confidence !== null && (
-            <p className="note">
-              Исходная оценка ИИ-агента: {result.llm_confidence}% — показана для
-              аудита, но не участвует в итоговом балле.
-            </p>
-          )}
 
           {result.evidence.length > 0 && (
             <div className="candidate-evidence-list">
@@ -744,8 +829,8 @@ const PIPELINE_STEPS = [
   },
   {
     slug: "supplier_verifier",
-    title: "Независимый аудит",
-    description: "Повторно сверяет вещество и роль производителя перед коротким списком.",
+    title: "Повторная проверка",
+    description: "Второй раз сверяет вещество и роль производителя по тем же цитатам.",
   },
 ] as const;
 

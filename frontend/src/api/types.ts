@@ -715,7 +715,6 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
   coa_status: EvidenceStatus;
   tds_status: EvidenceStatus;
   confidence: number;
-  llm_confidence: number | null;
   score_breakdown: {
     total: number;
     identity: number;

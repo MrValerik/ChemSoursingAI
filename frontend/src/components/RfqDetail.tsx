@@ -36,7 +36,7 @@ const TABS: { key: TabKey; label: string }[] = [
 // живут на той же вкладке.
 const STAGES: { label: string; tab: TabKey }[] = [
   { label: "Проверка вещества", tab: "supplier_search" },
-  { label: "Поиск поставщиков", tab: "supplier_search" },
+  { label: "Поиск компаний", tab: "supplier_search" },
   { label: "Отбор поставщиков", tab: "suppliers" },
   { label: "Общение", tab: "dispatch" },
   { label: "Сводная таблица", tab: "summary" },
