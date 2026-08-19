@@ -27,7 +27,13 @@ const formatMoment = (value: string) =>
 // и при одном ответе из шести. Поэтому под бейджем идёт доля ответивших, а
 // если ответила меньше половины разосланных — она подсвечивается.
 const responseLabel = (r: RFQListItem) => {
-  if (r.n_recipients > 0) return `ответили ${r.n_quotations} из ${r.n_recipients}`;
+  // Котировок бывает больше, чем разосланных компаний: карточку заводит и
+  // тестовый прогон общения, и ручной ввод — оба минуют рассылку. Доля
+  // тогда получается вида «6 из 4», поэтому знаменатель показывается
+  // только там, где он честен.
+  if (r.n_recipients > 0 && r.n_quotations <= r.n_recipients) {
+    return `ответили ${r.n_quotations} из ${r.n_recipients}`;
+  }
   if (r.n_quotations > 0) return `ответов: ${r.n_quotations}`;
   return null;
 };
