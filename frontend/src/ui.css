@@ -213,6 +213,29 @@ textarea.ui-control {
   flex: 1;
 }
 
+/* Подпись и значок пояснения стоят одной строкой: значок принадлежит
+   подписи, а не полю, и не должен растягивать строку ввода. */
+.ui-field-labelrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 18px;
+}
+
+/* Подсказка раскрывается вниз и от левого края подписи, а не вверх от
+   значка: поля стоят у верхнего края формы, и подсказка вверх уходит за
+   границу экрана — наведение выглядит так, будто её нет. Ширины строки
+   подписи хватает на всю подсказку, ширины значка — нет. */
+.ui-field-labelrow .help-tip { position: static; }
+.ui-field-labelrow .help-tip > span[role="tooltip"] {
+  top: calc(100% + 6px);
+  right: auto;
+  bottom: auto;
+  left: 0;
+  transform: none;
+}
+
 .ui-field-label {
   color: var(--text-soft);
   font-size: 12px;

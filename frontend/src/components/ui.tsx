@@ -167,11 +167,18 @@ export function Field({
   className?: string;
   children: ReactNode;
 }) {
+  // Пояснение живёт под значком у подписи, а не строкой под полем. Формы
+  // здесь длинные, пояснение к каждому полю длиннее самого поля, и серый
+  // текст между полями читался как продолжение формы: глазу приходилось
+  // проходить его целиком, чтобы найти следующий ввод. Нужен он редко —
+  // на второй раз поле уже знакомо, — поэтому открывается по наведению.
   return (
     <label className={classes("ui-field", className)}>
-      <span className="ui-field-label">{label}</span>
+      <span className="ui-field-labelrow">
+        <span className="ui-field-label">{label}</span>
+        {hint && <HelpTip text={hint} />}
+      </span>
       {children}
-      {hint && !error && <span className="ui-field-hint">{hint}</span>}
       {error && <span className="ui-field-error">{error}</span>}
     </label>
   );
@@ -323,7 +330,11 @@ export function IconButton({
 export function HelpTip({ text }: { text: string }) {
   return (
     <span className="help-tip">
-      <button aria-label={text} type="button">
+      <button
+        aria-label={text}
+        type="button"
+        onClick={(event) => event.preventDefault()}
+      >
         <Icon name="help" size={14} />
       </button>
       <span role="tooltip">{text}</span>
