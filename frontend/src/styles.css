@@ -4232,7 +4232,10 @@ button.substance-list-item.active {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  margin: 8px 0 4px;
+  /* Кнопка относится к полю «Что нужно закупить», а не к тому, что идёт
+     дальше. Поле уже несёт свои 12px снизу, поэтому сверху отступ
+     подбирается в минус, а снизу остаётся разрыв до следующего блока. */
+  margin: -4px 0 22px;
 }
 .resolve-bar .note { flex: 1; min-width: 220px; }
 
