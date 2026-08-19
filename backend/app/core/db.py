@@ -7,8 +7,9 @@ Engine создаётся из DSN в конфиге. Для PostgreSQL испо
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -40,14 +41,58 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
+# Ключ рекомендательной блокировки: число произвольное, важно лишь то,
+# что оно одно на все процессы.
+_STARTUP_LOCK_KEY = 4_073_120_519
+
+
+@contextmanager
+def _one_process_at_a_time() -> Iterator[None]:
+    """Пропускает через подготовку схемы по одному процессу.
+
+    Стек поднимает шесть процессов разом — backend, четыре поисковых
+    воркера и почтовый, — и каждый на старте правит схему и заполняет
+    справочники. 19 августа при холодной загрузке двое сошлись на одном и
+    том же `UPDATE rfqs SET substance_id = ...`, PostgreSQL увидел
+    взаимную блокировку и снял одного из них. Снятым оказался backend:
+    исключение прилетело в lifespan, контейнер упал, compose объявил его
+    нездоровым и не поднял фронтенд — то есть nginx, который и держит
+    80-й порт. Сайт стоял тёмным при живой машине.
+
+    Блокировка рекомендательная и уровня сессии: первый процесс делает
+    работу, остальные ждут и застают всё уже сделанным. SQLite такого не
+    умеет, да и незачем — там процесс всегда один.
+    """
+    if engine.dialect.name != "postgresql":
+        yield
+        return
+    connection = engine.connect()
+    try:
+        connection.execute(
+            text("SELECT pg_advisory_lock(:key)"), {"key": _STARTUP_LOCK_KEY}
+        )
+        # Держим саму блокировку, а не открытую транзакцию: она уровня
+        # сессии и переживает коммит, а висящая транзакция мешала бы
+        # остальным.
+        connection.commit()
+        yield
+    finally:
+        connection.execute(
+            text("SELECT pg_advisory_unlock(:key)"), {"key": _STARTUP_LOCK_KEY}
+        )
+        connection.commit()
+        connection.close()
+
+
 def init_db() -> None:
     """Создаёт таблицы по метаданным моделей.
 
     Для прода предпочтительны миграции (Alembic); это удобно для dev/демо
     и первичного развёртывания.
     """
-    Base.metadata.create_all(bind=engine)
-    _apply_light_migrations()
+    with _one_process_at_a_time():
+        Base.metadata.create_all(bind=engine)
+        _apply_light_migrations()
 
 
 def _relax_sqlite_not_null(table: str, column: str) -> None:
