@@ -90,8 +90,6 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const shown = onlyComplete ? rows.filter((row) => row.is_complete) : rows;
   const selectedRow =
     rows.find((row) => row.quotation_id === selectedQuotationId) ?? null;
-  const completeCount = rows.filter((row) => row.is_complete).length;
-  const documentedCount = rows.filter((row) => row.has_coa || row.has_tds).length;
   const currencies = useMemo(
     () => Array.from(new Set(rows.map((row) => row.currency).filter(Boolean))),
     [rows],
@@ -154,13 +152,6 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
           <p className="note">Загружаем предложения…</p>
         ) : (
           <>
-            <div className="summary-metrics" aria-label="Показатели предложений">
-              <div><span>Предложений</span><strong>{rows.length}</strong></div>
-              <div><span>Полных</span><strong>{completeCount}</strong></div>
-              <div><span>С CoA или TDS</span><strong>{documentedCount}</strong></div>
-              <div><span>Валют</span><strong>{currencies.length}</strong></div>
-            </div>
-
             {currencies.length > 1 && (
               <p className="summary-warning">
                 Цены указаны в разных валютах и пока не нормализованы — сравнивать
