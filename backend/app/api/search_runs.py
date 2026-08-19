@@ -22,7 +22,10 @@ from app.schemas.search_trace import (
 )
 from app.services.search_replay import SearchReplayError, replay_supplier_validator
 from app.services.search_trace import cancel_search_run, create_search_run, utc_now
-from app.services.supplier_registry import why_not_a_company_page
+from app.services.supplier_registry import (
+    found_on_someone_elses_page,
+    names_a_company,
+)
 from app.services.supplier_search_continuation import (
     candidate_results as continuation_candidate_results,
     country_runs,
@@ -55,18 +58,26 @@ def _candidate_results(search_run: SearchRun) -> list[dict]:
 
 
 def _qualified_results(search_run: SearchRun) -> list[dict]:
-    """Находки с пометкой, какие из них не сайты компаний.
+    """Находки с двумя пометками: попала ли в список и откуда взята.
+
+    Прячется только то, что в список компаний не пойдёт, — страница, на
+    которой компания не названа вовсе. Всё остальное видно сразу: если
+    компания есть в «Отобранных», а в «Найденных» её приходится
+    разворачивать, две вкладки противоречат друг другу, и закупщик идёт
+    спрашивать почему. Ровно с этого вопроса началась работа над #37.
+
+    Находка с чужой страницы не прячется, а помечается: справочник и
+    обзор рынка называют компанию верно, но говорят о ней с чужих слов.
 
     Считается при чтении, а не при поиске: правило менялось не раз, и
-    старые прогоны иначе показывали бы прежнюю разметку. Само правило
-    берётся из реестра, чтобы таблица находок и список компаний не
+    старые прогоны иначе показывали бы прежнюю разметку. Оба правила
+    берутся из реестра, чтобы таблица находок и список компаний не
     разошлись.
     """
     results = continuation_qualified_results(search_run)
     for item in results:
-        reason = why_not_a_company_page(item)
-        item["winnowed"] = reason is not None
-        item["winnowed_reason"] = reason
+        item["winnowed"] = not names_a_company(str(item.get("company_name") or ""))
+        item["third_party"] = found_on_someone_elses_page(item)
     return results
 
 

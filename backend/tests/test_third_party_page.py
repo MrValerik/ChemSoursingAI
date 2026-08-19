@@ -32,7 +32,7 @@ from app.services.search_trace import create_search_run
 from app.services.supplier_registry import (
     names_a_company,
     register_qualified_candidate,
-    why_not_a_company_page,
+    found_on_someone_elses_page,
 )
 
 
@@ -219,47 +219,42 @@ def test_a_typed_contact_is_not_wiped_by_a_later_third_party_page(run):
     assert again.contact_barrier is None
 
 
-# --- что прячется в «отсеянных» ---
+# --- что видно, а что спрятано ---
+#
+# Правило одно на обе вкладки. Если находка попадает в «Отобранные
+# компании», в «Найденных» она должна быть видна сразу, без разворачивания:
+# иначе вкладки противоречат друг другу и закупщик идёт спрашивать, куда
+# делась компания. Прогон 288 по #37 показал это наглядно — 武汉远城
+# стояла в списке и пряталась в находках.
 
 
-def test_a_company_site_is_not_winnowed():
-    assert why_not_a_company_page({
+def test_a_company_site_is_its_own_page():
+    assert not found_on_someone_elses_page({
         "company_name": "TNJ Chemical",
         "page_kind": "company_site",
-    }) is None
+    })
 
 
-def test_a_storefront_is_not_winnowed():
+def test_a_storefront_is_its_own_page():
     """Магазин компании на площадке — всё-таки её страница."""
-    assert why_not_a_company_page({
+    assert not found_on_someone_elses_page({
         "company_name": "Hangzhou Keying Chem",
         "page_kind": "marketplace_storefront",
-    }) is None
+    })
 
 
 @pytest.mark.parametrize(
     "kind", ["directory", "market_report", "scientific", "marketplace_listing"]
 )
-def test_someone_elses_page_is_winnowed(kind):
-    assert why_not_a_company_page({
+def test_a_directory_or_a_listing_is_someone_elses_page(kind):
+    assert found_on_someone_elses_page({
         "company_name": "Hebei Hongtao Biotechnology Co., Ltd",
         "page_kind": kind,
-    }) == "страница компании не принадлежит"
+    })
 
 
-def test_a_page_without_a_company_says_so():
-    assert why_not_a_company_page({
-        "company_name": "Не определено (список производителей)",
-        "page_kind": "market_report",
-    }) == "страница компанию не называет"
-
-
-def test_the_screen_and_the_registry_agree(run):
-    """Таблица находок и список компаний не должны расходиться.
-
-    Если правило раздвоится, закупщик снова увидит в находках компанию,
-    которой нет в списке, и снова спросит почему.
-    """
+def test_whatever_reaches_the_list_is_visible_in_the_findings(run):
+    """Спрятано ровно то, чего в списке компаний нет, — и ничего больше."""
     db, search_run = run
     for kind in ("company_site", "directory", "market_report"):
         result = {
@@ -275,17 +270,22 @@ def test_the_screen_and_the_registry_agree(run):
             "tds_status": "not_found",
             "contacts": {},
         }
-        winnowed = why_not_a_company_page(result) is not None
+        hidden = not names_a_company(str(result["company_name"]))
         supplier = register_qualified_candidate(db, search_run=search_run, result=result)
         db.flush()
-        # Компания в реестре есть в обоих случаях; отличается только то,
-        # прячем ли находку и берём ли с неё контакты.
-        assert supplier is not None
-        assert (supplier.contact_barrier == "third_party") is winnowed
+
+        assert supplier is not None, "компания в списке есть"
+        assert not hidden, "значит, в находках она видна"
+        # А отличается только происхождение: с чужой страницы контактов
+        # не берём и ставим пометку.
+        assert (supplier.contact_barrier == "third_party") is (
+            found_on_someone_elses_page(result)
+        )
     db.rollback()
 
 
-def test_a_nameless_page_is_winnowed_and_unregistered(run):
+def test_a_nameless_page_is_hidden_and_unregistered(run):
+    """Единственный случай, когда находку прячем: компании на ней нет."""
     db, search_run = run
     result = {
         "result_index": 0,
@@ -301,5 +301,5 @@ def test_a_nameless_page_is_winnowed_and_unregistered(run):
         "contacts": {},
     }
 
-    assert why_not_a_company_page(result) is not None
+    assert not names_a_company(str(result["company_name"]))
     assert register_qualified_candidate(db, search_run=search_run, result=result) is None

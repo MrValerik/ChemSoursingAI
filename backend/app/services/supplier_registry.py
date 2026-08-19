@@ -94,20 +94,16 @@ def company_key(name: str) -> str | None:
     return collapsed[:255]
 
 
-def why_not_a_company_page(result: dict) -> str | None:
-    """Почему находку не показываем в основном списке найденного.
+def found_on_someone_elses_page(result: dict) -> bool:
+    """Найдена не на своём сайте: справочник, обзор рынка, статья, перечень.
 
-    Одно правило на реестр и на экран: список компаний и таблица находок
-    расходиться не должны. Пустая строка означает обычную страницу
-    компании.
+    Имя такая страница называет верно, а вот почта на ней принадлежит
+    владельцу сайта. Компанию заводим, контакты — нет.
     """
-    if not names_a_company(str(result.get("company_name") or "")):
-        return "страница компанию не называет"
-    if result.get("is_market_report") or (
-        result.get("page_kind") in NOT_THE_COMPANYS_OWN_PAGE
-    ):
-        return "страница компании не принадлежит"
-    return None
+    return bool(
+        result.get("is_market_report")
+        or result.get("page_kind") in NOT_THE_COMPANYS_OWN_PAGE
+    )
 
 
 def register_marketplace_seller(
@@ -347,10 +343,7 @@ def register_qualified_candidate(
     # появился «Henan GP» с почтой исследовательского агентства, и письмо
     # ушло бы не тому. Прогон 281 тем же путём завёл со страницы PubMed
     # «компанию» с личной почтой исследователя.
-    own_page = not (
-        result.get("is_market_report")
-        or result.get("page_kind") in NOT_THE_COMPANYS_OWN_PAGE
-    )
+    own_page = not found_on_someone_elses_page(result)
 
     key = company_key(company)
 
