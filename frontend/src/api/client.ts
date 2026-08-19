@@ -10,6 +10,7 @@ import type {
   IdentificationMethod,
   EmailIntegration,
   EmailSyncRead,
+  FeedbackMessage,
   EscalationRead,
   PriceHistoryItem,
   PromptRead,
@@ -426,6 +427,15 @@ export const api = {
     request<SupplierRead>(`/suppliers/${supplierId}/contacts/${contactId}`, {
       method: "DELETE",
     }),
+
+  // Обратная связь: чего не хватает пользователю и что ему непонятно.
+  sendFeedback: (payload: { text: string; origin?: string | null }) =>
+    request<FeedbackMessage>(`/feedback`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  listFeedback: () => request<FeedbackMessage[]>(`/feedback`),
 
   listRecipients: (rfqId: number) =>
     request<RecipientRead[]>(`/rfq/${rfqId}/recipients`),

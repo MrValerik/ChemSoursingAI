@@ -18,6 +18,7 @@ export type SectionKey =
   | "templates"
   | "prompts"
   | "communication-testing"
+  | "feedback"
   | "settings";
 
 interface NavItem {
@@ -43,6 +44,14 @@ const NAV_ITEMS: NavItem[] = [
   { key: "templates", label: "Шаблоны", roles: ["admin"] },
   { key: "prompts", label: "ИИ-промпты", roles: ["admin"] },
   { key: "communication-testing", label: "Тестирование общения", roles: ["admin"] },
+  // Написать может кто угодно, включая аудитора: он читает программу
+  // внимательнее прочих и первым замечает, чего в ней не хватает.
+  {
+    key: "feedback",
+    label: "Обратная связь",
+    roles: ["buyer", "head", "admin", "auditor"],
+    atBottom: true,
+  },
   { key: "settings", label: "Настройки", roles: ["admin"], atBottom: true },
 ];
 

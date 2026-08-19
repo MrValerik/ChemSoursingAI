@@ -17,6 +17,7 @@ from app.api import (
     communications,
     documents,
     escalations,
+    feedback,
     extraction,
     health,
     intermediaries,
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(quotations.router)
     app.include_router(extraction.router)
     app.include_router(escalations.router)
+    app.include_router(feedback.router)
     app.include_router(suppliers.router)
     app.include_router(users.router)
     app.include_router(templates.router)

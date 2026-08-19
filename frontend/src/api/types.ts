@@ -253,6 +253,16 @@ export interface PriceHistoryItem {
   moq: string | null;
 }
 
+export interface FeedbackMessage {
+  id: number;
+  text: string;
+  /** Раздел, из которого написали: «не хватает колонки» — но где именно. */
+  origin: string | null;
+  author_id: number | null;
+  author_name: string | null;
+  created_at: string;
+}
+
 export type SupplierTypeKind = "manufacturer" | "distributor";
 export type SupplierQualificationStatus =
   | "candidate"

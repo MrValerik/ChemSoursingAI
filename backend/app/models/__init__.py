@@ -6,6 +6,7 @@ from app.models.document import SupplierDocument
 from app.models.domain_rate_slot import DomainRateSlot
 from app.models.llm_slot import LlmSlot
 from app.models.escalation import Escalation
+from app.models.feedback import FeedbackMessage
 from app.models.integration import (
     CommunicationTestMessage,
     CommunicationTestRun,
@@ -33,6 +34,7 @@ from app.models.user import User
 
 __all__ = [
     "Base",
+    "FeedbackMessage",
     "User",
     "RFQ",
     "RfqSupplierLink",

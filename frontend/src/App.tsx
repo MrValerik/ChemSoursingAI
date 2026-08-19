@@ -9,6 +9,7 @@ import CommunicationTesting from "./components/CommunicationTesting";
 import Login from "./components/Login";
 import ReviewQueue from "./components/ReviewQueue";
 import RfqWorkspace from "./components/RfqWorkspace";
+import FeedbackSection from "./components/FeedbackSection";
 import SettingsSection from "./components/SettingsSection";
 import SubstancesSection from "./components/SubstancesSection";
 import SuppliersSection from "./components/SuppliersSection";
@@ -44,6 +45,7 @@ const SECTION_ELEMENTS: { path: string; section: SectionKey; element: React.Reac
     section: "communication-testing",
     element: <CommunicationTesting />,
   },
+  { path: "/feedback", section: "feedback", element: <FeedbackSection /> },
   { path: "/settings", section: "settings", element: <SettingsSection /> },
 ];
 

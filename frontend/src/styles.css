@@ -801,6 +801,9 @@ button.is-busy:disabled {
 /* Административные разделы прижаты к низу колонки, чтобы не мешаться в
    ежедневном списке: между ними и рабочими разделами — весь свободный ход. */
 .nav-item.is-bottom { margin-top: auto; }
+/* Нижних разделов стало два, и «auto» у каждого растащило бы их по колонке:
+   вниз опускается только первый, остальные встают следом за ним. */
+.nav-item.is-bottom + .nav-item.is-bottom { margin-top: 0; }
 .nav-item:hover { background: var(--sidebar-active-bg); color: var(--text); }
 .nav-item.active {
   background: var(--sidebar-active-bg);
@@ -4098,4 +4101,62 @@ button.substance-list-item.active {
     flex-direction: column;
     gap: 0;
   }
+}
+
+/* Обратная связь: форма на всю ширину колонки — человек пишет прозой, а не
+   заполняет поля, и узкое поле мешает перечитать написанное. */
+.feedback-section h2 {
+  margin-top: 22px;
+}
+.feedback-form {
+  display: grid;
+  gap: 12px;
+  max-width: 720px;
+  margin-top: 14px;
+}
+.feedback-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.feedback-form textarea {
+  width: 100%;
+  font: inherit;
+  resize: vertical;
+}
+.feedback-form select {
+  max-width: 320px;
+}
+.feedback-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.feedback-list {
+  display: grid;
+  gap: 10px;
+  max-width: 720px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.feedback-list li {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+.feedback-list p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.feedback-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
 }
