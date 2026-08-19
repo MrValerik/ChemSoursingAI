@@ -9,6 +9,13 @@ import type {
 } from "../api/types";
 import NameCandidates from "./NameCandidates";
 import { isValidCas, normalizeCas, suggestCheckDigit } from "./cas";
+import {
+  DEFAULT_SEARCH_MODE,
+  SEARCH_MODES,
+  modeCompanies,
+  modeFromCompanies,
+  type SearchModeKey,
+} from "./searchModes";
 import { STATUS_LABELS } from "./statusLabels";
 import { Field, HelpTip, Icon, Input, Select, Textarea } from "./ui";
 
@@ -109,7 +116,7 @@ export default function NewRfq({ onCreated }: Props) {
   const [volumeUnit, setVolumeUnit] = useState("kg");
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
-  const [supplierTarget, setSupplierTarget] = useState(5);
+  const [searchMode, setSearchMode] = useState<SearchModeKey>(DEFAULT_SEARCH_MODE);
   const [pastRequests, setPastRequests] = useState<RFQListItem[]>([]);
   const [copiedFrom, setCopiedFrom] = useState<RFQListItem | null>(null);
   const [copyBusy, setCopyBusy] = useState(false);
@@ -252,7 +259,7 @@ export default function NewRfq({ onCreated }: Props) {
       : null,
     channels: ["email"],
     search_countries: countries,
-    supplier_target: supplierTarget,
+    supplier_target: modeCompanies(searchMode),
     additional_instructions: null,
     target_price: targetPrice.trim() ? Number(targetPrice) : null,
     currency,
@@ -330,7 +337,7 @@ export default function NewRfq({ onCreated }: Props) {
       setVolumeUnit(sourceUnit);
       if (source.incoterms?.length) setIncoterms(source.incoterms);
       if (source.search_countries?.length) setCountries(source.search_countries);
-      setSupplierTarget(source.supplier_target);
+      setSearchMode(modeFromCompanies(source.supplier_target));
       setCopiedFrom(item);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));
@@ -709,23 +716,33 @@ export default function NewRfq({ onCreated }: Props) {
           )}
         </div>
 
-        <Field
-          className="compact-field"
-          label="Сколько поставщиков найти в каждой стране"
-          hint="ИИ-агент постарается найти указанное число подходящих компаний для каждой выбранной страны."
-        >
-          <Input
-            type="number"
-            min={1}
-            max={20}
-            value={supplierTarget}
-            onChange={(event) =>
-              setSupplierTarget(
-                Math.min(20, Math.max(1, Number(event.target.value) || 1)),
-              )
-            }
-          />
-        </Field>
+        {/* Не Field: тот оборачивает содержимое в label, а каждый режим —
+            сам label со своей радиокнопкой, и вложенные label ломают
+            разметку. */}
+        <div className="field">
+          <div className="heading-with-help">
+            <label>Насколько тщательно искать</label>
+            <HelpTip text="Режим задаёт, сколько компаний агент откроет и проверит в каждой стране. Это объём проверки, а не обещание результата: производителем оказывается не всякая проверенная компания, остальные — торговые дома, площадки и справочники. Число поисковых запросов режим не меняет." />
+          </div>
+          <div className="search-modes">
+            {SEARCH_MODES.map((mode) => (
+              <label
+                key={mode.key}
+                className={`search-mode${searchMode === mode.key ? " active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="search-mode"
+                  value={mode.key}
+                  checked={searchMode === mode.key}
+                  onChange={() => setSearchMode(mode.key)}
+                />
+                <span className="search-mode-label">{mode.label}</span>
+                <span className="search-mode-hint">{mode.hint}</span>
+              </label>
+            ))}
+          </div>
+        </div>
 
         <div className="field">
           <label>Условия поставки</label>

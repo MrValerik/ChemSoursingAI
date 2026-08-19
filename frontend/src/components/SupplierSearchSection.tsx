@@ -17,6 +17,12 @@ import type {
   SubstanceRecord,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import {
+  SEARCH_MODES,
+  modeCompanies,
+  modeFromCompanies,
+  type SearchModeKey,
+} from "./searchModes";
 import { HelpTip, Icon, Input, Select, Textarea, Toast } from "./ui";
 
 const TYPE_LABELS: Record<QualifiedSupplierType, string> = {
@@ -265,11 +271,36 @@ function QualificationTable({
   const [sortKey, setSortKey] = useState<QualificationSortKey>("confidence");
   const [sortAsc, setSortAsc] = useState(false);
 
-  const columns: { key: QualificationSortKey; label: string }[] = [
+  // Две колонки называют то, чего не видно из самого значения: сколько
+  // «баллов» и по какой шкале, и что считается идентичностью, когда
+  // номера у продукта нет. Пояснение висит на значке у заголовка.
+  const columns: {
+    key: QualificationSortKey;
+    label: string;
+    hint?: string;
+  }[] = [
     { key: "company", label: "Компания" },
     { key: "type", label: "Роль" },
-    { key: "confidence", label: "Балл" },
-    { key: "cas", label: activeCas ? "CAS" : "Идентичность" },
+    {
+      key: "confidence",
+      label: "Балл",
+      hint:
+        "Насколько компания подходит под запрос, от 0 до 100. Складывается " +
+        "из того, что подтвердила её страница: вещество — до 35, роль " +
+        "производителя — до 25, страна — до 10, документы — до 15, качество " +
+        "самих доказательств — до 15. Баллы даются только за дословно " +
+        "найденную цитату; при противоречии по веществу балл обнуляется. " +
+        "От 70 компания проходит в короткий список.",
+    },
+    {
+      key: "cas",
+      label: activeCas ? "CAS" : "Идентичность",
+      hint: activeCas
+        ? `Подтверждает ли страница компании, что речь о том же веществе с номером CAS ${activeCas}: подтверждён — номер найден дословно, упомянут — номер есть, но рядом с другим продуктом, не найден, не совпадает — на странице другой номер.`
+        : "Подтверждает ли страница компании, что речь о том же продукте. " +
+          "Номера у смесей и промышленных марок нет, поэтому сверяются " +
+          "название, состав и грейд, а не номер.",
+    },
     { key: "country", label: activeCountry || "Страна" },
     { key: "documents", label: "Документы" },
     { key: "risks", label: "Риски" },
@@ -329,17 +360,20 @@ function QualificationTable({
         <tr>
           {columns.map((column) => (
             <th key={column.key}>
-              <button
-                type="button"
-                className="table-sort"
-                onClick={() => sortBy(column.key)}
-                aria-label={`Сортировать по «${column.label}»`}
-              >
-                {column.label}
-                <span className="table-sort-mark">
-                  {sortKey === column.key ? (sortAsc ? "▲" : "▼") : ""}
-                </span>
-              </button>
+              <span className="table-head-cell">
+                <button
+                  type="button"
+                  className="table-sort"
+                  onClick={() => sortBy(column.key)}
+                  aria-label={`Сортировать по «${column.label}»`}
+                >
+                  {column.label}
+                  <span className="table-sort-mark">
+                    {sortKey === column.key ? (sortAsc ? "▲" : "▼") : ""}
+                  </span>
+                </button>
+                {column.hint && <HelpTip text={column.hint} />}
+              </span>
             </th>
           ))}
         </tr>
@@ -849,7 +883,7 @@ function StageResult({
           <div className="stage-result-list">
             {queries.map((query, index) => (
               <div key={`${displayText(query.query)}-${index}`}>
-                <span>{PURPOSE_LABELS[displayText(query.purpose, "")] || "Поиск поставщиков"}</span>
+                <span>{PURPOSE_LABELS[displayText(query.purpose, "")] || "Поиск компаний"}</span>
                 <strong>{displayText(query.query)}</strong>
               </div>
             ))}
@@ -1506,7 +1540,9 @@ export default function SupplierSearchSection({
   const [selectedCountries, setSelectedCountries] = useState<string[]>(
     supportedRfqCountries.length ? supportedRfqCountries : ["Китай"],
   );
-  const [supplierTarget, setSupplierTarget] = useState(rfq.supplier_target ?? 5);
+  const [searchMode, setSearchMode] = useState<SearchModeKey>(
+    modeFromCompanies(rfq.supplier_target),
+  );
   const [searchScope, setSearchScope] = useState<SearchScope>("manufacturers");
   const [instructions, setInstructions] = useState("");
   const [repeatSearchOpen, setRepeatSearchOpen] = useState(false);
@@ -1604,7 +1640,7 @@ export default function SupplierSearchSection({
             name: rfq.name,
             country: selectedCountry,
             additional_instructions: instructions || null,
-            limit: supplierTarget,
+            limit: modeCompanies(searchMode),
             search_scope: searchScope,
           }),
         );
@@ -1613,7 +1649,7 @@ export default function SupplierSearchSection({
       setSelectedRunId(job.search_run_id);
       setTrace(await api.getSearchRun(job.search_run_id));
       setNotice(
-        `Добавлено задач: ${jobs.length}. ИИ-агент будет искать до ${supplierTarget} поставщиков в каждой стране.`,
+        `Добавлено задач: ${jobs.length}. Агент откроет и проверит до ${modeCompanies(searchMode)} компаний в каждой стране.`,
       );
       setRepeatSearchOpen(false);
       setRuns(await api.listSearchRuns(50, rfq.id));
@@ -1759,7 +1795,7 @@ export default function SupplierSearchSection({
     <div className="supplier-search-workspace">
       <div className="tab-toolbar">
         <div className="heading-with-help">
-          <h1>Поиск поставщиков</h1>
+          <h1>Поиск компаний</h1>
           <HelpTip text="ИИ-агент ищет компании по выбранным странам, затем помогает проверить их роль, документы и соответствие веществу." />
         </div>
       </div>
@@ -1902,19 +1938,29 @@ export default function SupplierSearchSection({
                   <span className="error">Выберите хотя бы одну страну.</span>
                 )}
               </div>
-              <div className="field compact-field">
-                <label>Поставщиков в каждой стране</label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={supplierTarget}
-                  onChange={(event) =>
-                    setSupplierTarget(
-                      Math.min(20, Math.max(1, Number(event.target.value) || 1)),
-                    )
-                  }
-                />
+              <div className="field">
+                <div className="heading-with-help">
+                  <label>Насколько тщательно искать</label>
+                  <HelpTip text="Режим задаёт, сколько компаний агент откроет и проверит в каждой стране. Это объём проверки, а не обещание результата: производителем оказывается не всякая проверенная компания. Число поисковых запросов режим не меняет." />
+                </div>
+                <div className="search-modes">
+                  {SEARCH_MODES.map((mode) => (
+                    <label
+                      key={mode.key}
+                      className={`search-mode${searchMode === mode.key ? " active" : ""}`}
+                    >
+                      <input
+                        type="radio"
+                        name="search-mode-rerun"
+                        value={mode.key}
+                        checked={searchMode === mode.key}
+                        onChange={() => setSearchMode(mode.key)}
+                      />
+                      <span className="search-mode-label">{mode.label}</span>
+                      <span className="search-mode-hint">{mode.hint}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
               <div className="field">
                 <label>Дополнительные требования</label>

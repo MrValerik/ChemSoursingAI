@@ -1223,8 +1223,18 @@ button.request-delete-button:focus-visible {
   font: inherit;
   cursor: pointer;
 }
+/* Наведение только подсвечивает подпись до основного цвета текста.
+   Терракотовый акцент здесь читался как ошибка: в тёмной теме он
+   светло-красный, и заголовок под курсором выглядел предупреждением. */
 .table-sort:hover {
-  color: var(--brand);
+  color: var(--text);
+}
+/* Заголовок с пояснением: кнопка сортировки и значок стоят рядом, но
+   значок не входит в кнопку — иначе клик по нему сортировал бы таблицу. */
+.table-head-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 .table-sort-mark {
   width: 10px;
@@ -4430,3 +4440,44 @@ button.substance-list-item.active {
   overflow-wrap: anywhere;
 }
 .resolve-warning { margin: 2px 0 0; color: var(--warn); }
+
+/* Выбор режима поиска: три карточки в ряд, на узком экране — столбиком.
+   Подпись под названием обязательна: «быстрый» и «тщательный» сами по себе
+   ничего не говорят о том, сколько работы за ними стоит. */
+.search-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.search-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 180px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  cursor: pointer;
+}
+.search-mode:hover {
+  border-color: var(--brand);
+}
+.search-mode.active {
+  border-color: var(--brand);
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+.search-mode input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.search-mode-label {
+  font-weight: 600;
+}
+.search-mode-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
