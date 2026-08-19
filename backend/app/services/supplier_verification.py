@@ -41,20 +41,20 @@ def apply_supplier_verification(
             "confidence": 0,
             "reason": reason,
             "gate_reason": (
-                "Короткий список заблокирован до независимой проверки."
+                "Запрос не рекомендован: повторная проверка не выполнена."
             ),
             "supporting_claim_ids": [],
             "contradictory_claim_ids": [],
             "invalid_claim_ids": [],
-            "missing_evidence": ["Независимая проверка кандидата"],
+            "missing_evidence": ["Повторная проверка кандидата"],
         }
         payload["shortlist_eligible"] = False
         missing_evidence = list(result.get("missing_evidence") or [])
-        _append_unique(missing_evidence, "Независимая проверка кандидата")
+        _append_unique(missing_evidence, "Повторная проверка кандидата")
         payload["missing_evidence"] = missing_evidence
         _append_unique(
             red_flags,
-            "Независимая проверка недоступна; требуется ручная проверка",
+            "Повторная проверка не выполнена; кандидата нужно проверить руками",
         )
         payload["red_flags"] = red_flags
         return payload
@@ -118,14 +118,14 @@ def apply_supplier_verification(
     if confirmed:
         status = "confirmed"
         gate_reason = (
-            "Вещество и собственное производство независимо подтверждены "
-            "проверенными цитатами."
+            "Вещество и собственное производство подтверждены проверенными "
+            "цитатами дважды: оценкой и повторной проверкой."
         )
     elif model_rejected:
         status = "rejected"
         gate_reason = (
-            "Аудитор обнаружил несовпадение вещества или рекомендовал "
-            "отклонить кандидата."
+            "Повторная проверка нашла несовпадение вещества или "
+            "рекомендовала отклонить кандидата."
         )
     else:
         status = "needs_review"
@@ -143,25 +143,28 @@ def apply_supplier_verification(
         # единого слова о причине.
         if verification.verification_status != "confirmed":
             missing_gates.append(
-                f"аудитор не подтвердил кандидата ({verification.verification_status})"
+                "повторная проверка не подтвердила кандидата "
+                f"({verification.verification_status})"
             )
         if verification.recommended_action != "shortlist":
             missing_gates.append(
-                f"аудитор рекомендует {verification.recommended_action}"
+                f"повторная проверка рекомендует {verification.recommended_action}"
             )
         if not _REQUIRED_SHORTLIST_CLAIMS.issubset(supported_types):
             missing_gates.append("не выбраны обязательные проверенные claims")
         if invalid_claim_ids:
-            missing_gates.append("аудитор сослался на недопустимые claims")
+            missing_gates.append(
+                "повторная проверка сослалась на недопустимые claims"
+            )
         if _CRITICAL_CLAIMS & contradicted_types:
             contradicted_names = ", ".join(
                 sorted(_CRITICAL_CLAIMS & contradicted_types)
             )
             missing_gates.append(f"цитата опровергает: {contradicted_names}")
         gate_reason = (
-            "Короткий список заблокирован: " + "; ".join(missing_gates)
+            "Запрос пока не рекомендован: " + "; ".join(missing_gates)
             if missing_gates
-            else "Короткий список заблокирован до ручной проверки."
+            else "Запрос не рекомендован до ручной проверки."
         )
 
     payload["verification"] = {
@@ -184,7 +187,7 @@ def apply_supplier_verification(
         _append_unique(missing_evidence, item)
     payload["missing_evidence"] = missing_evidence
     if not confirmed:
-        _append_unique(red_flags, f"Решение аудитора: {gate_reason}")
+        _append_unique(red_flags, f"Повторная проверка: {gate_reason}")
     payload["red_flags"] = red_flags
     return payload
 

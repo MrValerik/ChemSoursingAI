@@ -79,7 +79,7 @@ def test_verifier_rejects_substance_mismatch():
     assert result["shortlist_eligible"] is False
     assert result["verification"]["status"] == "rejected"
     assert result["verification"]["contradictory_claim_ids"] == [13]
-    assert any("Решение аудитора" in flag for flag in result["red_flags"])
+    assert any("Повторная проверка" in flag for flag in result["red_flags"])
 
 
 def test_verifier_cannot_confirm_with_invalid_or_wrong_kind_claim_ids():
@@ -228,4 +228,4 @@ def test_unavailable_verifier_safely_blocks_shortlist():
     assert result["shortlist_eligible"] is False
     assert result["verification"]["status"] == "unavailable"
     assert result["verification"]["reason"] == "Локальная модель не ответила."
-    assert "Независимая проверка кандидата" in result["missing_evidence"]
+    assert "Повторная проверка кандидата" in result["missing_evidence"]
