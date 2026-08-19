@@ -102,6 +102,10 @@ export default function SuppliersTab({
   const [contactEmail, setContactEmail] = useState("");
   const [contactWhatsapp, setContactWhatsapp] = useState("");
   const [contactError, setContactError] = useState<string | null>(null);
+  // Ручной ввод контакта — исключение, а не обычный шаг отбора: три поля
+  // и абзац пояснения занимали карточку у каждой компании, включая те,
+  // где контакт уже найден. Поэтому строка начинается с кнопки.
+  const [contactFormOpen, setContactFormOpen] = useState(false);
 
   const [addOpen, setAddOpen] = useState(false);
   const [newCompany, setNewCompany] = useState("");
@@ -208,6 +212,16 @@ export default function SuppliersTab({
     return () => window.removeEventListener("keydown", onKey);
   }, [detailId]);
 
+  // У другой компании форма снова начинается с кнопки, а недописанные
+  // поля не переезжают в чужую карточку.
+  useEffect(() => {
+    setContactFormOpen(false);
+    setContactName("");
+    setContactEmail("");
+    setContactWhatsapp("");
+    setContactError(null);
+  }, [detailId]);
+
   const sortBy = (key: SortKey) => {
     if (key === sortKey) {
       setSortAsc((prev) => !prev);
@@ -288,6 +302,7 @@ export default function SuppliersTab({
       setContactName("");
       setContactEmail("");
       setContactWhatsapp("");
+      setContactFormOpen(false);
       setNotice(`Контакт добавлен: ${detail.company}`);
       await load();
     } catch (e) {
@@ -608,53 +623,79 @@ export default function SuppliersTab({
                 <>
                   <dt>Вписать контакт</dt>
                   <dd>
-                    <p className="note">
-                      Откройте источник выше и перенесите адрес сюда. Машинное
-                      чтение страницы адрес не берёт, когда он подменён
-                      заглушкой, спрятан за формой или лежит в личном кабинете
-                      площадки, — а человеку он виден.
-                    </p>
-                    <div className="supplier-contact-form">
-                      <label>
-                        Имя или отдел
-                        <input
-                          value={contactName}
-                          placeholder="необязательно"
-                          onChange={(e) => setContactName(e.target.value)}
-                        />
-                      </label>
-                      <label>
-                        Email
-                        <input
-                          value={contactEmail}
-                          placeholder="sales@company.com"
-                          onChange={(e) => setContactEmail(e.target.value)}
-                        />
-                      </label>
-                      <label>
-                        WhatsApp
-                        <input
-                          value={contactWhatsapp}
-                          placeholder="+86 ..."
-                          onChange={(e) => setContactWhatsapp(e.target.value)}
-                        />
-                      </label>
+                    {!contactFormOpen ? (
                       <button
                         type="button"
-                        disabled={
-                          busy ||
-                          (!contactEmail.trim() && !contactWhatsapp.trim())
-                        }
-                        title={
-                          !contactEmail.trim() && !contactWhatsapp.trim()
-                            ? "Нужен адрес почты или номер WhatsApp"
-                            : undefined
-                        }
-                        onClick={() => void addContact()}
+                        className="secondary"
+                        onClick={() => setContactFormOpen(true)}
                       >
-                        Добавить контакт
+                        Добавить
                       </button>
-                    </div>
+                    ) : (
+                      <>
+                        <p className="note">
+                          Откройте источник выше и перенесите адрес сюда. Машинное
+                          чтение страницы адрес не берёт, когда он подменён
+                          заглушкой, спрятан за формой или лежит в личном кабинете
+                          площадки, — а человеку он виден.
+                        </p>
+                        <div className="supplier-contact-form">
+                          <label>
+                            Имя или отдел
+                            <input
+                              value={contactName}
+                              placeholder="необязательно"
+                              onChange={(e) => setContactName(e.target.value)}
+                            />
+                          </label>
+                          <label>
+                            Email
+                            <input
+                              value={contactEmail}
+                              placeholder="sales@company.com"
+                              onChange={(e) => setContactEmail(e.target.value)}
+                            />
+                          </label>
+                          <label>
+                            WhatsApp
+                            <input
+                              value={contactWhatsapp}
+                              placeholder="+86 ..."
+                              onChange={(e) => setContactWhatsapp(e.target.value)}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            disabled={
+                              busy ||
+                              (!contactEmail.trim() && !contactWhatsapp.trim())
+                            }
+                            title={
+                              !contactEmail.trim() && !contactWhatsapp.trim()
+                                ? "Нужен адрес почты или номер WhatsApp"
+                                : undefined
+                            }
+                            onClick={() => void addContact()}
+                          >
+                            Добавить контакт
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            disabled={busy}
+                            onClick={() => {
+                              setContactFormOpen(false);
+                              setContactName("");
+                              setContactEmail("");
+                              setContactWhatsapp("");
+                              setContactError(null);
+                            }}
+                          >
+                            Отмена
+                          </button>
+                        </div>
+                      </>
+                    )}
                     {contactError && <p className="error">{contactError}</p>}
                   </dd>
                 </>
