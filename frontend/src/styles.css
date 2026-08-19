@@ -1130,17 +1130,36 @@ button.request-delete-button:focus-visible {
    карточки она открывается вниз и отсчитывается от всей строки значения,
    а не от восемнадцати пикселей самого значка, — тогда она встаёт по
    левому краю столбца, где места хватает на всю её ширину. */
-.supplier-detail-fields dd {
-  position: relative;
-}
 .supplier-detail .help-tip {
   position: static;
 }
-.supplier-detail .help-tip > span[role="tooltip"] {
+/* Якорем подсказке служит строка, в которой стоит значок. Без такой строки
+   отсчёт уходит к подложке окна во весь экран, и подсказка встаёт на восемь
+   пикселей ниже её нижнего края — то есть за пределами экрана: наведение
+   выглядит так, будто подсказки нет вовсе. Поэтому каждый короткий блок со
+   значком объявлен якорем явно. Блок должен быть именно коротким: у высокого
+   контейнера «сто процентов» отбросят подсказку под весь его низ. */
+.supplier-detail-fields dd,
+.supplier-detail .confidence-value,
+.supplier-detail .qualification-evidence,
+.supplier-detail .qualification-details-body > .evidence-status {
+  position: relative;
+}
+/* Второй селектор перебивает центрирование подсказки у бейджей: оно
+   рассчитано на значок шириной 18 пикселей, а от якоря-строки уводит
+   подсказку левее её края. */
+.supplier-detail .help-tip > span[role="tooltip"],
+.supplier-detail .evidence-status .help-tip > span[role="tooltip"] {
   top: calc(100% + 8px);
   right: auto;
   bottom: auto;
   left: 0;
+  transform: none;
+}
+/* Балл стоит у правого края карточки — подсказка растёт от него влево. */
+.supplier-detail .confidence-value .help-tip > span[role="tooltip"] {
+  right: 0;
+  left: auto;
 }
 .supplier-detail-contacts {
   margin: 0;
