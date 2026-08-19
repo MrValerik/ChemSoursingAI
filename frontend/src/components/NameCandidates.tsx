@@ -14,6 +14,8 @@
 
 import { useState } from "react";
 
+import { HelpTip } from "./ui";
+
 interface Props {
   label: string;
   hint: string;
@@ -62,24 +64,14 @@ export default function NameCandidates({
 
   return (
     <div className="field">
-      <label>{label}</label>
-      {rows.length > 0 && (
-        <div className="checks">
-          {rows.map((name) => (
-            <label key={name}>
-              <input
-                type="checkbox"
-                checked={value.some(
-                  (item) => item.toLowerCase() === name.toLowerCase(),
-                )}
-                onChange={() => toggle(name)}
-              />
-              {name}
-            </label>
-          ))}
-        </div>
-      )}
-      <div className="row">
+      <span className="name-check-labelrow">
+        <label>{label}</label>
+        <HelpTip text={hint} />
+      </span>
+      {/* Сначала поле ввода, затем отмеченные названия: список растёт вниз
+          от того места, где их добавляют, и добавленное имя оказывается
+          прямо под курсором, а не уезжает выше поля. */}
+      <div className="row name-check-add">
         <input
           value={draft}
           placeholder={placeholder ?? "добавить название"}
@@ -95,7 +87,29 @@ export default function NameCandidates({
           Добавить
         </button>
       </div>
-      <span className="note">{hint}</span>
+      {rows.length > 0 && (
+        <div className="name-checks">
+          {rows.map((name) => {
+            const checked = value.some(
+              (item) => item.toLowerCase() === name.toLowerCase(),
+            );
+            return (
+              <label
+                key={name}
+                className={`name-check${checked ? " is-checked" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggle(name)}
+                />
+                <span className="name-check-box" aria-hidden="true" />
+                <span className="name-check-text">{name}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -10,7 +10,7 @@ import type {
 import NameCandidates from "./NameCandidates";
 import { isValidCas, normalizeCas, suggestCheckDigit } from "./cas";
 import { STATUS_LABELS } from "./statusLabels";
-import { Field, Input, Select, Textarea } from "./ui";
+import { Field, HelpTip, Icon, Input, Select, Textarea } from "./ui";
 
 const ALL_INCOTERMS = ["CIP", "FCA", "EXW"];
 const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
@@ -90,11 +90,14 @@ interface Props {
 }
 
 export default function NewRfq({ onCreated }: Props) {
-  const [cas, setCas] = useState("50-78-2");
+  // Форма открывается пустой. Демонстрационные «Ацетилсалициловая кислота»
+  // и «50-78-2» стояли здесь с первых дней и читались как настоящее
+  // содержимое запроса: их вычищали руками перед каждым вводом.
+  const [cas, setCas] = useState("");
   const [specification, setSpecification] = useState("");
   const [synonyms, setSynonyms] = useState<string[]>([]);
   const [excludedNames, setExcludedNames] = useState<string[]>([]);
-  const [name, setName] = useState("Ацетилсалициловая кислота");
+  const [name, setName] = useState("");
   const [grade, setGrade] = useState("");
   const [gradeOther, setGradeOther] = useState("");
   const [purityPercent, setPurityPercent] = useState("");
@@ -102,7 +105,7 @@ export default function NewRfq({ onCreated }: Props) {
   const [targetPrice, setTargetPrice] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [specialistComment, setSpecialistComment] = useState("");
-  const [volumeAmount, setVolumeAmount] = useState("500");
+  const [volumeAmount, setVolumeAmount] = useState("");
   const [volumeUnit, setVolumeUnit] = useState("kg");
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
@@ -117,6 +120,11 @@ export default function NewRfq({ onCreated }: Props) {
   const [resolution, setResolution] = useState<SubstanceResolution | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
+  // Вещество выбрано из результатов опознания. Название и номер после
+  // этого закрыты на правку: они пришли из справочника вместе, и ручная
+  // подмена одного из них рассогласует пару — в поиск уйдёт номер одного
+  // вещества с названием другого. Замок снимается кнопкой.
+  const [identityLocked, setIdentityLocked] = useState(false);
   // Названия, предложенные опознанием, но ещё не отмеченные человеком.
   // Отмечает он сам: равнозначное название и соседнее вещество различает
   // специалист, а не совпадение строк.
@@ -189,6 +197,7 @@ export default function NewRfq({ onCreated }: Props) {
     // в карточке, но в поле не попадает: непроверенный номер хуже пустого.
     if (candidate.cas && candidate.cas_confirmed) setCas(candidate.cas);
     setSuggestedSynonyms(unique);
+    setIdentityLocked(true);
   };
 
   const toggleExcluded = (candidateName: string) => {
@@ -378,6 +387,7 @@ export default function NewRfq({ onCreated }: Props) {
           >
             <Input
               value={name}
+              disabled={identityLocked}
               placeholder="например, Ацетилсалициловая кислота или Dowsil 556"
               onChange={(event) => setName(event.target.value)}
             />
@@ -388,6 +398,7 @@ export default function NewRfq({ onCreated }: Props) {
           >
             <Input
               value={cas}
+              disabled={identityLocked}
               placeholder="например, 50-78-2"
               onChange={(event) => setCas(event.target.value)}
             />
@@ -395,18 +406,33 @@ export default function NewRfq({ onCreated }: Props) {
         </div>
 
         <div className="resolve-bar">
-          <button
-            type="button"
-            className="secondary"
-            disabled={!canResolve}
-            onClick={() => void runResolve()}
-          >
-            {resolving ? "Ищу вещество…" : "Проверить вещество"}
-          </button>
-          <span className="note">
-            Найдёт номер CAS и общепринятое написание по названию. Ничего не
-            подставит само — выберете вы.
-          </span>
+          {identityLocked ? (
+            <>
+              <span className="resolve-locked">
+                <Icon name="lock" size={14} />
+                Вещество выбрано из справочника
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setIdentityLocked(false)}
+              >
+                Изменить
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!canResolve}
+                onClick={() => void runResolve()}
+              >
+                {resolving ? "Ищу вещество…" : "Проверить вещество"}
+              </button>
+              <HelpTip text="Ищет вещество по названию в справочнике PubChem и показывает найденные варианты: общепринятое написание, CAS-номер и равнозначные названия. В поля запроса встанет то, что вы выберете из списка." />
+            </>
+          )}
         </div>
 
         {resolveError && <p className="error">{resolveError}</p>}
