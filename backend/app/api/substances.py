@@ -18,8 +18,11 @@ from app.schemas.substance import (
     SubstanceDecision,
     SubstanceHistoryRead,
     SubstanceRead,
+    SubstanceResolveRequest,
+    SubstanceResolveResponse,
     SubstanceUpdate,
 )
+from app.services.substance_resolution import resolve_substance
 from app.services.substance_service import (
     SubstanceConflictError,
     apply_rfq_decision,
@@ -67,6 +70,24 @@ def verify_substance(cas: str = Query(..., description="CAS-номер, напр
     """
     info = PubChemConnector().verify_cas(cas)
     return info.as_dict()
+
+
+@router.post("/resolve", response_model=SubstanceResolveResponse)
+def resolve_by_name(data: SubstanceResolveRequest) -> SubstanceResolveResponse:
+    """Опознаёт вещество по названию: правильное написание и номер CAS.
+
+    Обратная сторона `/verify`: там известен номер и проверяется вещество,
+    здесь известно только название. Именно так позиции и приходят от
+    заказчика — списком названий без номеров.
+
+    Ничего не подставляет автоматически. Возвращает кандидатов с источником
+    и цитатой, а выбор делает человек: у соседних названий вроде
+    «Quaternium-18» и «Silicone Quaternium-18» разница видна специалисту, а
+    не алгоритму. Операция только читает внешние источники, поэтому доступна
+    всем ролям, включая аудитора.
+    """
+    resolution = resolve_substance(data.name)
+    return SubstanceResolveResponse.model_validate(resolution.as_dict())
 
 
 @router.get("/price-history")

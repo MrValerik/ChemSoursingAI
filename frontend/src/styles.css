@@ -4160,3 +4160,90 @@ button.substance-list-item.active {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Опознание вещества по названию: кнопка и список кандидатов.
+   Карточка кликабельна целиком — выбор названия это одно движение,
+   а не «отметь галочку и нажми применить». */
+.resolve-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0 4px;
+}
+.resolve-bar .note { flex: 1; min-width: 220px; }
+
+.resolve-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.resolve-heading {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.resolve-heading-warn { color: var(--warn); margin-top: 6px; }
+
+.resolve-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.resolve-card:hover,
+.resolve-card:focus-visible {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.resolve-card-warn:hover,
+.resolve-card-warn:focus-visible {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+.resolve-card-warn.is-marked {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.resolve-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.resolve-card-name { font-weight: 600; }
+.resolve-cas {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* Подтверждённый номер — это номер, прошедший контрольную сумму и найденный
+   в источнике. Разница с «модель так сказала» показывается, а не скрывается. */
+.resolve-cas.is-confirmed { color: var(--ok); }
+
+.resolve-card-reason { font-size: 12px; color: var(--muted); }
+.resolve-card-quote {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+.resolve-card-source {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.resolve-warning { margin: 2px 0 0; color: var(--warn); }

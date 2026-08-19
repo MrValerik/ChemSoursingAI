@@ -118,3 +118,43 @@ class SubstanceHistoryRead(BaseModel):
     actor_name: str | None = None
     source_rfq_id: int | None
     created_at: datetime
+
+
+class SubstanceResolveRequest(BaseModel):
+    """Опознание вещества по названию, когда номера у закупщика нет."""
+
+    name: str = Field(..., min_length=2, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("Введите название вещества")
+        return name
+
+
+class ResolvedNameRead(BaseModel):
+    """Один кандидат опознания вместе с источником, из которого он взят."""
+
+    name: str
+    # "same" — то же вещество, "different" — соседнее название другого
+    # вещества. Второе нужно не меньше первого: оно уходит в отрицательный
+    # фильтр поиска.
+    relation: Literal["same", "different"]
+    cas: str | None = None
+    reason: str = ""
+    source: Literal["pubchem", "web"] = "web"
+    source_url: str | None = None
+    quote: str | None = None
+    cas_confirmed: bool = False
+    synonyms: list[str] = Field(default_factory=list)
+
+
+class SubstanceResolveResponse(BaseModel):
+    query: str
+    candidates: list[ResolvedNameRead] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    pubchem_used: bool = False
+    search_used: bool = False
+    llm_used: bool = False

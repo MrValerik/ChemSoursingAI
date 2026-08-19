@@ -24,6 +24,30 @@ export interface SubstanceInfo {
   error: string | null;
 }
 
+/** Кандидат опознания вещества по названию: как называется и откуда это известно. */
+export interface ResolvedName {
+  name: string;
+  /** "same" — то же вещество; "different" — соседнее название другого вещества. */
+  relation: "same" | "different";
+  cas: string | null;
+  reason: string;
+  source: "pubchem" | "web";
+  source_url: string | null;
+  quote: string | null;
+  /** Номер прошёл контрольную сумму и найден в источнике, а не назван моделью. */
+  cas_confirmed: boolean;
+  synonyms: string[];
+}
+
+export interface SubstanceResolution {
+  query: string;
+  candidates: ResolvedName[];
+  warnings: string[];
+  pubchem_used: boolean;
+  search_used: boolean;
+  llm_used: boolean;
+}
+
 export type SubstanceReviewStatus =
   | "unreviewed"
   | "needs_review"

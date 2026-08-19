@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, type RFQCreatePayload } from "../api/client";
 import type {
   IdentificationMethod,
+  ResolvedName,
   RFQListItem,
   RFQRead,
+  SubstanceResolution,
 } from "../api/types";
 import NameCandidates from "./NameCandidates";
 import { isValidCas, normalizeCas, suggestCheckDigit } from "./cas";
@@ -110,6 +112,15 @@ export default function NewRfq({ onCreated }: Props) {
   const [copyBusy, setCopyBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Опознание вещества по названию. Держим отдельно от создания запроса:
+  // это разные действия, и провал одного не должен блокировать другое.
+  const [resolution, setResolution] = useState<SubstanceResolution | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  // Названия, предложенные опознанием, но ещё не отмеченные человеком.
+  // Отмечает он сам: равнозначное название и соседнее вещество различает
+  // специалист, а не совпадение строк.
+  const [suggestedSynonyms, setSuggestedSynonyms] = useState<string[]>([]);
 
   // Прошлые запросы — то же самое, что раньше давал справочник, только
   // вместе с условиями закупки, а не одним названием.
@@ -126,6 +137,76 @@ export default function NewRfq({ onCreated }: Props) {
   // Название, в которое вставили номер: предложить перенос дешевле, чем
   // молча искать по строке, которая для поиска бесполезна.
   const nameIsCas = isValidCas(normalizeCas(name));
+
+  // Кнопка серая, пока нечего опознавать: у названия короче двух символов
+  // выдача состоит из случайных совпадений.
+  const nameForLookup = name.trim();
+  const canResolve = nameForLookup.length >= 2 && !nameIsCas && !resolving;
+
+  const runResolve = async () => {
+    if (!canResolve) return;
+    setResolving(true);
+    setResolveError(null);
+    try {
+      const found = await api.resolveSubstance(nameForLookup);
+      setResolution(found);
+    } catch (err) {
+      setResolveError(
+        err instanceof ApiError ? err.message : "Не удалось опознать вещество",
+      );
+      setResolution(null);
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  // Выбранное название становится основным, а остальные равнозначные
+  // предлагаются синонимами. Введённое человеком название тоже уходит в
+  // предложения: поставщики нередко пишут именно так, как написал он.
+  const applyCandidate = (candidate: ResolvedName) => {
+    const others = (resolution?.candidates ?? [])
+      .filter(
+        (item) =>
+          item.relation === "same" &&
+          item.name.toLowerCase() !== candidate.name.toLowerCase(),
+      )
+      .map((item) => item.name);
+    const merged = [...candidate.synonyms, ...others];
+    if (
+      nameForLookup &&
+      nameForLookup.toLowerCase() !== candidate.name.toLowerCase()
+    ) {
+      merged.unshift(nameForLookup);
+    }
+    const unique: string[] = [];
+    for (const item of merged) {
+      if (!unique.some((value) => value.toLowerCase() === item.toLowerCase())) {
+        unique.push(item);
+      }
+    }
+    setName(candidate.name);
+    // Номер подставляется только подтверждённый. Неподтверждённый показан
+    // в карточке, но в поле не попадает: непроверенный номер хуже пустого.
+    if (candidate.cas && candidate.cas_confirmed) setCas(candidate.cas);
+    setSuggestedSynonyms(unique);
+  };
+
+  const toggleExcluded = (candidateName: string) => {
+    setExcludedNames((current) =>
+      current.some((item) => item.toLowerCase() === candidateName.toLowerCase())
+        ? current.filter(
+            (item) => item.toLowerCase() !== candidateName.toLowerCase(),
+          )
+        : [...current, candidateName],
+    );
+  };
+
+  const sameNames = (resolution?.candidates ?? []).filter(
+    (item) => item.relation === "same",
+  );
+  const differentNames = (resolution?.candidates ?? []).filter(
+    (item) => item.relation === "different",
+  );
 
   // Способ идентификации остаётся в контракте поиска — он строит разные
   // запросы, — но выводится из заполненного, а не спрашивается у человека.
@@ -313,6 +394,115 @@ export default function NewRfq({ onCreated }: Props) {
           </Field>
         </div>
 
+        <div className="resolve-bar">
+          <button
+            type="button"
+            className="secondary"
+            disabled={!canResolve}
+            onClick={() => void runResolve()}
+          >
+            {resolving ? "Ищу вещество…" : "Проверить вещество"}
+          </button>
+          <span className="note">
+            Найдёт номер CAS и общепринятое написание по названию. Ничего не
+            подставит само — выберете вы.
+          </span>
+        </div>
+
+        {resolveError && <p className="error">{resolveError}</p>}
+
+        {resolution && (
+          <div className="resolve-results">
+            {sameNames.length > 0 && (
+              <>
+                <p className="resolve-heading">
+                  Похоже, это одно и то же вещество. Нажмите на правильное
+                  название — оно встанет в поля запроса.
+                </p>
+                {sameNames.map((item) => (
+                  <button
+                    key={`same-${item.name}`}
+                    type="button"
+                    className="resolve-card"
+                    onClick={() => applyCandidate(item)}
+                  >
+                    <span className="resolve-card-head">
+                      <span className="resolve-card-name">{item.name}</span>
+                      <span
+                        className={
+                          item.cas_confirmed
+                            ? "resolve-cas is-confirmed"
+                            : "resolve-cas"
+                        }
+                      >
+                        {item.cas
+                          ? `CAS ${item.cas}`
+                          : "номер не найден"}
+                      </span>
+                    </span>
+                    {item.reason && (
+                      <span className="resolve-card-reason">{item.reason}</span>
+                    )}
+                    {item.quote && (
+                      <span className="resolve-card-quote">«{item.quote}»</span>
+                    )}
+                    <span className="resolve-card-source">
+                      {item.source === "pubchem"
+                        ? "Справочник PubChem"
+                        : item.source_url || "веб-источник"}
+                    </span>
+                  </button>
+                ))}
+              </>
+            )}
+
+            {differentNames.length > 0 && (
+              <>
+                <p className="resolve-heading resolve-heading-warn">
+                  Названия рядом, вещества разные. Нажмите, чтобы такое
+                  название не попало в поиск.
+                </p>
+                {differentNames.map((item) => {
+                  const marked = excludedNames.some(
+                    (value) => value.toLowerCase() === item.name.toLowerCase(),
+                  );
+                  return (
+                    <button
+                      key={`diff-${item.name}`}
+                      type="button"
+                      className={
+                        marked
+                          ? "resolve-card resolve-card-warn is-marked"
+                          : "resolve-card resolve-card-warn"
+                      }
+                      onClick={() => toggleExcluded(item.name)}
+                    >
+                      <span className="resolve-card-head">
+                        <span className="resolve-card-name">{item.name}</span>
+                        <span className="resolve-cas">
+                          {item.cas ? `CAS ${item.cas}` : "номер не найден"}
+                        </span>
+                      </span>
+                      {item.reason && (
+                        <span className="resolve-card-reason">{item.reason}</span>
+                      )}
+                      <span className="resolve-card-source">
+                        {marked ? "Исключено из поиска" : "Отметить как не то"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            {resolution.warnings.map((warning) => (
+              <p key={warning} className="note resolve-warning">
+                {warning}
+              </p>
+            ))}
+          </div>
+        )}
+
         {copiedFrom && (
           <p className="note">
             Поля заполнены из запроса №{copiedFrom.id} · {copiedFrom.name}.
@@ -350,6 +540,7 @@ export default function NewRfq({ onCreated }: Props) {
             label="Другие названия того же вещества"
             hint="Равнозначные названия расширяют поиск. Без номера они служат основным якорем, но и с номером помогают: у карбомера запрос по номеру не нашёл ни одного поставщика, а по марке — сразу всех."
             placeholder="например, Cocamidopropyl betaine"
+            candidates={suggestedSynonyms}
             value={synonyms}
             onChange={setSynonyms}
           />
@@ -357,6 +548,7 @@ export default function NewRfq({ onCreated }: Props) {
             label="Похожие названия, которые НЕ подходят"
             hint="Соседние по названию вещества — другая соль, другой грейд. Они уйдут в отрицательный фильтр, иначе поиск найдёт настоящих поставщиков не того вещества."
             placeholder="например, Betaine hydrochloride"
+            candidates={differentNames.map((item) => item.name)}
             value={excludedNames}
             onChange={setExcludedNames}
           />

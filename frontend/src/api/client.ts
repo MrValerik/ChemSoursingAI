@@ -45,6 +45,7 @@ import type {
   RFQRead,
   RfqAiSetting,
   SubstanceInfo,
+  SubstanceResolution,
   SubstanceHistoryEntry,
   SubstanceRecord,
   SummaryRow,
@@ -215,6 +216,14 @@ export const api = {
   // --- Вещества и RFQ ---
   verifyCas: (cas: string) =>
     request<SubstanceInfo>(`/substances/verify?cas=${encodeURIComponent(cas)}`),
+
+  // Обратная сторона verifyCas: номера нет, есть только название. Именно так
+  // позиции и приходят от заказчика — списком названий.
+  resolveSubstance: (name: string) =>
+    request<SubstanceResolution>(`/substances/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
 
   listSubstances: (query = "") =>
     request<SubstanceRecord[]>(
