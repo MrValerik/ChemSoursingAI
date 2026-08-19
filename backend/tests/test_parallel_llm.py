@@ -130,6 +130,7 @@ class Experiment:
     failed: int = 0
     unfinished: int = 0
     wall_s: float = 0.0
+    model_processing_s: float = 0.0
     peak_active: int = 0
     llm_requests: int = 0
     context_rejections: int = 0
@@ -286,6 +287,7 @@ def run_experiment(
             deadline_s=120.0,
         )
         experiment.wall_s = monotonic() - started
+        experiment.model_processing_s = stub.stats.total_processing_s
         experiment.peak_active = stub.stats.peak_active
         experiment.llm_requests = stub.stats.requests
         experiment.context_rejections = stub.stats.context_rejections
@@ -519,7 +521,11 @@ def test_step4_compare_configurations(client):
     assert decode_friendly.wall_s < baseline.wall_s, (
         "при высокой эффективности батчинга параллельность обязана выигрывать"
     )
-    assert prefill_heavy.wall_s > decode_friendly.wall_s * 1.3, (
+    # Wall time includes HTTP, SQLite and thread scheduling overhead whose share
+    # varies considerably on Windows. Compare the time spent inside the modeled
+    # generation instead: it isolates the effect of parallel_efficiency without
+    # weakening the expected 30% difference.
+    assert prefill_heavy.model_processing_s > decode_friendly.model_processing_s * 1.3, (
         "выигрыш от слотов сильно зависит от эффективности батчинга; "
         "нельзя обещать кратное ускорение, не измерив её на железе"
     )

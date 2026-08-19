@@ -43,6 +43,7 @@ class ServerStats:
     context_rejections: int = 0
     peak_active: int = 0
     total_queue_wait_s: float = 0.0
+    total_processing_s: float = 0.0
     prompt_tokens_seen: list[int] = field(default_factory=list)
 
     @property
@@ -108,6 +109,7 @@ class LlamaServerStub:
         """Занимает слот и «считает» запрос с учётом конкуренции за железо."""
         queue_started = monotonic()
         self._semaphore.acquire()
+        processing_started = monotonic()
         try:
             with self._lock:
                 self._active += 1
@@ -120,6 +122,7 @@ class LlamaServerStub:
             self._burn(nominal_s)
         finally:
             with self._lock:
+                self.stats.total_processing_s += monotonic() - processing_started
                 self._active -= 1
             self._semaphore.release()
 
