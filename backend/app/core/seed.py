@@ -411,7 +411,6 @@ _DEMO_WORKSPACE_SUPPLIERS = (
 _DEMO_SEARCH_PROFILES = (
     {
         "confidence": 92,
-        "llm_confidence": 94,
         "country_status": "claimed",
         "gmp_status": "claimed",
         "iso_status": "claimed",
@@ -445,7 +444,6 @@ _DEMO_SEARCH_PROFILES = (
     },
     {
         "confidence": 86,
-        "llm_confidence": 89,
         "country_status": "claimed",
         "gmp_status": "claimed",
         "iso_status": "claimed",
@@ -479,7 +477,6 @@ _DEMO_SEARCH_PROFILES = (
     },
     {
         "confidence": 48,
-        "llm_confidence": 63,
         "country_status": "claimed",
         "gmp_status": "not_found",
         "iso_status": "not_found",
@@ -603,7 +600,6 @@ def _qualified_search_result(
         "coa_status": profile["coa_status"],
         "tds_status": profile["tds_status"],
         "confidence": profile["confidence"],
-        "llm_confidence": profile["llm_confidence"],
         "score_breakdown": profile["score_breakdown"],
         "shortlist_eligible": profile["shortlist_eligible"],
         "red_flags": profile["red_flags"],

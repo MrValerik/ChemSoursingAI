@@ -389,7 +389,12 @@ class SupplierQualification(BaseModel):
     iso_status: EvidenceStatus
     coa_status: EvidenceStatus
     tds_status: EvidenceStatus
-    confidence: int = Field(..., ge=0, le=100)
+    # Самооценки у модели больше не спрашиваем. Она не участвовала в балле
+    # и не могла: балл собирается из утверждений, у каждого из которых есть
+    # дословная цитата со страницы, а самооценку подпереть нечем. Замер по
+    # 1092 сохранённым результатам облачной модели: ноль во всех до
+    # единого — поле жило только в схеме, промпт о нём не говорил ничего,
+    # и модель заполняла обязательное число константой.
     red_flags: list[str] = Field(default_factory=list, max_length=4)
     missing_evidence: list[str] = Field(default_factory=list, max_length=5)
     evidence: list[QualificationEvidence] = Field(default_factory=list, max_length=10)
@@ -465,7 +470,6 @@ _QUALIFICATION_SCHEMA = {
                         "type": "string",
                         "enum": ["claimed", "not_found", "contradicted"],
                     },
-                    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
                     "red_flags": {
                         "type": "array",
                         "items": {"type": "string", "maxLength": 500},
@@ -544,7 +548,6 @@ _QUALIFICATION_SCHEMA = {
                     "iso_status",
                     "coa_status",
                     "tds_status",
-                    "confidence",
                     "red_flags",
                     "missing_evidence",
                     "evidence",
@@ -3323,7 +3326,6 @@ def execute_supplier_qualification(
                     "coa_status": "not_found",
                     "tds_status": "not_found",
                     "confidence": 0,
-                    "llm_confidence": None,
                     "score_breakdown": score_supplier(
                         {"supplier_type": "unknown", "cas_status": "not_found"},
                         [],
@@ -3346,7 +3348,6 @@ def execute_supplier_qualification(
             search_country=search_country,
         )
         score = score_supplier(qualification_payload, evidence_items)
-        qualification_payload["llm_confidence"] = qualification.confidence
         qualification_payload["confidence"] = score.total
         qualification_payload["score_breakdown"] = score.to_dict()
         qualification_payload["shortlist_eligible"] = score.shortlist_eligible
