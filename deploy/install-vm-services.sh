@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Installs both reliable Compose autostart and the 30-minute idle shutdown timer.
+# Installs reliable Compose autostart. The idle shutdown units remain available
+# for diagnostics, but the production timer is disabled by default.
 # Run from the cloned repository: sudo bash deploy/install-vm-services.sh
 
 if (( EUID != 0 )); then
@@ -48,12 +49,13 @@ replace_project_dir "${SCRIPT_DIR}/idle-shutdown.conf.example" \
 
 systemctl daemon-reload
 systemctl enable docker.service qwen.service chemsource.service
-systemctl enable --now chemsource-idle-shutdown.timer
+systemctl disable --now chemsource-idle-shutdown.timer || true
 systemctl restart chemsource.service
 
 echo
 echo "Installed successfully."
 echo "Autostart: qwen.service + chemsource.service"
-echo "Idle shutdown: 30 minutes, checked every minute"
+echo "Idle shutdown: disabled (production VM stays running)"
 echo
-systemctl --no-pager --full status chemsource-idle-shutdown.timer || true
+systemctl is-enabled chemsource-idle-shutdown.timer || true
+systemctl is-active chemsource-idle-shutdown.timer || true

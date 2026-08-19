@@ -1,4 +1,8 @@
-# Автовыключение ВМ после 30 минут бездействия
+# Опциональное автовыключение ВМ после 30 минут бездействия
+
+В production таймер отключён: ВМ должна оставаться включённой. Механизм ниже
+сохранён для диагностики и отдельных временных стендов; не включайте его на
+production без явной отмены политики постоянной работы сервера.
 
 Механизм считает активностью HTTP-запросы и реальные действия пользователя:
 движение мыши, нажатия, прокрутку и касания. Браузер отправляет лёгкую отметку
@@ -25,13 +29,16 @@ docker compose up -d --build frontend
 sudo bash deploy/install-vm-services.sh
 ```
 
-Проверьте:
+Проверьте, что production-сервисы включены, а таймер выключен:
 
 ```bash
 systemctl is-enabled qwen.service chemsource.service
-systemctl is-active chemsource-idle-shutdown.timer
-systemctl list-timers chemsource-idle-shutdown.timer
+systemctl is-enabled chemsource-idle-shutdown.timer  # disabled
+systemctl is-active chemsource-idle-shutdown.timer   # inactive
 ```
+
+Для временного стенда таймер можно включить вручную командой
+`sudo systemctl enable --now chemsource-idle-shutdown.timer`.
 
 ## Безопасная проверка без выключения
 

@@ -11,12 +11,12 @@ COMPOSE=(
   -f "$PROJECT_DIR/docker-compose.yml"
 )
 
-sudo systemctl stop "$TIMER_UNIT" || true
-
-restore_timer() {
-  sudo systemctl start "$TIMER_UNIT"
+disable_idle_shutdown() {
+  sudo systemctl disable --now "$TIMER_UNIT" >/dev/null 2>&1 || true
 }
-trap restore_timer EXIT
+
+disable_idle_shutdown
+trap disable_idle_shutdown EXIT
 
 server_changes="$(
   git -C "$PROJECT_DIR" status --porcelain --untracked-files=all |
@@ -90,7 +90,13 @@ wait_for_url "http://127.0.0.1/api/health" "Backend"
 wait_for_url "http://127.0.0.1/api/health/llm" "Локальная ИИ-модель"
 
 "${COMPOSE[@]}" ps
-restore_timer
+disable_idle_shutdown
 trap - EXIT
-systemctl is-active chemsource.service qwen.service "$TIMER_UNIT"
+systemctl is-active chemsource.service qwen.service
+if systemctl is-enabled --quiet "$TIMER_UNIT" || \
+    systemctl is-active --quiet "$TIMER_UNIT"; then
+  echo "Таймер автоостановки должен быть отключён." >&2
+  exit 1
+fi
+echo "Таймер автоостановки: disabled/inactive"
 echo "Развёрнут коммит: $actual_commit"

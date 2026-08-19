@@ -26,9 +26,12 @@ description: Safely deploy the current origin/main of ChemSource AI to the Yande
 6. Не заменяй скрипт ручной последовательностью запуска ВМ, SSH, backup,
    миграций, Docker Compose и health-check, пока скрипт доступен.
 7. После успешного обновления сообщи полный SHA развёрнутого commit, публичный
-   URL, результаты backend и LLM health-check, состояние контейнеров и таймера
-   автоостановки.
+   URL, результаты backend и LLM health-check, состояние контейнеров и
+   подтверждение, что `chemsource-idle-shutdown.timer` отключён и неактивен.
 
 Команда `$update` является явным разрешением отправить чистую ветку `main` в
 `origin/main` и запустить остановленную ВМ для развёртывания. Отдельно
 спрашивать разрешение на `git push` или запуск ВМ не нужно.
+
+Production-ВМ должна оставаться включённой. Не запускай `$stop-server` и не
+включай таймер автоостановки после deployment.

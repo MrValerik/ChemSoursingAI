@@ -82,24 +82,24 @@ curl http://127.0.0.1/api/health/llm
 .\deploy\yc-vm.cmd status -InstanceId "<instance-id>"
 ```
 
-## Автовыключение и разработка
+## Постоянная работа production-ВМ
 
-На сервере установлен таймер выключения после 30 минут без HTTP-активности.
-Обычное SSH-соединение активностью не считается. Перед долгой работой только по
-SSH временно остановите таймер:
-
-```bash
-sudo systemctl stop chemsource-idle-shutdown.timer
-```
-
-После работы включите его:
+Production-ВМ должна оставаться включённой. Таймер выключения после бездействия
+установлен только как доступный диагностический механизм, но по умолчанию
+отключён. После deployment проверьте:
 
 ```bash
-sudo systemctl start chemsource-idle-shutdown.timer
-systemctl is-active chemsource-idle-shutdown.timer
+systemctl is-enabled chemsource-idle-shutdown.timer  # disabled
+systemctl is-active chemsource-idle-shutdown.timer   # inactive
 ```
 
-Или остановите ВМ скриптом с локального компьютера.
+Если таймер оказался включён, отключите его:
+
+```bash
+sudo systemctl disable --now chemsource-idle-shutdown.timer
+```
+
+Не используйте `stop-server.cmd` в обычном цикле разработки и deployment.
 
 ## Типовой цикл разработки
 
@@ -124,7 +124,7 @@ git push origin main
 8. создаёт резервную копию PostgreSQL;
 9. применяет ещё не применённые `backend/migrations/*.up.sql`;
 10. пересобирает Compose-стек и проверяет backend, frontend и локальную ИИ;
-11. восстанавливает таймер автоостановки.
+11. отключает таймер автоостановки и подтверждает постоянную работу ВМ.
 
 Параметры подключения можно переопределить:
 
