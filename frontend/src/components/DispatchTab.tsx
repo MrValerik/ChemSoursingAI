@@ -469,6 +469,15 @@ export default function DispatchTab({
                 Требуют ответа: {activeEscalations.length}
               </span>
             )}
+            {canTestCommunication && (
+              <button
+                className="secondary"
+                onClick={() => setSelectedKey(NEW_TEST_CONVERSATION_KEY)}
+                type="button"
+              >
+                Начать новый тестовый диалог
+              </button>
+            )}
             {canSyncEmail && (
               <button
                 className="secondary"
@@ -575,26 +584,6 @@ export default function DispatchTab({
                     </button>
                   );
                 })}
-              {canTestCommunication && (
-                <button
-                  className={`conversation-supplier conversation-test-new ${
-                    selectedKey === NEW_TEST_CONVERSATION_KEY ? "active" : ""
-                  }`}
-                  onClick={() => setSelectedKey(NEW_TEST_CONVERSATION_KEY)}
-                  type="button"
-                >
-                  <span className="conversation-supplier-title">
-                    Новый тестовый диалог
-                  </span>
-                  <span className="conversation-supplier-meta">
-                    Без Email и WhatsApp
-                  </span>
-                  <span className="conversation-preview">
-                    Начать симуляцию с текущего RFQ
-                  </span>
-                  <span className="badge tone-neutral">Создать</span>
-                </button>
-              )}
             </div>
 
             <div className="conversation-thread">

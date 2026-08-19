@@ -2191,10 +2191,6 @@ button.danger:hover {
   justify-self: end;
 }
 
-.conversation-test-new {
-  border-top-style: dashed;
-}
-
 @media (max-width: 800px) {
   .summary-heading,
   .purchase-result-heading,
