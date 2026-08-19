@@ -25,7 +25,7 @@ type TabKey =
 const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Обзор" },
   { key: "supplier_search", label: "Поиск и проверка" },
-  { key: "suppliers", label: "Отобранные поставщики" },
+  { key: "suppliers", label: "Отобранные компании" },
   { key: "dispatch", label: "Общение" },
   { key: "summary", label: "Сводная таблица" },
 ];

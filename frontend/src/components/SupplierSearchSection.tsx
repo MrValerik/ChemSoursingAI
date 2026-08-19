@@ -2086,7 +2086,7 @@ export default function SupplierSearchSection({
         <div className="panel">
           <div className="search-results-header">
             <div className="heading-with-help">
-              <h2>Найденные поставщики</h2>
+              <h2>Найденные компании</h2>
               <HelpTip text="Кандидаты, найденные по этому запросу, от большего балла к меньшему. Заголовки сортируют, строка открывает подробности. Проверка предварительная: перед решением откройте первичные источники и запросите документы у поставщика." />
             </div>
           </div>
