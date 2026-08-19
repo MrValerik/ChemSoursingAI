@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { CommunicationTestRun, RFQRead } from "../api/types";
+import type {
+  CommunicationTestMessage,
+  CommunicationTestRun,
+  RFQRead,
+} from "../api/types";
 import { Field, Input, Select, Textarea } from "./ui";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -66,6 +70,84 @@ const procurementContextFromRfq = (rfq: RFQRead) =>
   ]
     .filter(Boolean)
     .join("\n");
+
+const DOCUMENT_VERIFICATION_LABELS: Record<string, string> = {
+  confirmed: "ИИ подтвердил документ",
+  needs_review: "ИИ просит ручную проверку",
+  rejected: "ИИ обнаружил несоответствие",
+  unavailable: "Проверка ИИ недоступна",
+};
+
+const formatAttachmentSize = (bytes: number) =>
+  `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+
+function TestMessageAttachments({ message }: { message: CommunicationTestMessage }) {
+  if (!message.attachments?.length) return null;
+  return (
+    <div className="communication-test-attachments">
+      {message.attachments.map((attachment) => {
+        const verification = attachment.verification;
+        return (
+          <article
+            className="communication-test-attachment"
+            key={`${message.id}-${attachment.document_id}-${attachment.filename}`}
+          >
+            <div className="communication-test-attachment-head">
+              <div>
+                <strong>📎 {attachment.filename}</strong>
+                <small>
+                  PDF · {formatAttachmentSize(attachment.size)}
+                  {attachment.page_count ? ` · ${attachment.page_count} стр.` : ""}
+                </small>
+              </div>
+              {attachment.document_id && (
+                <a
+                  className="secondary button-like btn-small"
+                  href={api.documentFileUrl(attachment.document_id)}
+                >
+                  Скачать файл
+                </a>
+              )}
+            </div>
+            {verification ? (
+              <div className="communication-test-document-result">
+                <strong>
+                  {DOCUMENT_VERIFICATION_LABELS[verification.status] ??
+                    verification.status}
+                  {` · уверенность ${verification.confidence}%`}
+                </strong>
+                <span>{verification.gate_reason}</span>
+                <span>
+                  CAS в запросе: {verification.expected_cas || "—"} · в файле:{" "}
+                  {verification.cas_in_document?.length
+                    ? verification.cas_in_document.join(", ")
+                    : "не найден"}
+                </span>
+                {verification.accepted_claims?.length > 0 && (
+                  <details>
+                    <summary>
+                      Как ИИ понял документ ({verification.accepted_claims.length} фактов)
+                    </summary>
+                    <ul>
+                      {verification.accepted_claims.map((claim, index) => (
+                        <li key={`${attachment.document_id}-claim-${index}`}>
+                          <strong>{claim.claim_value}</strong>
+                          <span>«{claim.quote}»</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            ) : (
+              <span className="note">Текст извлечён, проверка ещё не выполнена.</span>
+            )}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
 
 function DialogueTranslation({
   run,
@@ -234,6 +316,22 @@ function EmbeddedCommunicationTesting({
     }
   };
 
+  const replyWithDemoDocument = async () => {
+    if (!active || !canContinue) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.addCommunicationTestDemoDocument(active.id);
+      rememberRun(updated);
+      setSupplierMessage("");
+      setTranslationRevealed(false);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const answerEscalation = async () => {
     if (!active || active.status !== "escalated" || !humanMessage.trim()) return;
     setBusy(true);
@@ -338,7 +436,7 @@ function EmbeddedCommunicationTesting({
                     ? message.delivery_status === "manual"
                       ? "Сотрудник · покупатель"
                       : "Нейросеть · покупатель"
-                    : "Вы · поставщик"}
+                    : "Тестовый поставщик"}
                 </span>
                 <div className="communication-message-original">
                   <span>
@@ -352,6 +450,7 @@ function EmbeddedCommunicationTesting({
                       : message.content}
                   </div>
                 </div>
+                <TestMessageAttachments message={message} />
               </div>
             ))}
           </div>
@@ -375,6 +474,16 @@ function EmbeddedCommunicationTesting({
                   : ""}
                 {` · Incoterm: ${active.quote_assessment.incoterm ?? "не указан"}`}
                 {` · MOQ: ${active.quote_assessment.moq ?? "не указан"}`}
+              </span>
+              <span>
+                Документы: {active.quote_assessment.has_coa ? "CoA" : ""}
+                {active.quote_assessment.has_coa && active.quote_assessment.has_tds
+                  ? ", "
+                  : ""}
+                {active.quote_assessment.has_tds ? "TDS" : ""}
+                {!active.quote_assessment.has_coa && !active.quote_assessment.has_tds
+                  ? "не получены"
+                  : ""}
               </span>
               {!active.quote_assessment.is_complete && (
                 <span>
@@ -425,6 +534,14 @@ function EmbeddedCommunicationTesting({
                   type="button"
                 >
                   {busy ? "Нейросеть отвечает…" : "Ответить"}
+                </button>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => void replyWithDemoDocument()}
+                  type="button"
+                >
+                  Ответ с паспортом (PDF)
                 </button>
                 {(Object.entries(EXAMPLES) as Array<
                   [keyof typeof EXAMPLES, (typeof EXAMPLES)[keyof typeof EXAMPLES]]
@@ -626,6 +743,31 @@ function FullCommunicationTesting({
       setSupplierMessage("");
       setBuyerMessage("");
       setHumanMessage("");
+      if (!embedded) await loadHistory();
+    } catch (reason) {
+      setError(String(reason));
+      if (!embedded) await loadHistory().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const replyWithDemoDocument = async () => {
+    if (
+      !active ||
+      active.simulation_mode !== "buyer_ai" ||
+      active.delivery_mode !== "preview" ||
+      !active.rfq_id
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.addCommunicationTestDemoDocument(active.id);
+      setActive(updated);
+      setTranslationRevealed(false);
+      setSupplierMessage("");
       if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
@@ -909,7 +1051,7 @@ function FullCommunicationTesting({
                         : active.channel === "email" &&
                             active.delivery_mode === "send"
                           ? "Поставщик · Email"
-                          : "Вы · поставщик"}
+                          : "Тестовый поставщик"}
                     </span>
                     <div className="communication-message-original">
                       <span>
@@ -927,6 +1069,7 @@ function FullCommunicationTesting({
                           : message.content}
                       </div>
                     </div>
+                    <TestMessageAttachments message={message} />
                   </div>
                 ))}
               </div>
@@ -1029,6 +1172,18 @@ function FullCommunicationTesting({
                   >
                     {busy ? "Нейросеть отвечает…" : "Ответить и продолжить"}
                   </button>
+                  {active.simulation_mode === "buyer_ai" &&
+                    active.delivery_mode === "preview" &&
+                    active.rfq_id && (
+                      <button
+                        className="secondary"
+                        disabled={busy}
+                        onClick={() => void replyWithDemoDocument()}
+                        type="button"
+                      >
+                        Ответ с паспортом (PDF)
+                      </button>
+                    )}
                 </div>
               )}
             </>

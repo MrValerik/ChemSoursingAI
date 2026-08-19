@@ -5,9 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from email.utils import parseaddr
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.schemas.communication import CommunicationAttachmentRead
 
 
 def _clean_required(value: str) -> str:
@@ -282,6 +284,12 @@ class CommunicationTestEscalationReply(BaseModel):
         return str(value or "").strip()
 
 
+class CommunicationTestAttachmentRead(CommunicationAttachmentRead):
+    """Вложение тестового диалога с сохранённым результатом проверки ИИ."""
+
+    verification: dict[str, Any] | None = None
+
+
 class CommunicationTestMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -291,6 +299,7 @@ class CommunicationTestMessageRead(BaseModel):
     translation_ru: str | None
     delivery_status: str
     provider_message_id: str | None
+    attachments: list[CommunicationTestAttachmentRead] | None = None
     created_at: datetime
 
 

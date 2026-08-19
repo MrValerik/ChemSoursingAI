@@ -800,6 +800,122 @@ def test_embedded_communication_test_updates_one_summary_quotation(
     assert final_summary[0]["is_complete"] is True
 
 
+def test_embedded_dialogue_adds_and_understands_demo_coa(
+    client, monkeypatch, tmp_path
+):
+    import json
+    import re
+
+    admin = _login(client)
+    monkeypatch.setattr(
+        "app.services.communication_testing._validate_procurement_identity",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        lambda self, **kwargs: "Please send your commercial offer and batch document.",
+    )
+    monkeypatch.setattr(
+        "app.services.document_storage.storage_root",
+        lambda: tmp_path,
+    )
+
+    def fake_document_verification(self, **kwargs):
+        document_text = json.loads(kwargs["user_text"])["document"]["document_text"]
+        batch = re.search(r"Batch No.: ([A-Z0-9-]+)", document_text).group(1)
+        return {
+            "document_kind": "coa",
+            "substance_match": "exact",
+            "verification_status": "confirmed",
+            "recommended_action": "accept",
+            "confidence": 96,
+            "reason": "CAS and batch are stated in the document.",
+            "claims": [
+                {
+                    "claim_type": "chemical_identity",
+                    "claim_value": "CAS 50-78-2",
+                    "quote": "CAS No.: 50-78-2",
+                },
+                {
+                    "claim_type": "batch",
+                    "claim_value": batch,
+                    "quote": f"Batch No.: {batch}",
+                },
+            ],
+            "missing_fields": [],
+            "red_flags": [],
+        }
+
+    monkeypatch.setattr(
+        "app.services.document_agent.LLMClient.generate_json",
+        fake_document_verification,
+    )
+
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+        headers=admin,
+    ).json()
+    started = client.post(
+        "/communication-testing",
+        json={
+            "rfq_id": rfq["id"],
+            "channel": "email",
+            "procurement_context": "Aspirin, CAS 50-78-2",
+            "initial_message": "Please quote Aspirin, CAS 50-78-2.",
+            "delivery_mode": "preview",
+        },
+        headers=admin,
+    ).json()
+
+    buyer = _login(client, "ivanov")
+    assert client.post(
+        f"/communication-testing/{started['id']}/demo-document-reply",
+        headers=buyer,
+    ).status_code == 403
+
+    response = client.post(
+        f"/communication-testing/{started['id']}/demo-document-reply",
+        headers=admin,
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "complete"
+    assert payload["quote_assessment"] == {
+        "is_complete": True,
+        "missing_fields": [],
+        "low_confidence_fields": [],
+        "price": 720.0,
+        "currency": "USD",
+        "incoterm": "CIP",
+        "moq": "100 kg",
+        "has_coa": True,
+        "has_tds": False,
+    }
+    attachment = payload["messages"][-1]["attachments"][0]
+    assert attachment["filename"] == "Demo_CoA_50-78-2.pdf"
+    assert attachment["kind"] == "coa"
+    assert attachment["status"] == "extracted"
+    assert attachment["verification"]["status"] == "confirmed"
+    assert attachment["verification"]["cas_in_document"] == ["50-78-2"]
+    assert len(attachment["verification"]["accepted_claims"]) == 2
+
+    document_id = attachment["document_id"]
+    document = client.get(f"/documents/{document_id}", headers=admin)
+    assert document.status_code == 200
+    assert "SYNTHETIC DEMONSTRATION ONLY" in document.json()["text_content"]
+    downloaded = client.get(f"/documents/{document_id}/file", headers=admin)
+    assert downloaded.status_code == 200
+    assert downloaded.content.startswith(b"%PDF-")
+
+    repeated = client.post(
+        f"/communication-testing/{started['id']}/demo-document-reply",
+        headers=admin,
+    )
+    assert repeated.status_code == 201
+    assert len(repeated.json()["messages"]) == len(payload["messages"])
+
+
 def test_communication_testing_can_simulate_supplier_for_manual_buyer(
     client, monkeypatch
 ):

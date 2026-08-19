@@ -683,6 +683,12 @@ export const api = {
       },
     ),
 
+  addCommunicationTestDemoDocument: (runId: number) =>
+    request<CommunicationTestRun>(
+      `/communication-testing/${runId}/demo-document-reply`,
+      { method: "POST" },
+    ),
+
   answerCommunicationTestEscalation: (runId: number, message: string) =>
     request<CommunicationTestRun>(
       `/communication-testing/${runId}/escalation-reply`,

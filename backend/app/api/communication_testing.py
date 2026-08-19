@@ -15,6 +15,7 @@ from app.schemas.integration import (
 )
 from app.services.communication_testing import (
     CommunicationTestError,
+    add_demo_document_reply,
     answer_test_escalation,
     continue_communication_test,
     list_test_runs,
@@ -60,6 +61,26 @@ def continue_test(
 ) -> CommunicationTestRun:
     try:
         return continue_communication_test(db, run_id=run_id, payload=payload)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CommunicationTestError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{run_id}/demo-document-reply",
+    response_model=CommunicationTestRead,
+    status_code=201,
+)
+def demo_document_reply(
+    run_id: int,
+    db: Session = Depends(get_db),
+) -> CommunicationTestRun:
+    """Добавляет подготовленный ответ тестового поставщика с синтетическим PDF."""
+    try:
+        return add_demo_document_reply(db, run_id=run_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

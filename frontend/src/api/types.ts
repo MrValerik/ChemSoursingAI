@@ -368,6 +368,11 @@ export interface CommunicationAttachmentRead {
   error: string | null;
 }
 
+export interface CommunicationTestAttachmentRead
+  extends CommunicationAttachmentRead {
+  verification: DocumentVerificationResult | null;
+}
+
 export interface CommunicationEscalationRead {
   id: number;
   reason: string;
@@ -552,6 +557,7 @@ export interface CommunicationTestMessage {
   translation_ru: string | null;
   delivery_status: string;
   provider_message_id: string | null;
+  attachments: CommunicationTestAttachmentRead[] | null;
   created_at: string;
 }
 

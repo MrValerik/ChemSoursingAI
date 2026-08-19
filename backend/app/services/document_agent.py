@@ -13,7 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.extraction.llm_client import LLMClient, LLMUnavailableError
+from app.extraction.llm_client import (
+    LLMClient,
+    LLMOutputTruncatedError,
+    LLMUnavailableError,
+)
 from app.models import PromptTemplate, SupplierDocument
 from app.schemas.document_verification import (
     DOCUMENT_VERIFICATION_JSON_SCHEMA,
@@ -109,7 +113,7 @@ def verify_document(
             max_tokens=_MAX_OUTPUT_TOKENS,
         )
         parsed = DocumentVerification.model_validate(raw)
-    except (LLMUnavailableError, ValidationError) as exc:
+    except (LLMUnavailableError, LLMOutputTruncatedError, ValidationError) as exc:
         error = str(exc)[:500]
 
     result = apply_document_verification(

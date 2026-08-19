@@ -43,6 +43,10 @@ from app.services.communication_recipient import protect_recipient, recipient_ke
 from app.services.communication_policy import classify_supplier_message
 from app.services.completeness import accumulate_quotations
 from app.services.cas import is_valid_cas, normalize_cas
+from app.services.demo_supplier_document import build_demo_coa_pdf
+from app.services.document_agent import verify_document
+from app.services.document_storage import store_document
+from app.services.document_text import apply_extraction
 from app.services.prompt_service import get_active_prompt_text
 from app.services.supplier_communication_prompts import (
     CHANNEL_INSTRUCTIONS,
@@ -361,11 +365,7 @@ def translate_preview_text(
 
 def _attach_quote_assessment(run: CommunicationTestRun) -> CommunicationTestRun:
     """Добавляет объяснимую оценку полноты, не меняя исходные сообщения."""
-    supplier_quotes = [
-        extract_with_rules(message.content)
-        for message in run.messages
-        if message.sender_role == "supplier"
-    ]
+    supplier_quotes = _supplier_quotes(run)
     if not supplier_quotes:
         run.quote_assessment = None
         return run
@@ -394,16 +394,35 @@ def _attach_quote_assessment(run: CommunicationTestRun) -> CommunicationTestRun:
     return run
 
 
+def _supplier_quotes(run: CommunicationTestRun):
+    """Разбирает ответы и учитывает реально сохранённые CoA/TDS-вложения."""
+    quotes = []
+    for message in run.messages:
+        if message.sender_role != "supplier":
+            continue
+        quote = extract_with_rules(message.content)
+        attachment_kinds = {
+            str(attachment.get("kind") or "")
+            for attachment in message.attachments or []
+            if attachment.get("document_id")
+            and attachment.get("status") in {"extracted", "ocr_extracted"}
+        }
+        if "coa" in attachment_kinds:
+            quote.has_coa = True
+            quote.field_confidence["has_coa"] = 1.0
+        if "tds" in attachment_kinds:
+            quote.has_tds = True
+            quote.field_confidence["has_tds"] = 1.0
+        quotes.append(quote)
+    return quotes
+
+
 def _sync_test_quotation(db: Session, run: CommunicationTestRun) -> None:
     """Создаёт или обновляет одну накопительную котировку тестового диалога."""
     if run.rfq_id is None:
         return
 
-    extracted = [
-        extract_with_rules(message.content)
-        for message in run.messages
-        if message.sender_role == "supplier"
-    ]
+    extracted = _supplier_quotes(run)
     if not extracted:
         return
 
@@ -445,6 +464,98 @@ def _sync_test_quotation(db: Session, run: CommunicationTestRun) -> None:
     quotation.is_complete = progress.completeness.is_complete
     quotation.field_confidence = progress.field_confidence or None
     db.commit()
+
+
+def add_demo_document_reply(
+    db: Session,
+    *,
+    run_id: int,
+    llm: LLMClient | None = None,
+) -> CommunicationTestRun:
+    """Добавляет синтетический ответ поставщика с PDF и проверяет документ."""
+    run = _load_run(db, run_id)
+    if run is None:
+        raise LookupError("Тестовый диалог не найден")
+    if run.simulation_mode != "buyer_ai":
+        raise ValueError("Ответ с файлом доступен в режиме «ИИ — покупатель»")
+    if run.delivery_mode != "preview":
+        raise ValueError("Демонстрационный файл доступен только без реальной отправки")
+    if run.rfq_id is None or run.rfq is None:
+        raise ValueError("Для демонстрации откройте диалог из карточки RFQ")
+
+    for message in run.messages:
+        if any(
+            str(item.get("filename") or "").startswith("Demo_CoA_")
+            for item in message.attachments or []
+        ):
+            return _attach_quote_assessment(run)
+
+    if run.status in {"complete", "sending", "sent"}:
+        raise ValueError("Диалог уже завершён")
+    if not run.messages or run.messages[-1].sender_role != "assistant":
+        raise ValueError("Сначала дождитесь сообщения покупателя")
+
+    rfq = run.rfq
+    filename_cas = re.sub(r"[^0-9-]", "", rfq.cas or "") or "without-CAS"
+    filename = f"Demo_CoA_{filename_cas}.pdf"
+    payload = build_demo_coa_pdf(substance_name=rfq.name, cas=rfq.cas)
+    stored = store_document(
+        db,
+        payload=payload,
+        filename=filename,
+        declared_content_type="application/pdf",
+        rfq_id=rfq.id,
+    )
+    document = stored.document
+    if stored.created or document.text_status == "stored":
+        apply_extraction(document)
+    verify_document(
+        db,
+        document,
+        expected_cas=rfq.cas,
+        expected_name=rfq.name,
+        llm=llm,
+    )
+
+    attachment = {
+        "filename": document.filename,
+        "content_type": document.content_type,
+        "size": document.size_bytes,
+        "document_id": document.id,
+        "kind": document.kind,
+        "status": document.text_status,
+        "page_count": document.page_count,
+        "error": document.extraction_error,
+        "verification": document.verification,
+    }
+    supplier_reply = (
+        "Our offer is USD 720/MT, MOQ: 100 kg, CIP Moscow. "
+        "Please see the attached batch quality passport."
+    )
+    run.messages.append(
+        CommunicationTestMessage(
+            run_id=run.id,
+            sender_role="supplier",
+            content=supplier_reply,
+            translation_ru=None,
+            delivery_status="received",
+            attachments=[attachment],
+        )
+    )
+    run.customer_message = supplier_reply
+    run.generated_reply = None
+    run.error = None
+    run.status = "generating"
+    db.commit()
+
+    loaded = _load_run(db, run.id) or run
+    _sync_test_quotation(db, loaded)
+    assessed = _attach_quote_assessment(_load_run(db, run.id) or loaded)
+    assessed.status = (
+        "complete" if assessed.quote_assessment["is_complete"] else "previewed"
+    )
+    db.commit()
+    return _attach_quote_assessment(_load_run(db, run.id) or assessed)
 
 
 def _supplier_simulation_prompt(run: CommunicationTestRun) -> str:

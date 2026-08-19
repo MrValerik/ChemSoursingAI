@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -112,5 +112,6 @@ class CommunicationTestMessage(Base, TimestampMixin):
     provider_message_id: Mapped[str | None] = mapped_column(
         String(255), default=None, unique=True, index=True
     )
+    attachments: Mapped[list[dict] | None] = mapped_column(JSON, default=None)
 
     run: Mapped["CommunicationTestRun"] = relationship(back_populates="messages")
