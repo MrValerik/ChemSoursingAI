@@ -22,6 +22,7 @@ from app.schemas.search_trace import (
 )
 from app.services.search_replay import SearchReplayError, replay_supplier_validator
 from app.services.search_trace import cancel_search_run, create_search_run, utc_now
+from app.services.supplier_registry import why_not_a_company_page
 from app.services.supplier_search_continuation import (
     candidate_results as continuation_candidate_results,
     country_runs,
@@ -54,7 +55,19 @@ def _candidate_results(search_run: SearchRun) -> list[dict]:
 
 
 def _qualified_results(search_run: SearchRun) -> list[dict]:
-    return continuation_qualified_results(search_run)
+    """Находки с пометкой, какие из них не сайты компаний.
+
+    Считается при чтении, а не при поиске: правило менялось не раз, и
+    старые прогоны иначе показывали бы прежнюю разметку. Само правило
+    берётся из реестра, чтобы таблица находок и список компаний не
+    разошлись.
+    """
+    results = continuation_qualified_results(search_run)
+    for item in results:
+        reason = why_not_a_company_page(item)
+        item["winnowed"] = reason is not None
+        item["winnowed_reason"] = reason
+    return results
 
 
 def _aware(value: datetime) -> datetime:

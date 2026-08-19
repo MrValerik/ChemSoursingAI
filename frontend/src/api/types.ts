@@ -686,6 +686,14 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
     shortlist_eligible: boolean;
   };
   shortlist_eligible: boolean;
+  /**
+   * Находка не с сайта компании: справочник, обзор рынка, статья, перечень
+   * площадки — либо страница компанию не называет вовсе. Считает сервер по
+   * тому же правилу, что и реестр, поэтому таблица находок и список
+   * компаний не расходятся.
+   */
+  winnowed?: boolean;
+  winnowed_reason?: string | null;
   red_flags: string[];
   missing_evidence: string[];
   evidence: QualifiedEvidence[];

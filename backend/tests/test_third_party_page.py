@@ -32,6 +32,7 @@ from app.services.search_trace import create_search_run
 from app.services.supplier_registry import (
     names_a_company,
     register_qualified_candidate,
+    why_not_a_company_page,
 )
 
 
@@ -216,3 +217,89 @@ def test_a_typed_contact_is_not_wiped_by_a_later_third_party_page(run):
     )}
     assert emails == {"sales@bisorgroup.com"}
     assert again.contact_barrier is None
+
+
+# --- что прячется в «отсеянных» ---
+
+
+def test_a_company_site_is_not_winnowed():
+    assert why_not_a_company_page({
+        "company_name": "TNJ Chemical",
+        "page_kind": "company_site",
+    }) is None
+
+
+def test_a_storefront_is_not_winnowed():
+    """Магазин компании на площадке — всё-таки её страница."""
+    assert why_not_a_company_page({
+        "company_name": "Hangzhou Keying Chem",
+        "page_kind": "marketplace_storefront",
+    }) is None
+
+
+@pytest.mark.parametrize(
+    "kind", ["directory", "market_report", "scientific", "marketplace_listing"]
+)
+def test_someone_elses_page_is_winnowed(kind):
+    assert why_not_a_company_page({
+        "company_name": "Hebei Hongtao Biotechnology Co., Ltd",
+        "page_kind": kind,
+    }) == "страница компании не принадлежит"
+
+
+def test_a_page_without_a_company_says_so():
+    assert why_not_a_company_page({
+        "company_name": "Не определено (список производителей)",
+        "page_kind": "market_report",
+    }) == "страница компанию не называет"
+
+
+def test_the_screen_and_the_registry_agree(run):
+    """Таблица находок и список компаний не должны расходиться.
+
+    Если правило раздвоится, закупщик снова увидит в находках компанию,
+    которой нет в списке, и снова спросит почему.
+    """
+    db, search_run = run
+    for kind in ("company_site", "directory", "market_report"):
+        result = {
+            "result_index": 0,
+            "url": f"https://example.test/{kind}",
+            "company_name": "Hebei Hongtao Biotechnology Co., Ltd",
+            "page_kind": kind,
+            "supplier_type": "unknown",
+            "confidence": 40,
+            "gmp_status": "not_found",
+            "iso_status": "not_found",
+            "coa_status": "not_found",
+            "tds_status": "not_found",
+            "contacts": {},
+        }
+        winnowed = why_not_a_company_page(result) is not None
+        supplier = register_qualified_candidate(db, search_run=search_run, result=result)
+        db.flush()
+        # Компания в реестре есть в обоих случаях; отличается только то,
+        # прячем ли находку и берём ли с неё контакты.
+        assert supplier is not None
+        assert (supplier.contact_barrier == "third_party") is winnowed
+    db.rollback()
+
+
+def test_a_nameless_page_is_winnowed_and_unregistered(run):
+    db, search_run = run
+    result = {
+        "result_index": 0,
+        "url": "https://b2bdata.aipage.com/en/rank/all-area/",
+        "company_name": "Не определено (список производителей)",
+        "page_kind": "market_report",
+        "supplier_type": "unknown",
+        "confidence": 0,
+        "gmp_status": "not_found",
+        "iso_status": "not_found",
+        "coa_status": "not_found",
+        "tds_status": "not_found",
+        "contacts": {},
+    }
+
+    assert why_not_a_company_page(result) is not None
+    assert register_qualified_candidate(db, search_run=search_run, result=result) is None

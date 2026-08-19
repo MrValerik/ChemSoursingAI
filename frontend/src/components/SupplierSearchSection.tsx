@@ -345,6 +345,14 @@ function QualificationTable({
         </tr>
       </thead>
       <tbody>
+        {sorted.length === 0 && (
+          <tr>
+            <td colSpan={columns.length} className="note">
+              Сайтов компаний среди находок нет — всё найденное ниже, в
+              отсеянном.
+            </td>
+          </tr>
+        )}
         {sorted.map((result) => (
           <tr
             className="clickable"
@@ -2148,11 +2156,43 @@ export default function SupplierSearchSection({
                   вперемешку, и принадлежность к короткому списку отличалась
                   только цветом одного тега из десяти. */}
               <QualificationTable
-                results={qualification.results}
+                results={qualification.results.filter((item) => !item.winnowed)}
                 activeCas={activeCas}
                 activeCountry={activeCountry}
                 onSelect={(result) => setDetailIndex(result.result_index)}
               />
+              {qualification.results.some((item) => item.winnowed) && (
+                // Справочники, обзоры рынка, статьи и перечни площадок
+                // теснили в таблице сайты компаний: у запроса #31 таких
+                // страниц было три из шести. Прятать их совсем нельзя —
+                // тогда числа найденного и отобранного расходятся без
+                // объяснения, и закупщик идёт спрашивать, куда делись
+                // остальные.
+                <details className="content-accordion winnowed-results">
+                  <summary>
+                    Отсеянные:{" "}
+                    {qualification.results.filter((item) => item.winnowed).length}
+                  </summary>
+                  <div className="content-accordion-body">
+                    <p className="note">
+                      Страницы, которые компании не принадлежат: справочники,
+                      обзоры рынка, статьи, перечни площадок. Названную на такой
+                      странице компанию мы в список берём — с пометкой «названа
+                      на чужой странице» и без контактов: почта там принадлежит
+                      владельцу сайта. Страница, на которой компания не названа
+                      вовсе, в список не идёт.
+                    </p>
+                    <QualificationTable
+                      results={qualification.results.filter(
+                        (item) => item.winnowed,
+                      )}
+                      activeCas={activeCas}
+                      activeCountry={activeCountry}
+                      onSelect={(result) => setDetailIndex(result.result_index)}
+                    />
+                  </div>
+                </details>
+              )}
               {detailResult && (
                 <div
                   className="request-delete-backdrop"

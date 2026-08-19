@@ -94,6 +94,22 @@ def company_key(name: str) -> str | None:
     return collapsed[:255]
 
 
+def why_not_a_company_page(result: dict) -> str | None:
+    """Почему находку не показываем в основном списке найденного.
+
+    Одно правило на реестр и на экран: список компаний и таблица находок
+    расходиться не должны. Пустая строка означает обычную страницу
+    компании.
+    """
+    if not names_a_company(str(result.get("company_name") or "")):
+        return "страница компанию не называет"
+    if result.get("is_market_report") or (
+        result.get("page_kind") in NOT_THE_COMPANYS_OWN_PAGE
+    ):
+        return "страница компании не принадлежит"
+    return None
+
+
 def register_marketplace_seller(
     db: Session,
     *,
