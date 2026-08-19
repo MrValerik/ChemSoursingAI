@@ -283,10 +283,11 @@ export interface SupplierRead {
     offered_substances: string[] | null;
   }[];
   /**
-   * Почему связи нет: адрес скрыт подменой, на сайте только форма или
-   * компанию назвала площадка и своей страницы у нас нет.
+   * Почему связи нет: адрес скрыт подменой, на сайте только форма,
+   * компанию назвала площадка и своей страницы у нас нет, либо её нашли
+   * на чужой странице — в справочнике, обзоре рынка или статье.
    */
-  contact_barrier: "obfuscated" | "form" | "platform" | null;
+  contact_barrier: "obfuscated" | "form" | "platform" | "third_party" | null;
   linked_requests: {
     rfq_id: number;
     name: string;

@@ -188,9 +188,18 @@ def test_a_supplier_page_with_the_word_market_is_not_a_report():
     assert not looks_like_market_report("https://xinjiangyechemical.com/", text)
 
 
-def test_a_market_report_does_not_become_a_supplier(client):
+def test_a_market_report_never_lends_its_own_mailbox(client):
+    """Компанию из отчёта показываем, почту отчёта — никогда.
+
+    Раньше такая карточка отбрасывалась целиком, но закупщик по запросу
+    #37 заметил, что найденных компаний больше, чем отобранных, и
+    справедливо попросил не прятать находки. Опасна тут не компания, а
+    адрес: sales@straitsresearch.com принадлежит агентству, и однажды он
+    уже сел на живую строку Henan GP.
+    """
     with SessionLocal() as db:
         run = _run(db)
+        before = db.query(Manager).count()
         supplier = register_qualified_candidate(
             db,
             search_run=run,
@@ -203,10 +212,7 @@ def test_a_market_report_does_not_become_a_supplier(client):
         )
         db.commit()
 
-        assert supplier is None
-        assert (
-            db.query(Supplier)
-            .filter(Supplier.source.like("%straitsresearch%"))
-            .count()
-            == 0
-        )
+        assert supplier is not None
+        assert supplier.company == "Henan GP Chemicals Co., Ltd"
+        assert supplier.contact_barrier == "third_party"
+        assert db.query(Manager).count() == before

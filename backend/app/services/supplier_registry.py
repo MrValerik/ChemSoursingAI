@@ -22,11 +22,33 @@ from app.services.search_trace import utc_now
 # не отдел продаж, а разбор чужого списка рассылки.
 _MAX_MANAGERS = 3
 
-# Роды страниц, с которых поставщика заводить нельзя. Держится здесь, а не
-# импортируется из api: реестр не должен зависеть от слоя запросов.
-NOT_A_SUPPLIER_KINDS = frozenset(
+# Роды страниц, которые компании не принадлежат: обзор рынка, научная
+# статья, справочник, перечень площадки. Компанию такая страница называет,
+# но говорит о ней с чужих слов, и контакты на ней — чужие. Держится
+# здесь, а не импортируется из api: реестр не должен зависеть от слоя
+# запросов.
+NOT_THE_COMPANYS_OWN_PAGE = frozenset(
     {"market_report", "scientific", "directory", "marketplace_listing"}
 )
+
+# Модель, не сумев назвать компанию, пишет заглушку: «Не определено
+# (список производителей)», «Не указана (платформа ECHEMI)». Замер по 1079
+# сохранённым карточкам: 28 таких имён, все начинаются одинаково.
+_NO_COMPANY_NAMED_RE = re.compile(
+    r"^\s*(не\s*определ|не\s*указан|не\s*применим|неизвест"
+    r"|unknown|not\s+specified|not\s+applicable|n/?a)",
+    re.IGNORECASE,
+)
+
+
+def names_a_company(name: str) -> bool:
+    """Названа ли на странице компания, или там стоит заглушка.
+
+    Заводить «Не определено (список производителей)» незачем: писать
+    некому и звать эту строку никак. Всё остальное в реестр попадает —
+    даже если роль или страна не определились.
+    """
+    return bool(name.strip()) and not _NO_COMPANY_NAMED_RE.match(name)
 
 _SEPARATORS_RE = re.compile(r"[^0-9a-zA-Zа-яА-ЯёЁ一-鿿]+")
 # Юридические хвосты компанию не различают, а сравнению мешают.
@@ -185,10 +207,11 @@ def _attach_contacts(
     supplier: Supplier,
     result: dict,
     substance: str,
+    own_page: bool = True,
 ) -> None:
     """Заводит контакты компании, снятые со страницы при загрузке.
 
-    Без этого поставщик попадал в «Отобранные поставщики» без канала
+    Без этого поставщик попадал в «Отобранные компании» без канала
     связи, а галочку в таблице поставить нельзя: канал берётся из
     контактов менеджера. То есть поиск доводил до компании и на этом
     останавливался, хотя почта и телефон лежали в уже загруженной
@@ -198,6 +221,19 @@ def _attach_contacts(
     площадки, а не компании, и письмо ушло бы не туда.
     """
     if result.get("supplier_type") == "marketplace":
+        return
+    if not own_page:
+        # Страница чужая, и почта на ней чужая: у справочника patenthub.cn
+        # это caoxd@patenthub.cn, у журнала об масличных культурах —
+        # адрес редакции. Компанию в списке показываем, канал связи
+        # закупщик добавит сам, открыв её сайт.
+        # Читаем из базы, а не из supplier.managers: связь после вставки в
+        # той же сессии остаётся прежней.
+        has_contact = db.scalar(
+            select(Manager.id).where(Manager.supplier_id == supplier.id).limit(1)
+        )
+        if not has_contact and not supplier.contact_barrier:
+            supplier.contact_barrier = "third_party"
         return
     contacts = result.get("contacts") or {}
     emails = [str(value).strip() for value in contacts.get("emails") or []]
@@ -273,25 +309,33 @@ def register_qualified_candidate(
     if not source_url:
         return None
 
-    # Обзор рынка компанию не представляет. Отчёт «potassium sorbate
-    # market» перечислял ведущих игроков, модель взяла оттуда имя Henan GP
-    # Chemicals, а контакты снялись со страницы — в реестре появился
-    # «Henan GP» с почтой исследовательского агентства, и письмо по ней
-    # ушло бы не тому.
-    if result.get("is_market_report"):
-        return None
-
-    # То же самое, но определённое моделью и шире: научная статья,
-    # справочник, перечень площадки. Прогон 281 завёл со страницы PubMed
-    # «компанию» с адресом dtstuart@ualberta.ca — личной почтой
-    # исследователя, которому ушло бы коммерческое письмо.
-    if result.get("page_kind") in NOT_A_SUPPLIER_KINDS:
-        return None
-
     stored_source = source_url[:255]
     company = str(
         result.get("company_name") or result.get("title") or source_url
     ).strip()
+
+    # Компанию, найденную поиском, из списка не выбрасываем: закупщик
+    # сравнил число в «Найденных компаниях» с числом в «Отобранных» и
+    # справедливо спросил, куда делись остальные. Не определились роль или
+    # страна — это повод показать строку с оговоркой, а не спрятать её.
+    #
+    # Кроме случая, когда компании на странице нет вовсе: «Не определено
+    # (список производителей)» — не имя, писать по нему некому.
+    if not names_a_company(company):
+        return None
+
+    # Страница компании не принадлежит: обзор рынка, справочник, перечень
+    # площадки. Имя оттуда берём, контакты — никогда. Отчёт «potassium
+    # sorbate market» перечислял ведущих игроков, модель взяла оттуда имя
+    # Henan GP Chemicals, а контакты снялись со страницы — в реестре
+    # появился «Henan GP» с почтой исследовательского агентства, и письмо
+    # ушло бы не тому. Прогон 281 тем же путём завёл со страницы PubMed
+    # «компанию» с личной почтой исследователя.
+    own_page = not (
+        result.get("is_market_report")
+        or result.get("page_kind") in NOT_THE_COMPANYS_OWN_PAGE
+    )
+
     key = company_key(company)
 
     supplier = db.scalar(
@@ -367,6 +411,7 @@ def register_qualified_candidate(
         supplier=supplier,
         result=result,
         substance=str((search_run.input_payload or {}).get("name") or "").strip(),
+        own_page=own_page,
     )
 
     link = db.scalar(
