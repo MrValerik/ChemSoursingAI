@@ -8,11 +8,14 @@ from app.services.escalation_rules import detect_escalation
 def _full_quote():
     return {
         "price": 12.5,
+        "currency": "USD",
         "incoterm": "CIP",
         "moq": "25 kg",
         "has_coa": True,
         "has_tds": True,
         "grade": "USP",
+        "payment_terms": "T/T",
+        "lead_time": "15 days",
     }
 
 
@@ -48,11 +51,12 @@ def test_low_confidence_breaks_completeness():
     assert r.low_confidence_fields == ["price"]
 
 
-def test_optional_low_confidence_does_not_block_complete_quote():
+def test_low_confidence_in_commercial_terms_blocks_complete_quote():
     r = evaluate_completeness(
         _full_quote(), field_confidence={"lead_time": 0.2}
     )
-    assert r.is_complete
+    assert not r.is_complete
+    assert r.low_confidence_fields == ["lead_time"]
 
 
 def test_accumulates_confirmed_fields_across_replies():
@@ -60,16 +64,24 @@ def test_accumulates_confirmed_fields_across_replies():
         [
             {
                 "price": 12.5,
+                "currency": "USD",
                 "incoterm": "CIP",
                 "moq": None,
+                "grade": "USP",
+                "payment_terms": None,
+                "lead_time": None,
                 "has_coa": False,
                 "has_tds": False,
                 "field_confidence": {"price": 0.9, "incoterm": 0.9},
             },
             {
                 "price": None,
+                "currency": None,
                 "incoterm": None,
                 "moq": "25 kg",
+                "grade": None,
+                "payment_terms": "T/T",
+                "lead_time": "15 days",
                 "has_coa": True,
                 "has_tds": False,
                 "field_confidence": {"moq": 0.95},

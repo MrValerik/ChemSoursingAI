@@ -39,8 +39,12 @@ from app.services.quotation_service import create_quotation
 _RFQ_MARKER = re.compile(r"\[RFQ-(\d+)]", re.IGNORECASE)
 _MISSING_LABELS = {
     "price": "unit price and currency",
+    "currency": "quote currency",
     "incoterm": "delivery basis / Incoterm",
     "moq": "minimum order quantity (MOQ)",
+    "grade": "product grade or purity",
+    "payment_terms": "payment terms",
+    "lead_time": "production and delivery lead time",
     "specification": "CoA or TDS",
 }
 

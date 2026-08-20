@@ -3,7 +3,8 @@
 Чистая логика без БД и внешних зависимостей — легко тестируется.
 
 Полнота (раздел 2 ТЗ, «Полнота котировок»): карточка считается полной, если
-заполнены цена, базис поставки, MOQ и есть спецификация (CoA или TDS).
+заполнены цена и валюта, базис поставки, MOQ, грейд, условия оплаты, срок и есть
+спецификация (CoA или TDS).
 
 Confidence-порог (раздел 5 ТЗ): поля с уверенностью ниже порога уходят на
 ручную проверку либо в авто-дозапрос — отсюда правило эскалации LOW_CONFIDENCE.
@@ -15,7 +16,15 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
 # Обязательные для полноты поля (спецификация проверяется отдельно).
-REQUIRED_FIELDS = ("price", "incoterm", "moq")
+REQUIRED_FIELDS = (
+    "price",
+    "currency",
+    "incoterm",
+    "moq",
+    "grade",
+    "payment_terms",
+    "lead_time",
+)
 
 # Порог уверенности извлечения по полю.
 CONFIDENCE_THRESHOLD = 0.70
@@ -53,7 +62,7 @@ def evaluate_completeness(
 ) -> CompletenessResult:
     """Оценивает полноту котировки.
 
-    quote — словарь с полями price, incoterm, moq, has_coa, has_tds.
+    quote — словарь с коммерческими полями и флагами has_coa/has_tds.
     field_confidence — уверенность по полям (опционально).
     """
     missing: list[str] = [f for f in REQUIRED_FIELDS if _is_empty(quote.get(f))]
@@ -97,8 +106,12 @@ def accumulate_quotations(
 
     merged: dict[str, Any] = {
         "price": None,
+        "currency": None,
         "incoterm": None,
         "moq": None,
+        "grade": None,
+        "payment_terms": None,
+        "lead_time": None,
         "has_coa": False,
         "has_tds": False,
     }

@@ -571,6 +571,9 @@ export interface CommunicationTestAssessment {
   currency: string | null;
   incoterm: string | null;
   moq: string | null;
+  grade: string | null;
+  payment_terms: string | null;
+  lead_time: string | null;
   has_coa: boolean;
   has_tds: boolean;
 }

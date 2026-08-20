@@ -640,7 +640,10 @@ def test_email_dialogue_stops_after_cumulative_data_and_coa_attachment(
         subject=f"Re: [RFQ-{rfq['id']}] Methanol",
         from_address="cumulative@supplier.example",
         to_addresses=["buyer@example.com"],
-        text="Our MOQ is 1 MT. CoA attached.",
+        text=(
+            "Our MOQ is 1 MT. USP grade material. Payment: T/T in advance. "
+            "Lead time: 15 days. CoA attached."
+        ),
         attachments=[{"filename": "methanol-coa.pdf", "content": b"test"}],
     )
 
@@ -672,7 +675,15 @@ def test_email_dialogue_stops_after_cumulative_data_and_coa_attachment(
             ),
             ExtractedQuote(
                 moq="1 MT",
-                field_confidence={"moq": 0.95},
+                grade="USP grade",
+                payment_terms="T/T",
+                lead_time="15 days",
+                field_confidence={
+                    "moq": 0.95,
+                    "grade": 0.95,
+                    "payment_terms": 0.95,
+                    "lead_time": 0.95,
+                },
                 method="test",
             ),
         ]

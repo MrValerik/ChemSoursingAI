@@ -378,16 +378,12 @@ def _attach_quote_assessment(run: CommunicationTestRun) -> CommunicationTestRun:
         "missing_fields": completeness.missing_fields,
         "low_confidence_fields": completeness.low_confidence_fields,
         "price": float(quote["price"]) if quote["price"] is not None else None,
-        "currency": next(
-            (
-                item.currency
-                for item in reversed(supplier_quotes)
-                if item.currency
-            ),
-            None,
-        ),
+        "currency": quote["currency"],
         "incoterm": quote["incoterm"],
         "moq": quote["moq"],
+        "grade": quote["grade"],
+        "payment_terms": quote["payment_terms"],
+        "lead_time": quote["lead_time"],
         "has_coa": quote["has_coa"],
         "has_tds": quote["has_tds"],
     }
@@ -435,16 +431,6 @@ def _sync_test_quotation(db: Session, run: CommunicationTestRun) -> None:
     if rfq is None or rfq.deleted_at is not None:
         return
 
-    def latest(name: str):
-        return next(
-            (
-                getattr(item, name)
-                for item in reversed(extracted)
-                if getattr(item, name) not in (None, "")
-            ),
-            None,
-        )
-
     quotation = db.get(Quotation, run.quotation_id) if run.quotation_id else None
     if quotation is None:
         quotation = Quotation(rfq_id=run.rfq_id, manager_id=None)
@@ -453,12 +439,12 @@ def _sync_test_quotation(db: Session, run: CommunicationTestRun) -> None:
         run.quotation_id = quotation.id
 
     quotation.price = progress.quote["price"]
-    quotation.currency = latest("currency")
+    quotation.currency = progress.quote["currency"]
     quotation.incoterm = progress.quote["incoterm"]
     quotation.moq = progress.quote["moq"]
-    quotation.grade = latest("grade")
-    quotation.payment_terms = latest("payment_terms")
-    quotation.lead_time = latest("lead_time")
+    quotation.grade = progress.quote["grade"]
+    quotation.payment_terms = progress.quote["payment_terms"]
+    quotation.lead_time = progress.quote["lead_time"]
     quotation.has_coa = bool(progress.quote["has_coa"])
     quotation.has_tds = bool(progress.quote["has_tds"])
     quotation.is_complete = progress.completeness.is_complete
@@ -530,6 +516,7 @@ def add_demo_document_reply(
     }
     supplier_reply = (
         "Our offer is USD 720/MT, MOQ: 100 kg, CIP Moscow. "
+        "USP grade material. Payment: T/T in advance. Lead time: 15 days. "
         "Please see the attached batch quality passport."
     )
     run.messages.append(

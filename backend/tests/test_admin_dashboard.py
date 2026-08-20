@@ -635,7 +635,8 @@ def test_communication_testing_marks_complete_quote_without_followup(
         f"/communication-testing/{started.json()['id']}/messages",
         json={
             "supplier_message": (
-                "USD 720/MT, MOQ: 100 kg, CIP Moscow. CoA attached."
+                "USD 720/MT, MOQ: 100 kg, CIP Moscow. USP grade material. "
+                "Payment: T/T in advance. Lead time: 15 days. CoA attached."
             )
         },
         headers=admin,
@@ -656,6 +657,9 @@ def test_communication_testing_marks_complete_quote_without_followup(
         "currency": "USD",
         "incoterm": "CIP",
         "moq": "100 kg",
+        "grade": "USP grade",
+        "payment_terms": "T/T",
+        "lead_time": "15 days",
         "has_coa": True,
         "has_tds": False,
     }
@@ -705,7 +709,13 @@ def test_communication_testing_explains_missing_quote_fields(client, monkeypatch
     assert continued.status_code == 201
     assessment = continued.json()["quote_assessment"]
     assert not assessment["is_complete"]
-    assert assessment["missing_fields"] == ["moq", "specification"]
+    assert assessment["missing_fields"] == [
+        "moq",
+        "grade",
+        "payment_terms",
+        "lead_time",
+        "specification",
+    ]
     assert len(continued.json()["messages"]) == 3
 
 
@@ -783,7 +793,12 @@ def test_embedded_communication_test_updates_one_summary_quotation(
 
     second = client.post(
         f"/communication-testing/{started['id']}/messages",
-        json={"message": "MOQ: 100 kg. CoA attached."},
+        json={
+            "message": (
+                "MOQ: 100 kg. USP grade material. Payment: T/T in advance. "
+                "Lead time: 15 days. CoA attached."
+            )
+        },
         headers=admin,
     )
     assert second.status_code == 201
@@ -796,6 +811,9 @@ def test_embedded_communication_test_updates_one_summary_quotation(
     assert final_summary[0]["quotation_id"] == first_payload["quotation_id"]
     assert final_summary[0]["price"] == 720.0
     assert final_summary[0]["moq"] == "100 kg"
+    assert final_summary[0]["grade"] == "USP grade"
+    assert final_summary[0]["payment_terms"] == "T/T"
+    assert final_summary[0]["lead_time"] == "15 days"
     assert final_summary[0]["has_coa"] is True
     assert final_summary[0]["is_complete"] is True
 
@@ -969,6 +987,9 @@ def test_embedded_dialogue_adds_and_understands_demo_coa(
         "currency": "USD",
         "incoterm": "CIP",
         "moq": "100 kg",
+        "grade": "USP grade",
+        "payment_terms": "T/T",
+        "lead_time": "15 days",
         "has_coa": True,
         "has_tds": False,
     }

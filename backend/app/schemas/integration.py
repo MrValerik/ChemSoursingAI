@@ -313,6 +313,9 @@ class CommunicationTestAssessmentRead(BaseModel):
     currency: str | None = None
     incoterm: str | None = None
     moq: str | None = None
+    grade: str | None = None
+    payment_terms: str | None = None
+    lead_time: str | None = None
     has_coa: bool = False
     has_tds: bool = False
 

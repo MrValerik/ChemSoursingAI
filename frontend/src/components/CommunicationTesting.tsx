@@ -37,6 +37,10 @@ const QUOTE_FIELD_LABELS: Record<string, string> = {
   price: "цена",
   incoterm: "Incoterm",
   moq: "MOQ",
+  currency: "валюта",
+  grade: "грейд / чистота",
+  payment_terms: "условия оплаты",
+  lead_time: "срок производства и доставки",
   specification: "CoA/TDS",
 };
 
@@ -44,7 +48,7 @@ const EXAMPLES = {
   complete: {
     title: "Полный ответ",
     supplierMessage:
-      "USD 720/MT, MOQ: 100 kg, CIP Moscow. CoA attached.",
+      "USD 720/MT, MOQ: 100 kg, CIP Moscow. USP grade material. Payment: T/T in advance. Lead time: 15 days. CoA attached.",
   },
   incomplete: {
     title: "Неполный ответ",
@@ -474,6 +478,11 @@ function EmbeddedCommunicationTesting({
                   : ""}
                 {` · Incoterm: ${active.quote_assessment.incoterm ?? "не указан"}`}
                 {` · MOQ: ${active.quote_assessment.moq ?? "не указан"}`}
+              </span>
+              <span>
+                Грейд: {active.quote_assessment.grade ?? "не указан"}
+                {` · Оплата: ${active.quote_assessment.payment_terms ?? "не указана"}`}
+                {` · Срок: ${active.quote_assessment.lead_time ?? "не указан"}`}
               </span>
               <span>
                 Документы: {active.quote_assessment.has_coa ? "CoA" : ""}
@@ -1091,6 +1100,11 @@ function FullCommunicationTesting({
                       : ""}
                     {` · Incoterm: ${active.quote_assessment.incoterm ?? "не указан"}`}
                     {` · MOQ: ${active.quote_assessment.moq ?? "не указан"}`}
+                  </span>
+                  <span>
+                    Грейд: {active.quote_assessment.grade ?? "не указан"}
+                    {` · Оплата: ${active.quote_assessment.payment_terms ?? "не указана"}`}
+                    {` · Срок: ${active.quote_assessment.lead_time ?? "не указан"}`}
                   </span>
                   <span>
                     Документы: {active.quote_assessment.has_coa ? "CoA" : ""}

@@ -23,6 +23,7 @@ def create_quotation(db: Session, data: QuotationCreate) -> Quotation:
     эскалацию специалисту."""
     quote_dict = {
         "price": data.price,
+        "currency": data.currency,
         "incoterm": data.incoterm,
         "moq": data.moq,
         "grade": data.grade,

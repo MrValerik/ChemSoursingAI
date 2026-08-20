@@ -38,6 +38,10 @@ const QUOTE_FIELD_LABELS: Record<string, string> = {
   price: "цена",
   incoterm: "Incoterm",
   moq: "MOQ",
+  currency: "валюта",
+  grade: "грейд / чистота",
+  payment_terms: "условия оплаты",
+  lead_time: "срок производства и доставки",
   specification: "CoA/TDS",
 };
 

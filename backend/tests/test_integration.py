@@ -23,7 +23,8 @@ from app.services.rfq_service import create_rfq, render_rfq_text
 # Синтетические ответы поставщиков.
 REPLY_COMPLETE = (
     "For CAS 50-78-2, our price is USD 12.50/kg CIP Moscow. MOQ 25 kg. "
-    "We provide CoA and technical data sheet. Lead time 15 days."
+    "USP grade material. Payment: T/T in advance. We provide CoA and technical "
+    "data sheet. Lead time 15 days."
 )
 REPLY_SHORTAGE = "Sorry, this item is currently out of stock. We will quote later."
 
