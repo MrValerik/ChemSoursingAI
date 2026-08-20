@@ -135,7 +135,8 @@ export default function DispatchTab({
   const rfqId = rfq.id;
   const { user } = useAuth();
   const readOnly = user?.role === "auditor";
-  const canTestCommunication = user?.role === "admin";
+  const canTestCommunication =
+    user?.role === "admin" || user?.role === "buyer";
 
   const [overview, setOverview] = useState<CommunicationOverviewRead>(EMPTY_OVERVIEW);
   const [testRuns, setTestRuns] = useState<CommunicationTestRun[]>([]);
@@ -155,7 +156,8 @@ export default function DispatchTab({
   const [translationRevealed, setTranslationRevealed] = useState(false);
   const [translationBusy, setTranslationBusy] = useState(false);
 
-  const canSyncEmail = user?.role === "head" || user?.role === "admin";
+  const canSyncEmail =
+    user?.role === "buyer" || user?.role === "head" || user?.role === "admin";
 
   const load = async () => {
     try {

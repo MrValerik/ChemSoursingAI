@@ -166,10 +166,10 @@ def sync_email(
     user: User = Depends(get_current_user),
 ) -> EmailSyncRead:
     """Явно проверяет IMAP; автоматические ответы проходят policy-gate."""
-    if user.role not in {UserRole.HEAD, UserRole.ADMIN}:
+    if user.role not in {UserRole.BUYER, UserRole.HEAD, UserRole.ADMIN}:
         raise HTTPException(
             status_code=403,
-            detail="Проверка общей почты доступна руководителю и администратору",
+            detail="Проверка общей почты доступна закупщику, руководителю и администратору",
         )
     try:
         summary = sync_inbox(db, limit=limit)

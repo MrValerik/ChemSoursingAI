@@ -388,7 +388,7 @@ def test_communication_testing_preview_and_explicit_delivery(
             json={"supplier_message": "Test"},
             headers=buyer,
         ).status_code
-        == 403
+        == 404
     )
 
     not_confirmed = client.post(
@@ -537,7 +537,7 @@ def test_communication_testing_escalates_social_reply_without_generation(
         json={"message": "Thank you. Let us continue with the quotation."},
         headers=buyer,
     )
-    assert forbidden.status_code == 403
+    assert forbidden.status_code == 404
 
     answered = client.post(
         f"/communication-testing/{preview.json()['id']}/escalation-reply",
@@ -800,6 +800,86 @@ def test_embedded_communication_test_updates_one_summary_quotation(
     assert final_summary[0]["is_complete"] is True
 
 
+def test_buyer_can_use_embedded_test_supplier(client, monkeypatch):
+    buyer = _login(client, "ivanov")
+    monkeypatch.setattr(
+        "app.services.communication_testing._validate_procurement_identity",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        lambda self, **kwargs: "Please quote Aspirin and provide CoA.",
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Обычный ответ по закупке.",
+            method="test",
+        ),
+    )
+
+    own_rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+        headers=buyer,
+    ).json()
+    preview = client.post(
+        "/communication-testing",
+        json={
+            "rfq_id": own_rfq["id"],
+            "channel": "email",
+            "procurement_context": "Aspirin, CAS 50-78-2",
+            "initial_message": "Please quote Aspirin, CAS 50-78-2.",
+            "delivery_mode": "preview",
+        },
+        headers=buyer,
+    )
+    assert preview.status_code == 201
+    assert preview.json()["delivery_mode"] == "preview"
+    assert client.get(
+        f"/communication-testing?rfq_id={own_rfq['id']}", headers=buyer
+    ).status_code == 200
+    assert client.get("/communication-testing", headers=buyer).status_code == 403
+
+    continued = client.post(
+        f"/communication-testing/{preview.json()['id']}/messages",
+        json={"message": "USD 720/MT, MOQ 100 kg, CIP Moscow. CoA available."},
+        headers=buyer,
+    )
+    assert continued.status_code == 201
+    assert continued.json()["quote_assessment"]["price"] == 720.0
+
+    forbidden_send = client.post(
+        "/communication-testing",
+        json={
+            "rfq_id": own_rfq["id"],
+            "channel": "email",
+            "recipient": "supplier@example.com",
+            "procurement_context": "Aspirin, CAS 50-78-2",
+            "delivery_mode": "send",
+            "confirm_external_send": True,
+        },
+        headers=buyer,
+    )
+    assert forbidden_send.status_code == 403
+
+    forbidden_mode = client.post(
+        "/communication-testing",
+        json={
+            "rfq_id": own_rfq["id"],
+            "channel": "email",
+            "procurement_context": "Aspirin, CAS 50-78-2",
+            "simulation_mode": "supplier_ai",
+            "initial_message": "Hello",
+            "delivery_mode": "preview",
+        },
+        headers=buyer,
+    )
+    assert forbidden_mode.status_code == 403
+
+
 def test_embedded_dialogue_adds_and_understands_demo_coa(
     client, monkeypatch, tmp_path
 ):
@@ -872,7 +952,7 @@ def test_embedded_dialogue_adds_and_understands_demo_coa(
     assert client.post(
         f"/communication-testing/{started['id']}/demo-document-reply",
         headers=buyer,
-    ).status_code == 403
+    ).status_code == 404
 
     response = client.post(
         f"/communication-testing/{started['id']}/demo-document-reply",

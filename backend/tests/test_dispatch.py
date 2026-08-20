@@ -819,13 +819,7 @@ def test_nonstandard_supplier_question_creates_escalation_without_reply(
     assert client.get(f"/rfq/{rfq['id']}", headers=headers).json()["status"] == "escalated"
 
 
-def test_email_sync_is_restricted_to_head_and_admin(client, monkeypatch):
-    buyer = _login(client)
-    assert (
-        client.post("/communications/email/sync", headers=buyer).status_code
-        == 403
-    )
-
+def test_email_sync_is_available_to_buyer_and_admin(client, monkeypatch):
     monkeypatch.setattr(
         "app.api.communications.sync_inbox",
         lambda db, limit=20: SimpleNamespace(
@@ -842,10 +836,12 @@ def test_email_sync_is_restricted_to_head_and_admin(client, monkeypatch):
             }
         ),
     )
-    admin = _login(client, "admin")
-    response = client.post("/communications/email/sync", headers=admin)
-    assert response.status_code == 200
-    assert response.json()["escalations_created"] == 1
+    for username in ("ivanov", "admin"):
+        response = client.post(
+            "/communications/email/sync", headers=_login(client, username)
+        )
+        assert response.status_code == 200
+        assert response.json()["escalations_created"] == 1
 
 
 def _started_conversation(client, headers, *, channel: str, contact: str):
