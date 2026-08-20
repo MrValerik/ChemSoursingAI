@@ -66,14 +66,20 @@ bash "$PROJECT_DIR/deploy/apply-migrations.sh" "$PROJECT_DIR"
 # recreated, an unchanged frontend container can retain the old container IP.
 "${COMPOSE[@]}" restart frontend
 
-sudo systemctl reset-failed chemsource.service || true
-sudo systemctl start chemsource.service
-# Re-assert boot autostart on every deployment: a VM started manually from
-# the Yandex Cloud console must bring up the Compose stack itself. A local Qwen
-# unit is optional because production can use an external LLM endpoint.
-sudo systemctl enable docker.service chemsource.service
-if [[ -f /etc/systemd/system/qwen.service ]]; then
-  sudo systemctl enable qwen.service
+if ! systemctl cat chemsource.service >/dev/null 2>&1; then
+  # A freshly migrated VM may already run the Compose stack but not have the
+  # systemd units yet. Install them once so the next reboot is self-healing.
+  sudo bash "$PROJECT_DIR/deploy/install-vm-services.sh"
+else
+  sudo systemctl reset-failed chemsource.service || true
+  sudo systemctl start chemsource.service
+  # Re-assert boot autostart on every deployment: a VM started manually from
+  # the Yandex Cloud console must bring up the Compose stack itself. A local
+  # Qwen unit is optional because production can use an external LLM endpoint.
+  sudo systemctl enable docker.service chemsource.service
+  if [[ -f /etc/systemd/system/qwen.service ]]; then
+    sudo systemctl enable qwen.service
+  fi
 fi
 
 wait_for_url() {
