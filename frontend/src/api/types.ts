@@ -328,6 +328,8 @@ export interface SupplierRead {
     name: string;
     // Номера может не быть: половина списка заказчика — марки и смеси.
     cas: string | null;
+    // Компанию вычеркнули из этого запроса, но не из реестра.
+    excluded: boolean;
   }[];
   has_coa: boolean;
   has_tds: boolean;

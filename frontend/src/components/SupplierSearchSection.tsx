@@ -11,6 +11,7 @@ import type {
   SearchRunListItem,
   SearchRunTrace,
   SupplierQualificationResponse,
+  SupplierRead,
   SupplierSearchResponse,
   SupplierSearchResult,
   SupplierVerificationStatus,
@@ -54,6 +55,37 @@ const SUBSTANCE_CELL_BY_NAME: Record<CasEvidenceStatus, string> = {
   mentioned: "упомянуто вскользь",
   not_found: "не подтверждено",
   mismatch: "другое вещество",
+};
+
+// Решение человека о компании: статус в реестре плюс отказ в рамках этого
+// запроса. Два разных отказа: «не то вещество» не делает компанию плохой.
+export type SupplierDecision = {
+  supplier_id: number;
+  qualification_status: string;
+  excluded_here: boolean;
+};
+
+export type DecisionAction =
+  | "verified"
+  | "under_review"
+  | "candidate"
+  | "rejected"
+  | "exclude_here"
+  | "return_here";
+
+const DECISION_NOTICES: Record<DecisionAction, string> = {
+  verified: "Компания подтверждена как поставщик.",
+  under_review: "Компания отправлена на проверку.",
+  candidate: "Компания снова в кандидатах.",
+  rejected: "Компания исключена из реестра — во всех запросах.",
+  exclude_here: "Компания вычеркнута из этого запроса; в реестре осталась.",
+  return_here: "Компания снова участвует в этом запросе.",
+};
+
+const DECISION_LABELS: Record<string, string> = {
+  verified: "подтверждён",
+  under_review: "на проверке",
+  rejected: "исключён из реестра",
 };
 
 // Сколько «замечаний» — число само по себе не говорит, чего именно.
@@ -291,16 +323,35 @@ function QualificationTable({
   activeCas,
   activeCountry,
   onSelect,
+  decisionFor,
+  onDecide,
+  busySupplierId,
+  canDecide,
 }: {
   results: SupplierQualificationResponse["results"];
   activeCas: string | null;
   activeCountry: string;
   onSelect: (result: SupplierQualificationResponse["results"][number]) => void;
+  decisionFor: (resultIndex: number) => SupplierDecision | null;
+  onDecide: (decision: SupplierDecision, action: DecisionAction) => void;
+  busySupplierId: number | null;
+  canDecide: boolean;
 }) {
   // Балл — то, ради чего список упорядочен, поэтому он и стоит по умолчанию,
   // от большего к меньшему.
   const [sortKey, setSortKey] = useState<QualificationSortKey>("confidence");
   const [sortAsc, setSortAsc] = useState(false);
+  // Открытое меню действий: одновременно не больше одного на таблицу.
+  const [menuFor, setMenuFor] = useState<number | null>(null);
+
+  // Меню закрывается кликом мимо него: строка под ним кликабельна, и
+  // оставленное открытым меню перехватывало бы нажатие.
+  useEffect(() => {
+    if (menuFor === null) return;
+    const close = () => setMenuFor(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [menuFor]);
 
   // Две колонки называют то, чего не видно из самого значения: сколько
   // «баллов» и по какой шкале, и что считается идентичностью, когда
@@ -421,26 +472,46 @@ function QualificationTable({
               </span>
             </th>
           ))}
+          {canDecide && <th className="qualification-actions-column"> </th>}
         </tr>
       </thead>
       <tbody>
         {sorted.length === 0 && (
           <tr>
-            <td colSpan={columns.length} className="note">
+            <td colSpan={columns.length + (canDecide ? 1 : 0)} className="note">
               Ни одна найденная страница компанию не назвала — всё найденное
               ниже, в отсеянном.
             </td>
           </tr>
         )}
-        {sorted.map((result) => (
+        {sorted.map((result) => {
+          const decision = decisionFor(result.result_index);
+          const decisionLabel = decision
+            ? decision.excluded_here
+              ? "не для этого запроса"
+              : DECISION_LABELS[decision.qualification_status]
+            : undefined;
+          return (
           <tr
-            className="clickable"
+            className={`clickable${decision?.excluded_here || decision?.qualification_status === "rejected" ? " row-declined" : ""}`}
             key={result.url}
             onClick={() => onSelect(result)}
             title="Открыть подробности: проверка, расчёт балла и цитаты"
           >
             <td>
               <strong>{result.company_name}</strong>
+              {decisionLabel && (
+                <div
+                  className={`decision-mark${
+                    decision?.excluded_here ||
+                    decision?.qualification_status === "rejected"
+                      ? " is-declined"
+                      : ""
+                  }`}
+                >
+                  {decisionLabel}
+                </div>
+              )}
               {result.third_party && !result.winnowed && (
                 // Имя со справочника или обзора рынка верное, но сказано о
                 // компании с чужих слов, и почта на такой странице чужая.
@@ -515,8 +586,106 @@ function QualificationTable({
                 ? `${result.red_flags.length} ${riskWord(result.red_flags.length)}`
                 : "нет"}
             </td>
+            {canDecide && (
+              <td
+                className="qualification-actions-column"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {decision ? (
+                  <div className="row-menu">
+                    <button
+                      aria-label={`Действия с компанией ${result.company_name}`}
+                      className="ui-icon-button row-menu-button"
+                      disabled={busySupplierId === decision.supplier_id}
+                      title="Действия с компанией"
+                      type="button"
+                      onClick={(event) => {
+                        // Клик всплывает до окна, которое закрывает меню:
+                        // без остановки оно закрылось бы тем же нажатием,
+                        // которым открылось.
+                        event.stopPropagation();
+                        setMenuFor((current) =>
+                          current === result.result_index
+                            ? null
+                            : result.result_index,
+                        );
+                      }}
+                    >
+                      ⋮
+                    </button>
+                    {menuFor === result.result_index && (
+                      <div className="dropdown row-menu-dropdown">
+                        <div className="dropdown-title">
+                          {result.company_name}
+                        </div>
+                        {decision.qualification_status !== "verified" && (
+                          <button
+                            className="dropdown-item"
+                            type="button"
+                            onClick={() => onDecide(decision, "verified")}
+                          >
+                            Подтвердить поставщика
+                          </button>
+                        )}
+                        {decision.qualification_status !== "under_review" && (
+                          <button
+                            className="dropdown-item"
+                            type="button"
+                            onClick={() => onDecide(decision, "under_review")}
+                          >
+                            Отправить на проверку
+                          </button>
+                        )}
+                        {decision.qualification_status !== "candidate" && (
+                          <button
+                            className="dropdown-item"
+                            type="button"
+                            onClick={() => onDecide(decision, "candidate")}
+                          >
+                            Вернуть в кандидаты
+                          </button>
+                        )}
+                        {decision.excluded_here ? (
+                          <button
+                            className="dropdown-item"
+                            type="button"
+                            onClick={() => onDecide(decision, "return_here")}
+                          >
+                            Вернуть в этот запрос
+                          </button>
+                        ) : (
+                          <button
+                            className="dropdown-item"
+                            type="button"
+                            onClick={() => onDecide(decision, "exclude_here")}
+                          >
+                            Не подходит для этого запроса
+                          </button>
+                        )}
+                        {decision.qualification_status !== "rejected" && (
+                          <button
+                            className="dropdown-item is-danger"
+                            type="button"
+                            onClick={() => onDecide(decision, "rejected")}
+                          >
+                            Исключить из реестра
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  // Страница компанией не назвалась — в реестр её не
+                  // сохраняли, и решать не о чем.
+                  <span className="note" title="Страница не сохранена как компания">
+                    —
+                  </span>
+                )}
+              </td>
+            )}
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );
@@ -1619,6 +1788,8 @@ export default function SupplierSearchSection({
   onOpenSubstance?: (id: number) => void;
 }) {
   const { user } = useAuth();
+  // Решения принимает человек с правом записи: аудитор смотрит.
+  const canDecide = user?.role !== "auditor";
   const supportedRfqCountries = (rfq.search_countries ?? []).filter((country) =>
     COUNTRY_OPTIONS.includes(country),
   );
@@ -1661,6 +1832,9 @@ export default function SupplierSearchSection({
   const [traceBusy, setTraceBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Реестр компаний: из него берутся решения человека по строкам таблицы.
+  const [registry, setRegistry] = useState<SupplierRead[]>([]);
+  const [busySupplierId, setBusySupplierId] = useState<number | null>(null);
   const [substanceRecord, setSubstanceRecord] = useState<SubstanceRecord | null>(null);
   const [identityDecision, setIdentityDecision] = useState<"reject" | null>(null);
   const [correctedName, setCorrectedName] = useState(rfq.name);
@@ -1779,10 +1953,85 @@ export default function SupplierSearchSection({
     ? runText(trace, "country")
     : selectedCountries[0] ?? "";
   const candidateResults = trace?.candidate_results ?? data?.results ?? [];
+  // Реестр нужен только там, где есть таблица находок.
+  useEffect(() => {
+    if (!qualification) return;
+    let cancelled = false;
+    void api
+      .listSuppliers()
+      .then((items) => {
+        if (!cancelled) setRegistry(items);
+      })
+      .catch(() => {
+        // Молча: без реестра таблица работает, просто без решений.
+        if (!cancelled) setRegistry([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [qualification]);
+
   const savedToRegistry = (resultIndex: number) =>
     !!qualification?.registry_links?.some(
       (link) => link.result_index === resultIndex,
     );
+
+  // Решение по компании живёт в реестре, а не в сохранённом прогоне:
+  // прогон — снимок находки, а подтвердить или вычеркнуть компанию можно
+  // и через неделю после него. Поэтому статусы берутся живыми из реестра
+  // и связываются со строкой по registry_links.
+  const decisionFor = (resultIndex: number): SupplierDecision | null => {
+    const supplierId = qualification?.registry_links?.find(
+      (link) => link.result_index === resultIndex,
+    )?.supplier_id;
+    if (supplierId === undefined) return null;
+    const supplier = registry.find((item) => item.id === supplierId);
+    if (supplier === undefined) return null;
+    return {
+      supplier_id: supplierId,
+      qualification_status: supplier.qualification_status,
+      excluded_here: (supplier.linked_requests ?? []).some(
+        (link) => link.rfq_id === rfq.id && link.excluded,
+      ),
+    };
+  };
+
+  const decide = async (
+    decision: SupplierDecision,
+    action: DecisionAction,
+  ) => {
+    if (busySupplierId !== null) return;
+    // Исключение из реестра закрывает компанию во всех запросах, включая
+    // чужие. Спрашиваем — отменить это можно только вручную и потом.
+    if (
+      action === "rejected" &&
+      !window.confirm(
+        "Исключить компанию из реестра? Она перестанет предлагаться во всех " +
+          "запросах, не только в этом.",
+      )
+    ) {
+      return;
+    }
+    setBusySupplierId(decision.supplier_id);
+    setError(null);
+    try {
+      if (action === "exclude_here" || action === "return_here") {
+        await api.setSupplierExclusion(
+          rfq.id,
+          decision.supplier_id,
+          action === "exclude_here",
+        );
+      } else {
+        await api.setSupplierQualification(decision.supplier_id, action);
+      }
+      setRegistry(await api.listSuppliers());
+      setNotice(DECISION_NOTICES[action]);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusySupplierId(null);
+    }
+  };
   const detailResult =
     qualification?.results.find(
       (result) => result.result_index === detailIndex,
@@ -2302,6 +2551,10 @@ export default function SupplierSearchSection({
                 activeCas={activeCas}
                 activeCountry={activeCountry}
                 onSelect={(result) => setDetailIndex(result.result_index)}
+                decisionFor={decisionFor}
+                onDecide={(decision, action) => void decide(decision, action)}
+                busySupplierId={busySupplierId}
+                canDecide={canDecide}
               />
               {qualification.results.some((item) => item.winnowed) && (
                 // Прячем только то, чего в списке компаний не будет.
@@ -2329,6 +2582,10 @@ export default function SupplierSearchSection({
                       activeCas={activeCas}
                       activeCountry={activeCountry}
                       onSelect={(result) => setDetailIndex(result.result_index)}
+                      decisionFor={decisionFor}
+                      onDecide={(decision, action) => void decide(decision, action)}
+                      busySupplierId={busySupplierId}
+                      canDecide={canDecide}
                     />
                   </div>
                 </details>

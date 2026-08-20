@@ -101,7 +101,12 @@ def test_supplier_registry_includes_filters_and_request_metrics(client):
     assert item["contacts_count"] == 1
     assert item["request_count"] == 1
     assert item["linked_requests"] == [
-        {"rfq_id": rfq["id"], "name": "Aspirin", "cas": "50-78-2"}
+        {
+            "rfq_id": rfq["id"],
+            "name": "Aspirin",
+            "cas": "50-78-2",
+            "excluded": False,
+        }
     ]
     assert item["certificates"] == ["ISO 9001"]
 
@@ -1106,3 +1111,150 @@ def test_send_saved_email_draft(client, monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "sent"
     assert response.json()["body"] == "Please provide MOQ."
+
+
+def test_human_decides_supplier_status(client):
+    """Решение человека о компании: подтвердить и исключить из реестра.
+
+    До этого статус задавался только при создании: подтвердить найденную
+    ИИ-агентом компанию или вычеркнуть посредника было нечем.
+    """
+    headers = _login(client)
+    supplier = client.post(
+        "/suppliers",
+        headers=headers,
+        json={"company": "Decision Chem Ltd", "email": "sales@decision.example"},
+    ).json()
+
+    confirmed = client.post(
+        f"/suppliers/{supplier['id']}/qualification",
+        headers=headers,
+        json={"status": "verified"},
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["qualification_status"] == "verified"
+    # Решение человека и есть проверка компании.
+    assert confirmed.json()["last_checked_at"] is not None
+
+    rejected = client.post(
+        f"/suppliers/{supplier['id']}/qualification",
+        headers=headers,
+        json={"status": "rejected"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["qualification_status"] == "rejected"
+
+    assert (
+        client.post(
+            f"/suppliers/{supplier['id']}/qualification",
+            headers=headers,
+            json={"status": "unknown_status"},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            f"/suppliers/{supplier['id']}/qualification",
+            headers=_login(client, "auditor"),
+            json={"status": "verified"},
+        ).status_code
+        == 403
+    )
+
+
+def test_rejected_supplier_cannot_become_recipient(client):
+    headers = _login(client)
+    rfq = client.post(
+        "/rfq?verify=false",
+        headers=headers,
+        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+    ).json()
+    supplier = client.post(
+        f"/suppliers?rfq_id={rfq['id']}",
+        headers=headers,
+        json={"company": "Rejected Trading Co", "email": "sales@rejected.example"},
+    ).json()
+    client.post(
+        f"/suppliers/{supplier['id']}/qualification",
+        headers=headers,
+        json={"status": "rejected"},
+    )
+
+    blocked = client.post(
+        f"/rfq/{rfq['id']}/recipients",
+        headers=headers,
+        json={"items": [{"supplier_id": supplier["id"], "channel": "email"}]},
+    )
+    assert blocked.status_code == 422
+    assert "исключена" in blocked.json()["detail"]
+
+
+def test_exclusion_is_scoped_to_one_request(client):
+    """«Не то вещество» не должно закрывать компанию навсегда."""
+    headers = _login(client)
+    first = client.post(
+        "/rfq?verify=false",
+        headers=headers,
+        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+    ).json()
+    second = client.post(
+        "/rfq?verify=false",
+        headers=headers,
+        json={"cas": "64-19-7", "name": "Acetic acid", "incoterms": ["CIP"]},
+    ).json()
+    supplier = client.post(
+        f"/suppliers?rfq_id={first['id']}",
+        headers=headers,
+        json={"company": "Scoped Chem Ltd", "email": "sales@scoped.example"},
+    ).json()
+    # Компания уже стоит в очереди рассылки первого запроса.
+    client.post(
+        f"/rfq/{first['id']}/recipients",
+        headers=headers,
+        json={"items": [{"supplier_id": supplier["id"], "channel": "email"}]},
+    )
+
+    excluded = client.post(
+        f"/rfq/{first['id']}/suppliers/{supplier['id']}/exclusion",
+        headers=headers,
+        json={"excluded": True},
+    )
+    assert excluded.status_code == 200
+    link = next(
+        item
+        for item in excluded.json()["linked_requests"]
+        if item["rfq_id"] == first["id"]
+    )
+    assert link["excluded"] is True
+    # Реестр не тронут: по другому запросу компания по-прежнему годна.
+    assert excluded.json()["qualification_status"] != "rejected"
+    # И из очереди рассылки её убрали, иначе письмо уйдёт вычеркнутому.
+    recipients = client.get(f"/rfq/{first['id']}/recipients", headers=headers).json()
+    assert all(item["supplier_id"] != supplier["id"] for item in recipients)
+
+    blocked = client.post(
+        f"/rfq/{first['id']}/recipients",
+        headers=headers,
+        json={"items": [{"supplier_id": supplier["id"], "channel": "email"}]},
+    )
+    assert blocked.status_code == 422
+    assert "вычеркнута" in blocked.json()["detail"]
+
+    allowed = client.post(
+        f"/rfq/{second['id']}/recipients",
+        headers=headers,
+        json={"items": [{"supplier_id": supplier["id"], "channel": "email"}]},
+    )
+    assert allowed.status_code == 200
+
+    returned = client.post(
+        f"/rfq/{first['id']}/suppliers/{supplier['id']}/exclusion",
+        headers=headers,
+        json={"excluded": False},
+    )
+    assert returned.status_code == 200
+    assert client.post(
+        f"/rfq/{first['id']}/recipients",
+        headers=headers,
+        json={"items": [{"supplier_id": supplier["id"], "channel": "email"}]},
+    ).status_code == 200

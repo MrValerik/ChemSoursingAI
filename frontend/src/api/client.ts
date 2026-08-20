@@ -416,6 +416,24 @@ export const api = {
   // Контакт, вписанный закупщиком с сайта компании: поиск на скрытом
   // адресе, форме обратной связи или странице площадки останавливается, а
   // человек эти преграды проходит.
+  // Решение человека о компании: подтвердить, отправить на проверку,
+  // вернуть в кандидаты или исключить из реестра.
+  setSupplierQualification: (
+    supplierId: number,
+    status: "candidate" | "under_review" | "verified" | "rejected",
+  ) =>
+    request<SupplierRead>(`/suppliers/${supplierId}/qualification`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
+
+  // Отказ в рамках одного запроса: реестр не трогает.
+  setSupplierExclusion: (rfqId: number, supplierId: number, excluded: boolean) =>
+    request<SupplierRead>(
+      `/rfq/${rfqId}/suppliers/${supplierId}/exclusion`,
+      { method: "POST", body: JSON.stringify({ excluded }) },
+    ),
+
   addSupplierContact: (
     supplierId: number,
     payload: {

@@ -1236,6 +1236,54 @@ button.request-delete-button:focus-visible {
   align-items: center;
   gap: 2px;
 }
+/* Действия со строкой таблицы: «⋮» и меню под ним. Колонка узкая — она
+   держит одну кнопку, а не значение, и не должна растягивать таблицу. */
+.qualification-actions-column {
+  width: 1%;
+  text-align: right;
+  cursor: default;
+  white-space: nowrap;
+}
+.row-menu {
+  position: relative;
+  display: inline-flex;
+}
+button.row-menu-button {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+button.row-menu-button:hover,
+button.row-menu-button:focus-visible {
+  color: var(--text);
+}
+/* Меню раскрывается вниз-влево от кнопки: кнопка стоит у правого края
+   таблицы, и вправо места нет. */
+.row-menu-dropdown {
+  top: calc(100% + 4px);
+  right: 0;
+  left: auto;
+  min-width: 232px;
+  text-align: left;
+}
+.row-menu-dropdown .dropdown-title {
+  max-width: 232px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Исключение из реестра — единственное действие, которое закрывает
+   компанию во всех запросах. Цвет об этом и говорит. */
+.dropdown-item.is-danger { color: var(--err); }
+.dropdown-item.is-danger:hover { background: var(--err-soft); }
+
+/* Решение человека видно прямо в строке: иначе действие из меню
+   выглядит как ничего не изменившее. */
+.decision-mark { font-size: 12px; color: var(--ok); }
+.decision-mark.is-declined { color: var(--muted); }
+tr.row-declined td { opacity: 0.6; }
+
 /* У крайней правой колонки подсказка раскрывается влево: вправо от неё
    край таблицы, и общее правило уводило её за пределы экрана. */
 .summary th:last-child .help-tip > span[role="tooltip"] {

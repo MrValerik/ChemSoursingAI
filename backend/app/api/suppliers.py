@@ -4,6 +4,8 @@ Email и WhatsApp работают в безопасном demo-режиме л�
 включения администратором.
 """
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -44,6 +46,8 @@ from app.schemas.supplier import (
     SupplierContact,
     SupplierContactCreate,
     SupplierCreate,
+    SupplierExclusionUpdate,
+    SupplierQualificationUpdate,
     SupplierRead,
     SupplierRequestLink,
 )
@@ -106,15 +110,17 @@ def list_suppliers(db: Session = Depends(get_db)) -> list[SupplierRead]:
                 RFQ.id,
                 RFQ.name,
                 RFQ.cas,
+                RfqSupplierLink.status,
             )
             .join(RFQ, RFQ.id == RfqSupplierLink.rfq_id)
             .where(RfqSupplierLink.supplier_id.in_(supplier_ids))
         ).all()
-        for supplier_id, rfq_id, name, cas in candidate_rows:
+        for supplier_id, rfq_id, name, cas, link_status in candidate_rows:
             linked[supplier_id][rfq_id] = SupplierRequestLink(
                 rfq_id=rfq_id,
                 name=name,
                 cas=cas,
+                excluded=link_status == LINK_EXCLUDED,
             )
 
         recipient_rows = db.execute(
@@ -128,10 +134,12 @@ def list_suppliers(db: Session = Depends(get_db)) -> list[SupplierRead]:
             .where(RfqRecipient.supplier_id.in_(supplier_ids))
         ).all()
         for supplier_id, rfq_id, name, cas in recipient_rows:
+            existing_link = linked[supplier_id].get(rfq_id)
             linked[supplier_id][rfq_id] = SupplierRequestLink(
                 rfq_id=rfq_id,
                 name=name,
                 cas=cas,
+                excluded=bool(existing_link and existing_link.excluded),
             )
 
         quotation_rows = db.execute(
@@ -267,17 +275,32 @@ def _supplier_for_edit(db: Session, supplier_id: int, user: User) -> Supplier:
 
 def _supplier_with_links(db: Session, supplier: Supplier) -> SupplierRead:
     rows = db.execute(
-        select(RFQ.id, RFQ.name, RFQ.cas)
+        select(RFQ.id, RFQ.name, RFQ.cas, RfqSupplierLink.status)
         .join(RfqSupplierLink, RfqSupplierLink.rfq_id == RFQ.id)
         .where(RfqSupplierLink.supplier_id == supplier.id)
     ).all()
     return _to_supplier_read(
         supplier,
         linked_requests=[
-            SupplierRequestLink(rfq_id=rfq_id, name=name, cas=cas)
-            for rfq_id, name, cas in rows
+            SupplierRequestLink(
+                rfq_id=rfq_id,
+                name=name,
+                cas=cas,
+                excluded=link_status == LINK_EXCLUDED,
+            )
+            for rfq_id, name, cas, link_status in rows
         ],
     )
+
+
+def _is_excluded_for_rfq(db: Session, *, rfq_id: int, supplier_id: int) -> bool:
+    link = db.scalars(
+        select(RfqSupplierLink).where(
+            RfqSupplierLink.rfq_id == rfq_id,
+            RfqSupplierLink.supplier_id == supplier_id,
+        )
+    ).first()
+    return link is not None and link.status == LINK_EXCLUDED
 
 
 @router.post(
@@ -401,6 +424,101 @@ def list_recipients(rfq_id: int, db: Session = Depends(get_db)) -> list[Recipien
     return [_to_recipient_read(r) for r in db.scalars(stmt).all()]
 
 
+# Статус связи «запрос ↔ компания». Поле было заведено сразу, но до сих пор
+# всегда хранило «candidate»: отказаться от компании в рамках одного запроса
+# было нечем.
+LINK_CANDIDATE = "candidate"
+LINK_EXCLUDED = "excluded"
+
+
+def _writable(user: User) -> None:
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+
+
+@router.post(
+    "/suppliers/{supplier_id}/qualification", response_model=SupplierRead
+)
+def set_supplier_qualification(
+    supplier_id: int,
+    payload: SupplierQualificationUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SupplierRead:
+    """Решение человека о компании: подтвердить, отправить на проверку,
+    вернуть в кандидаты или исключить из реестра.
+
+    Проверка ИИ-агентом заводит только кандидата и контрагента не
+    подтверждает — подтверждает человек, и до сих пор ему было нечем.
+    """
+    _writable(user)
+    supplier = db.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(status_code=404, detail="Компания не найдена")
+    supplier.qualification_status = payload.status
+    # Решение человека и есть проверка: дата в карточке должна показывать
+    # её, а не последний машинный прогон.
+    supplier.last_checked_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(supplier)
+    return _supplier_with_links(db, supplier)
+
+
+@router.post(
+    "/rfq/{rfq_id}/suppliers/{supplier_id}/exclusion",
+    response_model=SupplierRead,
+)
+def set_supplier_exclusion(
+    rfq_id: int,
+    supplier_id: int,
+    payload: SupplierExclusionUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SupplierRead:
+    """Отказ от компании в рамках одного запроса.
+
+    «Нашли не то вещество» не значит «это не поставщик»: по другому запросу
+    та же компания может подойти. Поэтому отказ живёт в связке с запросом и
+    реестр не трогает.
+    """
+    _writable(user)
+    _get_rfq(db, rfq_id)
+    supplier = db.get(Supplier, supplier_id)
+    if supplier is None:
+        raise HTTPException(status_code=404, detail="Компания не найдена")
+    link = db.scalars(
+        select(RfqSupplierLink).where(
+            RfqSupplierLink.rfq_id == rfq_id,
+            RfqSupplierLink.supplier_id == supplier_id,
+        )
+    ).first()
+    status = LINK_EXCLUDED if payload.excluded else LINK_CANDIDATE
+    if link is None:
+        # Связи может не быть у компании, добавленной руками: заводим её,
+        # иначе отказ некуда записать.
+        db.add(
+            RfqSupplierLink(
+                rfq_id=rfq_id, supplier_id=supplier_id, status=status
+            )
+        )
+    else:
+        link.status = status
+    if payload.excluded:
+        # Исключённая компания не должна остаться в очереди рассылки: это
+        # ровно тот случай, когда письмо уходит тому, кого вычеркнули.
+        for recipient in db.scalars(
+            select(RfqRecipient).where(
+                RfqRecipient.rfq_id == rfq_id,
+                RfqRecipient.supplier_id == supplier_id,
+                RfqRecipient.status == DispatchStatus.QUEUED,
+            )
+        ).all():
+            db.delete(recipient)
+    db.commit()
+    db.refresh(supplier)
+    return _supplier_with_links(db, supplier)
+
+
 @router.post("/rfq/{rfq_id}/recipients", response_model=list[RecipientRead])
 def select_recipients(
     rfq_id: int,
@@ -421,9 +539,24 @@ def select_recipients(
     for item in payload.items:
         if (item.supplier_id, item.channel) in existing:
             continue
-        if db.get(Supplier, item.supplier_id) is None:
+        supplier = db.get(Supplier, item.supplier_id)
+        if supplier is None:
             raise HTTPException(
                 status_code=404, detail=f"Поставщик {item.supplier_id} не найден"
+            )
+        # Отказ человека должен что-то значить. Раньше исключённая компания
+        # спокойно попадала в получатели: статус в реестре не читал никто.
+        if supplier.qualification_status == "rejected":
+            raise HTTPException(
+                status_code=422,
+                detail=f"Компания «{supplier.company}» исключена из реестра",
+            )
+        if _is_excluded_for_rfq(db, rfq_id=rfq_id, supplier_id=supplier.id):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Компания «{supplier.company}» вычеркнута из этого запроса"
+                ),
             )
         db.add(
             RfqRecipient(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -89,6 +90,22 @@ class SupplierRequestLink(BaseModel):
     # связи с запросом «Dowsil 556», то есть вкладка «Отобранные
     # поставщики» не открывалась вовсе.
     cas: str | None = None
+    # Компанию вычеркнули из этого запроса, но не из реестра: «нашли не то
+    # вещество» и «это не поставщик» — разные отказы с разными
+    # последствиями. Первый не должен закрывать компанию навсегда.
+    excluded: bool = False
+
+
+class SupplierQualificationUpdate(BaseModel):
+    """Решение человека о компании в реестре (функция 3 ТЗ)."""
+
+    status: Literal["candidate", "under_review", "verified", "rejected"]
+
+
+class SupplierExclusionUpdate(BaseModel):
+    """Отказ от компании в рамках одного запроса."""
+
+    excluded: bool
 
 
 class SupplierRead(BaseModel):
