@@ -2,16 +2,17 @@
 // запроса; этот раздел предназначен для фильтрации и повторного использования
 // уже известных поставщиков и кандидатов.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../api/client";
+import { api, userErrorMessage } from "../api/client";
 import type {
   ChannelKind,
   SupplierQualificationStatus,
   SupplierRead,
   SupplierTypeKind,
 } from "../api/types";
-import { Select } from "./ui";
+import { useAuth } from "../auth/AuthContext";
+import { Icon, IconButton, Input, Select } from "./ui";
 
 const TYPE_LABELS: Record<SupplierTypeKind, string> = {
   manufacturer: "Производитель",
@@ -44,7 +45,37 @@ type SortKey =
 const formatDate = (value: string | null) =>
   value ? new Date(value).toLocaleDateString("ru-RU") : "Не проверялся";
 
+interface SupplierForm {
+  id: number | null;
+  company: string;
+  type: "" | SupplierTypeKind;
+  country: string;
+  source: string;
+  reputation: string;
+  qualification_status: SupplierQualificationStatus;
+  evidence_score: string;
+  certificates: string;
+  email: string;
+  whatsapp: string;
+}
+
+const EMPTY_FORM: SupplierForm = {
+  id: null,
+  company: "",
+  type: "",
+  country: "",
+  source: "",
+  reputation: "",
+  qualification_status: "candidate",
+  evidence_score: "",
+  certificates: "",
+  email: "",
+  whatsapp: "",
+};
+
 export default function SuppliersSection() {
+  const { user } = useAuth();
+  const canEdit = user?.role !== "auditor";
   const navigate = useNavigate();
   const onOpenRfq = (id: number) => navigate(`/requests/${id}`);
   const [suppliers, setSuppliers] = useState<SupplierRead[]>([]);
@@ -59,16 +90,25 @@ export default function SuppliersSection() {
   const [sortKey, setSortKey] = useState<SortKey>("company");
   const [sortAsc, setSortAsc] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState<SupplierForm | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const items = await api.listSuppliers();
+        setSuppliers(items);
+        setSelected((current) =>
+          current ? items.find((item) => item.id === current.id) ?? null : null,
+        );
+        setError(null);
+    } catch (caught) {
+      setError(userErrorMessage(caught));
+    }
+  }, []);
 
   useEffect(() => {
-    api
-      .listSuppliers()
-      .then((items) => {
-        setSuppliers(items);
-        setError(null);
-      })
-      .catch((e) => setError(String(e)));
-  }, []);
+    void load();
+  }, [load]);
 
   const countries = useMemo(
     () =>
@@ -149,6 +189,74 @@ export default function SuppliersSection() {
   const arrow = (key: SortKey) =>
     sortKey === key ? (sortAsc ? " ↑" : " ↓") : "";
 
+  const beginEdit = (supplier: SupplierRead) => {
+    setForm({
+      id: supplier.id,
+      company: supplier.company,
+      type: supplier.type ?? "",
+      country: supplier.country ?? "",
+      source: supplier.source ?? "",
+      reputation: supplier.reputation ?? "",
+      qualification_status: supplier.qualification_status,
+      evidence_score: supplier.evidence_score?.toString() ?? "",
+      certificates: supplier.certificates?.join(", ") ?? "",
+      email: "",
+      whatsapp: "",
+    });
+    setSelected(supplier);
+    setError(null);
+  };
+
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!form?.company.trim()) return;
+    const certificates = form.certificates
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const payload = {
+      company: form.company.trim(),
+      type: form.type || null,
+      country: form.country.trim() || null,
+      source: form.source.trim() || null,
+      reputation: form.reputation.trim() || null,
+      qualification_status: form.qualification_status,
+      evidence_score: form.evidence_score === "" ? null : Number(form.evidence_score),
+      certificates: certificates.length ? certificates : null,
+    };
+    setSaving(true);
+    try {
+      const saved = form.id === null
+        ? await api.addSupplier({
+            ...payload,
+            email: form.email.trim() || null,
+            whatsapp: form.whatsapp.trim() || null,
+          })
+        : await api.updateSupplier(form.id, payload);
+      setForm(null);
+      setSelected(saved);
+      await load();
+    } catch (caught) {
+      setError(userErrorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (supplier: SupplierRead) => {
+    if (!window.confirm(`Удалить «${supplier.company}» из реестра поставщиков?`)) {
+      return;
+    }
+    try {
+      await api.deleteSupplier(supplier.id);
+      if (selected?.id === supplier.id) setSelected(null);
+      setForm((current) => (current?.id === supplier.id ? null : current));
+      await load();
+    } catch (caught) {
+      setError(userErrorMessage(caught));
+    }
+  };
+
   return (
     <div className="requests-page suppliers-page">
       <div className="requests-header">
@@ -158,7 +266,119 @@ export default function SuppliersSection() {
             Единый каталог компаний, найденных и добавленных во всех запросах.
           </p>
         </div>
+        {canEdit && (
+          <button
+            className="secondary button-with-icon"
+            type="button"
+            onClick={() => {
+              setForm({ ...EMPTY_FORM });
+              setSelected(null);
+              setError(null);
+            }}
+          >
+            <Icon name="edit" size={17} />
+            Добавить поставщика
+          </button>
+        )}
       </div>
+
+      {canEdit && form && (
+        <form className="panel supplier-registry-editor" onSubmit={save}>
+          <div className="supplier-registry-editor-header">
+            <h2>{form.id === null ? "Новый поставщик" : "Изменение поставщика"}</h2>
+            <button className="secondary btn-small" type="button" onClick={() => setForm(null)}>
+              Отмена
+            </button>
+          </div>
+          <div className="supplier-registry-form-grid">
+            <Input
+              aria-label="Название компании"
+              placeholder="Название компании"
+              value={form.company}
+              onChange={(event) => setForm({ ...form, company: event.target.value })}
+            />
+            <Select
+              ariaLabel="Тип поставщика"
+              value={form.type}
+              onChange={(value) => setForm({ ...form, type: value as SupplierForm["type"] })}
+              options={[
+                { value: "", label: "Тип не определён" },
+                { value: "manufacturer", label: "Производитель" },
+                { value: "distributor", label: "Дистрибьютор" },
+              ]}
+            />
+            <Input
+              aria-label="Страна поставщика"
+              placeholder="Страна"
+              value={form.country}
+              onChange={(event) => setForm({ ...form, country: event.target.value })}
+            />
+            <Input
+              aria-label="Источник сведений"
+              placeholder="Источник или URL"
+              value={form.source}
+              onChange={(event) => setForm({ ...form, source: event.target.value })}
+            />
+            <Select
+              ariaLabel="Статус квалификации"
+              value={form.qualification_status}
+              onChange={(value) =>
+                setForm({
+                  ...form,
+                  qualification_status: value as SupplierQualificationStatus,
+                })
+              }
+              options={Object.entries(STATUS_LABELS).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+            />
+            <Input
+              aria-label="Проверяемый балл"
+              min="0"
+              max="100"
+              placeholder="Балл 0–100"
+              type="number"
+              value={form.evidence_score}
+              onChange={(event) => setForm({ ...form, evidence_score: event.target.value })}
+            />
+            <Input
+              aria-label="Сертификаты"
+              placeholder="Сертификаты через запятую"
+              value={form.certificates}
+              onChange={(event) => setForm({ ...form, certificates: event.target.value })}
+            />
+            <Input
+              aria-label="Комментарий о репутации"
+              placeholder="Комментарий о репутации"
+              value={form.reputation}
+              onChange={(event) => setForm({ ...form, reputation: event.target.value })}
+            />
+            {form.id === null && (
+              <>
+                <Input
+                  aria-label="Email поставщика"
+                  placeholder="Email (необязательно)"
+                  type="email"
+                  value={form.email}
+                  onChange={(event) => setForm({ ...form, email: event.target.value })}
+                />
+                <Input
+                  aria-label="WhatsApp поставщика"
+                  placeholder="WhatsApp (необязательно)"
+                  value={form.whatsapp}
+                  onChange={(event) => setForm({ ...form, whatsapp: event.target.value })}
+                />
+              </>
+            )}
+          </div>
+          <div className="actions">
+            <button disabled={saving || !form.company.trim()} type="submit">
+              {saving ? "Сохранение…" : "Сохранить"}
+            </button>
+          </div>
+        </form>
+      )}
 
       <div className="requests-filters supplier-filters">
         <input
@@ -260,6 +480,7 @@ export default function SuppliersSection() {
                   <th onClick={() => toggleSort("last_checked_at")}>
                     Проверка{arrow("last_checked_at")}
                   </th>
+                  {canEdit && <th className="request-actions-column" />}
                 </tr>
               </thead>
               <tbody>
@@ -297,6 +518,28 @@ export default function SuppliersSection() {
                     <td className="col-num">{supplier.request_count}</td>
                     <td>{supplier.channels.join(", ") || "Нет"}</td>
                     <td>{formatDate(supplier.last_checked_at)}</td>
+                    {canEdit && (
+                      <td className="request-actions-column">
+                        <div className="row-actions">
+                          <IconButton
+                            icon="edit"
+                            label={`Изменить ${supplier.company}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              beginEdit(supplier);
+                            }}
+                          />
+                          <IconButton
+                            icon="trash"
+                            label={`Удалить ${supplier.company}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void remove(supplier);
+                            }}
+                          />
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

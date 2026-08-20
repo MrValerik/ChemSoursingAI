@@ -29,6 +29,48 @@ class SupplierCreate(BaseModel):
     certificates: list[str] | None = None
 
 
+class SupplierUpdate(BaseModel):
+    """Поля строки глобального реестра, которые специалист правит вручную."""
+
+    company: str | None = Field(default=None, min_length=1, max_length=255)
+    type: SupplierType | None = None
+    country: str | None = Field(default=None, max_length=120)
+    source: str | None = Field(default=None, max_length=255)
+    reputation: str | None = Field(default=None, max_length=255)
+    qualification_status: str | None = Field(
+        default=None,
+        pattern="^(candidate|under_review|verified|rejected)$",
+    )
+    evidence_score: int | None = Field(default=None, ge=0, le=100)
+    certificates: list[str] | None = None
+
+    @field_validator("company")
+    @classmethod
+    def _strip_company(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Название компании не может быть пустым")
+        return cleaned
+
+    @field_validator("country", "source", "reputation")
+    @classmethod
+    def _strip(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("certificates")
+    @classmethod
+    def _clean_certificates(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned = [item.strip() for item in value if item.strip()]
+        return list(dict.fromkeys(cleaned)) or None
+
+
 class SupplierContact(BaseModel):
     """Контакт компании: кому и куда писать."""
 

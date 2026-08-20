@@ -113,24 +113,26 @@ def test_seed_is_idempotent_and_keeps_user_edits(client):
         db.commit()
 
 
-def test_registry_is_readable_by_a_buyer_and_editable_by_a_head(client):
+def test_registry_is_editable_by_a_buyer_and_read_only_for_an_auditor(client):
     buyer = _auth(client, "ivanov")
-    head = _auth(client, "petrova")
+    auditor = _auth(client, "auditor")
+
+    assert (
+        client.post(
+            "/intermediaries",
+            headers=auditor,
+            json={"domain": "audit-denied.example", "name": "Только чтение"},
+        ).status_code
+        == 403
+    )
 
     listed = client.get("/intermediaries", headers=buyer)
     assert listed.status_code == 200
     assert any(item["domain"] == "echemi.com" for item in listed.json())
 
-    denied = client.post(
-        "/intermediaries",
-        headers=buyer,
-        json={"domain": "newshop.example", "name": "Новая площадка"},
-    )
-    assert denied.status_code == 403
-
     created = client.post(
         "/intermediaries",
-        headers=head,
+        headers=buyer,
         json={
             "domain": "https://www.NewShop.example/catalog",
             "name": "Новая площадка",
@@ -142,20 +144,40 @@ def test_registry_is_readable_by_a_buyer_and_editable_by_a_head(client):
 
     duplicate = client.post(
         "/intermediaries",
-        headers=head,
+        headers=buyer,
         json={"domain": "newshop.example", "name": "Она же"},
     )
     assert duplicate.status_code == 409
 
     item_id = created.json()["id"]
     patched = client.patch(
-        f"/intermediaries/{item_id}", headers=head, json={"is_active": False}
+        f"/intermediaries/{item_id}",
+        headers=buyer,
+        json={
+            "domain": "renamed-shop.example",
+            "name": "Исправленная площадка",
+            "kind": "catalog",
+            "notes": "Проверено закупщиком",
+            "is_active": False,
+        },
     )
     assert patched.status_code == 200
+    assert patched.json()["domain"] == "renamed-shop.example"
+    assert patched.json()["name"] == "Исправленная площадка"
+    assert patched.json()["kind"] == "catalog"
+    assert patched.json()["notes"] == "Проверено закупщиком"
     assert patched.json()["is_active"] is False
 
-    assert client.delete(f"/intermediaries/{item_id}", headers=buyer).status_code == 403
-    assert client.delete(f"/intermediaries/{item_id}", headers=head).status_code == 204
+    assert (
+        client.patch(
+            f"/intermediaries/{item_id}",
+            headers=auditor,
+            json={"name": "Недопустимое изменение"},
+        ).status_code
+        == 403
+    )
+    assert client.delete(f"/intermediaries/{item_id}", headers=auditor).status_code == 403
+    assert client.delete(f"/intermediaries/{item_id}", headers=buyer).status_code == 204
 
 
 def test_unknown_kind_is_rejected(client):

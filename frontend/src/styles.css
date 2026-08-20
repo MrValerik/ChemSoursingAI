@@ -2482,6 +2482,19 @@ button.danger:hover {
 .suppliers-list, .templates-list { flex: 1; min-width: 0; }
 .supplier-card { width: 360px; flex-shrink: 0; }
 .supplier-filters .filter-search { flex-basis: 320px; }
+.supplier-registry-editor { margin-bottom: 12px; }
+.supplier-registry-editor-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.supplier-registry-editor-header h2 { margin: 0; }
+.supplier-registry-form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+}
 
 /* --- Таблица реестра: поставщики, посредники ---
    Строка 40px, липкая шапка, числа сравниваются по разряду. Включается
@@ -2548,6 +2561,10 @@ button.danger:hover {
 .supplier-request-links button {
   width: 100%;
   text-align: left;
+}
+
+@media (max-width: 1100px) {
+  .supplier-registry-form-grid { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
 }
 /* Класс бьёт по специфичности `tbody tr:hover`, !important не нужен. */
 .row-active { background: var(--brand-soft); }

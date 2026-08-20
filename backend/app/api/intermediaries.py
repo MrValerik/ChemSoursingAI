@@ -1,4 +1,4 @@
-"""Реестр посредников: чтение всем, изменение — руководителю и админу."""
+"""Реестр посредников: аудитору — чтение, рабочим ролям — изменение."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from app.services.intermediaries import normalize_domain
 
 router = APIRouter(prefix="/intermediaries", tags=["intermediaries"])
 
-_EDITOR_ROLES = {UserRole.HEAD, UserRole.ADMIN}
+_EDITOR_ROLES = {UserRole.BUYER, UserRole.HEAD, UserRole.ADMIN}
 _KINDS = {"marketplace", "catalog", "reseller", "reference"}
 
 
@@ -42,10 +42,21 @@ class IntermediaryCreate(BaseModel):
 
 
 class IntermediaryUpdate(BaseModel):
+    domain: str | None = Field(default=None, min_length=3, max_length=255)
     name: str | None = Field(default=None, min_length=1, max_length=255)
     kind: str | None = Field(default=None, max_length=32)
     notes: str | None = Field(default=None, max_length=2000)
     is_active: bool | None = None
+
+    @field_validator("domain")
+    @classmethod
+    def clean_domain(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        domain = normalize_domain(value)
+        if "." not in domain:
+            raise ValueError("Ожидается доменное имя, например echemi.com")
+        return domain
 
     @field_validator("kind")
     @classmethod
@@ -70,7 +81,7 @@ def _require_editor(user: User) -> None:
     if user.role not in _EDITOR_ROLES:
         raise HTTPException(
             status_code=403,
-            detail="Изменять реестр посредников может руководитель или админ",
+            detail="Аудитор может только просматривать реестр посредников",
         )
 
 
@@ -120,6 +131,14 @@ def update_intermediary(
     item = db.get(Intermediary, intermediary_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Запись не найдена")
+    if data.domain is not None and data.domain != item.domain:
+        duplicate = db.scalar(
+            select(Intermediary).where(Intermediary.domain == data.domain)
+        )
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=409, detail=f"Домен {data.domain} уже в реестре"
+            )
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
     db.commit()

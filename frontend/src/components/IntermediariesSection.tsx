@@ -33,7 +33,7 @@ const KIND_HINTS: Record<IntermediaryKind, string> = {
 
 export default function IntermediariesSection() {
   const { user } = useAuth();
-  const canEdit = user?.role === "head" || user?.role === "admin";
+  const canEdit = user?.role !== "auditor";
 
   const [items, setItems] = useState<IntermediaryRead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,6 +41,8 @@ export default function IntermediariesSection() {
   const [domain, setDomain] = useState("");
   const [name, setName] = useState("");
   const [kind, setKind] = useState<IntermediaryKind>("marketplace");
+  const [notes, setNotes] = useState("");
+  const [editing, setEditing] = useState<IntermediaryRead | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -78,9 +80,36 @@ export default function IntermediariesSection() {
     if (!domain.trim() || !name.trim()) return;
     setSaving(true);
     try {
-      await api.createIntermediary({ domain, name, kind });
+      await api.createIntermediary({
+        domain,
+        name,
+        kind,
+        notes: notes.trim() || null,
+      });
       setDomain("");
       setName("");
+      setNotes("");
+      await load();
+      setError(null);
+    } catch (e) {
+      setError(userErrorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editing || !editing.domain.trim() || !editing.name.trim()) return;
+    setSaving(true);
+    try {
+      await api.updateIntermediary(editing.id, {
+        domain: editing.domain,
+        name: editing.name,
+        kind: editing.kind,
+        notes: editing.notes?.trim() || null,
+        is_active: editing.is_active,
+      });
+      setEditing(null);
       await load();
       setError(null);
     } catch (e) {
@@ -100,6 +129,7 @@ export default function IntermediariesSection() {
   };
 
   const remove = async (item: IntermediaryRead) => {
+    if (!window.confirm(`Удалить «${item.name}» из реестра посредников?`)) return;
     try {
       await api.deleteIntermediary(item.id);
       await load();
@@ -153,6 +183,12 @@ export default function IntermediariesSection() {
               label: KIND_LABELS[value],
             }))}
           />
+          <Input
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="комментарий (необязательно)"
+            aria-label="Комментарий к посреднику"
+          />
           <button type="submit" disabled={saving}>
             {saving ? "Сохраняю…" : "Добавить"}
           </button>
@@ -178,6 +214,7 @@ export default function IntermediariesSection() {
                 <th>Домен</th>
                 <th>Название</th>
                 <th>Вид</th>
+                <th>Комментарий</th>
                 <th>Учитывается</th>
                 {canEdit && <th className="request-actions-column" />}
               </tr>
@@ -186,10 +223,61 @@ export default function IntermediariesSection() {
               {ordered.map((item) => (
                 <tr key={item.id} className={item.is_active ? "" : "row-muted"}>
                   <td>
-                    <strong>{item.domain}</strong>
+                    {editing?.id === item.id ? (
+                      <Input
+                        aria-label="Домен посредника"
+                        value={editing.domain}
+                        onChange={(event) =>
+                          setEditing({ ...editing, domain: event.target.value })
+                        }
+                      />
+                    ) : (
+                      <strong>{item.domain}</strong>
+                    )}
                   </td>
-                  <td>{item.name}</td>
-                  <td title={KIND_HINTS[item.kind]}>{KIND_LABELS[item.kind]}</td>
+                  <td>
+                    {editing?.id === item.id ? (
+                      <Input
+                        aria-label="Название посредника"
+                        value={editing.name}
+                        onChange={(event) =>
+                          setEditing({ ...editing, name: event.target.value })
+                        }
+                      />
+                    ) : (
+                      item.name
+                    )}
+                  </td>
+                  <td title={KIND_HINTS[item.kind]}>
+                    {editing?.id === item.id ? (
+                      <Select
+                        value={editing.kind}
+                        onChange={(value) =>
+                          setEditing({ ...editing, kind: value as IntermediaryKind })
+                        }
+                        ariaLabel="Вид посредника"
+                        options={KIND_ORDER.map((value) => ({
+                          value,
+                          label: KIND_LABELS[value],
+                        }))}
+                      />
+                    ) : (
+                      KIND_LABELS[item.kind]
+                    )}
+                  </td>
+                  <td>
+                    {editing?.id === item.id ? (
+                      <Input
+                        aria-label="Комментарий к посреднику"
+                        value={editing.notes ?? ""}
+                        onChange={(event) =>
+                          setEditing({ ...editing, notes: event.target.value })
+                        }
+                      />
+                    ) : (
+                      item.notes || "—"
+                    )}
+                  </td>
                   <td>
                     <span
                       className={`badge ${item.is_active ? "tone-ok" : "tone-neutral"}`}
@@ -200,18 +288,47 @@ export default function IntermediariesSection() {
                   {canEdit && (
                     <td className="request-actions-column">
                       <div className="row-actions">
-                        <button
-                          type="button"
-                          className="secondary btn-small"
-                          onClick={() => void toggle(item)}
-                        >
-                          {item.is_active ? "Отключить" : "Включить"}
-                        </button>
-                        <IconButton
-                          icon="trash"
-                          label={`Удалить ${item.domain}`}
-                          onClick={() => void remove(item)}
-                        />
+                        {editing?.id === item.id ? (
+                          <>
+                            <button
+                              type="button"
+                              className="btn-small"
+                              disabled={saving}
+                              onClick={() => void saveEdit()}
+                            >
+                              Сохранить
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary btn-small"
+                              onClick={() => setEditing(null)}
+                            >
+                              Отмена
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="secondary btn-small"
+                              onClick={() => setEditing({ ...item })}
+                            >
+                              Изменить
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary btn-small"
+                              onClick={() => void toggle(item)}
+                            >
+                              {item.is_active ? "Отключить" : "Включить"}
+                            </button>
+                            <IconButton
+                              icon="trash"
+                              label={`Удалить ${item.domain}`}
+                              onClick={() => void remove(item)}
+                            />
+                          </>
+                        )}
                       </div>
                     </td>
                   )}

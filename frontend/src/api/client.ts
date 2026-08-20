@@ -413,6 +413,27 @@ export const api = {
     });
   },
 
+  updateSupplier: (
+    supplierId: number,
+    payload: {
+      company?: string;
+      type?: "manufacturer" | "distributor" | null;
+      country?: string | null;
+      source?: string | null;
+      reputation?: string | null;
+      qualification_status?: "candidate" | "under_review" | "verified" | "rejected";
+      evidence_score?: number | null;
+      certificates?: string[] | null;
+    },
+  ) =>
+    request<SupplierRead>(`/suppliers/${supplierId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteSupplier: (supplierId: number) =>
+    request<void>(`/suppliers/${supplierId}`, { method: "DELETE" }),
+
   // Контакт, вписанный закупщиком с сайта компании: поиск на скрытом
   // адресе, форме обратной связи или странице площадки останавливается, а
   // человек эти преграды проходит.

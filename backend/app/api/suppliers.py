@@ -6,7 +6,7 @@ Email и WhatsApp работают в безопасном demo-режиме л�
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -30,6 +30,7 @@ from app.models import (
     RfqSupplierLink,
     SearchRun,
     Supplier,
+    SupplierDocument,
     User,
 )
 from app.models.enums import (
@@ -50,6 +51,7 @@ from app.schemas.supplier import (
     SupplierQualificationUpdate,
     SupplierRead,
     SupplierRequestLink,
+    SupplierUpdate,
 )
 from app.services.search_trace import utc_now
 from app.services.integration_settings import (
@@ -291,6 +293,102 @@ def _supplier_with_links(db: Session, supplier: Supplier) -> SupplierRead:
             for rfq_id, name, cas, link_status in rows
         ],
     )
+
+
+@router.patch("/suppliers/{supplier_id}", response_model=SupplierRead)
+def update_supplier(
+    supplier_id: int,
+    data: SupplierUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SupplierRead:
+    """Исправляет вручную поддерживаемые поля строки глобального реестра."""
+    supplier = _supplier_for_edit(db, supplier_id, user)
+    changes = data.model_dump(exclude_unset=True)
+    if "company" in changes:
+        if changes["company"] is None:
+            raise HTTPException(
+                status_code=422, detail="Название компании не может быть пустым"
+            )
+        key = company_key(changes["company"])
+        if key:
+            duplicate = db.scalar(
+                select(Supplier.id).where(
+                    Supplier.company_key == key,
+                    Supplier.id != supplier.id,
+                )
+            )
+            if duplicate is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Компания с таким названием уже есть в реестре",
+                )
+        changes["company_key"] = key
+    for field, value in changes.items():
+        setattr(supplier, field, value)
+    if "qualification_status" in changes:
+        supplier.last_checked_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(supplier)
+    return _supplier_with_links(db, supplier)
+
+
+def _supplier_has_history(db: Session, supplier_id: int) -> bool:
+    direct_links = (
+        db.scalar(
+            select(RfqSupplierLink.id)
+            .where(RfqSupplierLink.supplier_id == supplier_id)
+            .limit(1)
+        )
+        or db.scalar(
+            select(RfqRecipient.id)
+            .where(RfqRecipient.supplier_id == supplier_id)
+            .limit(1)
+        )
+        or db.scalar(
+            select(SupplierDocument.id)
+            .where(SupplierDocument.supplier_id == supplier_id)
+            .limit(1)
+        )
+    )
+    if direct_links:
+        return True
+    communication_id = db.scalar(
+        select(Communication.id)
+        .join(Manager, Manager.id == Communication.manager_id)
+        .where(Manager.supplier_id == supplier_id)
+        .limit(1)
+    )
+    quotation_id = db.scalar(
+        select(Quotation.id)
+        .join(Manager, Manager.id == Quotation.manager_id)
+        .where(Manager.supplier_id == supplier_id)
+        .limit(1)
+    )
+    return communication_id is not None or quotation_id is not None
+
+
+@router.delete(
+    "/suppliers/{supplier_id}", status_code=204, response_class=Response
+)
+def delete_supplier(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Удаляет только неиспользованную строку, не стирая историю закупок."""
+    supplier = _supplier_for_edit(db, supplier_id, user)
+    if _supplier_has_history(db, supplier.id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Поставщик уже связан с запросом, перепиской или документами. "
+                "Чтобы сохранить историю, измените его статус на «Отклонён»."
+            ),
+        )
+    db.delete(supplier)
+    db.commit()
+    return Response(status_code=204)
 
 
 def _is_excluded_for_rfq(db: Session, *, rfq_id: int, supplier_id: int) -> bool:
