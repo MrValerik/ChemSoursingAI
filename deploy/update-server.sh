@@ -20,7 +20,7 @@ trap disable_idle_shutdown EXIT
 
 server_changes="$(
   git -C "$PROJECT_DIR" status --porcelain --untracked-files=all |
-    grep -vE '^\?\? data/backups/' || true
+    grep -vE '^\?\? (data/backups/|data\.pre-[^/]+/)' || true
 )"
 if [[ -n "$server_changes" ]]; then
   echo "На сервере есть незакоммиченные изменения. Развёртывание остановлено." >&2

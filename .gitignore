@@ -36,6 +36,7 @@ data/attachments/
 data/nginx/
 data/backups/
 data/xray/
+/data.pre-*/
 *.sqlite
 *.db
 

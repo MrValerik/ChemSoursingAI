@@ -244,7 +244,7 @@ expected_commit="$2"
 
 server_changes="$(
   git -C "$project_dir" status --porcelain --untracked-files=all |
-    grep -vE '^\?\? data/backups/' || true
+    grep -vE '^\?\? (data/backups/|data\.pre-[^/]+/)' || true
 )"
 if [[ -n "$server_changes" ]]; then
   echo "На сервере есть незакоммиченные изменения. Обновление остановлено." >&2
