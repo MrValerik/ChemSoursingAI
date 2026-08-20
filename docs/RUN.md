@@ -469,6 +469,8 @@ worker автоматически возвращает её в очередь (�
 EMAIL_DELIVERY_MODE=live
 EMAIL_FROM=procurement@example.com
 EMAIL_FROM_NAME=Procurement Department
+# Локальный адрес владельца продукта; не добавляйте реальный адрес в Git.
+FEEDBACK_EMAIL_TO=owner@example.com
 
 SMTP_HOST=smtp.example.com
 SMTP_PORT=465
@@ -492,6 +494,12 @@ AUTO_FOLLOWUP_MODE=draft
 Пароли SMTP/IMAP и токен WhatsApp шифруются перед записью в PostgreSQL и никогда
 не возвращаются в браузер. Значения из `.env` остаются fallback для первого
 запуска.
+
+Сообщения из раздела «Обратная связь» сначала сохраняются в PostgreSQL, затем
+backend отправляет внутреннее уведомление на `FEEDBACK_EMAIL_TO` через тот же
+SMTP-профиль. Отправка выполняется только при включённом Email-канале и
+`EMAIL_DELIVERY_MODE=live`; результат (`sent`, `disabled` или `failed`) и
+`Message-ID` сохраняются для аудита. Ошибка SMTP не удаляет само обращение.
 
 После изменения окружения пересоздайте backend:
 

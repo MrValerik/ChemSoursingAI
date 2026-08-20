@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     email_from: str = Field(default="")
     email_from_name: str = Field(default="ChemSource AI")
     email_timeout_s: int = Field(default=30)
+    # Получатель внутренних уведомлений из раздела «Обратная связь».
+    # Адрес относится к конкретному развёртыванию и не хранится в Git.
+    feedback_email_to: str = Field(default="")
     auto_followup_mode: Literal["off", "draft", "send"] = Field(default="draft")
     imap_host: str = Field(default="")
     imap_port: int = Field(default=993)

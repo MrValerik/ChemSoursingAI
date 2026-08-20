@@ -7,14 +7,17 @@
 """
 
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_feedback.db")
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.db import engine
+from app.connectors.email import EmailDeliveryError
+from app.core.db import SessionLocal, engine
 from app.main import app
+from app.models.feedback import FeedbackMessage
 
 
 @pytest.fixture(scope="module")
@@ -50,6 +53,80 @@ def test_a_buyer_can_say_what_is_missing(client):
     assert body["text"].startswith("Не хватает колонки")
     assert body["origin"] == "requests"
     assert body["author_name"] == "Иван Иванов"
+    assert body["email_delivery_status"] == "disabled"
+
+
+def test_feedback_sends_email_and_records_audit(client, monkeypatch):
+    settings = SimpleNamespace(
+        email_delivery_mode="live",
+        email_from="app@example.com",
+        feedback_email_to="owner@example.com",
+    )
+    monkeypatch.setattr(
+        "app.services.feedback_notifications.effective_email_settings",
+        lambda db: (settings, True, "environment"),
+    )
+    sent: list[dict] = []
+
+    def fake_send(self, **kwargs):
+        sent.append(kwargs)
+        return kwargs["message_id"]
+
+    monkeypatch.setattr(
+        "app.services.feedback_notifications.EmailConnector.send", fake_send
+    )
+
+    response = client.post(
+        "/feedback",
+        json={"text": "Добавьте выгрузку отчёта", "origin": "requests"},
+        headers=_auth(client, "ivanov"),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["email_delivery_status"] == "sent"
+    assert sent[0]["to_address"] == "owner@example.com"
+    assert "Иван Иванов (ivanov)" in sent[0]["body"]
+    assert "Добавьте выгрузку отчёта" in sent[0]["body"]
+    assert sent[0]["message_id"].startswith("<feedback-")
+
+    with SessionLocal() as db:
+        stored = db.get(FeedbackMessage, body["id"])
+        assert stored is not None
+        assert stored.email_delivery_status == "sent"
+        assert stored.email_message_id == sent[0]["message_id"]
+        assert stored.email_delivery_attempted_at is not None
+
+
+def test_feedback_survives_email_failure(client, monkeypatch):
+    settings = SimpleNamespace(
+        email_delivery_mode="live",
+        email_from="app@example.com",
+        feedback_email_to="owner@example.com",
+    )
+    monkeypatch.setattr(
+        "app.services.feedback_notifications.effective_email_settings",
+        lambda db: (settings, True, "environment"),
+    )
+
+    def fail_send(self, **kwargs):
+        raise EmailDeliveryError("SMTP временно недоступен")
+
+    monkeypatch.setattr(
+        "app.services.feedback_notifications.EmailConnector.send", fail_send
+    )
+
+    response = client.post(
+        "/feedback",
+        json={"text": "Это обращение нельзя потерять"},
+        headers=_auth(client, "ivanov"),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["email_delivery_status"] == "failed"
+    listing = client.get("/feedback", headers=_auth(client, "ivanov")).json()
+    assert any(item["id"] == body["id"] for item in listing)
 
 
 def test_the_sender_sees_it_afterwards(client):

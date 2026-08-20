@@ -6,6 +6,7 @@
 """
 
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -17,6 +18,7 @@ from app.core.db import get_db
 from app.models import User
 from app.models.enums import UserRole
 from app.models.feedback import FeedbackMessage
+from app.services.feedback_notifications import deliver_feedback_notification
 
 router = APIRouter(tags=["feedback"], dependencies=[Depends(get_current_user)])
 
@@ -46,6 +48,9 @@ class FeedbackRead(BaseModel):
     origin: str | None
     author_id: int | None
     author_name: str | None
+    email_delivery_status: Literal[
+        "not_attempted", "sending", "sent", "disabled", "failed"
+    ]
     created_at: datetime
 
 
@@ -56,6 +61,7 @@ def _to_read(message: FeedbackMessage) -> FeedbackRead:
         origin=message.origin,
         author_id=message.author_id,
         author_name=message.author.full_name if message.author else None,
+        email_delivery_status=message.email_delivery_status,
         created_at=message.created_at,
     )
 
@@ -77,6 +83,7 @@ def send_feedback(
     db.add(message)
     db.commit()
     db.refresh(message)
+    deliver_feedback_notification(db, message=message, author=user)
     return _to_read(message)
 
 

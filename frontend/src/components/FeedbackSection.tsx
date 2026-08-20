@@ -25,6 +25,14 @@ const ORIGIN_LABELS: Record<string, string> = {
 
 const ORIGIN_OPTIONS = ["", ...Object.keys(ORIGIN_LABELS)];
 
+const EMAIL_STATUS_LABELS: Record<FeedbackMessage["email_delivery_status"], string> = {
+  not_attempted: "Email-уведомление не отправлялось",
+  sending: "Email-уведомление отправляется",
+  sent: "Email-уведомление отправлено",
+  disabled: "Email-уведомление отключено",
+  failed: "Email-уведомление отправить не удалось",
+};
+
 function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
@@ -44,7 +52,9 @@ export default function FeedbackSection() {
   const [messages, setMessages] = useState<FeedbackMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
+  const [sentStatus, setSentStatus] = useState<
+    FeedbackMessage["email_delivery_status"] | null
+  >(null);
 
   const load = async () => {
     try {
@@ -65,10 +75,13 @@ export default function FeedbackSection() {
     setBusy(true);
     setError(null);
     try {
-      await api.sendFeedback({ text: text.trim(), origin: origin || null });
+      const result = await api.sendFeedback({
+        text: text.trim(),
+        origin: origin || null,
+      });
       setText("");
       setOrigin("");
-      setSent(true);
+      setSentStatus(result.email_delivery_status);
       await load();
     } catch (e) {
       setError(String(e));
@@ -102,7 +115,7 @@ export default function FeedbackSection() {
             value={origin}
             onChange={(event) => {
               setOrigin(event.target.value);
-              setSent(false);
+              setSentStatus(null);
             }}
           >
             {ORIGIN_OPTIONS.map((key) => (
@@ -121,7 +134,7 @@ export default function FeedbackSection() {
             placeholder="Например: не хватает колонки со сроком поставки во вкладке Запросы"
             onChange={(event) => {
               setText(event.target.value);
-              setSent(false);
+              setSentStatus(null);
             }}
           />
         </label>
@@ -136,9 +149,15 @@ export default function FeedbackSection() {
           </button>
           <span className="note">{text.length} из 4000</span>
         </div>
-        {sent && (
-          <p className="success-note">
-            Отправлено. Сообщение видно ниже — значит, оно дошло.
+        {sentStatus && (
+          <p
+            className={
+              sentStatus === "sent" ? "success-note" : "feedback-delivery-warning"
+            }
+          >
+            {sentStatus === "sent"
+              ? "Отправлено. Сообщение сохранено, Email-уведомление доставлено."
+              : `Сообщение сохранено. ${EMAIL_STATUS_LABELS[sentStatus]}.`}
           </p>
         )}
       </div>
@@ -164,6 +183,7 @@ export default function FeedbackSection() {
                 {item.origin && (
                   <span>· {ORIGIN_LABELS[item.origin] ?? item.origin}</span>
                 )}
+                <span>· {EMAIL_STATUS_LABELS[item.email_delivery_status]}</span>
               </div>
               <p>{item.text}</p>
             </li>

@@ -284,6 +284,12 @@ export interface FeedbackMessage {
   origin: string | null;
   author_id: number | null;
   author_name: string | null;
+  email_delivery_status:
+    | "not_attempted"
+    | "sending"
+    | "sent"
+    | "disabled"
+    | "failed";
   created_at: string;
 }
 

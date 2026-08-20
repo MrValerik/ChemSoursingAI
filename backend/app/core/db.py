@@ -378,6 +378,34 @@ def _apply_light_migrations() -> None:
                         f"ADD COLUMN results_payload {json_type}"
                     )
                 )
+    if "feedback_messages" in tables:
+        cols = {c["name"] for c in inspector.get_columns("feedback_messages")}
+        timestamp_type = (
+            "TIMESTAMPTZ" if engine.dialect.name == "postgresql" else "TIMESTAMP"
+        )
+        with engine.begin() as conn:
+            if "email_delivery_status" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE feedback_messages ADD COLUMN "
+                        "email_delivery_status VARCHAR(32) NOT NULL "
+                        "DEFAULT 'not_attempted'"
+                    )
+                )
+            if "email_message_id" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE feedback_messages ADD COLUMN "
+                        "email_message_id VARCHAR(998)"
+                    )
+                )
+            if "email_delivery_attempted_at" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE feedback_messages ADD COLUMN "
+                        f"email_delivery_attempted_at {timestamp_type}"
+                    )
+                )
     if "agent_runs" in tables:
         cols = {c["name"] for c in inspector.get_columns("agent_runs")}
         with engine.begin() as conn:

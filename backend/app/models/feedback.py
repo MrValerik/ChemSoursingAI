@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -33,5 +34,14 @@ class FeedbackMessage(Base, TimestampMixin):
     # открыть форму. «Не хватает колонки» без этого приходится угадывать.
     origin: Mapped[str | None] = mapped_column(String(255), default=None)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Состояние отдельного внутреннего уведомления владельцу продукта. Само
+    # обращение уже сохранено независимо от доступности SMTP.
+    email_delivery_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="not_attempted"
+    )
+    email_message_id: Mapped[str | None] = mapped_column(String(998), default=None)
+    email_delivery_attempted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
 
     author: Mapped["User | None"] = relationship()

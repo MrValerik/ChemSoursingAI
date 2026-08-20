@@ -1,8 +1,9 @@
 """Разбор Email без сети: кодировки, HTML и метаданные вложений."""
 
 from email.message import EmailMessage
+from types import SimpleNamespace
 
-from app.connectors.email import parse_email
+from app.connectors.email import EmailConnector, parse_email
 
 
 def test_parse_email_extracts_safe_text_and_attachments():
@@ -54,3 +55,46 @@ def test_parse_email_removes_html_scripts():
 
     assert "Price: USD 10/kg" in parsed.text
     assert "ignore_instruction" not in parsed.text
+
+
+def test_send_preserves_explicit_message_id(monkeypatch):
+    delivered: list[EmailMessage] = []
+
+    class FakeSmtp:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def login(self, username, password):
+            pass
+
+        def send_message(self, message):
+            delivered.append(message)
+
+    monkeypatch.setattr("app.connectors.email.smtplib.SMTP_SSL", FakeSmtp)
+    settings = SimpleNamespace(
+        smtp_host="smtp.example.com",
+        smtp_port=465,
+        smtp_user="app@example.com",
+        smtp_password="secret",
+        smtp_use_ssl=True,
+        smtp_starttls=False,
+        email_from="app@example.com",
+        email_from_name="ChemSource AI",
+        email_timeout_s=30,
+    )
+
+    returned = EmailConnector(settings).send(
+        to_address="owner@example.com",
+        subject="Feedback",
+        body="Message",
+        message_id="<feedback-42@example.com>",
+    )
+
+    assert returned == "<feedback-42@example.com>"
+    assert delivered[0]["Message-ID"] == "<feedback-42@example.com>"

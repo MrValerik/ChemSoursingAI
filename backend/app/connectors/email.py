@@ -155,6 +155,7 @@ class EmailConnector:
         body: str,
         in_reply_to: str | None = None,
         references: list[str] | None = None,
+        message_id: str | None = None,
     ) -> str:
         if not self.smtp_configured:
             raise EmailConfigurationError(
@@ -167,12 +168,24 @@ class EmailConnector:
         safe_subject = " ".join(subject.replace("\r", " ").splitlines()).strip()
         if not safe_subject:
             safe_subject = "RFQ"
-        message_id = make_msgid(domain=(s.email_from.split("@")[-1] or None))
+        outbound_message_id = (message_id or "").strip()
+        if outbound_message_id:
+            if (
+                "\r" in outbound_message_id
+                or "\n" in outbound_message_id
+                or not outbound_message_id.startswith("<")
+                or not outbound_message_id.endswith(">")
+            ):
+                raise EmailConfigurationError("Некорректный Message-ID")
+        else:
+            outbound_message_id = make_msgid(
+                domain=(s.email_from.split("@")[-1] or None)
+            )
         message = EmailMessage()
         message["From"] = formataddr((s.email_from_name, s.email_from))
         message["To"] = recipient
         message["Subject"] = safe_subject[:998]
-        message["Message-ID"] = message_id
+        message["Message-ID"] = outbound_message_id
         if in_reply_to:
             message["In-Reply-To"] = in_reply_to
         refs = [ref for ref in (references or []) if ref]
@@ -202,7 +215,7 @@ class EmailConnector:
                     client.send_message(message)
         except (OSError, smtplib.SMTPException) as exc:
             raise EmailDeliveryError(f"Не удалось отправить Email: {exc}") from exc
-        return message_id
+        return outbound_message_id
 
     def check_connections(self) -> dict[str, bool]:
         """Проверяет SMTP и IMAP аутентификацией без отправки письма."""
