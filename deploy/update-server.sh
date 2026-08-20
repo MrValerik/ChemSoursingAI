@@ -69,8 +69,12 @@ bash "$PROJECT_DIR/deploy/apply-migrations.sh" "$PROJECT_DIR"
 sudo systemctl reset-failed chemsource.service || true
 sudo systemctl start chemsource.service
 # Re-assert boot autostart on every deployment: a VM started manually from
-# the Yandex Cloud console must bring up Qwen and the Compose stack itself.
-sudo systemctl enable docker.service qwen.service chemsource.service || true
+# the Yandex Cloud console must bring up the Compose stack itself. A local Qwen
+# unit is optional because production can use an external LLM endpoint.
+sudo systemctl enable docker.service chemsource.service
+if [[ -f /etc/systemd/system/qwen.service ]]; then
+  sudo systemctl enable qwen.service
+fi
 
 wait_for_url() {
   local url="$1"
@@ -87,12 +91,15 @@ wait_for_url() {
 }
 
 wait_for_url "http://127.0.0.1/api/health" "Backend"
-wait_for_url "http://127.0.0.1/api/health/llm" "Локальная ИИ-модель"
+wait_for_url "http://127.0.0.1/api/health/llm" "ИИ-модель"
 
 "${COMPOSE[@]}" ps
 disable_idle_shutdown
 trap - EXIT
-systemctl is-active chemsource.service qwen.service
+systemctl is-active chemsource.service
+if [[ -f /etc/systemd/system/qwen.service ]]; then
+  systemctl is-active qwen.service
+fi
 if systemctl is-enabled --quiet "$TIMER_UNIT" || \
     systemctl is-active --quiet "$TIMER_UNIT"; then
   echo "Таймер автоостановки должен быть отключён." >&2

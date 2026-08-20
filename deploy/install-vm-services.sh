@@ -48,13 +48,21 @@ replace_project_dir "${SCRIPT_DIR}/idle-shutdown.conf.example" \
   /etc/chemsource-idle-shutdown.conf
 
 systemctl daemon-reload
-systemctl enable docker.service qwen.service chemsource.service
+systemctl enable docker.service chemsource.service
+# qwen.service exists only on a VM with a local GPU model. Production can use
+# an external OpenAI-compatible endpoint, so a CPU-only VM has no such unit.
+if [[ -f /etc/systemd/system/qwen.service ]]; then
+  systemctl enable qwen.service
+  QWEN_STATE="enabled"
+else
+  QWEN_STATE="not installed (external LLM)"
+fi
 systemctl disable --now chemsource-idle-shutdown.timer || true
 systemctl restart chemsource.service
 
 echo
 echo "Installed successfully."
-echo "Autostart: qwen.service + chemsource.service"
+echo "Autostart: chemsource.service (qwen.service: ${QWEN_STATE})"
 echo "Idle shutdown: disabled (production VM stays running)"
 echo
 systemctl is-enabled chemsource-idle-shutdown.timer || true

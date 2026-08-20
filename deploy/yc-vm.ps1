@@ -4,7 +4,7 @@ param(
     [ValidateSet("status", "start", "stop")]
     [string]$Action = "status",
 
-    [string]$InstanceId = "epdcj7fttoprbgetslm2",
+    [string]$InstanceId = "epdktu42uskhkt9iqghu",
 
     [switch]$OpenSite,
 
@@ -168,18 +168,18 @@ function Wait-SiteReady {
     $healthUrl = "http://$ExternalIp/api/health"
     Write-Host ""
     Write-Host "VM is RUNNING. Waiting for the site itself to become ready..."
-    Write-Host "(The Docker stack and the local Qwen model need a few minutes after boot.)"
+    Write-Host "(The Docker stack needs a few minutes after boot.)"
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
         if (Test-HttpOk -Url $healthUrl) {
             Write-Host "Site is ready: http://$ExternalIp"
             if (Test-HttpOk -Url "http://$ExternalIp/api/health/llm") {
-                Write-Host "Local LLM: ready."
+                Write-Host "LLM endpoint: ready."
             }
             else {
                 Write-Warning (
-                    "The site is up, but the local LLM is still loading. " +
-                    "Supplier search jobs stay queued until it is ready."
+                    "The site is up, but the configured LLM endpoint is not ready. " +
+                    "Supplier search jobs stay queued until it is available."
                 )
             }
             return $true
@@ -189,8 +189,8 @@ function Wait-SiteReady {
 
     Write-Warning "The VM is RUNNING, but $healthUrl did not answer within $TimeoutSeconds seconds."
     Write-Warning "The application stack did not start. Check on the VM via SSH:"
-    Write-Warning "  systemctl is-active docker qwen.service chemsource.service"
-    Write-Warning "  sudo systemctl enable --now qwen.service chemsource.service"
+    Write-Warning "  systemctl is-active docker chemsource.service"
+    Write-Warning "  sudo systemctl enable --now docker.service chemsource.service"
     Write-Warning "  docker compose ps"
     Write-Warning "If services are missing, run: sudo bash deploy/install-vm-services.sh"
     return $false

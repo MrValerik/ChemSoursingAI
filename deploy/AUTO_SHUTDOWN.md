@@ -14,11 +14,11 @@ production без явной отмены политики постоянной 
 Дополнительные защиты:
 
 - ВМ не выключается первые 30 минут после запуска.
-- ВМ не выключается, пока открыто HTTP-соединение — например, Qwen генерирует
+- ВМ не выключается, пока открыто HTTP-соединение — например, ИИ-модель генерирует
   длинный ответ.
 - Проверка выполняется раз в минуту, поэтому фактическое выключение произойдёт
   примерно через 30–31 минуту.
-- При следующем ручном запуске ВМ автоматически стартуют Qwen, Docker и сайт.
+- При следующем ручном запуске ВМ автоматически стартуют Docker и сайт.
 
 ## Установка на ВМ
 
@@ -32,7 +32,7 @@ sudo bash deploy/install-vm-services.sh
 Проверьте, что production-сервисы включены, а таймер выключен:
 
 ```bash
-systemctl is-enabled qwen.service chemsource.service
+systemctl is-enabled docker.service chemsource.service
 systemctl is-enabled chemsource-idle-shutdown.timer  # disabled
 systemctl is-active chemsource-idle-shutdown.timer   # inactive
 ```
@@ -108,4 +108,4 @@ sudo rm /etc/chemsource-keep-alive
 sudo systemctl disable --now chemsource-idle-shutdown.timer
 ```
 
-Отключение таймера не затрагивает автозапуск сайта и Qwen.
+Отключение таймера не затрагивает автозапуск сайта.

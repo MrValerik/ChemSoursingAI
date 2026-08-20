@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [string]$InstanceId = "epdcj7fttoprbgetslm2",
+    [string]$InstanceId = "epdktu42uskhkt9iqghu",
     [string]$SshUser = "valerik",
     [string]$SshKeyPath = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".ssh\id_ed25519"),
     [string]$KnownHostsPath = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".ssh\known_hosts"),
