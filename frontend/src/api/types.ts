@@ -713,6 +713,35 @@ export interface SupplierVerificationResult {
   missing_evidence: string[];
 }
 
+export interface SupplyQuantityEvidence {
+  raw: string;
+  normalized_value: number;
+  normalized_unit: "g" | "mL";
+  dimension: "mass" | "volume";
+  quote: string;
+}
+
+export interface SupplyOrderRangeEvidence {
+  minimum: SupplyQuantityEvidence;
+  maximum: SupplyQuantityEvidence;
+  quote: string;
+}
+
+export interface SupplyVolumeCompatibility {
+  status: "compatible" | "incompatible" | "unknown";
+  requested_volume: SupplyQuantityEvidence | null;
+  requested_volume_raw: string | null;
+  found_packaging: SupplyQuantityEvidence[];
+  moqs: SupplyQuantityEvidence[];
+  moq: SupplyQuantityEvidence | null;
+  order_ranges: SupplyOrderRangeEvidence[];
+  order_range: SupplyOrderRangeEvidence | null;
+  lab_catalog_signals: string[];
+  source_url: string;
+  quote: string | null;
+  reason: string;
+}
+
 export interface QualifiedSupplierResult extends SupplierSearchResult {
   result_index: number;
   company_name: string;
@@ -733,10 +762,12 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
     country: number;
     documents: number;
     evidence_quality: number;
+    volume_adjustment?: number;
     hard_exclusion: boolean;
     shortlist_eligible: boolean;
   };
   shortlist_eligible: boolean;
+  volume_compatibility?: SupplyVolumeCompatibility;
   /**
    * Страница компанию не назвала — в список компаний находка не пойдёт, и
    * в таблице её прячем. Считает сервер по тому же правилу, что и реестр.

@@ -377,6 +377,7 @@ def _execute_claimed_job(
                     analog_variations=list(request.analog_variations or []),
                     specification=request.specification,
                     application=request.application,
+                    requested_volume=request.requested_volume,
                     country=request.country,
                     additional_instructions=request.additional_instructions,
                     expert_notes=request.catalog_notes,

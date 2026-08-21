@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal, InvalidOperation
 
 from app.services.cas import is_valid_cas, normalize_cas
 
@@ -814,6 +815,312 @@ def find_production_facts(text: str) -> dict[str, str]:
                 facts[claim] = line
                 break
     return facts
+
+
+# Фасовка и минимальный заказ читаются только рядом с явным словом-маркером.
+# Иначе строка «USD 10/kg» превращает единицу цены в упаковку 10 kg. Единицы
+# приводятся к граммам или миллилитрам; массу в объём без подтверждённой
+# плотности не пересчитываем.
+_SUPPLY_QUANTITY_RE = re.compile(
+    r"(?<![/\w])(?P<value>\d+(?:[\s\u00a0]\d{3})*(?:[.,]\d+)?)\s*"
+    r"(?P<unit>metric\s+tons?|tonnes?|tons?|kilograms?|milligrams?|grams?|"
+    r"cubic\s+met(?:er|re)s?|millilit(?:er|re)s?|lit(?:er|re)s?|"
+    r"m[³3]|mt|kgs?|kg|mgs?|mg|g|ml|ltr|l)\b",
+    re.IGNORECASE,
+)
+_SHARED_UNIT_RANGE_RE = re.compile(
+    r"(?<![/\w])(?P<minimum>\d+(?:[\s\u00a0]\d{3})*(?:[.,]\d+)?)\s*"
+    r"(?:-|–|—|to|до)\s*"
+    r"(?P<maximum>\d+(?:[\s\u00a0]\d{3})*(?:[.,]\d+)?)\s*"
+    r"(?P<unit>metric\s+tons?|tonnes?|tons?|kilograms?|milligrams?|grams?|"
+    r"cubic\s+met(?:er|re)s?|millilit(?:er|re)s?|lit(?:er|re)s?|"
+    r"m[³3]|mt|kgs?|kg|mgs?|mg|g|ml|ltr|l)\b",
+    re.IGNORECASE,
+)
+_PACKAGING_MARKER_RE = re.compile(
+    r"(pack(?:age|aging|ing|\s+size|\s+sizes)?|available\s+sizes?|"
+    r"фасовк\w*|упаковк\w*|包装|包裝)",
+    re.IGNORECASE,
+)
+_MOQ_MARKER_RE = re.compile(
+    r"(\bMOQ\b|minimum\s+order(?:\s+quantity)?|минимальн\w*\s+заказ|"
+    r"мин\.?\s*заказ|起订量|最小起订量)",
+    re.IGNORECASE,
+)
+_ORDER_RANGE_MARKER_RE = re.compile(
+    r"(order\s+(?:quantity\s+)?range|available\s+order\s+quantity|"
+    r"диапазон\w*\s+заказ|объ[её]м\w*\s+заказ)",
+    re.IGNORECASE,
+)
+_LAB_CATALOG_RE = re.compile(
+    r"(research\s+use\s+only|for\s+laboratory\s+use|laboratory\s+reagent|"
+    r"analytical\s+standard|лабораторн\w*\s+реактив|только\s+для\s+исследован|"
+    r"仅供科研|实验室试剂)",
+    re.IGNORECASE,
+)
+_UNIT_FACTORS: dict[str, tuple[str, Decimal, str]] = {
+    "mg": ("mass", Decimal("0.001"), "g"),
+    "g": ("mass", Decimal("1"), "g"),
+    "kg": ("mass", Decimal("1000"), "g"),
+    "mt": ("mass", Decimal("1000000"), "g"),
+    "t": ("mass", Decimal("1000000"), "g"),
+    "ml": ("volume", Decimal("1"), "mL"),
+    "l": ("volume", Decimal("1000"), "mL"),
+    "m3": ("volume", Decimal("1000000"), "mL"),
+}
+
+
+def _unit_key(value: str) -> str | None:
+    unit = " ".join((value or "").casefold().replace("³", "3").split())
+    if unit in {"mg", "mgs", "milligram", "milligrams"}:
+        return "mg"
+    if unit in {"g", "gram", "grams"}:
+        return "g"
+    if unit in {"kg", "kgs", "kilogram", "kilograms"}:
+        return "kg"
+    if unit in {
+        "mt",
+        "t",
+        "ton",
+        "tons",
+        "tonne",
+        "tonnes",
+        "metric ton",
+        "metric tons",
+    }:
+        return "mt"
+    if unit in {"ml", "milliliter", "milliliters", "millilitre", "millilitres"}:
+        return "ml"
+    if unit in {"l", "ltr", "liter", "liters", "litre", "litres"}:
+        return "l"
+    if unit in {"m3", "cubic meter", "cubic meters", "cubic metre", "cubic metres"}:
+        return "m3"
+    return None
+
+
+def _decimal_number(value: str) -> Decimal | None:
+    compact = (value or "").replace("\u00a0", "").replace(" ", "")
+    if not compact:
+        return None
+    if "," in compact and "." in compact:
+        decimal_mark = "," if compact.rfind(",") > compact.rfind(".") else "."
+        thousands_mark = "." if decimal_mark == "," else ","
+        compact = compact.replace(thousands_mark, "").replace(decimal_mark, ".")
+    elif compact.count(",") == 1:
+        left, right = compact.split(",")
+        compact = left + right if len(right) == 3 else f"{left}.{right}"
+    try:
+        number = Decimal(compact)
+    except InvalidOperation:
+        return None
+    return number if number > 0 else None
+
+
+def _quantity(value: str, unit: str, *, quote: str) -> dict | None:
+    number = _decimal_number(value)
+    key = _unit_key(unit)
+    if number is None or key is None:
+        return None
+    dimension, factor, normalized_unit = _UNIT_FACTORS[key]
+    normalized = number * factor
+    return {
+        "raw": f"{value.strip()} {unit.strip()}",
+        "normalized_value": float(normalized),
+        "normalized_unit": normalized_unit,
+        "dimension": dimension,
+        "quote": quote,
+    }
+
+
+def _line_quantities(line: str) -> list[dict]:
+    quantities: list[dict] = []
+    seen: set[tuple[str, float]] = set()
+    for match in _SUPPLY_QUANTITY_RE.finditer(line):
+        item = _quantity(match.group("value"), match.group("unit"), quote=line)
+        if item is None:
+            continue
+        key = (item["dimension"], item["normalized_value"])
+        if key not in seen:
+            seen.add(key)
+            quantities.append(item)
+    return quantities
+
+
+def _shared_unit_range(line: str) -> tuple[dict, dict] | None:
+    match = _SHARED_UNIT_RANGE_RE.search(line)
+    if match is None:
+        return None
+    minimum = _quantity(match.group("minimum"), match.group("unit"), quote=line)
+    maximum = _quantity(match.group("maximum"), match.group("unit"), quote=line)
+    if minimum is None or maximum is None:
+        return None
+    return minimum, maximum
+
+
+def find_supply_volume_facts(text: str) -> dict:
+    """Фасовки, MOQ, диапазоны и лабораторные признаки с цитатами страницы."""
+    packages: list[dict] = []
+    moqs: list[dict] = []
+    ranges: list[dict] = []
+    lab_signals: list[str] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not (MIN_QUOTE_CHARS <= len(line) <= _MAX_LINE_CHARS):
+            continue
+        if _LAB_CATALOG_RE.search(line) and line not in lab_signals:
+            lab_signals.append(line)
+        marker = (
+            _PACKAGING_MARKER_RE.search(line)
+            or _MOQ_MARKER_RE.search(line)
+            or _ORDER_RANGE_MARKER_RE.search(line)
+        )
+        if marker is None:
+            continue
+        quantities = _line_quantities(line)
+        shared_range = _shared_unit_range(line)
+        if _ORDER_RANGE_MARKER_RE.search(line):
+            endpoints = list(shared_range or ()) or quantities[:2]
+            if (
+                len(endpoints) >= 2
+                and endpoints[0]["dimension"] == endpoints[1]["dimension"]
+            ):
+                ordered = sorted(
+                    endpoints[:2], key=lambda item: item["normalized_value"]
+                )
+                ranges.append(
+                    {
+                        "minimum": ordered[0],
+                        "maximum": ordered[1],
+                        "quote": line,
+                    }
+                )
+                continue
+        if _MOQ_MARKER_RE.search(line) and quantities:
+            moqs.extend(quantities)
+        if _PACKAGING_MARKER_RE.search(line) and quantities:
+            packages.extend(quantities)
+    return {
+        "packaging": packages,
+        "moq": moqs,
+        "order_ranges": ranges,
+        "lab_catalog_signals": lab_signals[:3],
+    }
+
+
+def _requested_quantity(value: str | None) -> dict | None:
+    if not value:
+        return None
+    parsed = _line_quantities(value.strip())
+    return parsed[0] if len(parsed) == 1 else None
+
+
+def assess_supply_volume(
+    text: str,
+    requested_volume: str | None,
+    *,
+    source_url: str,
+    industrial_mass_kg: float = 20,
+    industrial_volume_l: float = 20,
+) -> dict:
+    """Сопоставляет потребность RFQ только с фактами первичной страницы."""
+    requested = _requested_quantity(requested_volume)
+    facts = find_supply_volume_facts(text)
+    result = {
+        "status": "unknown",
+        "requested_volume": requested,
+        "requested_volume_raw": requested_volume,
+        "found_packaging": facts["packaging"],
+        "moqs": facts["moq"],
+        "moq": facts["moq"][0] if facts["moq"] else None,
+        "order_ranges": facts["order_ranges"],
+        "order_range": facts["order_ranges"][0] if facts["order_ranges"] else None,
+        "lab_catalog_signals": facts["lab_catalog_signals"],
+        "source_url": source_url,
+        "quote": None,
+        "reason": "На первичной странице не найдены подтверждённые фасовка, диапазон заказа или MOQ.",
+    }
+    if requested is None:
+        result["reason"] = (
+            "Требуемый объём не указан или не нормализуется в поддерживаемую единицу массы/объёма."
+        )
+        return result
+
+    dimension = requested["dimension"]
+    target = Decimal(str(requested["normalized_value"]))
+    industrial_base_quantity = {
+        "mass": Decimal(str(industrial_mass_kg)) * Decimal("1000"),
+        "volume": Decimal(str(industrial_volume_l)) * Decimal("1000"),
+    }
+    decisions: list[tuple[str, str, str]] = []
+    for order_range in facts["order_ranges"]:
+        minimum = order_range["minimum"]
+        maximum = order_range["maximum"]
+        if minimum["dimension"] != dimension or maximum["dimension"] != dimension:
+            continue
+        lower = Decimal(str(minimum["normalized_value"]))
+        upper = Decimal(str(maximum["normalized_value"]))
+        status = "compatible" if lower <= target <= upper else "incompatible"
+        decisions.append(
+            (status, order_range["quote"], "подтверждённый диапазон заказа")
+        )
+
+    for moq in facts["moq"]:
+        if moq["dimension"] != dimension:
+            continue
+        minimum = Decimal(str(moq["normalized_value"]))
+        industrial_floor = industrial_base_quantity[dimension]
+        if target >= industrial_floor:
+            # MOQ лабораторного магазина в 20 g не доказывает способность
+            # поставить 500 kg. Промышленный MOQ (20 kg/L и выше), напротив,
+            # подтверждает масштаб даже когда его минимум выше потребности RFQ.
+            if minimum >= industrial_floor:
+                decisions.append(
+                    ("compatible", moq["quote"], "подтверждённый промышленный MOQ")
+                )
+        else:
+            status = "compatible" if target >= minimum else "incompatible"
+            decisions.append((status, moq["quote"], "подтверждённый MOQ"))
+
+    comparable_packages = [
+        item for item in facts["packaging"] if item["dimension"] == dimension
+    ]
+    if comparable_packages:
+        largest = max(comparable_packages, key=lambda item: item["normalized_value"])
+        largest_value = Decimal(str(largest["normalized_value"]))
+        threshold = min(target, industrial_base_quantity[dimension])
+        status = "compatible" if largest_value >= threshold else "incompatible"
+        decisions.append((status, largest["quote"], "подтверждённая фасовка"))
+
+    statuses = {item[0] for item in decisions}
+    if not decisions:
+        if facts["packaging"] or facts["moq"] or facts["order_ranges"]:
+            result["reason"] = (
+                "На странице есть количественные данные, но их единицы нельзя безопасно сравнить с потребностью RFQ."
+            )
+        return result
+    if len(statuses) > 1:
+        result["quote"] = decisions[0][1]
+        result["reason"] = (
+            "Фасовка, диапазон заказа и MOQ дают противоречащие выводы; требуется ручная проверка."
+        )
+        return result
+
+    status, quote, basis = decisions[0]
+    result["status"] = status
+    result["quote"] = quote
+    if status == "compatible":
+        result["reason"] = f"Потребность совместима: {basis} покрывает требуемый объём."
+    else:
+        lab_note = (
+            " Найдены признаки лабораторного каталога."
+            if facts["lab_catalog_signals"]
+            else ""
+        )
+        result["reason"] = (
+            f"Потребность несовместима: {basis} не покрывает требуемый "
+            f"объём.{lab_note}"
+        )
+    return result
 
 
 # Многоточие, которым модель сокращает длинную цитату.

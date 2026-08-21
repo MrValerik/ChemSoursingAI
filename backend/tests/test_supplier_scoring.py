@@ -123,3 +123,71 @@ def test_corroboration_does_not_override_a_substance_mismatch():
     score = score_supplier(_manufacturer_assessment(), evidence)
     assert score.hard_exclusion is True
     assert score.shortlist_eligible is False
+
+
+def test_incompatible_laboratory_packaging_blocks_the_shortlist():
+    evidence = [
+        _claim("chemical_identity"),
+        _claim("manufacturer_role"),
+        _claim("country"),
+        _claim("iso"),
+    ]
+    assessment = {
+        **_manufacturer_assessment(),
+        "volume_compatibility": {
+            "status": "incompatible",
+            "requested_volume_raw": "500 kg",
+        },
+    }
+
+    score = score_supplier(assessment, evidence)
+
+    assert score.shortlist_eligible is False
+    assert score.hard_exclusion is False
+    assert score.volume_adjustment == -20
+
+
+def test_unknown_packaging_lowers_evidence_without_claiming_incompatibility():
+    evidence = [
+        _claim("chemical_identity"),
+        _claim("manufacturer_role"),
+        _claim("country"),
+        _claim("iso"),
+    ]
+    baseline = score_supplier(_manufacturer_assessment(), evidence)
+    unknown = score_supplier(
+        {
+            **_manufacturer_assessment(),
+            "volume_compatibility": {
+                "status": "unknown",
+                "requested_volume_raw": "500 kg",
+            },
+        },
+        evidence,
+    )
+
+    assert unknown.total == baseline.total - 5
+    assert unknown.volume_adjustment == -5
+    assert unknown.hard_exclusion is False
+
+
+def test_confirmed_industrial_packaging_has_no_score_penalty():
+    evidence = [
+        _claim("chemical_identity"),
+        _claim("manufacturer_role"),
+        _claim("country"),
+        _claim("iso"),
+    ]
+    score = score_supplier(
+        {
+            **_manufacturer_assessment(),
+            "volume_compatibility": {
+                "status": "compatible",
+                "requested_volume_raw": "500 kg",
+            },
+        },
+        evidence,
+    )
+
+    assert score.shortlist_eligible is True
+    assert score.volume_adjustment == 0

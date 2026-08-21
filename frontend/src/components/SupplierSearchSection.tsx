@@ -111,6 +111,36 @@ const EVIDENCE_LABELS: Record<EvidenceStatus, string> = {
   contradicted: "есть противоречие",
 };
 
+const VOLUME_LABELS = {
+  compatible: "совместим",
+  incompatible: "несовместим",
+  unknown: "нет подтверждённых данных",
+} as const;
+
+const supplyFactsLabel = (
+  result: SupplierQualificationResponse["results"][number],
+) => {
+  const compatibility = result.volume_compatibility;
+  if (!compatibility) return "не найдены";
+  const parts: string[] = [];
+  if (compatibility.found_packaging.length > 0) {
+    parts.push(
+      `фасовка ${compatibility.found_packaging.map((item) => item.raw).join(", ")}`,
+    );
+  }
+  if (compatibility.moqs.length > 0) {
+    parts.push(`MOQ ${compatibility.moqs.map((item) => item.raw).join(", ")}`);
+  }
+  if (compatibility.order_ranges.length > 0) {
+    parts.push(
+      `диапазон ${compatibility.order_ranges
+        .map((item) => `${item.minimum.raw}–${item.maximum.raw}`)
+        .join(", ")}`,
+    );
+  }
+  return parts.join("; ") || "не найдены";
+};
+
 // «Аудитор» в закупке химии — это внешний GMP-аудит предприятия, а здесь
 // речь о втором автоматическом проходе по тем же цитатам. Совпадение слова
 // обещало закупщику подтверждение, которого никто не давал.
@@ -213,6 +243,7 @@ const scoreExplanation = (
     `страна ${result.score_breakdown.country}/10 +`,
     `документы ${result.score_breakdown.documents}/15 +`,
     `качество доказательств ${result.score_breakdown.evidence_quality}/15.`,
+    `Поправка за подтверждение объёма ${result.score_breakdown.volume_adjustment ?? 0}.`,
     "Баллы начисляются только по дословно проверенным цитатам.",
     "При противоречии по веществу или CAS итоговый балл обнуляется.",
   ].join(" ");
@@ -236,6 +267,13 @@ const shortlistExplanation = (
     `тип «Производитель» (${result.supplier_type === "manufacturer" ? "выполнено" : "не подтверждено"});`,
     `подтверждение вещества (${hasIdentity ? "есть" : "нет"});`,
     `подтверждение собственного производства (${hasManufacturerRole ? "есть" : "нет"});`,
+    `промышленный объём (${
+      result.volume_compatibility?.status === "compatible"
+        ? "подтверждён"
+        : result.volume_compatibility?.status === "incompatible"
+          ? "несовместим"
+          : "не подтверждён"
+    });`,
     `повторная автоматическая проверка (${result.verification?.status === "confirmed" ? "подтвердила" : "не подтвердила"}).`,
   ].join(" ");
 };
@@ -808,7 +846,41 @@ function QualificationDetail({
             )
             .join(" ")}
         />
+        {result.volume_compatibility?.requested_volume_raw && (
+          <EvidenceBadge
+            className={
+              result.volume_compatibility.status === "compatible"
+                ? "tone-ok"
+                : result.volume_compatibility.status === "incompatible"
+                  ? "tone-danger"
+                  : "tone-neutral"
+            }
+            label={`Объём: ${VOLUME_LABELS[result.volume_compatibility.status]}`}
+            explanation={result.volume_compatibility.reason}
+          />
+        )}
       </div>
+
+      {result.volume_compatibility?.requested_volume_raw && (
+        <div className="note qualification-missing">
+          <strong>Промышленный объём и фасовка</strong>
+          <p>
+            Требуется: {result.volume_compatibility.requested_volume_raw}. Найдено: {" "}
+            {supplyFactsLabel(result)}.
+          </p>
+          <p>{result.volume_compatibility.reason}</p>
+          {result.volume_compatibility.quote && (
+            <blockquote>«{result.volume_compatibility.quote}»</blockquote>
+          )}
+          <a
+            href={result.volume_compatibility.source_url || result.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Источник фасовки и MOQ
+          </a>
+        </div>
+      )}
 
       {/* Замечания приходят отдельными формулировками, и склеенные в один
           абзац через «;» читались как одно длинное предложение: где
@@ -891,6 +963,12 @@ function QualificationDetail({
               Качество доказательств: {result.score_breakdown.evidence_quality}
               /15
             </li>
+            {(result.score_breakdown.volume_adjustment ?? 0) !== 0 && (
+              <li>
+                Поправка за промышленный объём:{" "}
+                {result.score_breakdown.volume_adjustment}
+              </li>
+            )}
           </ul>
 
           {result.evidence.length > 0 && (

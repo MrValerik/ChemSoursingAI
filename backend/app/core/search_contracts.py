@@ -1,6 +1,6 @@
 """Authoritative versions for the supplier-search execution graph."""
 
-SUPPLIER_SEARCH_GRAPH_VERSION = "supplier-search.v1"
+SUPPLIER_SEARCH_GRAPH_VERSION = "supplier-search.v2"
 DEFAULT_AGENT_CONTRACT_VERSION = "v1"
 
 AGENT_CONTRACT_VERSIONS = {
@@ -9,6 +9,6 @@ AGENT_CONTRACT_VERSIONS = {
     "search_planner": "v1",
     "web_search": "v1",
     "source_fetch": "v1",
-    "supplier_qualification": "v1",
+    "supplier_qualification": "v2",
     "supplier_verifier": "v1",
 }

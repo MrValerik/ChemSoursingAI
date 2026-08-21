@@ -130,6 +130,7 @@ def test_the_analog_setup_reaches_the_queued_search():
                 "analog_variations": ["manufacturer", "purity"],
                 "specification": "INCI Phenyl Trimethicone",
                 "application": "Косметика",
+                "volume": "500 kg",
             },
             headers=headers,
         )
@@ -151,6 +152,7 @@ def test_the_analog_setup_reaches_the_queued_search():
     assert payload["analog_variations"] == ["manufacturer", "purity"]
     assert payload["specification"] == "INCI Phenyl Trimethicone"
     assert payload["application"] == "Косметика"
+    assert payload["requested_volume"] == "500 kg"
 
     # База у тестов общая, а прогон в очереди заберёт себе чужой worker.
     # Удаления карточки мало: у прогона внешний ключ обнуляется, а сам он

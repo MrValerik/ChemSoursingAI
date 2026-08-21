@@ -158,6 +158,10 @@ class Settings(BaseSettings):
     search_max_page_fetches: int = Field(default=30)
     search_max_llm_calls: int = Field(default=40)
     search_max_runtime_s: int = Field(default=2700)
+    # Минимальная фасовка/MOQ, которая сама по себе подтверждает промышленный
+    # масштаб. Значения калибруются по товарной категории и доступны через env.
+    supplier_industrial_package_min_mass_kg: float = Field(default=20, gt=0)
+    supplier_industrial_package_min_volume_l: float = Field(default=20, gt=0)
 
     # --- Источник поисковой выдачи ---
     # HTML-выдача DuckDuckGo не имеет квоты и SLA: под нагрузкой она отдаёт
