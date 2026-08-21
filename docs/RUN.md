@@ -210,6 +210,53 @@ python scripts/run_supplier_eval.py --version v1
 `app/eval/datasets/supplier_decision_eval.v1.json`; изменение примеров — это
 новая версия файла, а не правка старой.
 
+### Сравнительный eval моделей на сложном поиске поставщиков
+
+`supplier_model_eval.v1` воспроизводимо передаёт двум конфигурациям одинаковые
+синтетические снимки выдачи и первичных страниц. Набор покрывает редкое
+вещество, широкий каталог, лабораторную фасовку для промышленного запроса,
+другое соединение, аналог, китайский и индийский источники, недоступную
+первичную страницу и prompt injection. Retrieval остаётся зафиксированным, так
+что различия extraction и policy не смешиваются с изменением живой web-выдачи.
+
+Стандартный `pytest` не вызывает web или LLM. Он проверяет схему dataset/report,
+offline fixtures для malformed/no-LLM/prompt injection и правила promotion
+gate. Живой OpenAI-совместимый прогон запускается только вручную с явным
+флагом:
+
+```powershell
+Push-Location .\backend
+try {
+    Copy-Item `
+        -LiteralPath .\scripts\supplier_model_eval_configs.example.json `
+        -Destination .\scripts\supplier_model_eval_configs.local.json
+    # Заполните локальный файл именами env-переменных, моделями и тарифами.
+    ..\.venv\Scripts\python.exe .\scripts\run_supplier_model_eval.py `
+        --allow-live-llm `
+        --config .\scripts\supplier_model_eval_configs.local.json `
+        --baseline current `
+        --candidate alternative `
+        --repeat 3 `
+        --output .\supplier-model-report.json
+} finally {
+    Pop-Location
+}
+```
+
+Локальный файл конфигураций и отчёт не следует коммитить: они могут раскрыть
+внутренние адреса и коммерческие тарифы. API-ключи задаются только через имена
+переменных окружения (`api_key_env`), а в отчёт не попадают. Для каждой
+конфигурации отчёт содержит модель, host OpenAI-совместимого endpoint,
+`prompt_version`, `manufacturer_false_accept_rate`,
+`substance_false_accept_rate`, `citation_precision`, `shortlist_precision`,
+`retrieval_recall_at_n`, latency, prompt/completion tokens, приблизительную
+стоимость в USD и run-to-run variance.
+
+Код возврата `2` означает safety-регрессию и безусловно запрещает продвижение
+модели, даже если она быстрее или дешевле. Код `1` означает нарушение
+остального quality gate. Пороговые значения версионируются вместе с dataset;
+новый состав примеров выпускается новым файлом, старый не переписывается.
+
 ### Нагрузочный краш-тест поиска поставщиков
 
 Сколько веществ можно искать одновременно — вопрос трёх независимых пределов:

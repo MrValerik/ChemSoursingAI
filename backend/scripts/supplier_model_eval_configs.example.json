@@ -1,0 +1,28 @@
+{
+  "configurations": [
+    {
+      "name": "current",
+      "base_url_env": "LLM_BASE_URL",
+      "model_env": "LLM_MODEL",
+      "api_key_env": "LLM_API_KEY",
+      "project_id_env": "LLM_PROJECT_ID",
+      "auth_scheme": "api-key",
+      "thinking_control": "reasoning_effort",
+      "timeout_s": 120,
+      "input_cost_per_million": 0.0,
+      "output_cost_per_million": 0.0
+    },
+    {
+      "name": "alternative",
+      "base_url_env": "EVAL_ALT_LLM_BASE_URL",
+      "model_env": "EVAL_ALT_LLM_MODEL",
+      "api_key_env": "EVAL_ALT_LLM_API_KEY",
+      "project_id_env": "EVAL_ALT_LLM_PROJECT_ID",
+      "auth_scheme": "api-key",
+      "thinking_control": "reasoning_effort",
+      "timeout_s": 120,
+      "input_cost_per_million": 0.0,
+      "output_cost_per_million": 0.0
+    }
+  ]
+}
