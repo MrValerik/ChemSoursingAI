@@ -12,7 +12,7 @@ import type {
   SupplierTypeKind,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { Icon, IconButton, Input, Select } from "./ui";
+import { Icon, Input, Select } from "./ui";
 
 const TYPE_LABELS: Record<SupplierTypeKind, string> = {
   manufacturer: "Производитель",
@@ -93,6 +93,15 @@ export default function SuppliersSection() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<SupplierForm | null>(null);
   const [saving, setSaving] = useState(false);
+  const [menuFor, setMenuFor] = useState<number | null>(null);
+  const [busySupplierId, setBusySupplierId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (menuFor === null) return;
+    const close = () => setMenuFor(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [menuFor]);
 
   const load = useCallback(async () => {
     try {
@@ -246,6 +255,7 @@ export default function SuppliersSection() {
   };
 
   const remove = async (supplier: SupplierRead) => {
+    setMenuFor(null);
     if (!window.confirm(`Удалить «${supplier.company}» из реестра поставщиков?`)) {
       return;
     }
@@ -256,6 +266,37 @@ export default function SuppliersSection() {
       await load();
     } catch (caught) {
       setError(userErrorMessage(caught));
+    }
+  };
+
+  const changeStatus = async (
+    supplier: SupplierRead,
+    status: SupplierQualificationStatus,
+  ) => {
+    if (busySupplierId !== null || supplier.qualification_status === status) return;
+    setMenuFor(null);
+    if (
+      status === "rejected" &&
+      !window.confirm(
+        "Исключить компанию из реестра? Она перестанет предлагаться во всех запросах.",
+      )
+    ) {
+      return;
+    }
+    setBusySupplierId(supplier.id);
+    setError(null);
+    try {
+      await api.setSupplierQualification(supplier.id, status);
+      setForm((current) =>
+        current?.id === supplier.id
+          ? { ...current, qualification_status: status }
+          : current,
+      );
+      await load();
+    } catch (caught) {
+      setError(userErrorMessage(caught));
+    } finally {
+      setBusySupplierId(null);
     }
   };
 
@@ -485,7 +526,7 @@ export default function SuppliersSection() {
                   <th onClick={() => toggleSort("last_checked_at")}>
                     Проверка{arrow("last_checked_at")}
                   </th>
-                  {canEdit && <th className="request-actions-column" />}
+                  {canEdit && <th className="qualification-actions-column" />}
                 </tr>
               </thead>
               <tbody>
@@ -525,24 +566,84 @@ export default function SuppliersSection() {
                     <td>{supplier.verified_by_name ?? "Не подтверждён"}</td>
                     <td>{formatDate(supplier.last_checked_at)}</td>
                     {canEdit && (
-                      <td className="request-actions-column">
-                        <div className="row-actions">
-                          <IconButton
-                            icon="edit"
-                            label={`Изменить ${supplier.company}`}
+                      <td
+                        className="qualification-actions-column"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="row-menu">
+                          <button
+                            aria-label={`Действия с компанией ${supplier.company}`}
+                            className="ui-icon-button row-menu-button"
+                            disabled={busySupplierId === supplier.id}
+                            title="Действия с компанией"
+                            type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              beginEdit(supplier);
+                              setMenuFor((current) =>
+                                current === supplier.id ? null : supplier.id,
+                              );
                             }}
-                          />
-                          <IconButton
-                            icon="trash"
-                            label={`Удалить ${supplier.company}`}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void remove(supplier);
-                            }}
-                          />
+                          >
+                            ⋮
+                          </button>
+                          {menuFor === supplier.id && (
+                            <div className="dropdown row-menu-dropdown">
+                              <div className="dropdown-title">{supplier.company}</div>
+                              {supplier.qualification_status !== "verified" && (
+                                <button
+                                  className="dropdown-item"
+                                  type="button"
+                                  onClick={() => void changeStatus(supplier, "verified")}
+                                >
+                                  Подтвердить поставщика
+                                </button>
+                              )}
+                              {supplier.qualification_status !== "under_review" && (
+                                <button
+                                  className="dropdown-item"
+                                  type="button"
+                                  onClick={() => void changeStatus(supplier, "under_review")}
+                                >
+                                  Отправить на проверку
+                                </button>
+                              )}
+                              {supplier.qualification_status !== "candidate" && (
+                                <button
+                                  className="dropdown-item"
+                                  type="button"
+                                  onClick={() => void changeStatus(supplier, "candidate")}
+                                >
+                                  Вернуть в кандидаты
+                                </button>
+                              )}
+                              {supplier.qualification_status !== "rejected" && (
+                                <button
+                                  className="dropdown-item is-danger"
+                                  type="button"
+                                  onClick={() => void changeStatus(supplier, "rejected")}
+                                >
+                                  Исключить из реестра
+                                </button>
+                              )}
+                              <button
+                                className="dropdown-item"
+                                type="button"
+                                onClick={() => {
+                                  setMenuFor(null);
+                                  beginEdit(supplier);
+                                }}
+                              >
+                                Изменить данные
+                              </button>
+                              <button
+                                className="dropdown-item is-danger"
+                                type="button"
+                                onClick={() => void remove(supplier)}
+                              >
+                                Удалить запись
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </td>
                     )}
