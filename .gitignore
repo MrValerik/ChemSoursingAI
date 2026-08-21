@@ -22,6 +22,8 @@ dist/
 build/
 .vite/
 *.local
+backend/scripts/supplier_model_eval_configs.local.json
+backend/supplier-model-report*.json
 
 # ML models / large artifacts (веса, не код!)
 *.gguf
