@@ -88,6 +88,32 @@ const DECISION_LABELS: Record<string, string> = {
   rejected: "исключён из реестра",
 };
 
+const COMPANY_LEGAL_TAILS = [
+  "coltd", "co", "ltd", "limited", "inc", "llc", "gmbh",
+  "corporation", "corp", "group", "company", "plc", "sa", "bv",
+  "pvt", "ag", "kg",
+] as const;
+
+// То же сравнение имён, которым backend объединяет карточки одной компании.
+// Оно нужно для старых результатов, у которых в реестре мог сохраниться URL
+// другого запуска того же поставщика.
+const companyKey = (name: string) => {
+  let collapsed = name
+    .toLocaleLowerCase("ru")
+    .replace(/[^0-9a-zа-яё\u4e00-\u9fff]+/giu, "");
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const tail of COMPANY_LEGAL_TAILS) {
+      if (collapsed.endsWith(tail) && collapsed.length > tail.length + 2) {
+        collapsed = collapsed.slice(0, -tail.length);
+        changed = true;
+      }
+    }
+  }
+  return collapsed;
+};
+
 // Сколько «замечаний» — число само по себе не говорит, чего именно.
 const riskWord = (count: number) => {
   const tail = count % 10;
@@ -370,7 +396,9 @@ function QualificationTable({
   activeCas: string | null;
   activeCountry: string;
   onSelect: (result: SupplierQualificationResponse["results"][number]) => void;
-  decisionFor: (resultIndex: number) => SupplierDecision | null;
+  decisionFor: (
+    result: SupplierQualificationResponse["results"][number],
+  ) => SupplierDecision | null;
   onDecide: (decision: SupplierDecision, action: DecisionAction) => void;
   busySupplierId: number | null;
   canDecide: boolean;
@@ -380,7 +408,7 @@ function QualificationTable({
   const [sortKey, setSortKey] = useState<QualificationSortKey>("confidence");
   const [sortAsc, setSortAsc] = useState(false);
   // Открытое меню действий: одновременно не больше одного на таблицу.
-  const [menuFor, setMenuFor] = useState<number | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
 
   // Меню закрывается кликом мимо него: строка под ним кликабельна, и
   // оставленное открытым меню перехватывало бы нажатие.
@@ -523,7 +551,7 @@ function QualificationTable({
           </tr>
         )}
         {sorted.map((result) => {
-          const decision = decisionFor(result.result_index);
+          const decision = decisionFor(result);
           const decisionLabel = decision
             ? decision.excluded_here
               ? "не для этого запроса"
@@ -643,15 +671,13 @@ function QualificationTable({
                         // которым открылось.
                         event.stopPropagation();
                         setMenuFor((current) =>
-                          current === result.result_index
-                            ? null
-                            : result.result_index,
+                          current === result.url ? null : result.url,
                         );
                       }}
                     >
                       ⋮
                     </button>
-                    {menuFor === result.result_index && (
+                    {menuFor === result.url && (
                       <div className="dropdown row-menu-dropdown">
                         <div className="dropdown-title">
                           {result.company_name}
@@ -1882,19 +1908,20 @@ export default function SupplierSearchSection({
   const [repeatSearchOpen, setRepeatSearchOpen] = useState(false);
   const [data, setData] = useState<SupplierSearchResponse | null>(null);
   const [qualification, setQualification] = useState<SupplierQualificationResponse | null>(null);
-  // Строка таблицы, раскрытая в окне подробностей.
-  const [detailIndex, setDetailIndex] = useState<number | null>(null);
+  // URL остаётся уникальным после объединения запусков одной страны. В отличие
+  // от result_index он не начинается заново в каждом поиске.
+  const [detailUrl, setDetailUrl] = useState<string | null>(null);
 
   // Окно закрывается клавишей, а не только кнопкой: закупщик просматривает
   // строки подряд и не тянется к мыши ради каждой.
   useEffect(() => {
-    if (detailIndex === null) return;
+    if (detailUrl === null) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setDetailIndex(null);
+      if (event.key === "Escape") setDetailUrl(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [detailIndex]);
+  }, [detailUrl]);
   const [trace, setTrace] = useState<SearchRunTrace | null>(null);
   const [runs, setRuns] = useState<SearchRunListItem[]>([]);
   // Пока история запусков не пришла, вкладка не знает, был ли поиск вообще.
@@ -2049,24 +2076,35 @@ export default function SupplierSearchSection({
     };
   }, [qualification]);
 
-  const savedToRegistry = (resultIndex: number) =>
-    !!qualification?.registry_links?.some(
-      (link) => link.result_index === resultIndex,
-    );
+  const registrySupplierFor = (
+    result: SupplierQualificationResponse["results"][number],
+  ) => {
+    const storedSource = result.url.slice(0, 255);
+    const bySource = registry.find((item) => item.source === storedSource);
+    if (bySource) return bySource;
+    const key = companyKey(result.company_name);
+    return key
+      ? registry.find((item) => companyKey(item.company) === key)
+      : undefined;
+  };
+
+  const savedToRegistry = (
+    result: SupplierQualificationResponse["results"][number],
+  ) => registrySupplierFor(result) !== undefined;
 
   // Решение по компании живёт в реестре, а не в сохранённом прогоне:
   // прогон — снимок находки, а подтвердить или вычеркнуть компанию можно
   // и через неделю после него. Поэтому статусы берутся живыми из реестра
-  // и связываются со строкой по registry_links.
-  const decisionFor = (resultIndex: number): SupplierDecision | null => {
-    const supplierId = qualification?.registry_links?.find(
-      (link) => link.result_index === resultIndex,
-    )?.supplier_id;
-    if (supplierId === undefined) return null;
-    const supplier = registry.find((item) => item.id === supplierId);
+  // и связываются со строкой по URL или тому же нормализованному имени,
+  // которое backend использует при дедупликации. result_index не подходит:
+  // он повторяется в объединённых запусках одной страны.
+  const decisionFor = (
+    result: SupplierQualificationResponse["results"][number],
+  ): SupplierDecision | null => {
+    const supplier = registrySupplierFor(result);
     if (supplier === undefined) return null;
     return {
-      supplier_id: supplierId,
+      supplier_id: supplier.id,
       qualification_status: supplier.qualification_status,
       excluded_here: (supplier.linked_requests ?? []).some(
         (link) => link.rfq_id === rfq.id && link.excluded,
@@ -2112,7 +2150,7 @@ export default function SupplierSearchSection({
   };
   const detailResult =
     qualification?.results.find(
-      (result) => result.result_index === detailIndex,
+      (result) => result.url === detailUrl,
     ) ?? null;
   const countryRuns = useMemo(() => {
     const seen = new Set<string>();
@@ -2628,7 +2666,7 @@ export default function SupplierSearchSection({
                 results={qualification.results.filter((item) => !item.winnowed)}
                 activeCas={activeCas}
                 activeCountry={activeCountry}
-                onSelect={(result) => setDetailIndex(result.result_index)}
+                onSelect={(result) => setDetailUrl(result.url)}
                 decisionFor={decisionFor}
                 onDecide={(decision, action) => void decide(decision, action)}
                 busySupplierId={busySupplierId}
@@ -2659,7 +2697,7 @@ export default function SupplierSearchSection({
                       )}
                       activeCas={activeCas}
                       activeCountry={activeCountry}
-                      onSelect={(result) => setDetailIndex(result.result_index)}
+                      onSelect={(result) => setDetailUrl(result.url)}
                       decisionFor={decisionFor}
                       onDecide={(decision, action) => void decide(decision, action)}
                       busySupplierId={busySupplierId}
@@ -2672,7 +2710,7 @@ export default function SupplierSearchSection({
                 <div
                   className="request-delete-backdrop"
                   role="presentation"
-                  onClick={() => setDetailIndex(null)}
+                  onClick={() => setDetailUrl(null)}
                 >
                   <section
                     aria-labelledby="qualification-detail-title"
@@ -2688,7 +2726,7 @@ export default function SupplierSearchSection({
                       <button
                         className="secondary"
                         type="button"
-                        onClick={() => setDetailIndex(null)}
+                        onClick={() => setDetailUrl(null)}
                       >
                         Закрыть
                       </button>
@@ -2698,9 +2736,7 @@ export default function SupplierSearchSection({
                       activeCas={activeCas}
                       activeCountry={activeCountry}
                       trace={trace}
-                      savedToRegistry={savedToRegistry(
-                        detailResult.result_index,
-                      )}
+                      savedToRegistry={savedToRegistry(detailResult)}
                     />
                   </section>
                 </div>
