@@ -719,12 +719,16 @@ export interface SupplyQuantityEvidence {
   normalized_unit: "g" | "mL";
   dimension: "mass" | "volume";
   quote: string;
+  source_method?: "same_line" | "adjacent_lines";
+  confidence?: "high" | "medium";
 }
 
 export interface SupplyOrderRangeEvidence {
   minimum: SupplyQuantityEvidence;
   maximum: SupplyQuantityEvidence;
   quote: string;
+  source_method?: "same_line" | "adjacent_lines";
+  confidence?: "high" | "medium";
 }
 
 export interface SupplyVolumeCompatibility {
@@ -739,6 +743,8 @@ export interface SupplyVolumeCompatibility {
   lab_catalog_signals: string[];
   source_url: string;
   quote: string | null;
+  evidence_method: "same_line" | "adjacent_lines" | null;
+  evidence_confidence: "high" | "medium" | null;
   reason: string;
 }
 

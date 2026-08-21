@@ -2992,6 +2992,11 @@ def execute_supplier_qualification(
                         page.text,
                         requested_volume,
                         source_url=page.final_url or result.url,
+                        target_cas=data.cas,
+                        target_names=[
+                            data.name,
+                            *data.known_synonyms,
+                        ],
                         industrial_mass_kg=settings.supplier_industrial_package_min_mass_kg,
                         industrial_volume_l=settings.supplier_industrial_package_min_volume_l,
                     ),

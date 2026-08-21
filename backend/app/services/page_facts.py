@@ -821,20 +821,24 @@ def find_production_facts(text: str) -> dict[str, str]:
 # Иначе строка «USD 10/kg» превращает единицу цены в упаковку 10 kg. Единицы
 # приводятся к граммам или миллилитрам; массу в объём без подтверждённой
 # плотности не пересчитываем.
+_SUPPLY_UNIT_PATTERN = (
+    r"metric\s+tons?|kilogrammes?|kilograms?|milligrams?|pounds?|ounces?|"
+    r"tonnes?|tons?|grams?|cubic\s+met(?:er|re)s?|millilit(?:er|re)s?|"
+    r"lit(?:er|re)s?|m[³3]|gms?|gm|mt|kgs?|kg|mgs?|mg|lbs?|lb|oz|g|t|"
+    r"ml|ltr|l|公斤|千克|毫克|公吨|吨|克|毫升|升|кг|мг|г|мл|л|т"
+)
 _SUPPLY_QUANTITY_RE = re.compile(
     r"(?<![/\w])(?P<value>\d+(?:[\s\u00a0]\d{3})*(?:[.,]\d+)?)\s*"
-    r"(?P<unit>metric\s+tons?|tonnes?|tons?|kilograms?|milligrams?|grams?|"
-    r"cubic\s+met(?:er|re)s?|millilit(?:er|re)s?|lit(?:er|re)s?|"
-    r"m[³3]|mt|kgs?|kg|mgs?|mg|g|ml|ltr|l)\b",
+    rf"(?P<unit>{_SUPPLY_UNIT_PATTERN})"
+    r"(?=$|[\s\u00a0/|,;:.)\]}]|(?:(?:see|show|view)\s*more)+\b)",
     re.IGNORECASE,
 )
 _SHARED_UNIT_RANGE_RE = re.compile(
     r"(?<![/\w])(?P<minimum>\d+(?:[\s\u00a0]\d{3})*(?:[.,]\d+)?)\s*"
     r"(?:-|–|—|to|до)\s*"
     r"(?P<maximum>\d+(?:[\s\u00a0]\d{3})*(?:[.,]\d+)?)\s*"
-    r"(?P<unit>metric\s+tons?|tonnes?|tons?|kilograms?|milligrams?|grams?|"
-    r"cubic\s+met(?:er|re)s?|millilit(?:er|re)s?|lit(?:er|re)s?|"
-    r"m[³3]|mt|kgs?|kg|mgs?|mg|g|ml|ltr|l)\b",
+    rf"(?P<unit>{_SUPPLY_UNIT_PATTERN})"
+    r"(?=$|[\s\u00a0/|,;:.)\]}]|(?:(?:see|show|view)\s*more)+\b)",
     re.IGNORECASE,
 )
 _PACKAGING_MARKER_RE = re.compile(
@@ -858,12 +862,33 @@ _LAB_CATALOG_RE = re.compile(
     r"仅供科研|实验室试剂)",
     re.IGNORECASE,
 )
+_SUPPLY_UI_SUFFIX_RE = re.compile(
+    r"(?:(?:see|show|view)\s*more|view\s*all|select|choose)+",
+    re.IGNORECASE,
+)
+_SUPPLY_CONTAINER_WORD_RE = re.compile(
+    r"\b(?:net|each|bags?|sacks?|drums?|bottles?|jars?|cartons?|pails?|"
+    r"totes?|ibcs?|plastic|paper|woven|kraft)\b",
+    re.IGNORECASE,
+)
+_SUPPLY_SKU_PARENS_RE = re.compile(r"\(\s*[A-Z0-9_-]{2,24}\s*\)", re.IGNORECASE)
+_SUPPLY_REMAINDER_RE = re.compile(r"[\s\u00a0|,;/()[\]{}:+\-–—]*")
+_MAX_ADJACENT_SUPPLY_VALUES = 5
+_SUPPLY_SECTION_BOUNDARY_RE = re.compile(
+    r"^(?:frequently\s+bought\s+together|related\s+products?|"
+    r"recommended\s+products?|you\s+may\s+also\s+like|similar\s+products?|"
+    r"customers?\s+also\s+(?:bought|viewed)|похожие\s+товары|"
+    r"рекомендуемые\s+товары|с\s+этим\s+товаром|相关产品|推荐产品|猜你喜欢)\s*:?$",
+    re.IGNORECASE,
+)
 _UNIT_FACTORS: dict[str, tuple[str, Decimal, str]] = {
     "mg": ("mass", Decimal("0.001"), "g"),
     "g": ("mass", Decimal("1"), "g"),
     "kg": ("mass", Decimal("1000"), "g"),
     "mt": ("mass", Decimal("1000000"), "g"),
     "t": ("mass", Decimal("1000000"), "g"),
+    "lb": ("mass", Decimal("453.59237"), "g"),
+    "oz": ("mass", Decimal("28.349523125"), "g"),
     "ml": ("volume", Decimal("1"), "mL"),
     "l": ("volume", Decimal("1000"), "mL"),
     "m3": ("volume", Decimal("1000000"), "mL"),
@@ -872,11 +897,21 @@ _UNIT_FACTORS: dict[str, tuple[str, Decimal, str]] = {
 
 def _unit_key(value: str) -> str | None:
     unit = " ".join((value or "").casefold().replace("³", "3").split())
-    if unit in {"mg", "mgs", "milligram", "milligrams"}:
+    if unit in {"mg", "mgs", "milligram", "milligrams", "мг", "毫克"}:
         return "mg"
-    if unit in {"g", "gram", "grams"}:
+    if unit in {"g", "gm", "gms", "gram", "grams", "г", "克"}:
         return "g"
-    if unit in {"kg", "kgs", "kilogram", "kilograms"}:
+    if unit in {
+        "kg",
+        "kgs",
+        "kilogram",
+        "kilograms",
+        "kilogramme",
+        "kilogrammes",
+        "кг",
+        "公斤",
+        "千克",
+    }:
         return "kg"
     if unit in {
         "mt",
@@ -887,11 +922,26 @@ def _unit_key(value: str) -> str | None:
         "tonnes",
         "metric ton",
         "metric tons",
+        "т",
+        "吨",
+        "公吨",
     }:
         return "mt"
-    if unit in {"ml", "milliliter", "milliliters", "millilitre", "millilitres"}:
+    if unit in {"lb", "lbs", "pound", "pounds"}:
+        return "lb"
+    if unit in {"oz", "ounce", "ounces"}:
+        return "oz"
+    if unit in {
+        "ml",
+        "milliliter",
+        "milliliters",
+        "millilitre",
+        "millilitres",
+        "мл",
+        "毫升",
+    }:
         return "ml"
-    if unit in {"l", "ltr", "liter", "liters", "litre", "litres"}:
+    if unit in {"l", "ltr", "liter", "liters", "litre", "litres", "л", "升"}:
         return "l"
     if unit in {"m3", "cubic meter", "cubic meters", "cubic metre", "cubic metres"}:
         return "m3"
@@ -916,7 +966,14 @@ def _decimal_number(value: str) -> Decimal | None:
     return number if number > 0 else None
 
 
-def _quantity(value: str, unit: str, *, quote: str) -> dict | None:
+def _quantity(
+    value: str,
+    unit: str,
+    *,
+    quote: str,
+    source_method: str = "same_line",
+    confidence: str = "high",
+) -> dict | None:
     number = _decimal_number(value)
     key = _unit_key(unit)
     if number is None or key is None:
@@ -929,14 +986,28 @@ def _quantity(value: str, unit: str, *, quote: str) -> dict | None:
         "normalized_unit": normalized_unit,
         "dimension": dimension,
         "quote": quote,
+        "source_method": source_method,
+        "confidence": confidence,
     }
 
 
-def _line_quantities(line: str) -> list[dict]:
+def _line_quantities(
+    line: str,
+    *,
+    quote: str | None = None,
+    source_method: str = "same_line",
+    confidence: str = "high",
+) -> list[dict]:
     quantities: list[dict] = []
     seen: set[tuple[str, float]] = set()
     for match in _SUPPLY_QUANTITY_RE.finditer(line):
-        item = _quantity(match.group("value"), match.group("unit"), quote=line)
+        item = _quantity(
+            match.group("value"),
+            match.group("unit"),
+            quote=quote or line,
+            source_method=source_method,
+            confidence=confidence,
+        )
         if item is None:
             continue
         key = (item["dimension"], item["normalized_value"])
@@ -946,25 +1017,143 @@ def _line_quantities(line: str) -> list[dict]:
     return quantities
 
 
-def _shared_unit_range(line: str) -> tuple[dict, dict] | None:
+def _shared_unit_range(
+    line: str,
+    *,
+    quote: str | None = None,
+    source_method: str = "same_line",
+    confidence: str = "high",
+) -> tuple[dict, dict] | None:
     match = _SHARED_UNIT_RANGE_RE.search(line)
     if match is None:
         return None
-    minimum = _quantity(match.group("minimum"), match.group("unit"), quote=line)
-    maximum = _quantity(match.group("maximum"), match.group("unit"), quote=line)
+    minimum = _quantity(
+        match.group("minimum"),
+        match.group("unit"),
+        quote=quote or line,
+        source_method=source_method,
+        confidence=confidence,
+    )
+    maximum = _quantity(
+        match.group("maximum"),
+        match.group("unit"),
+        quote=quote or line,
+        source_method=source_method,
+        confidence=confidence,
+    )
     if minimum is None or maximum is None:
         return None
     return minimum, maximum
 
 
-def find_supply_volume_facts(text: str) -> dict:
+def _is_supply_value_line(line: str) -> bool:
+    """Строка является только вариантом фасовки, а не соседним описанием."""
+    if not (_SUPPLY_QUANTITY_RE.search(line) or _SHARED_UNIT_RANGE_RE.search(line)):
+        return False
+    remainder = _SHARED_UNIT_RANGE_RE.sub("", line)
+    remainder = _SUPPLY_QUANTITY_RE.sub("", remainder)
+    remainder = _SUPPLY_UI_SUFFIX_RE.sub("", remainder)
+    remainder = _SUPPLY_SKU_PARENS_RE.sub("", remainder)
+    remainder = _SUPPLY_CONTAINER_WORD_RE.sub("", remainder)
+    return bool(_SUPPLY_REMAINDER_RE.fullmatch(remainder))
+
+
+def _adjacent_supply_values(
+    lines: list[str], index: int
+) -> tuple[str, str] | None:
+    """Связывает короткий label с соседними чистыми значениями.
+
+    Цена, описание и следующая карточка товара останавливают окно. Цитата
+    сохраняет исходные строки без перефразирования.
+    """
+    label = lines[index]
+    if len(label) > 80 or _line_quantities(label):
+        return None
+    values: list[str] = []
+    for candidate in lines[index + 1 : index + 1 + _MAX_ADJACENT_SUPPLY_VALUES]:
+        if not _is_supply_value_line(candidate):
+            break
+        values.append(candidate)
+    if not values:
+        return None
+    quote = "\n".join([label, *values])
+    return quote, " | ".join(values)
+
+
+def _supply_volume_scope(
+    text: str,
+    target_cas: str | None,
+    target_names: list[str] | None,
+) -> str:
+    target = normalize_cas(target_cas or "")
+    found = find_cas_numbers(text)
+    if target and target in found:
+        neighbourhood = substance_neighbourhood(text, target)
+        if not neighbourhood:
+            return text
+        neighbourhood_lines = neighbourhood.splitlines()
+        target_index = next(
+            (
+                index
+                for index, line in enumerate(neighbourhood_lines)
+                if target in find_cas_numbers(line)
+            ),
+            0,
+        )
+        start = 0
+        for index in range(target_index - 1, -1, -1):
+            if _SUPPLY_SECTION_BOUNDARY_RE.fullmatch(
+                neighbourhood_lines[index].strip()
+            ):
+                start = index + 1
+                break
+        end = len(neighbourhood_lines)
+        for index in range(target_index + 1, len(neighbourhood_lines)):
+            if _SUPPLY_SECTION_BOUNDARY_RE.fullmatch(
+                neighbourhood_lines[index].strip()
+            ):
+                end = index
+                break
+        scoped_lines = neighbourhood_lines[start:end]
+        seen = {line.strip() for line in scoped_lines if line.strip()}
+        # FAQ или коммерческий блок может стоять далеко от спецификации. Его
+        # берём только когда та же строка явно повторяет искомое вещество/CAS;
+        # без такой привязки related-products остаются за пределами карточки.
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line in seen:
+                continue
+            if not (
+                _PACKAGING_MARKER_RE.search(line)
+                or _MOQ_MARKER_RE.search(line)
+                or _ORDER_RANGE_MARKER_RE.search(line)
+            ):
+                continue
+            if mentions_substance(
+                line,
+                cas=target,
+                names=list(target_names or []),
+            ):
+                scoped_lines.append(line)
+                seen.add(line)
+        return "\n".join(scoped_lines)
+    return text
+
+
+def find_supply_volume_facts(
+    text: str,
+    *,
+    target_cas: str | None = None,
+    target_names: list[str] | None = None,
+) -> dict:
     """Фасовки, MOQ, диапазоны и лабораторные признаки с цитатами страницы."""
     packages: list[dict] = []
     moqs: list[dict] = []
     ranges: list[dict] = []
     lab_signals: list[str] = []
-    for raw in (text or "").splitlines():
-        line = raw.strip()
+    scope = _supply_volume_scope(text or "", target_cas, target_names)
+    lines = [raw.strip() for raw in scope.splitlines() if raw.strip()]
+    for index, line in enumerate(lines):
         if not (MIN_QUOTE_CHARS <= len(line) <= _MAX_LINE_CHARS):
             continue
         if _LAB_CATALOG_RE.search(line) and line not in lab_signals:
@@ -976,8 +1165,29 @@ def find_supply_volume_facts(text: str) -> dict:
         )
         if marker is None:
             continue
+        quote = line
+        source_method = "same_line"
+        confidence = "high"
         quantities = _line_quantities(line)
         shared_range = _shared_unit_range(line)
+        if not quantities and shared_range is None:
+            adjacent = _adjacent_supply_values(lines, index)
+            if adjacent is not None:
+                quote, value_text = adjacent
+                source_method = "adjacent_lines"
+                confidence = "medium"
+                quantities = _line_quantities(
+                    value_text,
+                    quote=quote,
+                    source_method=source_method,
+                    confidence=confidence,
+                )
+                shared_range = _shared_unit_range(
+                    value_text,
+                    quote=quote,
+                    source_method=source_method,
+                    confidence=confidence,
+                )
         if _ORDER_RANGE_MARKER_RE.search(line):
             endpoints = list(shared_range or ()) or quantities[:2]
             if (
@@ -991,7 +1201,9 @@ def find_supply_volume_facts(text: str) -> dict:
                     {
                         "minimum": ordered[0],
                         "maximum": ordered[1],
-                        "quote": line,
+                        "quote": quote,
+                        "source_method": source_method,
+                        "confidence": confidence,
                     }
                 )
                 continue
@@ -1019,12 +1231,18 @@ def assess_supply_volume(
     requested_volume: str | None,
     *,
     source_url: str,
+    target_cas: str | None = None,
+    target_names: list[str] | None = None,
     industrial_mass_kg: float = 20,
     industrial_volume_l: float = 20,
 ) -> dict:
     """Сопоставляет потребность RFQ только с фактами первичной страницы."""
     requested = _requested_quantity(requested_volume)
-    facts = find_supply_volume_facts(text)
+    facts = find_supply_volume_facts(
+        text,
+        target_cas=target_cas,
+        target_names=target_names,
+    )
     result = {
         "status": "unknown",
         "requested_volume": requested,
@@ -1037,6 +1255,8 @@ def assess_supply_volume(
         "lab_catalog_signals": facts["lab_catalog_signals"],
         "source_url": source_url,
         "quote": None,
+        "evidence_method": None,
+        "evidence_confidence": None,
         "reason": "На первичной странице не найдены подтверждённые фасовка, диапазон заказа или MOQ.",
     }
     if requested is None:
@@ -1051,7 +1271,7 @@ def assess_supply_volume(
         "mass": Decimal(str(industrial_mass_kg)) * Decimal("1000"),
         "volume": Decimal(str(industrial_volume_l)) * Decimal("1000"),
     }
-    decisions: list[tuple[str, str, str]] = []
+    decisions: list[tuple[str, str, str, str, str]] = []
     for order_range in facts["order_ranges"]:
         minimum = order_range["minimum"]
         maximum = order_range["maximum"]
@@ -1061,7 +1281,13 @@ def assess_supply_volume(
         upper = Decimal(str(maximum["normalized_value"]))
         status = "compatible" if lower <= target <= upper else "incompatible"
         decisions.append(
-            (status, order_range["quote"], "подтверждённый диапазон заказа")
+            (
+                status,
+                order_range["quote"],
+                "подтверждённый диапазон заказа",
+                order_range.get("source_method", "same_line"),
+                order_range.get("confidence", "high"),
+            )
         )
 
     for moq in facts["moq"]:
@@ -1075,11 +1301,25 @@ def assess_supply_volume(
             # подтверждает масштаб даже когда его минимум выше потребности RFQ.
             if minimum >= industrial_floor:
                 decisions.append(
-                    ("compatible", moq["quote"], "подтверждённый промышленный MOQ")
+                    (
+                        "compatible",
+                        moq["quote"],
+                        "подтверждённый промышленный MOQ",
+                        moq.get("source_method", "same_line"),
+                        moq.get("confidence", "high"),
+                    )
                 )
         else:
             status = "compatible" if target >= minimum else "incompatible"
-            decisions.append((status, moq["quote"], "подтверждённый MOQ"))
+            decisions.append(
+                (
+                    status,
+                    moq["quote"],
+                    "подтверждённый MOQ",
+                    moq.get("source_method", "same_line"),
+                    moq.get("confidence", "high"),
+                )
+            )
 
     comparable_packages = [
         item for item in facts["packaging"] if item["dimension"] == dimension
@@ -1089,7 +1329,15 @@ def assess_supply_volume(
         largest_value = Decimal(str(largest["normalized_value"]))
         threshold = min(target, industrial_base_quantity[dimension])
         status = "compatible" if largest_value >= threshold else "incompatible"
-        decisions.append((status, largest["quote"], "подтверждённая фасовка"))
+        decisions.append(
+            (
+                status,
+                largest["quote"],
+                "подтверждённая фасовка",
+                largest.get("source_method", "same_line"),
+                largest.get("confidence", "high"),
+            )
+        )
 
     statuses = {item[0] for item in decisions}
     if not decisions:
@@ -1100,14 +1348,18 @@ def assess_supply_volume(
         return result
     if len(statuses) > 1:
         result["quote"] = decisions[0][1]
+        result["evidence_method"] = decisions[0][3]
+        result["evidence_confidence"] = decisions[0][4]
         result["reason"] = (
             "Фасовка, диапазон заказа и MOQ дают противоречащие выводы; требуется ручная проверка."
         )
         return result
 
-    status, quote, basis = decisions[0]
+    status, quote, basis, evidence_method, evidence_confidence = decisions[0]
     result["status"] = status
     result["quote"] = quote
+    result["evidence_method"] = evidence_method
+    result["evidence_confidence"] = evidence_confidence
     if status == "compatible":
         result["reason"] = f"Потребность совместима: {basis} покрывает требуемый объём."
     else:
@@ -1301,7 +1553,10 @@ def substance_neighbourhood(text: str, cas: str | None) -> str:
     if not target or not text:
         return ""
     lines = text.splitlines()
-    index = next((i for i, line in enumerate(lines) if target in line), None)
+    index = next(
+        (i for i, line in enumerate(lines) if target in find_cas_numbers(line)),
+        None,
+    )
     if index is None:
         return ""
 

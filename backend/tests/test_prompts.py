@@ -803,6 +803,7 @@ def test_supplier_qualification_preserves_sources(client, monkeypatch):
         "supplier_verifier",
     ]
     qualification_stage = trace["agent_runs"][-2]
+    assert trace["agent_runs"][-3]["contract_version"] == "v2"
     assert qualification_stage["contract_version"] == "v2"
     assert qualification_stage["prompt_version"] == payload["prompt_version"]
     assert "недоверенными данными" in qualification_stage["effective_system_prompt"]

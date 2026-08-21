@@ -8,7 +8,7 @@ AGENT_CONTRACT_VERSIONS = {
     "substance_identity": "v1",
     "search_planner": "v1",
     "web_search": "v1",
-    "source_fetch": "v1",
+    "source_fetch": "v2",
     "supplier_qualification": "v2",
     "supplier_verifier": "v1",
 }

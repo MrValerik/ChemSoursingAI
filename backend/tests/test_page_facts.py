@@ -9,6 +9,8 @@
 
 import os
 
+import pytest
+
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_page_facts.db")
 
 from app.connectors.web_page import extract_page_text
@@ -138,6 +140,213 @@ def test_missing_and_malformed_quantities_remain_unknown_without_an_llm():
     assert missing["status"] == "unknown"
     assert malformed["status"] == "unknown"
     assert malformed["requested_volume"] is None
+
+
+def test_adjacent_pack_size_values_are_linked_without_rewriting_the_quote():
+    page = (
+        "Sodium Benzoate\n"
+        "CAS: 532-32-1\n"
+        "Pack Size\n"
+        "500 g\n"
+        "1 Kg\n"
+        "Quantity\n"
+    )
+    result = assess_supply_volume(
+        page,
+        "500 kg",
+        source_url="https://supplier.example/medisca-layout",
+        target_cas="532-32-1",
+    )
+
+    assert result["status"] == "incompatible"
+    assert [item["normalized_value"] for item in result["found_packaging"]] == [
+        500.0,
+        1000.0,
+    ]
+    assert result["quote"] == "Pack Size\n500 g\n1 Kg"
+    assert result["quote"] in page
+    assert result["evidence_method"] == "adjacent_lines"
+    assert result["evidence_confidence"] == "medium"
+
+
+def test_ui_suffix_stuck_to_a_unit_does_not_hide_the_pack_size():
+    page = "Pack Size:1 KgSee moreSee more"
+    result = assess_supply_volume(
+        page,
+        "500 kg",
+        source_url="https://supplier.example/ui-suffix",
+    )
+
+    assert result["status"] == "incompatible"
+    assert result["found_packaging"][0]["normalized_value"] == 1000.0
+    assert result["quote"] == page
+
+
+def test_volume_facts_do_not_leak_from_a_neighbouring_product_card():
+    page = (
+        "CAS: 532-32-1\n"
+        "Pack Size\n"
+        "500 g\n"
+        "Price: USD 10/kg\n"
+        "CAS: 50-78-2\n"
+        "Packaging: 25 kg bag\n"
+    )
+    result = assess_supply_volume(
+        page,
+        "500 kg",
+        source_url="https://supplier.example/catalog",
+        target_cas="532-32-1",
+    )
+
+    assert result["status"] == "incompatible"
+    assert [item["normalized_value"] for item in result["found_packaging"]] == [
+        500.0
+    ]
+
+
+def test_unicode_cas_hyphens_still_scope_the_correct_product_card():
+    page = (
+        "CAS: 532‑32‑1\n"
+        "Pack Size: 500 g\n"
+        "CAS: 50-78-2\n"
+        "Packaging: 25 kg bag\n"
+    )
+    result = assess_supply_volume(
+        page,
+        "500 kg",
+        source_url="https://supplier.example/unicode-cas",
+        target_cas="532-32-1",
+    )
+
+    assert result["status"] == "incompatible"
+    assert [item["normalized_value"] for item in result["found_packaging"]] == [
+        500.0
+    ]
+
+
+def test_distant_moq_is_used_only_when_the_line_names_the_target_substance():
+    page = (
+        "CAS: 532-32-1\n"
+        + "Product detail\n" * 30
+        + "Different products have different MOQ; for Sodium Benzoate, MOQ is 500 kg.\n"
+        + "Related product Pack Size: 25 kg\n"
+    )
+    result = assess_supply_volume(
+        page,
+        "500 kg",
+        source_url="https://supplier.example/faq",
+        target_cas="532-32-1",
+        target_names=["Sodium Benzoate"],
+    )
+
+    assert result["status"] == "compatible"
+    assert result["moq"]["normalized_value"] == 500_000.0
+    assert result["found_packaging"] == []
+
+
+def test_related_products_section_is_not_part_of_the_target_packaging():
+    page = (
+        "Sodium Benzoate\n"
+        "CAS: 532-32-1\n"
+        "Pack Size\n"
+        "500 g\n"
+        "1 Kg\n"
+        "Frequently Bought Together\n"
+        "Citric Acid\n"
+        "Pack Size: 25 kg\n"
+    )
+    result = assess_supply_volume(
+        page,
+        "500 kg",
+        source_url="https://supplier.example/recommendations",
+        target_cas="532-32-1",
+        target_names=["Sodium Benzoate"],
+    )
+
+    assert result["status"] == "incompatible"
+    assert [item["normalized_value"] for item in result["found_packaging"]] == [
+        500.0,
+        1000.0,
+    ]
+
+
+def test_non_quantity_neighbor_is_not_attached_to_a_packaging_label():
+    result = assess_supply_volume(
+        "Pack Size\nPrice for 25 kg: USD 100",
+        "500 kg",
+        source_url="https://supplier.example/price",
+    )
+
+    assert result["status"] == "unknown"
+    assert result["found_packaging"] == []
+
+
+def test_html_select_pack_sizes_are_preserved_as_separate_values():
+    html = (
+        "<article><div>CAS: 532-32-1</div><label>Pack Size</label>"
+        "<select><option>500 g</option><option>1 Kg</option></select></article>"
+    )
+    _, text = extract_page_text(html, "text/html")
+    result = assess_supply_volume(
+        text,
+        "500 kg",
+        source_url="https://supplier.example/select",
+        target_cas="532-32-1",
+    )
+
+    assert "Pack Size\n500 g\n1 Kg" in text
+    assert result["status"] == "incompatible"
+
+
+def test_jsonld_property_value_supplies_an_explicit_packaging_fact():
+    html = """
+    <script type="application/ld+json">
+    {
+      "@type": "Product",
+      "name": "Sodium Benzoate",
+      "additionalProperty": {
+        "@type": "PropertyValue",
+        "name": "Packaging",
+        "value": 25,
+        "unitText": "kg"
+      }
+    }
+    </script>
+    """
+    _, text = extract_page_text(html, "text/html")
+    result = assess_supply_volume(
+        text,
+        "500 kg",
+        source_url="https://supplier.example/jsonld",
+    )
+
+    assert "Packaging: 25 kg" in text
+    assert result["status"] == "compatible"
+    assert result["evidence_method"] == "same_line"
+
+
+@pytest.mark.parametrize(
+    ("page", "expected_status", "normalized_value"),
+    [
+        ("包装：25公斤/袋", "compatible", 25_000.0),
+        ("Фасовка: 20 кг", "compatible", 20_000.0),
+        ("Packaging: 50 lb drum", "compatible", 22_679.6185),
+        ("Pack size: 500 GM", "incompatible", 500.0),
+    ],
+)
+def test_common_chinese_russian_and_indian_pack_units_are_normalized(
+    page, expected_status, normalized_value
+):
+    result = assess_supply_volume(
+        page,
+        "500 kg",
+        source_url="https://supplier.example/local-units",
+    )
+
+    assert result["status"] == expected_status
+    assert result["found_packaging"][0]["normalized_value"] == pytest.approx(
+        normalized_value
+    )
 
 
 # --- поиск номера ---
