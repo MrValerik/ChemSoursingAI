@@ -56,6 +56,22 @@ jobs:
       - run: npm test
         working-directory: whatsapp-web
 
+  telegram-agent:
+    name: Telegram agent tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/telegram-agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/telegram-agent/requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+
   operations:
     name: Deployment checks
     runs-on: ubuntu-latest
@@ -64,18 +80,20 @@ jobs:
       - run: bash -n deploy/apply-migrations.sh
       - run: bash -n deploy/update-server.sh
       - run: bash -n deploy/install-vm-services.sh
-      - name: Validate PowerShell deployment script
+      - name: Validate PowerShell deployment scripts
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path ./deploy/update-server.ps1),
-            [ref]$tokens,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
+          Get-ChildItem ./deploy/*.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$($_.Message) ($($_.Extent.File):$($_.Extent.StartLineNumber))" }
+              exit 1
+            }
           }
       - run: docker compose config

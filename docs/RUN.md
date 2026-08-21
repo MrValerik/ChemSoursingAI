@@ -173,7 +173,23 @@ Health-check использует стандартный `GET /v1/models` с т�
 В Codex тот же сценарий доступен как `$update-repository` с названием
 «Обновить репозиторий».
 
-## 4. Тесты
+## 4. Локальный Telegram-доступ к Codex
+
+Для вопросов о проекте и явных задач на исправление можно запустить на Windows
+приватного Telegram-бота без публичного входящего порта:
+
+```powershell
+.\deploy\setup-telegram-agent.cmd
+# заполнить tools\telegram-agent\.env
+.\deploy\start-telegram-agent.cmd
+```
+
+Режим `/ask` доступен только на чтение, а `/fix` следует полному workflow из
+`AGENTS.md`. Доступ закрыт по умолчанию и разрешается только приватным сообщениям
+от `TELEGRAM_ALLOWED_USER_IDS`. Настройка, автозапуск и модель угроз описаны в
+[`docs/TELEGRAM_AGENT.md`](TELEGRAM_AGENT.md).
+
+## 5. Тесты
 
 ```bash
 cd backend
@@ -282,6 +298,7 @@ python scripts/search_load_test.py --mode llm --yes --profile both --ladder 1,2,
 
 - полный набор backend-тестов;
 - production-сборку frontend;
+- unit-тесты локального Telegram-агента;
 - проверку синтаксиса Linux deployment-скриптов;
 - `docker compose config`.
 
