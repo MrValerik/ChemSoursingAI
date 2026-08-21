@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from datetime import datetime
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import DateTime, Integer, JSON, String
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -15,6 +15,7 @@ from app.models.enums import SupplierType
 
 if TYPE_CHECKING:
     from app.models.manager import Manager
+    from app.models.user import User
 
 
 class Supplier(Base, TimestampMixin):
@@ -47,7 +48,13 @@ class Supplier(Base, TimestampMixin):
     last_checked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
+    # Пользователь, который именно подтвердил компанию как поставщика.
+    # Машинная квалификация этого поля не заполняет.
+    verified_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, default=None
+    )
 
     managers: Mapped[list["Manager"]] = relationship(
         back_populates="supplier", cascade="all, delete-orphan"
     )
+    verified_by: Mapped["User | None"] = relationship()

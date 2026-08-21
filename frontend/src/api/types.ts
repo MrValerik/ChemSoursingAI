@@ -314,6 +314,8 @@ export interface SupplierRead {
   qualification_status: SupplierQualificationStatus;
   evidence_score: number | null;
   last_checked_at: string | null;
+  verified_by_id: number | null;
+  verified_by_name: string | null;
   contacts_count: number;
   request_count: number;
   contacts: {

@@ -1144,6 +1144,8 @@ def test_human_decides_supplier_status(client):
     )
     assert confirmed.status_code == 200
     assert confirmed.json()["qualification_status"] == "verified"
+    assert confirmed.json()["verified_by_id"] is not None
+    assert confirmed.json()["verified_by_name"] == "Иван Иванов"
     # Решение человека и есть проверка компании.
     assert confirmed.json()["last_checked_at"] is not None
 
@@ -1154,6 +1156,8 @@ def test_human_decides_supplier_status(client):
     )
     assert rejected.status_code == 200
     assert rejected.json()["qualification_status"] == "rejected"
+    assert rejected.json()["verified_by_id"] is None
+    assert rejected.json()["verified_by_name"] is None
 
     assert (
         client.post(

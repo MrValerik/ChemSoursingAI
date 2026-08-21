@@ -69,6 +69,19 @@ def test_buyer_can_create_update_and_delete_an_unused_supplier(client):
     assert body["evidence_score"] == 72
     assert body["certificates"] == ["ISO 9001", "GMP"]
     assert body["last_checked_at"] is not None
+    assert body["verified_by_name"] is None
+
+    verified = client.patch(
+        f"/suppliers/{supplier_id}",
+        headers=buyer,
+        json={"qualification_status": "verified"},
+    )
+    assert verified.status_code == 200
+    assert verified.json()["verified_by_name"] == "Иван Иванов"
+
+    listed_verified = client.get("/suppliers", headers=buyer).json()
+    registry_item = next(item for item in listed_verified if item["id"] == supplier_id)
+    assert registry_item["verified_by_name"] == "Иван Иванов"
 
     auditor = _auth(client, "auditor")
     assert (

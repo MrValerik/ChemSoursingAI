@@ -40,6 +40,7 @@ type SortKey =
   | "qualification_status"
   | "evidence_score"
   | "request_count"
+  | "verified_by_name"
   | "last_checked_at";
 
 const formatDate = (value: string | null) =>
@@ -125,6 +126,7 @@ export default function SuppliersSection() {
         supplier.company,
         supplier.country,
         supplier.source,
+        supplier.verified_by_name,
         ...(supplier.certificates ?? []),
         ...supplier.linked_requests.flatMap((request) => [
           request.name,
@@ -477,6 +479,9 @@ export default function SuppliersSection() {
                     Запросы{arrow("request_count")}
                   </th>
                   <th>Контакты</th>
+                  <th onClick={() => toggleSort("verified_by_name")}>
+                    Кто подтвердил{arrow("verified_by_name")}
+                  </th>
                   <th onClick={() => toggleSort("last_checked_at")}>
                     Проверка{arrow("last_checked_at")}
                   </th>
@@ -517,6 +522,7 @@ export default function SuppliersSection() {
                     <td className="col-num">{supplier.evidence_score ?? "—"}</td>
                     <td className="col-num">{supplier.request_count}</td>
                     <td>{supplier.channels.join(", ") || "Нет"}</td>
+                    <td>{supplier.verified_by_name ?? "Не подтверждён"}</td>
                     <td>{formatDate(supplier.last_checked_at)}</td>
                     {canEdit && (
                       <td className="request-actions-column">
@@ -563,6 +569,8 @@ export default function SuppliersSection() {
                 <dd>{selected.evidence_score ?? "Нет оценки"}</dd>
                 <dt>Последняя проверка</dt>
                 <dd>{formatDate(selected.last_checked_at)}</dd>
+                <dt>Кто подтвердил</dt>
+                <dd>{selected.verified_by_name ?? "Не подтверждён пользователем"}</dd>
                 <dt>Источник</dt>
                 <dd>
                   {selected.source?.startsWith("http") ? (

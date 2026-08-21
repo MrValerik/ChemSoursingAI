@@ -82,6 +82,7 @@ def _to_supplier_read(
     has_tds: bool = False,
 ) -> SupplierRead:
     read = SupplierRead.model_validate(s)
+    read.verified_by_name = s.verified_by.full_name if s.verified_by else None
     read.channels = _supplier_channels(s)
     read.contacts = [SupplierContact.model_validate(m) for m in s.managers]
     read.contacts_count = len(s.managers)
@@ -95,7 +96,11 @@ def _to_supplier_read(
 @router.get("/suppliers", response_model=list[SupplierRead])
 def list_suppliers(db: Session = Depends(get_db)) -> list[SupplierRead]:
     """Глобальный реестр компаний с закупочными метриками."""
-    stmt = select(Supplier).options(joinedload(Supplier.managers)).order_by(Supplier.company)
+    stmt = (
+        select(Supplier)
+        .options(joinedload(Supplier.managers), joinedload(Supplier.verified_by))
+        .order_by(Supplier.company)
+    )
     suppliers = db.scalars(stmt).unique().all()
     supplier_ids = [supplier.id for supplier in suppliers]
     linked: dict[int, dict[int, SupplierRequestLink]] = {
@@ -227,6 +232,9 @@ def add_supplier(
             certificates=data.certificates,
             last_checked_at=utc_now() if data.evidence_score is not None else None,
         )
+        if data.qualification_status == "verified":
+            supplier.verified_by = user
+            supplier.last_checked_at = utc_now()
         if data.email or data.whatsapp:
             supplier.managers.append(
                 Manager(email=data.email, whatsapp=data.whatsapp)
@@ -304,6 +312,7 @@ def update_supplier(
 ) -> SupplierRead:
     """Исправляет вручную поддерживаемые поля строки глобального реестра."""
     supplier = _supplier_for_edit(db, supplier_id, user)
+    previous_status = supplier.qualification_status
     changes = data.model_dump(exclude_unset=True)
     if "company" in changes:
         if changes["company"] is None:
@@ -328,6 +337,10 @@ def update_supplier(
         setattr(supplier, field, value)
     if "qualification_status" in changes:
         supplier.last_checked_at = datetime.now(timezone.utc)
+        if changes["qualification_status"] != previous_status:
+            supplier.verified_by = (
+                user if changes["qualification_status"] == "verified" else None
+            )
     db.commit()
     db.refresh(supplier)
     return _supplier_with_links(db, supplier)
@@ -557,6 +570,7 @@ def set_supplier_qualification(
     # Решение человека и есть проверка: дата в карточке должна показывать
     # её, а не последний машинный прогон.
     supplier.last_checked_at = datetime.now(timezone.utc)
+    supplier.verified_by = user if payload.status == "verified" else None
     db.commit()
     db.refresh(supplier)
     return _supplier_with_links(db, supplier)
