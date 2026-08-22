@@ -2,7 +2,7 @@
 // верхняя панель с поиском, уведомлениями и профилем/ролью.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { LogoMark, LogoWord } from "./Logo";
 import { applyTheme, readTheme, type Theme } from "../theme";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
@@ -66,12 +66,27 @@ export function isSectionAllowed(section: SectionKey, role: UserRole) {
 const isAdminOnly = (item: NavItem) =>
   item.roles.length === 1 && item.roles[0] === "admin";
 
+// На узком экране в шапке нет места для имени и роли — остаётся кружок с
+// инициалами. Берём первые буквы двух первых слов: «Иван Иванов» — «ИИ».
+function initialsOf(fullName: string) {
+  return fullName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]!.toUpperCase())
+    .join("");
+}
+
 export default function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  // Меню разделов на узком экране прячется в выдвижной ящик: колонка в 200px
+  // съедала бы больше половины телефона.
+  const [navOpen, setNavOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { pathname } = useLocation();
 
   // Закрытие выпадающих меню по клику вне.
   useEffect(() => {
@@ -85,12 +100,26 @@ export default function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
+  // Переход в раздел — это и есть ответ на вопрос, ради которого ящик
+  // открывали: дальше он только закрывает содержимое.
+  useEffect(() => setNavOpen(false), [pathname]);
+
+  // Ящик перекрывает страницу, поэтому обязан закрываться с клавиатуры.
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNavOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [navOpen]);
+
   if (!user) return null;
   const visible = NAV_ITEMS.filter((i) => i.roles.includes(user.role));
 
   return (
-    <div className="shell">
-      <nav className="shell-nav">
+    <div className={`shell${navOpen ? " is-nav-open" : ""}`}>
+      <nav className="shell-nav" id="shell-nav">
         <div className="shell-logo">
           <LogoMark size={26} />
           <LogoWord />
@@ -121,8 +150,37 @@ export default function AppShell({ children }: { children: ReactNode }) {
         ))}
       </nav>
 
+      {/* Подложка живёт только при открытом ящике: иначе она перехватывала бы
+          клики по странице на широком экране. */}
+      {navOpen && (
+        <div
+          className="shell-nav-backdrop"
+          role="presentation"
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+
       <div className="shell-body">
         <header className="shell-topbar" ref={menuRef}>
+          {/* Кнопка ящика и знак показываются только на узком экране: на
+              широком раздел и так виден в левой колонке. */}
+          <IconButton
+            aria-controls="shell-nav"
+            aria-expanded={navOpen}
+            className="icon-btn shell-nav-toggle"
+            icon={navOpen ? "close" : "menu"}
+            label={navOpen ? "Закрыть меню разделов" : "Меню разделов"}
+            onClick={() => {
+              setNavOpen((v) => !v);
+              setProfileOpen(false);
+              setNotifOpen(false);
+            }}
+          />
+          <div className="topbar-brand">
+            <LogoMark size={22} />
+            <LogoWord />
+          </div>
+
           <div className="topbar-right">
             <IconButton
               className="icon-btn"
@@ -167,12 +225,21 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   setNotifOpen(false);
                 }}
               >
+                <span className="profile-avatar" aria-hidden="true">
+                  {initialsOf(user.full_name)}
+                </span>
                 <span className="profile-name">{user.full_name}</span>
                 <span className="profile-role">{ROLE_LABELS[user.role]}</span>
                 <span className="caret">▾</span>
               </button>
               {profileOpen && (
                 <div className="dropdown">
+                  {/* Имя и роль ушли из шапки на узком экране — показываем их
+                      здесь, иначе от кружка с инициалами не узнать, кто вошёл. */}
+                  <div className="dropdown-identity">
+                    <span className="dropdown-identity-name">{user.full_name}</span>
+                    <span className="profile-role">{ROLE_LABELS[user.role]}</span>
+                  </div>
                   <div className="dropdown-title">{user.username}</div>
                   <button className="dropdown-item" disabled title="В разработке">
                     Сменить пароль

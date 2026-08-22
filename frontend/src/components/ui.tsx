@@ -198,7 +198,8 @@ export type IconName =
   | "trash"
   | "sun"
   | "moon"
-  | "lock";
+  | "lock"
+  | "menu";
 
 export function Icon({
   name,
@@ -231,6 +232,7 @@ export function Icon({
       </>
     ),
     "chevron-down": <path d="m6 9 6 6 6-6" />,
+    menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     close: (
       <>
         <path d="m7 7 10 10" />

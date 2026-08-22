@@ -1216,45 +1216,49 @@ function FullCommunicationTesting({
           {history.length === 0 ? (
             <p className="empty">Диалоги ещё не запускались.</p>
           ) : (
-            <table className="summary">
-              <thead>
-                <tr>
-                  <th>Время</th>
-                  <th>Канал</th>
-                  <th>Получатель</th>
-                  <th>Режим</th>
-                  <th>Статус</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((item) => (
-                  <tr key={item.id}>
-                    <td>{new Date(item.created_at).toLocaleString("ru-RU")}</td>
-                    <td>{item.channel === "email" ? "Email" : "WhatsApp"}</td>
-                    <td>{item.recipient_masked}</td>
-                    <td>
-                      {item.delivery_mode === "send" ? "Отправка" : "Симуляция"}
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${STATUS_TONES[item.status] ?? "tone-neutral"}`}
-                      >
-                        {STATUS_LABELS[item.status] ?? item.status}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className="secondary btn-small"
-                        onClick={() => openDialog(item)}
-                      >
-                        Открыть
-                      </button>
-                    </td>
+            <div className="table-scroll">
+              {/* Таблица шире телефона: прокручивается вбок внутри своей
+                  рамки, а не растягивает страницу. */}
+              <table className="summary">
+                <thead>
+                  <tr>
+                    <th>Время</th>
+                    <th>Канал</th>
+                    <th>Получатель</th>
+                    <th>Режим</th>
+                    <th>Статус</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {history.map((item) => (
+                    <tr key={item.id}>
+                      <td>{new Date(item.created_at).toLocaleString("ru-RU")}</td>
+                      <td>{item.channel === "email" ? "Email" : "WhatsApp"}</td>
+                      <td>{item.recipient_masked}</td>
+                      <td>
+                        {item.delivery_mode === "send" ? "Отправка" : "Симуляция"}
+                      </td>
+                      <td>
+                        <span
+                          className={`badge ${STATUS_TONES[item.status] ?? "tone-neutral"}`}
+                        >
+                          {STATUS_LABELS[item.status] ?? item.status}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className="secondary btn-small"
+                          onClick={() => openDialog(item)}
+                        >
+                          Открыть
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

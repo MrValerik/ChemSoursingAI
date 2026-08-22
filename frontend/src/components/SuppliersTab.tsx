@@ -416,120 +416,124 @@ export default function SuppliersTab({
       {error && <p className="error">{error}</p>}
       {notice && <p className="success-note">{notice}</p>}
 
-      <table className="summary">
-        <thead>
-          <tr>
-            <th></th>
-            {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
-              <th key={key}>
-                <button
-                  type="button"
-                  className="table-sort"
-                  onClick={() => sortBy(key)}
-                  aria-label={`Сортировать по «${SORT_LABELS[key]}»`}
+      <div className="table-scroll">
+        {/* Таблица шире телефона: прокручивается вбок внутри своей
+            рамки, а не растягивает страницу. */}
+        <table className="summary">
+          <thead>
+            <tr>
+              <th></th>
+              {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                <th key={key}>
+                  <button
+                    type="button"
+                    className="table-sort"
+                    onClick={() => sortBy(key)}
+                    aria-label={`Сортировать по «${SORT_LABELS[key]}»`}
+                  >
+                    {SORT_LABELS[key]}
+                    <span className="table-sort-mark">
+                      {sortKey === key ? (sortAsc ? "▲" : "▼") : ""}
+                    </span>
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((s) => {
+              const recipient = recipientBySupplier.get(s.id);
+              const selected = alreadySelected.has(s.id);
+              // Ушедшее письмо не отзывается: снять такую галочку нельзя.
+              const locked = !!recipient && recipient.status !== "queued";
+              return (
+                // Клик по строке раскрывает карточку, а не ставит галочку:
+                // выбор получателя — действие с последствиями, и для него
+                // остаётся сам чекбокс.
+                <tr
+                  key={s.id}
+                  className={locked ? "row-muted" : "clickable"}
+                  onClick={() => setDetailId(s.id)}
                 >
-                  {SORT_LABELS[key]}
-                  <span className="table-sort-mark">
-                    {sortKey === key ? (sortAsc ? "▲" : "▼") : ""}
-                  </span>
-                </button>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((s) => {
-            const recipient = recipientBySupplier.get(s.id);
-            const selected = alreadySelected.has(s.id);
-            // Ушедшее письмо не отзывается: снять такую галочку нельзя.
-            const locked = !!recipient && recipient.status !== "queued";
-            return (
-              // Клик по строке раскрывает карточку, а не ставит галочку:
-              // выбор получателя — действие с последствиями, и для него
-              // остаётся сам чекбокс.
-              <tr
-                key={s.id}
-                className={locked ? "row-muted" : "clickable"}
-                onClick={() => setDetailId(s.id)}
-              >
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    onClick={(e) => e.stopPropagation()}
-                    disabled={
-                      readOnly || busy || locked || s.channels.length === 0
-                    }
-                    onChange={() => void toggle(s)}
-                    title={
-                      locked
-                        ? "Письмо уже отправлено — получателя не убрать"
-                        : s.channels.length === 0
-                          ? "У компании нет контакта для рассылки"
-                          : undefined
-                    }
-                    aria-label={`Включить «${s.company}» в рассылку`}
-                  />
-                </td>
-                <td>
-                  <div>{s.company}</div>
-                  {s.certificates && s.certificates.length > 0 && (
-                    <div className="cas">{s.certificates.join(", ")}</div>
-                  )}
-                </td>
-                <td>{s.type ? TYPE_LABELS[s.type] : "—"}</td>
-                {/* Щелчок по ячейке раскрывает карточку наравне с остальной
-                    строкой: закупщик метит в строку, а не в клетку таблицы.
-                    Собственный щелчок остаётся только у того, что делает
-                    своё дело, — у подсказки и у выбора канала. */}
-                <td>
-                  {s.channels.length === 0 &&
-                    (s.contact_barrier ? (
-                      <span className="note contact-barrier">
-                        {BARRIER_LABELS[s.contact_barrier]}
-                        <span onClick={(e) => e.stopPropagation()}>
-                          <HelpTip text={BARRIER_HELP[s.contact_barrier]} />
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="note">нет контакта</span>
-                    ))}
-                  {selected && !locked && s.channels.length > 1 ? (
-                    <select
-                      value={recipient?.channel}
-                      disabled={busy}
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected}
                       onClick={(e) => e.stopPropagation()}
-                      onChange={(e) =>
-                        void setChannel(s.id, e.target.value as ChannelKind)
+                      disabled={
+                        readOnly || busy || locked || s.channels.length === 0
                       }
-                    >
-                      {s.channels.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
+                      onChange={() => void toggle(s)}
+                      title={
+                        locked
+                          ? "Письмо уже отправлено — получателя не убрать"
+                          : s.channels.length === 0
+                            ? "У компании нет контакта для рассылки"
+                            : undefined
+                      }
+                      aria-label={`Включить «${s.company}» в рассылку`}
+                    />
+                  </td>
+                  <td>
+                    <div>{s.company}</div>
+                    {s.certificates && s.certificates.length > 0 && (
+                      <div className="cas">{s.certificates.join(", ")}</div>
+                    )}
+                  </td>
+                  <td>{s.type ? TYPE_LABELS[s.type] : "—"}</td>
+                  {/* Щелчок по ячейке раскрывает карточку наравне с остальной
+                      строкой: закупщик метит в строку, а не в клетку таблицы.
+                      Собственный щелчок остаётся только у того, что делает
+                      своё дело, — у подсказки и у выбора канала. */}
+                  <td>
+                    {s.channels.length === 0 &&
+                      (s.contact_barrier ? (
+                        <span className="note contact-barrier">
+                          {BARRIER_LABELS[s.contact_barrier]}
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <HelpTip text={BARRIER_HELP[s.contact_barrier]} />
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="note">нет контакта</span>
                       ))}
-                    </select>
-                  ) : (
-                    s.channels.join(", ")
-                  )}
-                </td>
-                <td>{recipient?.note ?? recipient?.status ?? "—"}</td>
-                <td>
-                  <Stars value={s.reputation} />
+                    {selected && !locked && s.channels.length > 1 ? (
+                      <select
+                        value={recipient?.channel}
+                        disabled={busy}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) =>
+                          void setChannel(s.id, e.target.value as ChannelKind)
+                        }
+                      >
+                        {s.channels.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      s.channels.join(", ")
+                    )}
+                  </td>
+                  <td>{recipient?.note ?? recipient?.status ?? "—"}</td>
+                  <td>
+                    <Stars value={s.reputation} />
+                  </td>
+                </tr>
+              );
+            })}
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={6} className="note">
+                  По этому запросу контрагентов пока нет. Запустите поиск во
+                  вкладке «Поиск компаний» или добавьте компанию вручную.
                 </td>
               </tr>
-            );
-          })}
-          {sorted.length === 0 && (
-            <tr>
-              <td colSpan={6} className="note">
-                По этому запросу контрагентов пока нет. Запустите поиск во
-                вкладке «Поиск компаний» или добавьте компанию вручную.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {detail && (
         <div

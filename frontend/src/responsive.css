@@ -1,0 +1,567 @@
+/*
+ * Адаптивная вёрстка ChemSource AI.
+ *
+ * Файл подключается последним (main.tsx), поэтому правила отсюда перебивают
+ * styles.css и ui.css без повышения специфичности и без !important.
+ *
+ * Три рубежа, и каждый отвечает за свой перелом раскладки:
+ *   1100px — широкие двухколонники перестают помещаться и складываются;
+ *    900px — колонка разделов уходит в выдвижной ящик, страница начинает
+ *            прокручиваться целиком, а не внутренними областями;
+ *    600px — телефон: ряды фильтров и форм встают столбиком, списки-таблицы
+ *            превращаются в карточки;
+ *    360px — узкие телефоны: из шапки уходит словесная часть знака.
+ *
+ * Отдельные разделы уже несут собственные медиазапросы рядом со своими
+ * правилами (styles.css); здесь — только то, что общее для всего приложения
+ * либо ломалось на узком экране целиком.
+ */
+
+/* ===== Части интерфейса, существующие только на узком экране =====
+   Разметка отдаёт их всегда — так не нужно дублировать состояние в JS и
+   ловить рассинхрон между шириной окна и деревом React. Прячем оформлением. */
+
+/* Селектор кнопки — с тегом: `button.ui-icon-button` из ui.css задаёт ей
+   `display` и по специфичности перебил бы один класс. */
+button.shell-nav-toggle,
+.topbar-brand,
+.profile-avatar,
+.dropdown-identity {
+  display: none;
+}
+
+/* Кружок с инициалами: на телефоне он заменяет имя и роль в шапке. */
+.profile-avatar {
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-brand);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Имя и роль, вытесненные из шапки, показываются в меню профиля. */
+.dropdown-identity {
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px 10px;
+}
+.dropdown-identity-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* Обёртка широкой таблицы. Живёт вне медиазапросов: таблица бывает шире окна
+   и на ноутбуке, а прокрутка вбок внутри рамки не мешает, пока не нужна. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* Подложка под выдвинутым ящиком. Появляется в разметке только вместе с ним,
+   но на широком экране ящика нет — правило страхует от вспышки затемнения
+   при перетаскивании края окна. */
+.shell-nav-backdrop {
+  display: none;
+}
+
+/* ===== 1100px: широкие двухколонники ===== */
+
+@media (max-width: 1100px) {
+  /* Карточка запроса: узкая колонка параметров уходит под основную часть.
+     `align-items` обязателен: у ряда стоял `flex-start`, и в колонке он
+     перестаёт растягивать содержимое по ширине — блок раздувается до своей
+     максимальной ширины и вылезает за экран. */
+  .detail-layout {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .detail-params {
+    width: 100%;
+  }
+
+  /* Каталог веществ: список над редактором, а не рядом с ним. */
+  .substance-catalog-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .substance-list-panel {
+    position: static;
+  }
+  .substance-list {
+    max-height: 320px;
+  }
+
+  /* Реестры: карточка контрагента становится частью потока. */
+  .suppliers-layout {
+    flex-direction: column;
+  }
+  .suppliers-layout > .supplier-card {
+    width: 100%;
+    max-height: none;
+  }
+}
+
+/* ===== 900px: каркас приложения на узком экране ===== */
+
+@media (max-width: 900px) {
+  /* Прокрутка возвращается странице целиком. Внутренние области с
+     собственным ходом (`.shell-content`, таблицы во всю высоту) на сенсорном
+     экране спорят с прокруткой страницы: палец попадает то в одну, то в
+     другую, и адресная строка браузера перестаёт убираться. */
+  .shell {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .shell-content {
+    overflow: visible;
+  }
+
+  /* Колонка разделов превращается в ящик поверх страницы. `visibility`
+     обязательна: без неё закрытый ящик остаётся в порядке обхода Tab и фокус
+     уезжает за край экрана. */
+  .shell-nav {
+    position: fixed;
+    z-index: 60;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(272px, 82vw);
+    overflow-y: auto;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform 220ms ease,
+      visibility 220ms;
+    box-shadow: var(--shadow-pop);
+  }
+  .shell.is-nav-open .shell-nav {
+    transform: none;
+    visibility: visible;
+  }
+
+  .shell-nav-backdrop {
+    position: fixed;
+    z-index: 55;
+    inset: 0;
+    display: block;
+    background: rgb(15 23 42 / 42%);
+  }
+
+  /* Пункты меню в ящике — цель для пальца, а не для курсора. */
+  .nav-item {
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  /* Шапка остаётся на виду: из неё открывается ящик, и при длинной странице
+     до другого раздела иначе пришлось бы прокручиваться обратно вверх. */
+  .shell-topbar {
+    position: sticky;
+    z-index: 40;
+    top: 0;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  button.shell-nav-toggle {
+    display: inline-grid;
+    flex-shrink: 0;
+  }
+  .topbar-brand {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+    color: var(--brand);
+    font-size: 14px;
+  }
+  .topbar-right {
+    gap: 6px;
+  }
+
+  /* Липкие панели внутри разделов отсчитывали край от прежней прокрутки. */
+  .similar-requests {
+    position: static;
+  }
+
+  /* Отступы страниц: на узком экране поля важнее ровной сетки. */
+  .requests-page,
+  .placeholder {
+    padding: 16px 14px;
+  }
+  .layout {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px 14px;
+  }
+  .sidebar {
+    width: 100%;
+  }
+
+  /* Реестры тянулись во всю высоту раздела; при прокрутке страницы это
+     превратилось бы в область с собственным ходом внутри другой такой же. */
+  .suppliers-page,
+  .intermediaries-page,
+  .data-table.table-panel {
+    height: auto;
+    min-height: 0;
+  }
+  .suppliers-layout {
+    flex: none;
+  }
+
+  /* Двухколонники, у которых узкая половина задана в пикселях. */
+  .new-rfq.has-suggestions,
+  .communication-test-layout,
+  .conversation-layout,
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .conversation-suppliers {
+    max-height: 240px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .supplier-registry-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Карточки предварительной квалификации: 320px в minmax не давали
+     единственной колонке сжаться, и сетка вылезала за край. */
+  .qualification-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Широкие таблицы прокручиваются по горизонтали внутри своей панели, а не
+     сжимают колонки до нечитаемого. */
+  .summary-table-frame,
+  .table-panel {
+    overflow-x: auto;
+  }
+}
+
+/* Ящик выезжает — это движение по существу: оно показывает, откуда взялось
+   меню. Но при запрете анимаций он просто появляется. */
+@media (prefers-reduced-motion: reduce) {
+  .shell-nav {
+    transition: none;
+  }
+}
+
+/* ===== 600px: телефон ===== */
+
+@media (max-width: 600px) {
+  /* Safari на iOS увеличивает страницу при фокусе в поле с текстом мельче
+     16px и обратно уже не отдаляет. Крупнее становятся только сами поля
+     ввода — остальной текст остаётся прежним. */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* Кнопки-значки: 34px — предел для пальца, добираем до 40. Селектор с
+     тегом — чтобы перебить `button.ui-icon-button` из ui.css. */
+  button.icon-btn,
+  button.ui-icon-button {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Имя и роль не помещаются рядом с двумя кнопками — остаются инициалы. */
+  .profile-btn {
+    gap: 0;
+    padding: 4px;
+    border-color: transparent;
+  }
+  .profile-avatar {
+    display: grid;
+  }
+  .profile-name,
+  .profile-role,
+  .profile-btn .caret {
+    display: none;
+  }
+  /* В меню профиля роль показывается снова — там для неё есть место. */
+  .dropdown-identity {
+    display: flex;
+  }
+  .dropdown-identity .profile-role {
+    display: inline-block;
+  }
+
+  /* Шапка карточки: кнопка эскалации прижата к правому краю и не сжимается —
+     на узком экране она уезжает за границу вместе с заголовком. */
+  .detail-header {
+    flex-wrap: wrap;
+  }
+  .detail-header .escalate-btn {
+    margin-left: 0;
+  }
+
+  /* Выпадающие меню шапки прижаты правым краем к своей кнопке. Центр
+     уведомлений шире расстояния от кнопки до края экрана и вылезал слева.
+     Снимаем позиционирование с обёртки кнопки — тогда меню отсчитывается от
+     самой шапки (она липкая, а значит позиционирована) и встаёт по её полям. */
+  .shell-topbar .topbar-menu {
+    position: static;
+  }
+  .shell-topbar .dropdown {
+    right: 12px;
+  }
+  .shell-topbar .notification-dropdown {
+    left: 12px;
+    width: auto;
+  }
+
+  /* Шапка раздела: заголовок и действия друг под другом. */
+  .requests-header,
+  .supplier-registry-editor-header,
+  .substance-editor-header,
+  .tab-toolbar,
+  .tab-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .requests-actions,
+  .feedback-actions,
+  .row-actions,
+  .actions {
+    flex-wrap: wrap;
+  }
+  .requests-actions > button {
+    flex: 1 1 auto;
+  }
+
+  /* Фильтры: каждое поле на своей строке, иначе они делят 340px на четверых. */
+  .requests-filters > *,
+  .requests-filters .ui-select,
+  .requests-filters .multi-select,
+  .requests-filters .select-wrap,
+  .requests-filters > select,
+  .requests-owner-filter,
+  .filter-search,
+  .supplier-filters .filter-search {
+    width: 100%;
+    max-width: none;
+    flex: 1 1 100%;
+  }
+
+  /* Ряды полей формы. Заданные в пикселях ширины столбцов здесь только
+     мешают: на телефоне у поля одна возможная ширина — вся строка. */
+  .row {
+    flex-direction: column;
+    gap: 0;
+  }
+  .row.row-compact > .field-grade,
+  .row.row-compact > .field-narrow,
+  .row.row-compact > .field-volume,
+  .intermediary-form .field-domain,
+  .intermediary-form .field-name {
+    width: 100%;
+    flex-basis: auto;
+  }
+  .supplier-registry-form-grid,
+  .quote-grid,
+  .stage-result-grid,
+  .purchase-result-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .inline-add {
+    flex-direction: column;
+  }
+
+  /* Вкладки — лента с горизонтальной прокруткой. Перенос строкой отдавал
+     навигации карточки три ряда из пяти видимых экранов. */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab {
+    flex-shrink: 0;
+    padding: 9px 11px;
+  }
+  .request-scope-tabs {
+    max-width: none;
+  }
+  /* Чипы быстрых фильтров нажимают пальцем, а 27px по высоте для этого
+     мало: промах попадает в строку списка под ними. */
+  .quick-chips {
+    gap: 8px;
+  }
+  .quick-chips .chip {
+    min-height: 34px;
+    padding: 6px 14px;
+  }
+
+  /* Панели: 16px полей с каждой стороны съедали десятую часть экрана. */
+  .panel {
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .requests-page,
+  .placeholder,
+  .layout {
+    padding: 14px 10px;
+  }
+  .requests-header h1 {
+    font-size: 17px;
+  }
+
+  /* Модальное окно во всю ширину: 20px полей у подложки плюс 22px у самого
+     окна не оставляли места тексту. */
+  .request-delete-backdrop {
+    padding: 12px;
+  }
+  .request-delete-dialog {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 16px;
+  }
+  .request-delete-dialog-icon {
+    display: none;
+  }
+  .request-delete-dialog-actions {
+    flex-direction: column-reverse;
+  }
+  .request-delete-dialog-actions > button {
+    width: 100%;
+  }
+
+  /* Вход. */
+  .login-page {
+    padding: 16px;
+  }
+  .login-card {
+    width: 100%;
+    max-width: 380px;
+    padding: 22px 18px;
+  }
+  /* Единственная кнопка экрана и первое, чего касаются пальцем. */
+  .login-card button[type="submit"] {
+    min-height: 44px;
+  }
+
+  /* Всплывающее сообщение больше не закрывает шапку. */
+  .toast {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
+  }
+
+  /* --- Списки-таблицы превращаются в карточки ---
+     Строка запроса — это шесть значений, из которых по ширине экрана влезают
+     два. Горизонтальная прокрутка прячет как раз то, ради чего список
+     открывают, поэтому строка разворачивается в карточку: подпись колонки
+     берётся из data-label и встаёт слева от значения. */
+  table.mobile-cards,
+  table.mobile-cards tbody,
+  table.mobile-cards tr,
+  table.mobile-cards td {
+    display: block;
+  }
+  table.mobile-cards thead {
+    /* Не display: none — так строка заголовков пропала бы и для
+       скринридера, а он читает таблицу по-прежнему построчно. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  /* Строка — колонка flex, а не блок: только так название вещества можно
+     поднять в заголовок карточки, не трогая порядок колонок в разметке. */
+  table.mobile-cards tr {
+    display: flex;
+    flex-direction: column;
+    margin: 0 0 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel);
+  }
+  table.mobile-cards tr:last-child {
+    margin-bottom: 0;
+  }
+  table.mobile-cards td {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 3px 0;
+    border: 0;
+    text-align: right;
+  }
+  table.mobile-cards td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: left;
+  }
+  /* Ячейка без подписи — пустая колонка действий: разделять нечего. */
+  table.mobile-cards td:not([data-label]) {
+    justify-content: flex-end;
+  }
+  /* Действие бывает не у каждой строки (удалять чужой запрос нельзя). Пустая
+     ячейка оставляла бы в карточке подпись без значения. */
+  table.mobile-cards td:empty {
+    display: none;
+  }
+  /* Название вещества — заголовок карточки, а не строка «ключ — значение». */
+  table.mobile-cards td[data-label="Вещество / CAS"],
+  table.mobile-cards td[data-label="Запрос"] {
+    display: block;
+    order: -1;
+    margin-bottom: 4px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    text-align: left;
+  }
+  table.mobile-cards td[data-label="Вещество / CAS"]::before,
+  table.mobile-cards td[data-label="Запрос"]::before {
+    display: none;
+  }
+  table.mobile-cards td[data-label="Вещество / CAS"] .cas,
+  table.mobile-cards td[data-label="Запрос"] .cas {
+    font-weight: 400;
+  }
+  table.mobile-cards .request-actions-column {
+    width: auto;
+    max-width: none;
+  }
+  /* Панель со списком больше не прокручивается вбок и не рисует вторую рамку
+     вокруг карточек: они уже сами по себе карточки. */
+  .table-panel:has(table.mobile-cards) {
+    overflow-x: visible;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+}
+
+/* ===== 360px: самые узкие телефоны ===== */
+
+@media (max-width: 360px) {
+  /* Слово «ChemSourceAI» занимает в шапке около 120px. Вместе со знаком,
+     кнопкой ящика, темой, уведомлениями и кружком профиля это перестаёт
+     помещаться примерно на 360px — дальше остаётся один знак. */
+  .topbar-brand .logo-word {
+    display: none;
+  }
+  .quick-chips .chip {
+    padding: 6px 11px;
+  }
+}

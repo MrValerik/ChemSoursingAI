@@ -451,243 +451,247 @@ function QualificationTable({
   }, [results, sortKey, sortAsc]);
 
   return (
-    <table className="summary qualification-table">
-      <thead>
-        <tr>
-          {columns.map((column) => (
-            <th key={column.key}>
-              <span className="table-head-cell">
-                <button
-                  type="button"
-                  className="table-sort"
-                  onClick={() => sortBy(column.key)}
-                  aria-label={`Сортировать по «${column.label}»`}
-                >
-                  {column.label}
-                  <span className="table-sort-mark">
-                    {sortKey === column.key ? (sortAsc ? "▲" : "▼") : ""}
-                  </span>
-                </button>
-                {column.hint && <HelpTip text={column.hint} />}
-              </span>
-            </th>
-          ))}
-          {canDecide && <th className="qualification-actions-column"> </th>}
-        </tr>
-      </thead>
-      <tbody>
-        {sorted.length === 0 && (
+    <div className="table-scroll">
+      {/* Таблица шире телефона: прокручивается вбок внутри своей
+          рамки, а не растягивает страницу. */}
+      <table className="summary qualification-table">
+        <thead>
           <tr>
-            <td colSpan={columns.length + (canDecide ? 1 : 0)} className="note">
-              Ни одна найденная страница компанию не назвала — всё найденное
-              ниже, в отсеянном.
-            </td>
+            {columns.map((column) => (
+              <th key={column.key}>
+                <span className="table-head-cell">
+                  <button
+                    type="button"
+                    className="table-sort"
+                    onClick={() => sortBy(column.key)}
+                    aria-label={`Сортировать по «${column.label}»`}
+                  >
+                    {column.label}
+                    <span className="table-sort-mark">
+                      {sortKey === column.key ? (sortAsc ? "▲" : "▼") : ""}
+                    </span>
+                  </button>
+                  {column.hint && <HelpTip text={column.hint} />}
+                </span>
+              </th>
+            ))}
+            {canDecide && <th className="qualification-actions-column"> </th>}
           </tr>
-        )}
-        {sorted.map((result) => {
-          const decision = decisionFor(result.result_index);
-          const decisionLabel = decision
-            ? decision.excluded_here
-              ? "не для этого запроса"
-              : DECISION_LABELS[decision.qualification_status]
-            : undefined;
-          return (
-          <tr
-            className={`clickable${decision?.excluded_here || decision?.qualification_status === "rejected" ? " row-declined" : ""}`}
-            key={result.url}
-            onClick={() => onSelect(result)}
-            title="Открыть подробности: проверка, расчёт балла и цитаты"
-          >
-            <td>
-              <strong>{result.company_name}</strong>
-              {decisionLabel && (
-                <div
-                  className={`decision-mark${
-                    decision?.excluded_here ||
-                    decision?.qualification_status === "rejected"
-                      ? " is-declined"
-                      : ""
-                  }`}
-                >
-                  {decisionLabel}
-                </div>
-              )}
-              {result.third_party && !result.winnowed && (
-                // Имя со справочника или обзора рынка верное, но сказано о
-                // компании с чужих слов, и почта на такой странице чужая.
-                // Прятать такую находку нельзя: она идёт в список компаний,
-                // и две вкладки разошлись бы. В отсеянных пометка не нужна:
-                // там компании нет вовсе, и говорить, откуда она взята, не о
-                // чем.
-                <div className="cas" title="Найдена не на сайте компании: справочник, обзор рынка, статья или перечень площадки. Контакты с такой страницы не берём — они принадлежат её владельцу.">
-                  с чужой страницы
-                </div>
-              )}
-            </td>
-            <td>
-              <span
-                className={`badge ${
-                  result.supplier_type === "manufacturer"
-                    ? "tone-ok"
-                    : result.supplier_type === "distributor"
-                      ? "tone-warn"
-                      : "tone-neutral"
-                }`}
-              >
-                {TYPE_LABELS[result.supplier_type]}
-              </span>
-            </td>
-            <td>
-              <strong>{result.confidence}%</strong>
-            </td>
-            <td
-              className={
-                result.cas_status === "confirmed"
-                  ? "cell-ok"
-                  : result.cas_status === "mismatch"
-                    ? "cell-danger"
-                    : "cell-muted"
-              }
+        </thead>
+        <tbody>
+          {sorted.length === 0 && (
+            <tr>
+              <td colSpan={columns.length + (canDecide ? 1 : 0)} className="note">
+                Ни одна найденная страница компанию не назвала — всё найденное
+                ниже, в отсеянном.
+              </td>
+            </tr>
+          )}
+          {sorted.map((result) => {
+            const decision = decisionFor(result.result_index);
+            const decisionLabel = decision
+              ? decision.excluded_here
+                ? "не для этого запроса"
+                : DECISION_LABELS[decision.qualification_status]
+              : undefined;
+            return (
+            <tr
+              className={`clickable${decision?.excluded_here || decision?.qualification_status === "rejected" ? " row-declined" : ""}`}
+              key={result.url}
+              onClick={() => onSelect(result)}
+              title="Открыть подробности: проверка, расчёт балла и цитаты"
             >
-              {activeCas
-                ? SUBSTANCE_CELL_WITH_CAS[result.cas_status]
-                : SUBSTANCE_CELL_BY_NAME[result.cas_status]}
-            </td>
-            <td
-              className={
-                result.country_status === "claimed"
-                  ? "cell-ok"
-                  : result.country_status === "mismatch"
-                    ? "cell-danger"
-                    : "cell-muted"
-              }
-            >
-              {/* Страна названа словом, а не статусом: закупщику нужна
-                  страна, а «заявлена» без неё ничего не значит. Там, где
-                  страницей она не подтверждена, называть её нельзя — стоит
-                  причина. */}
-              {result.country_status === "claimed" ||
-              result.country_status === "likely" ? (
-                <>
-                  <div>{activeCountry || "—"}</div>
-                  {result.country_status === "likely" && (
-                    <div className="cas">вероятно</div>
-                  )}
-                </>
-              ) : (
-                COUNTRY_LABELS[result.country_status]
-              )}
-            </td>
-            <td className={`cell-${documentsTone(result)}`}>
-              {documentsCell(result)}
-            </td>
-            <td className={result.red_flags.length > 0 ? "cell-danger" : "cell-muted"}>
-              {result.red_flags.length > 0
-                ? `${result.red_flags.length} ${riskWord(result.red_flags.length)}`
-                : "нет"}
-            </td>
-            {canDecide && (
-              <td
-                className="qualification-actions-column"
-                onClick={(event) => event.stopPropagation()}
-              >
-                {decision ? (
-                  <div className="row-menu">
-                    <button
-                      aria-label={`Действия с компанией ${result.company_name}`}
-                      className="ui-icon-button row-menu-button"
-                      disabled={busySupplierId === decision.supplier_id}
-                      title="Действия с компанией"
-                      type="button"
-                      onClick={(event) => {
-                        // Клик всплывает до окна, которое закрывает меню:
-                        // без остановки оно закрылось бы тем же нажатием,
-                        // которым открылось.
-                        event.stopPropagation();
-                        setMenuFor((current) =>
-                          current === result.result_index
-                            ? null
-                            : result.result_index,
-                        );
-                      }}
-                    >
-                      ⋮
-                    </button>
-                    {menuFor === result.result_index && (
-                      <div className="dropdown row-menu-dropdown">
-                        <div className="dropdown-title">
-                          {result.company_name}
-                        </div>
-                        {decision.qualification_status !== "verified" && (
-                          <button
-                            className="dropdown-item"
-                            type="button"
-                            onClick={() => onDecide(decision, "verified")}
-                          >
-                            Подтвердить поставщика
-                          </button>
-                        )}
-                        {decision.qualification_status !== "under_review" && (
-                          <button
-                            className="dropdown-item"
-                            type="button"
-                            onClick={() => onDecide(decision, "under_review")}
-                          >
-                            Отправить на проверку
-                          </button>
-                        )}
-                        {decision.qualification_status !== "candidate" && (
-                          <button
-                            className="dropdown-item"
-                            type="button"
-                            onClick={() => onDecide(decision, "candidate")}
-                          >
-                            Вернуть в кандидаты
-                          </button>
-                        )}
-                        {decision.excluded_here ? (
-                          <button
-                            className="dropdown-item"
-                            type="button"
-                            onClick={() => onDecide(decision, "return_here")}
-                          >
-                            Вернуть в этот запрос
-                          </button>
-                        ) : (
-                          <button
-                            className="dropdown-item"
-                            type="button"
-                            onClick={() => onDecide(decision, "exclude_here")}
-                          >
-                            Не подходит для этого запроса
-                          </button>
-                        )}
-                        {decision.qualification_status !== "rejected" && (
-                          <button
-                            className="dropdown-item is-danger"
-                            type="button"
-                            onClick={() => onDecide(decision, "rejected")}
-                          >
-                            Исключить из реестра
-                          </button>
-                        )}
-                      </div>
-                    )}
+              <td>
+                <strong>{result.company_name}</strong>
+                {decisionLabel && (
+                  <div
+                    className={`decision-mark${
+                      decision?.excluded_here ||
+                      decision?.qualification_status === "rejected"
+                        ? " is-declined"
+                        : ""
+                    }`}
+                  >
+                    {decisionLabel}
                   </div>
-                ) : (
-                  // Страница компанией не назвалась — в реестр её не
-                  // сохраняли, и решать не о чем.
-                  <span className="note" title="Страница не сохранена как компания">
-                    —
-                  </span>
+                )}
+                {result.third_party && !result.winnowed && (
+                  // Имя со справочника или обзора рынка верное, но сказано о
+                  // компании с чужих слов, и почта на такой странице чужая.
+                  // Прятать такую находку нельзя: она идёт в список компаний,
+                  // и две вкладки разошлись бы. В отсеянных пометка не нужна:
+                  // там компании нет вовсе, и говорить, откуда она взята, не о
+                  // чем.
+                  <div className="cas" title="Найдена не на сайте компании: справочник, обзор рынка, статья или перечень площадки. Контакты с такой страницы не берём — они принадлежат её владельцу.">
+                    с чужой страницы
+                  </div>
                 )}
               </td>
-            )}
-          </tr>
-          );
-        })}
-      </tbody>
-    </table>
+              <td>
+                <span
+                  className={`badge ${
+                    result.supplier_type === "manufacturer"
+                      ? "tone-ok"
+                      : result.supplier_type === "distributor"
+                        ? "tone-warn"
+                        : "tone-neutral"
+                  }`}
+                >
+                  {TYPE_LABELS[result.supplier_type]}
+                </span>
+              </td>
+              <td>
+                <strong>{result.confidence}%</strong>
+              </td>
+              <td
+                className={
+                  result.cas_status === "confirmed"
+                    ? "cell-ok"
+                    : result.cas_status === "mismatch"
+                      ? "cell-danger"
+                      : "cell-muted"
+                }
+              >
+                {activeCas
+                  ? SUBSTANCE_CELL_WITH_CAS[result.cas_status]
+                  : SUBSTANCE_CELL_BY_NAME[result.cas_status]}
+              </td>
+              <td
+                className={
+                  result.country_status === "claimed"
+                    ? "cell-ok"
+                    : result.country_status === "mismatch"
+                      ? "cell-danger"
+                      : "cell-muted"
+                }
+              >
+                {/* Страна названа словом, а не статусом: закупщику нужна
+                    страна, а «заявлена» без неё ничего не значит. Там, где
+                    страницей она не подтверждена, называть её нельзя — стоит
+                    причина. */}
+                {result.country_status === "claimed" ||
+                result.country_status === "likely" ? (
+                  <>
+                    <div>{activeCountry || "—"}</div>
+                    {result.country_status === "likely" && (
+                      <div className="cas">вероятно</div>
+                    )}
+                  </>
+                ) : (
+                  COUNTRY_LABELS[result.country_status]
+                )}
+              </td>
+              <td className={`cell-${documentsTone(result)}`}>
+                {documentsCell(result)}
+              </td>
+              <td className={result.red_flags.length > 0 ? "cell-danger" : "cell-muted"}>
+                {result.red_flags.length > 0
+                  ? `${result.red_flags.length} ${riskWord(result.red_flags.length)}`
+                  : "нет"}
+              </td>
+              {canDecide && (
+                <td
+                  className="qualification-actions-column"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {decision ? (
+                    <div className="row-menu">
+                      <button
+                        aria-label={`Действия с компанией ${result.company_name}`}
+                        className="ui-icon-button row-menu-button"
+                        disabled={busySupplierId === decision.supplier_id}
+                        title="Действия с компанией"
+                        type="button"
+                        onClick={(event) => {
+                          // Клик всплывает до окна, которое закрывает меню:
+                          // без остановки оно закрылось бы тем же нажатием,
+                          // которым открылось.
+                          event.stopPropagation();
+                          setMenuFor((current) =>
+                            current === result.result_index
+                              ? null
+                              : result.result_index,
+                          );
+                        }}
+                      >
+                        ⋮
+                      </button>
+                      {menuFor === result.result_index && (
+                        <div className="dropdown row-menu-dropdown">
+                          <div className="dropdown-title">
+                            {result.company_name}
+                          </div>
+                          {decision.qualification_status !== "verified" && (
+                            <button
+                              className="dropdown-item"
+                              type="button"
+                              onClick={() => onDecide(decision, "verified")}
+                            >
+                              Подтвердить поставщика
+                            </button>
+                          )}
+                          {decision.qualification_status !== "under_review" && (
+                            <button
+                              className="dropdown-item"
+                              type="button"
+                              onClick={() => onDecide(decision, "under_review")}
+                            >
+                              Отправить на проверку
+                            </button>
+                          )}
+                          {decision.qualification_status !== "candidate" && (
+                            <button
+                              className="dropdown-item"
+                              type="button"
+                              onClick={() => onDecide(decision, "candidate")}
+                            >
+                              Вернуть в кандидаты
+                            </button>
+                          )}
+                          {decision.excluded_here ? (
+                            <button
+                              className="dropdown-item"
+                              type="button"
+                              onClick={() => onDecide(decision, "return_here")}
+                            >
+                              Вернуть в этот запрос
+                            </button>
+                          ) : (
+                            <button
+                              className="dropdown-item"
+                              type="button"
+                              onClick={() => onDecide(decision, "exclude_here")}
+                            >
+                              Не подходит для этого запроса
+                            </button>
+                          )}
+                          {decision.qualification_status !== "rejected" && (
+                            <button
+                              className="dropdown-item is-danger"
+                              type="button"
+                              onClick={() => onDecide(decision, "rejected")}
+                            >
+                              Исключить из реестра
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    // Страница компанией не назвалась — в реестр её не
+                    // сохраняли, и решать не о чем.
+                    <span className="note" title="Страница не сохранена как компания">
+                      —
+                    </span>
+                  )}
+                </td>
+              )}
+            </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

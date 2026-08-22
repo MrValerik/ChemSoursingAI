@@ -285,7 +285,7 @@ export default function RequestsTable({
 
       {filtered.length > 0 && (
         <div className="panel table-panel">
-          <table className="summary requests-table">
+          <table className="summary requests-table mobile-cards">
             <thead>
               <tr>
                 <th onClick={() => toggleSort("id")}>№{arrow("id")}</th>
@@ -303,12 +303,12 @@ export default function RequestsTable({
             <tbody>
               {filtered.map((r) => (
                 <tr key={r.id} className="clickable" onClick={() => onOpen(r.id)}>
-                  <td>{r.id}</td>
-                  <td>
+                  <td data-label="№">{r.id}</td>
+                  <td data-label="Вещество / CAS">
                     <div>{r.name}</div>
                     <div className="cas">CAS {r.cas}</div>
                   </td>
-                  <td>
+                  <td data-label="Статус">
                     <span className={`badge tone-${STATUS_TONE[r.status]}`}>
                       {STATUS_LABELS[r.status]}
                     </span>
@@ -323,12 +323,12 @@ export default function RequestsTable({
                       </div>
                     )}
                   </td>
-                  <td className="request-date" title={formatMoment(r.created_at)}>
+                  <td className="request-date" data-label="Дата" title={formatMoment(r.created_at)}>
                     {formatDate(r.created_at)}
                   </td>
-                  {showOwner && <td>{r.owner_name ?? "—"}</td>}
+                  {showOwner && <td data-label="Ответственный">{r.owner_name ?? "—"}</td>}
                   {showDeleteAction && (
-                    <td className="request-actions-column">
+                    <td className="request-actions-column" data-label="Действия">
                       {canDelete(r) && (
                         <button
                           aria-label={`Удалить запрос №${r.id}`}

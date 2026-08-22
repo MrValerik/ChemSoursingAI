@@ -588,30 +588,34 @@ function OverviewTab({ rfq }: { rfq: RFQRead }) {
           <p className="note">Прошлых закупок по этому веществу не найдено.</p>
         )}
         {past.length > 0 && (
-          <table className="summary">
-            <thead>
-              <tr>
-                <th>Дата</th>
-                <th>Цена</th>
-                <th>Базис</th>
-                <th>MOQ</th>
-                <th>Запрос</th>
-              </tr>
-            </thead>
-            <tbody>
-              {past.map((h, i) => (
-                <tr key={i}>
-                  <td>{h.date}</td>
-                  <td>
-                    {h.price} {h.currency ?? ""}
-                  </td>
-                  <td>{h.incoterm ?? "—"}</td>
-                  <td>{h.moq ?? "—"}</td>
-                  <td>#{h.rfq_id}</td>
+          <div className="table-scroll">
+            {/* Таблица шире телефона: прокручивается вбок внутри своей
+                рамки, а не растягивает страницу. */}
+            <table className="summary">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Цена</th>
+                  <th>Базис</th>
+                  <th>MOQ</th>
+                  <th>Запрос</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {past.map((h, i) => (
+                  <tr key={i}>
+                    <td>{h.date}</td>
+                    <td>
+                      {h.price} {h.currency ?? ""}
+                    </td>
+                    <td>{h.incoterm ?? "—"}</td>
+                    <td>{h.moq ?? "—"}</td>
+                    <td>#{h.rfq_id}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
       )}

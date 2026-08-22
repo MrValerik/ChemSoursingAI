@@ -10,6 +10,9 @@ import "@fontsource/source-serif-4/600.css";
 import "@fontsource/source-serif-4/cyrillic-600.css";
 import "./styles.css";
 import "./ui.css";
+// Последним: адаптивные правила перебивают базовые порядком, а не
+// специфичностью — иначе каждое из них пришлось бы утяжелять.
+import "./responsive.css";
 
 // Настоящие пути, а не хэш: nginx отдаёт index.html на неизвестные адреса
 // (frontend/nginx.conf), поэтому глубокая ссылка открывается напрямую.

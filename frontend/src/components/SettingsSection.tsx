@@ -141,56 +141,60 @@ export default function SettingsSection() {
           </div>
         )}
 
-        <table className="summary">
-          <thead>
-            <tr>
-              <th>ФИО</th>
-              <th>Логин</th>
-              <th>Роль</th>
-              <th>Статус</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className={u.is_active ? "" : "row-muted"}>
-                <td>{u.full_name}</td>
-                <td>{u.username}</td>
-                <td>
-                  <select
-                    value={u.role}
-                    disabled={busy || u.id === me?.id}
-                    onChange={(e) => void patchUser(u.id, { role: e.target.value })}
-                  >
-                    {Object.entries(ROLE_LABELS).map(([k, v]) => (
-                      <option key={k} value={k}>
-                        {v}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <span className={`badge ${u.is_active ? "tone-ok" : "tone-neutral"}`}>
-                    {u.is_active ? "активен" : "отключён"}
-                  </span>
-                </td>
-                <td>
-                  {u.id !== me?.id && (
-                    <button
-                      className="secondary btn-small"
-                      disabled={busy}
-                      onClick={() =>
-                        void patchUser(u.id, { is_active: !u.is_active })
-                      }
-                    >
-                      {u.is_active ? "Отключить" : "Включить"}
-                    </button>
-                  )}
-                </td>
+        <div className="table-scroll">
+          {/* Таблица шире телефона: прокручивается вбок внутри своей
+              рамки, а не растягивает страницу. */}
+          <table className="summary">
+            <thead>
+              <tr>
+                <th>ФИО</th>
+                <th>Логин</th>
+                <th>Роль</th>
+                <th>Статус</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className={u.is_active ? "" : "row-muted"}>
+                  <td>{u.full_name}</td>
+                  <td>{u.username}</td>
+                  <td>
+                    <select
+                      value={u.role}
+                      disabled={busy || u.id === me?.id}
+                      onChange={(e) => void patchUser(u.id, { role: e.target.value })}
+                    >
+                      {Object.entries(ROLE_LABELS).map(([k, v]) => (
+                        <option key={k} value={k}>
+                          {v}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <span className={`badge ${u.is_active ? "tone-ok" : "tone-neutral"}`}>
+                      {u.is_active ? "активен" : "отключён"}
+                    </span>
+                  </td>
+                  <td>
+                    {u.id !== me?.id && (
+                      <button
+                        className="secondary btn-small"
+                        disabled={busy}
+                        onClick={() =>
+                          void patchUser(u.id, { is_active: !u.is_active })
+                        }
+                      >
+                        {u.is_active ? "Отключить" : "Включить"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <IntegrationSettingsPanel />

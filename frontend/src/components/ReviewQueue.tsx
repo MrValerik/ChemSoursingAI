@@ -159,7 +159,7 @@ export default function ReviewQueue() {
         </div>
       ) : (
         <div className="panel table-panel">
-          <table className="summary requests-table">
+          <table className="summary requests-table mobile-cards">
             <thead>
               <tr>
                 <th>Запрос</th>
@@ -174,7 +174,7 @@ export default function ReviewQueue() {
             <tbody>
               {filtered.map((e) => (
                 <tr key={e.id}>
-                  <td>
+                  <td data-label="Запрос">
                     <a
                       className="link"
                       onClick={() => onOpenRfq(e.rfq_id)}
@@ -184,9 +184,9 @@ export default function ReviewQueue() {
                     </a>
                     {e.rfq_cas && <div className="cas">CAS {e.rfq_cas}</div>}
                   </td>
-                  <td>{REASON_LABELS[e.reason] ?? e.reason}</td>
-                  <td className="note">{e.note ?? "—"}</td>
-                  <td className="note">
+                  <td data-label="Причина">{REASON_LABELS[e.reason] ?? e.reason}</td>
+                  <td className="note" data-label="Комментарий">{e.note ?? "—"}</td>
+                  <td className="note" data-label="Создано">
                     {new Date(e.created_at).toLocaleString("ru-RU", {
                       day: "2-digit",
                       month: "2-digit",
@@ -194,7 +194,7 @@ export default function ReviewQueue() {
                       minute: "2-digit",
                     })}
                   </td>
-                  <td>
+                  <td data-label="Кому">
                     {canAssign && e.status !== "resolved" ? (
                       <select
                         value={e.assignee ?? ""}
@@ -214,7 +214,7 @@ export default function ReviewQueue() {
                       e.assignee ?? "— не назначен"
                     )}
                   </td>
-                  <td>
+                  <td data-label="Статус">
                     <span
                       className={`badge ${
                         e.status === "resolved"
@@ -227,7 +227,7 @@ export default function ReviewQueue() {
                       {STATUS_LABELS[e.status] ?? e.status}
                     </span>
                   </td>
-                  <td>
+                  <td data-label="Действия">
                     {!readOnly && e.status !== "resolved" && (
                       <div className="row-actions">
                         {!canAssign && e.assignee !== user?.full_name && (
