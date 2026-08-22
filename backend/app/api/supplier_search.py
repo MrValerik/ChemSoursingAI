@@ -85,6 +85,7 @@ from app.services.contacts import find_contact_barrier, find_contacts, has_conta
 from app.services.homoglyphs import fix_lookalikes, has_lookalikes
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
+    assess_supply_volume,
     build_highlights,
     find_address_facts,
     find_company_names,
@@ -103,7 +104,11 @@ from app.services.page_facts import (
     mentions_substance,
     page_cas_match,
 )
-from app.services.supplier_scoring import SELF_DECLARED_ONLY_FLAG, score_supplier
+from app.services.supplier_scoring import (
+    CORROBORATING_CLAIMS,
+    SELF_DECLARED_ONLY_FLAG,
+    score_supplier,
+)
 from app.services.supplier_verification import apply_supplier_verification
 from app.services.supplier_sources import (
     SourceKind,
@@ -210,6 +215,7 @@ class SupplierSearchRequest(BaseModel):
     analog_variations: list[str] = Field(default_factory=list, max_length=10)
     specification: str | None = Field(default=None, max_length=4000)
     application: str | None = Field(default=None, max_length=1000)
+    requested_volume: str | None = Field(default=None, max_length=64)
     additional_instructions: str | None = Field(default=None, max_length=4000)
     limit: int = Field(default=5, ge=1, le=20)
     catalog_preferred_name: str | None = Field(default=None, max_length=255)
@@ -283,6 +289,7 @@ class SupplierQualificationRequest(BaseModel):
     analog_variations: list[str] = Field(default_factory=list, max_length=10)
     specification: str | None = Field(default=None, max_length=4000)
     application: str | None = Field(default=None, max_length=1000)
+    requested_volume: str | None = Field(default=None, max_length=64)
     country: str | None = Field(default=None, max_length=100)
     additional_instructions: str | None = Field(default=None, max_length=4000)
     expert_notes: str | None = Field(default=None, max_length=4000)
@@ -1278,6 +1285,28 @@ def _apply_evidence_gates(
     return payload
 
 
+def _apply_supply_volume_gate(payload: dict, compatibility: dict) -> dict:
+    """Добавляет отдельный детерминированный policy-result по объёму."""
+    result = dict(payload)
+    result["volume_compatibility"] = compatibility
+    if not compatibility.get("requested_volume_raw"):
+        return result
+    status = compatibility.get("status")
+    if status == "incompatible":
+        red_flags = list(result.get("red_flags") or [])
+        reason = str(compatibility.get("reason") or "Объём поставки несовместим")
+        if reason not in red_flags:
+            red_flags.append(reason)
+        result["red_flags"] = red_flags
+    elif status == "unknown":
+        missing = list(result.get("missing_evidence") or [])
+        item = "Промышленная фасовка, диапазон заказа или MOQ"
+        if item not in missing:
+            missing.append(item)
+        result["missing_evidence"] = missing
+    return result
+
+
 def _fallback_identity(
     data: SupplierSearchRequest, lookup: dict
 ) -> SubstanceIdentity:
@@ -1858,6 +1887,7 @@ def enqueue_supplier_search(
                 "analog_variations": list(rfq.analog_variations or []),
                 "specification": rfq.specification,
                 "application": rfq.application,
+                "requested_volume": rfq.volume,
                 "catalog_preferred_name": (
                     substance.preferred_name if substance else None
                 ),
@@ -2791,6 +2821,7 @@ def execute_supplier_qualification(
                 "cas": data.cas,
                 "name": data.name,
                 "country": data.country,
+                "requested_volume": data.requested_volume,
                 "additional_instructions": data.additional_instructions,
             },
         )
@@ -2802,6 +2833,9 @@ def execute_supplier_qualification(
     search_country = str(
         data.country or (search_run.input_payload or {}).get("country") or ""
     )
+    requested_volume = data.requested_volume or str(
+        (search_run.input_payload or {}).get("requested_volume") or ""
+    ) or None
 
     prompt = db.scalar(
         select(PromptTemplate)
@@ -2828,6 +2862,7 @@ def execute_supplier_qualification(
         has_cas=bool(data.cas),
         identification_method=data.identification_method,
     )
+    settings = get_settings()
     budget = SearchBudget.from_settings()
     search_run.status = "fetching_sources"
     db.commit()
@@ -2953,6 +2988,18 @@ def execute_supplier_qualification(
                     "contact_barrier": (
                         None if has_contacts(contacts) else contact_barrier
                     ),
+                    "volume_compatibility": assess_supply_volume(
+                        page.text,
+                        requested_volume,
+                        source_url=page.final_url or result.url,
+                        target_cas=data.cas,
+                        target_names=[
+                            data.name,
+                            *data.known_synonyms,
+                        ],
+                        industrial_mass_kg=settings.supplier_industrial_package_min_mass_kg,
+                        industrial_volume_l=settings.supplier_industrial_package_min_volume_l,
+                    ),
                     "page_text": _compose_page_text(
                         page.text, highlights, page_text_limit
                     ),
@@ -3032,6 +3079,7 @@ def execute_supplier_qualification(
             "analog_variations": data.analog_variations,
             "specification": data.specification,
             "application": data.application,
+            "requested_volume": requested_volume,
             "country": data.country,
             "user_requirements": data.additional_instructions,
             "specialist_comment": data.expert_notes,
@@ -3039,6 +3087,13 @@ def execute_supplier_qualification(
         "sources": fetched_sources,
         "requested_supplier_count": requested_supplier_count,
     }
+    supply_volume_assessments = [
+        {
+            "result_index": int(source["result_index"]),
+            **(source.get("volume_compatibility") or {}),
+        }
+        for source in fetched_sources
+    ]
     llm = LLMClient()
     search_run.status = "qualifying"
     db.commit()
@@ -3172,6 +3227,7 @@ def execute_supplier_qualification(
                 "accepted": False,
                 "error": error,
                 "llm_attempts": qualification_llm_attempts,
+                "supply_volume_assessments": supply_volume_assessments,
             },
             policy_output_payload={
                 "status": "failed",
@@ -3299,6 +3355,7 @@ def execute_supplier_qualification(
             "contacts_source_url": source.get("contacts_source_url") or "",
             "contact_barrier": source.get("contact_barrier"),
             "is_market_report": bool(source.get("is_market_report")),
+            "volume_compatibility": source.get("volume_compatibility") or {},
         }
         for source in fetched_sources
     }
@@ -3306,8 +3363,11 @@ def execute_supplier_qualification(
         if index not in fetched_indexes:
             continue
         qualification = qualifications.get(index)
+        volume_compatibility = contacts_by_index.get(index, {}).get(
+            "volume_compatibility"
+        ) or assess_supply_volume("", requested_volume, source_url=source.url)
         if qualification is None:
-            combined_results.append(
+            fallback_payload = _apply_supply_volume_gate(
                 {
                     **source.model_dump(),
                     **contacts_by_index.get(index, {}),
@@ -3325,17 +3385,17 @@ def execute_supplier_qualification(
                     "iso_status": "not_found",
                     "coa_status": "not_found",
                     "tds_status": "not_found",
-                    "confidence": 0,
-                    "score_breakdown": score_supplier(
-                        {"supplier_type": "unknown", "cas_status": "not_found"},
-                        [],
-                    ).to_dict(),
                     "shortlist_eligible": False,
                     "red_flags": ["Автоматическая оценка не получена"],
                     "missing_evidence": ["Требуется ручная проверка источника"],
                     "evidence": [],
-                }
+                },
+                volume_compatibility,
             )
+            fallback_score = score_supplier(fallback_payload, [])
+            fallback_payload["confidence"] = fallback_score.total
+            fallback_payload["score_breakdown"] = fallback_score.to_dict()
+            combined_results.append(fallback_payload)
             continue
         evidence_items = validated_evidence.get(index, [])
         qualification_payload = _apply_evidence_gates(
@@ -3347,6 +3407,10 @@ def execute_supplier_qualification(
             intermediary_domains=intermediary_domains,
             search_country=search_country,
         )
+        qualification_payload = _apply_supply_volume_gate(
+            qualification_payload,
+            volume_compatibility,
+        )
         score = score_supplier(qualification_payload, evidence_items)
         qualification_payload["confidence"] = score.total
         qualification_payload["score_breakdown"] = score.to_dict()
@@ -3355,6 +3419,12 @@ def execute_supplier_qualification(
             not score.shortlist_eligible
             and qualification_payload.get("supplier_type") == "manufacturer"
             and not score.hard_exclusion
+            and not any(
+                item.get("claim_type") in CORROBORATING_CLAIMS
+                and item.get("support_status") == "supports"
+                and item.get("quote_verified") is True
+                for item in evidence_items
+            )
             and SELF_DECLARED_ONLY_FLAG not in qualification_payload["red_flags"]
         ):
             # Кандидат выглядит производителем, но короткий список его не
@@ -3431,6 +3501,7 @@ def execute_supplier_qualification(
             ],
             "rejected_evidence": rejected_evidence,
             "rejected_qualifications": rejected_qualifications,
+            "supply_volume_assessments": supply_volume_assessments,
         },
         policy_output_payload={
             "qualified_results": combined_results,

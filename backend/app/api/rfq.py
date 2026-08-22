@@ -196,6 +196,7 @@ def create(
                     "analog_variations": list(rfq.analog_variations or []),
                     "specification": rfq.specification,
                     "application": rfq.application,
+                    "requested_volume": rfq.volume,
                     "additional_instructions": (
                         data.additional_instructions.strip()
                         if data.additional_instructions

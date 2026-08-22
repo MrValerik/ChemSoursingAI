@@ -225,7 +225,7 @@ def test_owner_and_privileged_roles_can_read_full_trace(client):
         trace = response.json()
         assert trace["status"] == "completed"
         UUID(trace["correlation_id"])
-        assert trace["graph_version"] == "supplier-search.v1"
+        assert trace["graph_version"] == "supplier-search.v2"
         assert trace["owner_name"]
         assert trace["agent_runs"][0]["contract_version"] == "v1"
         assert trace["agent_runs"][0]["effective_system_prompt"]
@@ -794,7 +794,12 @@ def test_search_job_is_bound_to_rfq_and_uses_its_substance(client):
     rfq = client.post(
         "/rfq?verify=false",
         headers=buyer,
-        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+        json={
+            "cas": "50-78-2",
+            "name": "Aspirin",
+            "incoterms": ["CIP"],
+            "volume": "500 kg",
+        },
     ).json()
 
     response = client.post(
@@ -813,6 +818,7 @@ def test_search_job_is_bound_to_rfq_and_uses_its_substance(client):
     assert trace["rfq_id"] == rfq["id"]
     assert trace["input_payload"]["cas"] == rfq["cas"]
     assert trace["input_payload"]["name"] == rfq["name"]
+    assert trace["input_payload"]["requested_volume"] == "500 kg"
 
     listed = client.get(
         f"/search-runs?rfq_id={rfq['id']}", headers=buyer
@@ -1012,7 +1018,7 @@ def test_stale_search_can_be_restarted_without_losing_its_trace(client):
         assert old_run.completed_at is not None
         assert restarted.status == "queued"
         assert restarted.correlation_id == restarted_payload["correlation_id"]
-        assert restarted.graph_version == "supplier-search.v1"
+        assert restarted.graph_version == "supplier-search.v2"
         assert (
             restarted.input_payload["restart_of_search_run_id"]
             == queued["search_run_id"]

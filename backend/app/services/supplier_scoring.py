@@ -13,6 +13,7 @@ class SupplierScore:
     country: int
     documents: int
     evidence_quality: int
+    volume_adjustment: int
     hard_exclusion: bool
     shortlist_eligible: bool
 
@@ -61,7 +62,17 @@ def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
         or assessment.get("cas_status") == "mismatch"
     )
     if hard_exclusion:
-        return SupplierScore(0, 0, 0, 0, 0, 0, True, False)
+        return SupplierScore(
+            total=0,
+            identity=0,
+            supplier_role=0,
+            country=0,
+            documents=0,
+            evidence_quality=0,
+            volume_adjustment=0,
+            hard_exclusion=True,
+            shortlist_eligible=False,
+        )
 
     identity = 35 if "chemical_identity" in supported else 0
     supplier_type = assessment.get("supplier_type")
@@ -102,9 +113,27 @@ def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
     if len(supported) >= 3:
         evidence_quality += 5
 
-    total = min(
-        100,
-        identity + supplier_role + country + documents + evidence_quality,
+    volume = assessment.get("volume_compatibility") or {}
+    volume_status = volume.get("status")
+    has_requested_volume = bool(volume.get("requested_volume_raw"))
+    volume_adjustment = (
+        -20
+        if volume_status == "incompatible"
+        else -5
+        if volume_status == "unknown" and has_requested_volume
+        else 0
+    )
+    total = max(
+        0,
+        min(
+            100,
+            identity
+            + supplier_role
+            + country
+            + documents
+            + evidence_quality
+            + volume_adjustment,
+        ),
     )
     # Роль производителя почти всегда подтверждается цитатой с сайта самого
     # продавца: «we are a dedicated manufacturer» пишет и завод, и перекупщик.
@@ -118,6 +147,7 @@ def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
         and "chemical_identity" in supported
         and "manufacturer_role" in supported
         and bool(corroboration)
+        and volume_status != "incompatible"
     )
     return SupplierScore(
         total=total,
@@ -126,6 +156,7 @@ def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
         country=country,
         documents=documents,
         evidence_quality=evidence_quality,
+        volume_adjustment=volume_adjustment,
         hard_exclusion=False,
         shortlist_eligible=shortlist_eligible,
     )

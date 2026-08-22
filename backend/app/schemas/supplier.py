@@ -163,6 +163,8 @@ class SupplierRead(BaseModel):
     qualification_status: str
     evidence_score: int | None
     last_checked_at: datetime | None
+    verified_by_id: int | None
+    verified_by_name: str | None = None
 
     # Доступные каналы по контактам менеджеров.
     channels: list[Channel] = Field(default_factory=list)

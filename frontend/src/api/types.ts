@@ -314,6 +314,8 @@ export interface SupplierRead {
   qualification_status: SupplierQualificationStatus;
   evidence_score: number | null;
   last_checked_at: string | null;
+  verified_by_id: number | null;
+  verified_by_name: string | null;
   contacts_count: number;
   request_count: number;
   contacts: {
@@ -713,6 +715,41 @@ export interface SupplierVerificationResult {
   missing_evidence: string[];
 }
 
+export interface SupplyQuantityEvidence {
+  raw: string;
+  normalized_value: number;
+  normalized_unit: "g" | "mL";
+  dimension: "mass" | "volume";
+  quote: string;
+  source_method?: "same_line" | "adjacent_lines";
+  confidence?: "high" | "medium";
+}
+
+export interface SupplyOrderRangeEvidence {
+  minimum: SupplyQuantityEvidence;
+  maximum: SupplyQuantityEvidence;
+  quote: string;
+  source_method?: "same_line" | "adjacent_lines";
+  confidence?: "high" | "medium";
+}
+
+export interface SupplyVolumeCompatibility {
+  status: "compatible" | "incompatible" | "unknown";
+  requested_volume: SupplyQuantityEvidence | null;
+  requested_volume_raw: string | null;
+  found_packaging: SupplyQuantityEvidence[];
+  moqs: SupplyQuantityEvidence[];
+  moq: SupplyQuantityEvidence | null;
+  order_ranges: SupplyOrderRangeEvidence[];
+  order_range: SupplyOrderRangeEvidence | null;
+  lab_catalog_signals: string[];
+  source_url: string;
+  quote: string | null;
+  evidence_method: "same_line" | "adjacent_lines" | null;
+  evidence_confidence: "high" | "medium" | null;
+  reason: string;
+}
+
 export interface QualifiedSupplierResult extends SupplierSearchResult {
   result_index: number;
   company_name: string;
@@ -733,10 +770,12 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
     country: number;
     documents: number;
     evidence_quality: number;
+    volume_adjustment?: number;
     hard_exclusion: boolean;
     shortlist_eligible: boolean;
   };
   shortlist_eligible: boolean;
+  volume_compatibility?: SupplyVolumeCompatibility;
   /**
    * Страница компанию не назвала — в список компаний находка не пойдёт, и
    * в таблице её прячем. Считает сервер по тому же правилу, что и реестр.

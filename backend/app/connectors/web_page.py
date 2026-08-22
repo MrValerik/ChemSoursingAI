@@ -91,6 +91,8 @@ _JSONLD_TYPES = frozenset(
         "organization",
         "corporation",
         "manufacturer",
+        "propertyvalue",
+        "quantitativevalue",
     }
 )
 
@@ -130,7 +132,24 @@ class _TextExtractor(HTMLParser):
                 self._in_jsonld = "ld+json" in kind.casefold()
         elif tag == "title":
             self._in_title = True
-        elif tag in {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4"}:
+        elif tag in {
+            "p",
+            "div",
+            "br",
+            "li",
+            "tr",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            # Карточки товара часто используют label/select или dt/dd вместо
+            # таблицы. Границы не дают «Pack Size» и вариантам склеиться.
+            "label",
+            "select",
+            "option",
+            "dt",
+            "dd",
+        }:
             self.parts.append("\n")
         elif tag in {"td", "th"}:
             # Без разделителя соседние ячейки склеиваются: в замере на бетаине
@@ -171,10 +190,22 @@ def _render_jsonld(blocks: list[str]) -> list[str]:
     lines: list[str] = []
     seen: set[str] = set()
 
-    def walk(node) -> None:
+    def add_line(line: str) -> None:
+        normalized = " ".join(line.split())
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            lines.append(normalized)
+
+    def scalar(value) -> str | None:
+        if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+            rendered = " ".join(str(value).split())
+            return rendered or None
+        return None
+
+    def walk(node, relation: str | None = None) -> None:
         if isinstance(node, list):
             for item in node:
-                walk(item)
+                walk(item, relation)
             return
         if not isinstance(node, dict):
             return
@@ -187,22 +218,41 @@ def _render_jsonld(blocks: list[str]) -> list[str]:
             isinstance(kind, str) and kind.casefold() in _JSONLD_TYPES
             for kind in kinds
         ):
-            for value in node.values():
+            for key, value in node.items():
                 if isinstance(value, (dict, list)):
-                    walk(value)
+                    walk(value, key)
             return
+        normalized_kinds = {
+            kind.casefold() for kind in kinds if isinstance(kind, str)
+        }
+        if normalized_kinds & {"propertyvalue", "quantitativevalue"}:
+            label = scalar(node.get("name")) or scalar(node.get("propertyID"))
+            if label is None and relation not in {None, "additionalProperty"}:
+                label = " ".join(
+                    re.sub(r"(?<!^)(?=[A-Z])", " ", relation).split()
+                )
+            value = scalar(node.get("value"))
+            if value is None:
+                minimum = scalar(node.get("minValue"))
+                maximum = scalar(node.get("maxValue"))
+                if minimum and maximum:
+                    value = f"{minimum}-{maximum}"
+                elif minimum:
+                    value = f">= {minimum}"
+                elif maximum:
+                    value = f"<= {maximum}"
+            unit = scalar(node.get("unitText")) or scalar(node.get("unitCode"))
+            if label and value:
+                add_line(f"{label}: {value}{f' {unit}' if unit else ''}")
         for key, label in _JSONLD_FIELDS:
             value = node.get(key)
             if isinstance(value, dict):
                 value = value.get("name")
             if isinstance(value, str) and value.strip():
-                line = f"{label}: {' '.join(value.split())}"
-                if line not in seen:
-                    seen.add(line)
-                    lines.append(line)
-        for value in node.values():
+                add_line(f"{label}: {value}")
+        for key, value in node.items():
             if isinstance(value, (dict, list)):
-                walk(value)
+                walk(value, key)
 
     for block in blocks:
         text = block.strip()

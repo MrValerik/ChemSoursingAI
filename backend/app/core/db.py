@@ -345,10 +345,23 @@ def _apply_light_migrations() -> None:
                         "ALTER TABLE suppliers ADD COLUMN last_checked_at TIMESTAMP"
                     )
                 )
+            if "verified_by_id" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE suppliers ADD COLUMN verified_by_id INTEGER "
+                        "REFERENCES users(id)"
+                    )
+                )
             conn.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_suppliers_qualification_status "
                     "ON suppliers (qualification_status)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_suppliers_verified_by_id "
+                    "ON suppliers (verified_by_id)"
                 )
             )
     if "communications" in tables:
