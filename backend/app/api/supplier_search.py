@@ -2777,6 +2777,21 @@ def execute_supplier_search(
         "reserve_results": reserve_results,
         "excluded_previous_supplier_count": excluded_duplicate_count,
         "intermediary_results": intermediary_results,
+        # Продавцы, вычитанные из выдачи о площадке (сейчас — Echemi).
+        # Отдельным блоком: их страницы нам недоступны, роль названа
+        # площадкой и доказательством не является, поэтому в один список с
+        # проверяемыми кандидатами их смешивать нельзя.
+        "marketplace_sellers": [
+            {
+                "company": seller.company,
+                "platform": seller.platform,
+                "listing_url": seller.listing_url,
+                "claimed_role": seller.claimed_role,
+                "country": seller.country,
+                "truncated": seller.truncated,
+            }
+            for seller in marketplace_sellers
+        ],
         "search_scope": data.search_scope,
         "stop_reason": search_stop_reason,
         "budget": budget.snapshot(),

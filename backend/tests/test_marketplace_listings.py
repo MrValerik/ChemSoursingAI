@@ -84,6 +84,99 @@ def test_a_reference_page_yields_nothing():
     )
 
 
+# --- второй шаблон: имя продавца в заголовке товарной карточки ---
+
+# Живые заголовки из выдачи Google 21 августа 2026 по запросу
+# `site:echemi.com Acetylsalicylic Acid 50-78-2 manufacturer`.
+_PRODUCE = "https://www.echemi.com/produce/pr2203314189-factory-price-high-quality-aspirin.html"
+
+
+def test_seller_name_is_read_from_the_product_title():
+    seller = parse_seller(
+        _PRODUCE,
+        "Buy Factory Price High Quality Aspirin Acetylsalicylic Acid Powder "
+        "CAS 50-78-2 from SHANDONG LOOK CHEMICAL CO.,LTD - ECHEMI",
+        "",
+    )
+    assert seller is not None
+    assert seller.company == "SHANDONG LOOK CHEMICAL CO.,LTD"
+    # Заголовок не называет ни страны, ни роли — выдумывать их нечем.
+    assert seller.claimed_role is None
+    assert seller.country is None
+    assert seller.truncated is False
+
+
+def test_a_title_with_parentheses_and_plus_is_read():
+    for title, expected in (
+        (
+            "Buy Aspirin 99.5% with REACH,GMP,FDA Pharmacy grade from "
+            "JQC (Huayin) Pharmaceutical Co., Ltd. - ECHEMI",
+            # Хвостовая точка срезается, как и в основном пути разбора.
+            "JQC (Huayin) Pharmaceutical Co., Ltd",
+        ),
+        (
+            "Buy Aspirin/Acetylsalicylic acid CAS: 50-78-2 Pharma Grade "
+            "from SHANHAI YUKING+POVIDONE - ECHEMI",
+            "SHANHAI YUKING+POVIDONE",
+        ),
+    ):
+        seller = parse_seller(_PRODUCE, title, "")
+        assert seller is not None, title
+        assert seller.company == expected
+
+
+def test_a_cut_off_title_name_is_marked():
+    seller = parse_seller(
+        _PRODUCE,
+        "Buy Factory Supply CAS 50-78-2 Acetylsalicylic Acid/Aspirin Power "
+        "from Hainan Flying International Trade Co., L - ECHEMI",
+        "",
+    )
+    assert seller is not None
+    assert seller.truncated is True
+
+
+def test_reference_titles_on_the_same_domain_are_not_sellers():
+    """Справочные разделы называются, но продавца в заголовке не имеют."""
+    for url, title in (
+        (
+            "https://www.echemi.com/productsInformation/pd20150901125-aspirin.html",
+            "Aspirin Price and Market Analysis - ECHEMI - ECHEMI.com",
+        ),
+        (
+            "https://www.echemi.com/products/pd20150901125-aspirin.html",
+            "Aspirin | 50-78-2, Aspirin Formula - ECHEMI",
+        ),
+        (
+            "https://www.echemi.com/sds/aspirin-pd20150901125.html",
+            "Aspirin SDS, 50-78-2 Safety Data Sheets - ECHEMI",
+        ),
+    ):
+        assert parse_seller(url, title, "") is None, title
+
+
+def test_the_title_template_only_fires_on_product_pages():
+    """Тот же заголовок на справочном пути продавца не создаёт."""
+    title = "Buy Aspirin from SHANDONG LOOK CHEMICAL CO.,LTD - ECHEMI"
+    assert parse_seller(_PRODUCE, title, "") is not None
+    assert (
+        parse_seller("https://www.echemi.com/products/pd20150901125.html", title, "")
+        is None
+    )
+
+
+def test_snippet_wins_over_title_when_both_are_present():
+    """Описание богаче заголовка: в нём есть страна и роль."""
+    seller = parse_seller(
+        _PRODUCE,
+        "Buy Aspirin from Some Other Name Co.,Ltd - ECHEMI",
+        _snippet("China", "Manufactory", "Shandong Look Chemical Co.,Ltd"),
+    )
+    assert seller.company == "Shandong Look Chemical Co.,Ltd"
+    assert seller.claimed_role == "manufacturer"
+    assert seller.country == "Китай"
+
+
 def test_another_site_is_not_a_marketplace_listing():
     assert parse_seller(
         "https://www.gpcchem.com/adipic-acid.html",

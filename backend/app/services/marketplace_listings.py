@@ -45,6 +45,23 @@ _ECHEMI_LISTING_RE = re.compile(
     r"(?P<company>.+?)\s+for\s+the\s+product\b"
 )
 
+# Второй шаблон — заголовок товарной карточки, а не описание. Проверено на
+# живой выдаче 21 августа: страницы `/produce/` приходят из индекса Google
+# заголовком вида
+#
+#     Buy Factory Price High Quality Aspirin … CAS 50-78-2
+#     from SHANDONG LOOK CHEMICAL CO.,LTD - ECHEMI
+#
+# Имя продавца стоит между «from» и хвостом «- ECHEMI». Страны и роли в
+# заголовке нет — площадка их сюда не пишет, — но само имя приезжает
+# чистым и без единой загрузки echemi. Справочные заголовки («… Market
+# Analysis - ECHEMI - ECHEMI.com», «… Formula - ECHEMI», «… SDS … - ECHEMI»)
+# слова «from» перед хвостом не имеют и сюда не попадают.
+_ECHEMI_TITLE_RE = re.compile(
+    r"\bfrom\s+(?P<company>.+?)\s*[-–—]\s*ECHEMI\s*$",
+    re.IGNORECASE,
+)
+
 # Страна в описании написана по-английски, а в реестре мы пишем по-русски.
 _COUNTRIES = {
     "china": "Китай",
@@ -98,6 +115,18 @@ def _platform_of(url: str) -> str | None:
     return None
 
 
+def _is_echemi_product_listing(url: str) -> bool:
+    """Товарная карточка `/produce/…` — на ней назван конкретный продавец.
+
+    Отделяет её от справочных разделов того же домена: `/products/` и
+    `/productsInformation/` — карточки вещества и рыночная аналитика,
+    `/sds/` — паспорта безопасности. Компании там нет, и заголовочный
+    шаблон к ним применять нельзя.
+    """
+    path = urlparse(url if "//" in url else f"//{url}").path.casefold()
+    return path.startswith("/produce/")
+
+
 def _looks_truncated(company: str) -> bool:
     """Описание оборвано на полуслове."""
     tail = company.rsplit(" ", 1)[-1].strip(".,")
@@ -118,25 +147,41 @@ def parse_seller(url: str, title: str, snippet: str) -> MarketplaceSeller | None
     if platform != "echemi":
         return None
 
+    # Основной путь — описание «Contact <страна> <роль> <компания> for the
+    # product …». Даёт заодно страну и заявленную роль.
     match = _ECHEMI_LISTING_RE.search(snippet or "")
-    if match is None:
-        return None
+    if match is not None:
+        company = " ".join(match.group("company").split()).strip(" .,")
+        if not (_MIN_COMPANY_LENGTH <= len(company) <= _MAX_COMPANY_LENGTH):
+            return None
+        return MarketplaceSeller(
+            company=company,
+            platform=platform,
+            listing_url=url,
+            claimed_role=_ROLE_MAP.get(match.group("role").casefold()),
+            country=_COUNTRIES.get(match.group("country").casefold()),
+            truncated=_looks_truncated(company),
+        )
 
-    company = " ".join(match.group("company").split()).strip(" .,")
-    if not (_MIN_COMPANY_LENGTH <= len(company) <= _MAX_COMPANY_LENGTH):
-        return None
+    # Запасной путь — заголовок товарной карточки «… from <компания> -
+    # ECHEMI». Только на страницах `/produce/`: там назван продавец. Роли и
+    # страны в заголовке нет, поэтому оба поля остаются пустыми — выдумывать
+    # их не из чего.
+    if _is_echemi_product_listing(url):
+        title_match = _ECHEMI_TITLE_RE.search(title or "")
+        if title_match is not None:
+            company = " ".join(title_match.group("company").split()).strip(" .,")
+            if _MIN_COMPANY_LENGTH <= len(company) <= _MAX_COMPANY_LENGTH:
+                return MarketplaceSeller(
+                    company=company,
+                    platform=platform,
+                    listing_url=url,
+                    claimed_role=None,
+                    country=None,
+                    truncated=_looks_truncated(company),
+                )
 
-    role = _ROLE_MAP.get(match.group("role").casefold())
-    country = _COUNTRIES.get(match.group("country").casefold())
-
-    return MarketplaceSeller(
-        company=company,
-        platform=platform,
-        listing_url=url,
-        claimed_role=role,
-        country=country,
-        truncated=_looks_truncated(company),
-    )
+    return None
 
 
 def collect_sellers(results: list[dict]) -> list[MarketplaceSeller]:

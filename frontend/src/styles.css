@@ -3470,6 +3470,29 @@ button.danger:hover {
   color: var(--muted);
 }
 
+.marketplace-seller-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marketplace-seller-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.marketplace-seller-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .candidate-list {
   display: grid;
   gap: 7px;

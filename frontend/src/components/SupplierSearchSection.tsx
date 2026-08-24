@@ -6,6 +6,7 @@ import type {
   CasEvidenceStatus,
   CountryEvidenceStatus,
   EvidenceStatus,
+  MarketplaceSeller,
   QualifiedSupplierType,
   RFQRead,
   SearchRunListItem,
@@ -196,6 +197,15 @@ const SOURCE_LABELS: Record<SupplierSearchResult["source_kind"], string> = {
   india_registry: "Официальный источник Индии",
   india_web: "Индийский сайт",
   web: "Открытый веб",
+};
+
+const MARKETPLACE_ROLE_LABELS: Record<
+  NonNullable<MarketplaceSeller["claimed_role"]>,
+  string
+> = {
+  manufacturer: "изготовитель",
+  trader: "трейдер",
+  distributor: "дистрибьютор",
 };
 
 const SEARCH_STRATEGY_LABELS: Record<
@@ -2599,6 +2609,46 @@ export default function SupplierSearchSection({
               ))}
             </div>
           </details>
+          {data.marketplace_sellers && data.marketplace_sellers.length > 0 && (
+            <details className="content-accordion marketplace-sellers">
+              <summary>
+                Продавцы с площадки Echemi ({data.marketplace_sellers.length})
+              </summary>
+              <div className="content-accordion-body">
+                <p className="note">
+                  Вычитаны из описаний поисковой выдачи о площадке — её
+                  страницы нам недоступны. Роль и страну указывает сам
+                  продавец при регистрации, поэтому это не проверенные
+                  кандидаты, а наводки: имя компании для отдельного поиска
+                  её собственного сайта. Ни балла, ни доказательств здесь нет.
+                </p>
+                <ul className="marketplace-seller-list">
+                  {data.marketplace_sellers.map((seller) => (
+                    <li key={`${seller.company}|${seller.listing_url}`}>
+                      <strong>{seller.company}</strong>
+                      {seller.truncated && (
+                        <span className="badge tone-warn">имя обрезано</span>
+                      )}
+                      <span className="marketplace-seller-meta">
+                        {seller.country ?? "страна не указана"}
+                        {" · "}
+                        {seller.claimed_role
+                          ? `роль по версии площадки: ${MARKETPLACE_ROLE_LABELS[seller.claimed_role]}`
+                          : "роль не указана"}
+                      </span>
+                      <a
+                        href={seller.listing_url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
+                        карточка на площадке
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </details>
+          )}
         </div>
       )}
       {(data || candidateResults.length > 0) && (

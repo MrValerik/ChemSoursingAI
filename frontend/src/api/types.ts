@@ -673,9 +673,22 @@ export interface SupplierSearchResponse {
   fallback_used: boolean;
   results: SupplierSearchResult[];
   reserve_results?: SupplierSearchResult[];
+  marketplace_sellers?: MarketplaceSeller[];
   stop_reason?: string | null;
   budget?: SearchBudgetSnapshot;
   warning: string;
+}
+
+// Продавец, названный торговой площадкой в выдаче (сейчас — Echemi).
+// Его страница нам недоступна, роль и страну указывает сам продавец при
+// регистрации, поэтому это не проверенный кандидат, а наводка.
+export interface MarketplaceSeller {
+  company: string;
+  platform: string;
+  listing_url: string;
+  claimed_role: "manufacturer" | "trader" | "distributor" | null;
+  country: string | null;
+  truncated: boolean;
 }
 
 export interface SearchBudgetSnapshot {
