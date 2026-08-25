@@ -131,10 +131,20 @@ export default function DispatchTab({
   rfq,
   onStatusChanged,
   onGoToSuppliers,
+  compact = false,
+  focusedSupplierId = null,
+  focusedManagerId = null,
+  focusedTestRunId = null,
+  focusedChannel = null,
 }: {
   rfq: RFQRead;
   onStatusChanged: () => void;
-  onGoToSuppliers: () => void;
+  onGoToSuppliers?: () => void;
+  compact?: boolean;
+  focusedSupplierId?: number | null;
+  focusedManagerId?: number | null;
+  focusedTestRunId?: number | null;
+  focusedChannel?: "email" | "whatsapp" | null;
 }) {
   const rfqId = rfq.id;
   const { user } = useAuth();
@@ -162,6 +172,12 @@ export default function DispatchTab({
 
   const canSyncEmail =
     user?.role === "buyer" || user?.role === "head" || user?.role === "admin";
+  const focusSignature = [
+    focusedSupplierId ?? "",
+    focusedManagerId ?? "",
+    focusedTestRunId ?? "",
+    focusedChannel ?? "",
+  ].join(":");
 
   const load = async () => {
     try {
@@ -178,6 +194,36 @@ export default function DispatchTab({
       setOverview(communicationItems);
       setTestRuns(embeddedTests);
       setSelectedKey((current) => {
+        const focusedConversation =
+          communicationItems.conversations.find(
+            (item) =>
+              focusedManagerId !== null &&
+              item.manager_id === focusedManagerId &&
+              (focusedChannel === null || item.channel === focusedChannel),
+          ) ??
+          communicationItems.conversations.find(
+            (item) =>
+              focusedManagerId !== null && item.manager_id === focusedManagerId,
+          ) ??
+          communicationItems.conversations.find(
+            (item) =>
+              focusedSupplierId !== null &&
+              item.supplier_id === focusedSupplierId &&
+              (focusedChannel === null || item.channel === focusedChannel),
+          ) ??
+          communicationItems.conversations.find(
+            (item) =>
+              focusedSupplierId !== null && item.supplier_id === focusedSupplierId,
+          );
+        const focusedTestKey =
+          focusedTestRunId !== null &&
+          embeddedTests.some((item) => item.id === focusedTestRunId)
+            ? testConversationKey(focusedTestRunId)
+            : null;
+        const requestedKey =
+          focusedTestKey ??
+          (focusedConversation ? conversationKey(focusedConversation) : null);
+        if (compact) return requestedKey;
         if (
           current &&
           (communicationItems.conversations.some(
@@ -207,7 +253,7 @@ export default function DispatchTab({
     const timer = window.setInterval(() => void load(), 10_000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rfqId, canTestCommunication]);
+  }, [rfqId, canTestCommunication, compact, focusSignature]);
 
   useEffect(() => {
     // Текст одного поставщика нельзя случайно перенести в другой диалог.
@@ -451,75 +497,93 @@ export default function DispatchTab({
 
   return (
     <div>
-      <RfqDispatchPreparation
-        rfq={rfq}
-        readOnly={readOnly}
-        onGoToSuppliers={onGoToSuppliers}
-        onChanged={async () => {
-          await load();
-          onStatusChanged();
-        }}
-      />
+      {!compact && (
+        <RfqDispatchPreparation
+          rfq={rfq}
+          readOnly={readOnly}
+          onGoToSuppliers={onGoToSuppliers ?? (() => undefined)}
+          onChanged={async () => {
+            await load();
+            onStatusChanged();
+          }}
+        />
+      )}
 
-      <div className="panel communication-panel">
+      <div
+        className={`panel communication-panel ${
+          compact ? "summary-dialogue-panel" : ""
+        }`}
+      >
         <div className="tab-toolbar">
           <div>
-            <h2>Диалоги с поставщиками</h2>
+            <h2>{compact ? "Диалог с поставщиком" : "Диалоги с поставщиками"}</h2>
             <p className="note">
-              Входящие сообщения, ответы и вопросы, переданные сотруднику.
+              {compact
+                ? "Переписка, из которой получены условия выбранного предложения."
+                : "Входящие сообщения, ответы и вопросы, переданные сотруднику."}
             </p>
           </div>
-          <div className="communication-toolbar-actions">
-            {activeEscalations.length > 0 && (
-              <span className="badge tone-warn" role="status">
-                Требуют ответа: {activeEscalations.length}
-              </span>
-            )}
-            {canTestCommunication && (
-              <button
-                className="secondary"
-                onClick={() => setSelectedKey(NEW_TEST_CONVERSATION_KEY)}
-                type="button"
-              >
-                Начать новый тестовый диалог
-              </button>
-            )}
-            {canSyncEmail && (
-              <button
-                className="secondary"
-                disabled={syncing}
-                onClick={() => void syncEmail()}
-              >
-                {syncing ? "Проверка…" : "Проверить входящие Email"}
-              </button>
-            )}
-          </div>
+          {!compact && (
+            <div className="communication-toolbar-actions">
+              {activeEscalations.length > 0 && (
+                <span className="badge tone-warn" role="status">
+                  Требуют ответа: {activeEscalations.length}
+                </span>
+              )}
+              {canTestCommunication && (
+                <button
+                  className="secondary"
+                  onClick={() => setSelectedKey(NEW_TEST_CONVERSATION_KEY)}
+                  type="button"
+                >
+                  Начать новый тестовый диалог
+                </button>
+              )}
+              {canSyncEmail && (
+                <button
+                  className="secondary"
+                  disabled={syncing}
+                  onClick={() => void syncEmail()}
+                >
+                  {syncing ? "Проверка…" : "Проверить входящие Email"}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {notice && <p className="success-note">{notice}</p>}
         {error && <p className="error">{error}</p>}
 
-        {overview.unassigned_escalations
-          .filter((item) => item.status !== "resolved")
-          .map((item) => (
-            <EscalationNotice
-              key={item.id}
-              escalation={item}
-              busy={escalationBusy === item.id}
-              readOnly={readOnly}
-              onAction={updateEscalation}
-            />
-          ))}
+        {!compact &&
+          overview.unassigned_escalations
+            .filter((item) => item.status !== "resolved")
+            .map((item) => (
+              <EscalationNotice
+                key={item.id}
+                escalation={item}
+                busy={escalationBusy === item.id}
+                readOnly={readOnly}
+                onAction={updateEscalation}
+              />
+            ))}
 
-        {overview.conversations.length === 0 && !canTestCommunication ? (
+        {!compact &&
+        overview.conversations.length === 0 &&
+        !canTestCommunication ? (
           <p className="note">
             Диалогов пока нет. После отправки запроса или получения ответа
             поставщик появится здесь.
           </p>
         ) : (
-          <div className="conversation-layout">
-            <div className="conversation-suppliers" aria-label="Поставщики">
-              {overview.conversations.map((item) => {
+          <div
+            className={`conversation-layout ${
+              compact ? "summary-conversation-layout" : ""
+            }`}
+          >
+            {!compact && (
+              <div className="conversation-suppliers" aria-label="Поставщики">
+                {overview.conversations.map((item) => {
                 const openCount = item.escalations.filter(
                   (entry) => entry.status !== "resolved",
                 ).length;
@@ -556,9 +620,9 @@ export default function DispatchTab({
                     )}
                   </button>
                 );
-              })}
-              {canTestCommunication &&
-                testRuns.map((run) => {
+                })}
+                {canTestCommunication &&
+                  testRuns.map((run) => {
                   const lastMessage =
                     run.messages[run.messages.length - 1]?.content ??
                     "Сообщений пока нет";
@@ -589,8 +653,9 @@ export default function DispatchTab({
                       </span>
                     </button>
                   );
-                })}
-            </div>
+                  })}
+              </div>
+            )}
 
             <div className="conversation-thread">
               {selectedTestRunId !== undefined && (
@@ -801,6 +866,13 @@ export default function DispatchTab({
                   )}
                 </>
               )}
+              {compact &&
+                !selectedConversation &&
+                selectedTestRunId === undefined && (
+                  <p className="note">
+                    Для этого предложения сохранённый диалог не найден.
+                  </p>
+                )}
             </div>
           </div>
         )}

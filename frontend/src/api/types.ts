@@ -211,6 +211,10 @@ export interface QuotationRead {
 
 export interface SummaryRow {
   quotation_id: number;
+  supplier_id: number | null;
+  manager_id: number | null;
+  test_run_id: number | null;
+  conversation_channel: ChannelKind | null;
   supplier: string | null;
   manager: string | null;
   price: number | null;

@@ -884,6 +884,47 @@ def _started_conversation(client, headers, *, channel: str, contact: str):
     return rfq, first
 
 
+def test_summary_links_real_quotation_to_its_saved_conversation(client):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="summary-dialogue@supplier.example",
+    )
+    quotation = client.post(
+        "/quotations",
+        headers=headers,
+        json={
+            "rfq_id": rfq["id"],
+            "manager_id": first.manager_id,
+            "price": 18.5,
+            "currency": "USD",
+            "incoterm": "CIP",
+            "moq": "100 kg",
+            "grade": "industrial grade",
+            "payment_terms": "T/T",
+            "lead_time": "10 days",
+            "has_coa": True,
+        },
+    )
+    assert quotation.status_code == 201
+
+    row = client.get(
+        f"/rfq/{rfq['id']}/summary", headers=headers
+    ).json()[0]
+    overview = client.get(
+        f"/rfq/{rfq['id']}/communications", headers=headers
+    ).json()
+    conversation = overview["conversations"][0]
+
+    assert row["quotation_id"] == quotation.json()["id"]
+    assert row["manager_id"] == first.manager_id
+    assert row["supplier_id"] == conversation["supplier_id"]
+    assert row["conversation_channel"] == "email"
+    assert row["test_run_id"] is None
+
+
 def test_manual_email_message_is_live_idempotent_and_threaded(client, monkeypatch):
     headers = _login(client)
     rfq, first = _started_conversation(

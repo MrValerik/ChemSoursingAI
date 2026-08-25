@@ -837,6 +837,10 @@ def test_embedded_communication_test_updates_one_summary_quotation(
     ).json()
     assert len(first_summary) == 1
     assert first_summary[0]["supplier"] == "Тестовый поставщик"
+    assert first_summary[0]["test_run_id"] == started["id"]
+    assert first_summary[0]["supplier_id"] is None
+    assert first_summary[0]["manager_id"] is None
+    assert first_summary[0]["conversation_channel"] is None
     assert first_summary[0]["price"] == 720.0
     assert not first_summary[0]["is_complete"]
 

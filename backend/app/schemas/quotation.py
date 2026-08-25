@@ -53,6 +53,10 @@ class SummaryRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     quotation_id: int
+    supplier_id: int | None = None
+    manager_id: int | None = None
+    test_run_id: int | None = None
+    conversation_channel: str | None = None
     supplier: str | None = None
     manager: str | None = None
     price: float | None = None

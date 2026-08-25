@@ -815,6 +815,41 @@ table.summary-detailed-table tr.summary-selected-row:hover {
   box-shadow: inset 3px 0 0 var(--brand);
 }
 
+.summary-supplier-button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.summary-supplier-button:hover,
+.summary-supplier-button:focus-visible {
+  background: transparent;
+  color: var(--brand);
+}
+
+.summary-supplier-button span {
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.summary-dialogue-panel {
+  min-width: 0;
+}
+
+.summary-conversation-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.summary-conversation-layout .conversation-thread {
+  min-height: 320px;
+}
+
 .purchase-result {
   display: grid;
   gap: 14px;

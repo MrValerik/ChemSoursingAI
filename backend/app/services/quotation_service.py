@@ -6,6 +6,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.communication import Communication
 from app.models.escalation import Escalation
 from app.models.integration import CommunicationTestRun
 from app.models.enums import EscalationStatus, RFQStatus
@@ -71,14 +72,29 @@ def create_quotation(db: Session, data: QuotationCreate) -> Quotation:
 def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
     """Сводная сравнительная таблица по RFQ: полные котировки — выше."""
     stmt = select(Quotation).where(Quotation.rfq_id == rfq_id)
-    test_quotation_ids = set(
-        db.scalars(
-            select(CommunicationTestRun.quotation_id).where(
+    test_run_by_quotation_id = {
+        run.quotation_id: run.id
+        for run in db.scalars(
+            select(CommunicationTestRun).where(
                 CommunicationTestRun.rfq_id == rfq_id,
                 CommunicationTestRun.quotation_id.is_not(None),
             )
         ).all()
-    )
+        if run.quotation_id is not None
+    }
+    latest_channel_by_manager: dict[int, str] = {}
+    for communication in db.scalars(
+        select(Communication)
+        .where(
+            Communication.rfq_id == rfq_id,
+            Communication.manager_id.is_not(None),
+        )
+        .order_by(Communication.created_at, Communication.id)
+    ).all():
+        if communication.manager_id is not None:
+            latest_channel_by_manager[communication.manager_id] = (
+                communication.channel.value
+            )
     rows: list[SummaryRow] = []
     for q in db.scalars(stmt).all():
         manager = q.manager
@@ -86,9 +102,21 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
         rows.append(
             SummaryRow(
                 quotation_id=q.id,
+                supplier_id=manager.supplier_id if manager else None,
+                manager_id=q.manager_id,
+                test_run_id=test_run_by_quotation_id.get(q.id),
+                conversation_channel=(
+                    latest_channel_by_manager.get(q.manager_id)
+                    if q.manager_id is not None
+                    else None
+                ),
                 supplier=(
                     supplier
-                    or ("Тестовый поставщик" if q.id in test_quotation_ids else None)
+                    or (
+                        "Тестовый поставщик"
+                        if q.id in test_run_by_quotation_id
+                        else None
+                    )
                 ),
                 manager=manager.full_name if manager else None,
                 price=float(q.price) if q.price is not None else None,
