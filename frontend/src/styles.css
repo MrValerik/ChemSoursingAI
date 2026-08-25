@@ -372,6 +372,26 @@ h1, h2, h3 {
   padding-top: 12px;
 }
 
+.communication-resume {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.communication-resume p {
+  margin: 0;
+}
+
+.communication-resume button {
+  flex: none;
+}
+
 .external-action-warning {
   background: var(--warn-soft);
   border: 1px solid var(--warn);
@@ -2372,6 +2392,11 @@ button.danger:hover {
 
   .purchase-result-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .communication-resume {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   table.summary-detailed-table {

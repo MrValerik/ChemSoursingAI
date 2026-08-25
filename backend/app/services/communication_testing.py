@@ -1262,6 +1262,26 @@ def continue_communication_test(
             reply=reply,
             translation_ru=None,
         )
+
+    assessment_before = _attach_quote_assessment(run).quote_assessment
+    quote_was_complete = bool(
+        assessment_before and assessment_before["is_complete"]
+    )
+    if run.status == "complete" and not payload.continue_after_complete:
+        raise ValueError(
+            "Данные по котировке уже собраны. Подтвердите ручное продолжение диалога"
+        )
+    if payload.continue_after_complete and not quote_was_complete:
+        raise ValueError(
+            "Ручное возобновление доступно только после полного сбора данных"
+        )
+    # После первого явного возобновления статус становится previewed/sent.
+    # Следующие ручные реплики этого же диалога можно обрабатывать без нового
+    # флага, пока пользователь сам продолжает переписку.
+    complete_dialogue_is_resumed = quote_was_complete and (
+        payload.continue_after_complete or run.status in {"previewed", "sent"}
+    )
+
     if run.delivery_mode == "send":
         if not payload.confirm_external_send:
             raise ValueError(
@@ -1313,7 +1333,10 @@ def continue_communication_test(
 
     _sync_test_quotation(db, run)
     assessed = _attach_quote_assessment(run)
-    if assessed.quote_assessment["is_complete"]:
+    if (
+        assessed.quote_assessment["is_complete"]
+        and not complete_dialogue_is_resumed
+    ):
         run.status = "complete"
         run.error = None
         db.commit()

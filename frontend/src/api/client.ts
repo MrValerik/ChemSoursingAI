@@ -712,6 +712,7 @@ export const api = {
       message: string;
       recipient: string;
       confirm_external_send: boolean;
+      continue_after_complete: boolean;
     },
   ) =>
     request<CommunicationTestRun>(

@@ -604,7 +604,9 @@ def test_communication_testing_marks_complete_quote_without_followup(
         if "переводчик переписки" in kwargs["system_prompt"]:
             return "Цена 720 USD за тонну, MOQ 100 кг, CIP Москва, CoA приложен."
         generated.append(kwargs)
-        return "Hello. Please confirm CAS, grade, form and provide your quote."
+        if len(generated) == 1:
+            return "Hello. Please confirm CAS, grade, form and provide your quote."
+        return "Thank you. Please confirm how long this quotation remains valid."
 
     monkeypatch.setattr(
         "app.services.communication_testing.LLMClient.generate_text",
@@ -665,6 +667,42 @@ def test_communication_testing_marks_complete_quote_without_followup(
     }
     assert len(generated) == 1
 
+    blocked = client.post(
+        f"/communication-testing/{started.json()['id']}/messages",
+        json={"message": "The quotation remains valid for 30 days."},
+        headers=admin,
+    )
+    assert blocked.status_code == 422
+    assert "Подтвердите ручное продолжение" in blocked.json()["detail"]
+
+    resumed = client.post(
+        f"/communication-testing/{started.json()['id']}/messages",
+        json={
+            "message": "The quotation remains valid for 30 days.",
+            "continue_after_complete": True,
+        },
+        headers=admin,
+    )
+    assert resumed.status_code == 201
+    assert resumed.json()["status"] == "previewed"
+    assert resumed.json()["quote_assessment"]["is_complete"] is True
+    assert [message["sender_role"] for message in resumed.json()["messages"]] == [
+        "assistant",
+        "supplier",
+        "supplier",
+        "assistant",
+    ]
+
+    continued_again = client.post(
+        f"/communication-testing/{started.json()['id']}/messages",
+        json={"message": "Production can start next week."},
+        headers=admin,
+    )
+    assert continued_again.status_code == 201
+    assert continued_again.json()["status"] == "previewed"
+    assert continued_again.json()["quote_assessment"]["is_complete"] is True
+    assert len(generated) == 3
+
 
 def test_communication_testing_explains_missing_quote_fields(client, monkeypatch):
     admin = _login(client)
@@ -699,6 +737,17 @@ def test_communication_testing_explains_missing_quote_fields(client, monkeypatch
     )
     assert started_response.status_code == 201
     started = started_response.json()
+
+    premature_resume = client.post(
+        f"/communication-testing/{started['id']}/messages",
+        json={
+            "message": "Our price is USD 720 per MT, CIP Moscow.",
+            "continue_after_complete": True,
+        },
+        headers=admin,
+    )
+    assert premature_resume.status_code == 422
+    assert "только после полного сбора данных" in premature_resume.json()["detail"]
 
     continued = client.post(
         f"/communication-testing/{started['id']}/messages",

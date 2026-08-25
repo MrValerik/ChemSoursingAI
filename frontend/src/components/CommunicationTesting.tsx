@@ -218,19 +218,25 @@ function EmbeddedCommunicationTesting({
   const [historyLoading, setHistoryLoading] = useState(true);
   const [supplierMessage, setSupplierMessage] = useState("");
   const [humanMessage, setHumanMessage] = useState("");
+  const [resumeAfterComplete, setResumeAfterComplete] = useState(false);
   const [translationRevealed, setTranslationRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const context = procurementContextFromRfq(rfq);
   const rfqBody = rfq.rfq_body?.trim() ?? "";
   const selectionManagedByParent = selectedRunId !== undefined;
-  const canContinue =
+  const canContinueNormally =
     active !== null &&
     active.messages[active.messages.length - 1]?.sender_role === "assistant" &&
     !["delivery_error", "complete", "escalated"].includes(active.status);
+  const canResumeComplete =
+    active?.status === "complete" && active.simulation_mode === "buyer_ai";
+  const canContinue =
+    canContinueNormally || (canResumeComplete && resumeAfterComplete);
 
   const rememberRun = (run: CommunicationTestRun) => {
     setActive(run);
+    setResumeAfterComplete(false);
     setHistory((current) => [run, ...current.filter((item) => item.id !== run.id)]);
     onRunChanged?.(run);
   };
@@ -242,6 +248,7 @@ function EmbeddedCommunicationTesting({
     setHistoryLoading(true);
     setSupplierMessage("");
     setHumanMessage("");
+    setResumeAfterComplete(false);
     setTranslationRevealed(false);
     setError(null);
     api
@@ -291,6 +298,7 @@ function EmbeddedCommunicationTesting({
       rememberRun(created);
       setSupplierMessage("");
       setHumanMessage("");
+      setResumeAfterComplete(false);
       setTranslationRevealed(false);
     } catch (reason) {
       setError(String(reason));
@@ -308,6 +316,7 @@ function EmbeddedCommunicationTesting({
         message: message.trim(),
         recipient: "",
         confirm_external_send: false,
+        continue_after_complete: active.status === "complete",
       });
       rememberRun(updated);
       setSupplierMessage("");
@@ -361,6 +370,7 @@ function EmbeddedCommunicationTesting({
     setActive(saved);
     setSupplierMessage("");
     setHumanMessage("");
+    setResumeAfterComplete(false);
     setTranslationRevealed(false);
     setError(null);
   };
@@ -468,7 +478,9 @@ function EmbeddedCommunicationTesting({
             <div className="communication-assessment" role="status">
               <strong>
                 {active.quote_assessment.is_complete
-                  ? "Данные собраны — диалог завершён."
+                  ? active.status === "complete"
+                    ? "Данные собраны — автоматический диалог остановлен."
+                    : "Данные собраны — диалог продолжен вручную."
                   : "Проверка ответа поставщика"}
               </strong>
               <span>
@@ -505,6 +517,23 @@ function EmbeddedCommunicationTesting({
           )}
 
           {active.error && <p className="error">{active.error}</p>}
+
+          {canResumeComplete && !resumeAfterComplete && (
+            <div className="communication-resume">
+              <p className="note">
+                Котировка останется сохранённой и полной. Новая реплика будет
+                обработана только после вашего явного продолжения.
+              </p>
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => setResumeAfterComplete(true)}
+                type="button"
+              >
+                Продолжить диалог
+              </button>
+            </div>
+          )}
 
           {active.status === "escalated" && (
             <div className="communication-reply communication-escalation-reply">
@@ -601,6 +630,7 @@ function FullCommunicationTesting({
   );
   const [history, setHistory] = useState<CommunicationTestRun[]>([]);
   const [active, setActive] = useState<CommunicationTestRun | null>(null);
+  const [resumeAfterComplete, setResumeAfterComplete] = useState(false);
   const [translationRevealed, setTranslationRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -632,12 +662,14 @@ function FullCommunicationTesting({
         message: example.supplierMessage,
         recipient: "",
         confirm_external_send: false,
+        continue_after_complete: dialog.status === "complete",
       });
       setSimulationMode("buyer_ai");
       setDeliveryMode("preview");
       setActive(updated);
       setTranslationRevealed(false);
       setSupplierMessage("");
+      setResumeAfterComplete(false);
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -673,6 +705,7 @@ function FullCommunicationTesting({
     setSupplierMessage("");
     setBuyerMessage("");
     setHumanMessage("");
+    setResumeAfterComplete(false);
     setError(null);
   }, [rfq]);
 
@@ -708,6 +741,7 @@ function FullCommunicationTesting({
       setTranslationRevealed(false);
       setSupplierMessage("");
       setHumanMessage("");
+      setResumeAfterComplete(false);
       if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
@@ -720,6 +754,7 @@ function FullCommunicationTesting({
   const continueDialog = async () => {
     if (
       !active ||
+      !canContinue ||
       !(active.simulation_mode === "supplier_ai"
         ? buyerMessage.trim()
         : supplierMessage.trim())
@@ -746,12 +781,14 @@ function FullCommunicationTesting({
             : supplierMessage.trim(),
         recipient: recipient.trim(),
         confirm_external_send: live,
+        continue_after_complete: active.status === "complete",
       });
       setActive(updated);
       setTranslationRevealed(false);
       setSupplierMessage("");
       setBuyerMessage("");
       setHumanMessage("");
+      setResumeAfterComplete(false);
       if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
@@ -820,10 +857,11 @@ function FullCommunicationTesting({
     setSupplierMessage("");
     setBuyerMessage("");
     setHumanMessage("");
+    setResumeAfterComplete(false);
     setError(null);
   };
 
-  const canContinue =
+  const canContinueNormally =
     active !== null &&
     active.messages.length > 0 &&
     active.messages[active.messages.length - 1].sender_role ===
@@ -831,6 +869,9 @@ function FullCommunicationTesting({
     active.status !== "delivery_error" &&
     active.status !== "complete" &&
     active.status !== "escalated";
+  const canResumeComplete = active?.status === "complete";
+  const canContinue =
+    canContinueNormally || (canResumeComplete && resumeAfterComplete);
 
   return (
     <div
@@ -1090,7 +1131,9 @@ function FullCommunicationTesting({
                 <div className="communication-assessment" role="status">
                   <strong>
                     {active.quote_assessment.is_complete
-                      ? "Данные собраны — нейросеть остановила диалог."
+                      ? active.status === "complete"
+                        ? "Данные собраны — автоматический диалог остановлен."
+                        : "Данные собраны — диалог продолжен вручную."
                       : "Проверка ответа поставщика"}
                   </strong>
                   <span>
@@ -1126,6 +1169,22 @@ function FullCommunicationTesting({
                 </div>
               )}
               {active.error && <p className="error">{active.error}</p>}
+              {canResumeComplete && !resumeAfterComplete && (
+                <div className="communication-resume">
+                  <p className="note">
+                    Собранная котировка сохранится. Продолжение начнётся только
+                    после вашего явного действия.
+                  </p>
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => setResumeAfterComplete(true)}
+                    type="button"
+                  >
+                    Продолжить диалог
+                  </button>
+                </div>
+              )}
               {active.status === "escalated" &&
                 active.simulation_mode === "buyer_ai" && (
                   <div className="communication-reply communication-escalation-reply">
