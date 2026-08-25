@@ -284,13 +284,10 @@ function EmbeddedCommunicationTesting({
   const context = procurementContextFromRfq(rfq);
   const rfqBody = rfq.rfq_body?.trim() ?? "";
   const selectionManagedByParent = selectedRunId !== undefined;
-  const canContinueNormally =
+  const canContinue =
     active !== null &&
-    active.messages[active.messages.length - 1]?.sender_role === "assistant" &&
-    !["delivery_error", "complete", "escalated"].includes(active.status);
-  const canResumeComplete =
-    active?.status === "complete" && active.simulation_mode === "buyer_ai";
-  const canContinue = canContinueNormally || canResumeComplete;
+    active.simulation_mode === "buyer_ai" &&
+    !["delivery_error", "escalated"].includes(active.status);
 
   const rememberRun = (run: CommunicationTestRun) => {
     setActive(run);
