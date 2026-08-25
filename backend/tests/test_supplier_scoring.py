@@ -191,3 +191,63 @@ def test_confirmed_industrial_packaging_has_no_score_penalty():
 
     assert score.shortlist_eligible is True
     assert score.volume_adjustment == 0
+
+
+# --- запрос на аналог ---
+
+_STRONG_MANUFACTURER = (
+    {"supplier_type": "manufacturer", "cas_status": "confirmed"},
+    [
+        {
+            "claim_type": claim,
+            "support_status": "supports",
+            "quote_verified": True,
+        }
+        for claim in ("chemical_identity", "manufacturer_role", "country", "gmp", "coa")
+    ],
+)
+
+
+def test_analog_candidate_never_enters_the_shortlist():
+    """Аналог — предположение, а не готовый ответ.
+
+    Кандидат безупречен по доказательствам и при точном поиске уходит в
+    короткий список. Но запрос ищет замену эталону, и подтверждённая
+    цитата означает здесь «продукт со схожей функцией найден», а не
+    «вещество то же». Равнозначность подтверждает специалист.
+    """
+    assessment, evidence = _STRONG_MANUFACTURER
+    exact = score_supplier(assessment, evidence, identification_method="cas")
+    analog = score_supplier(assessment, evidence, identification_method="analog")
+
+    assert exact.shortlist_eligible is True
+    assert analog.shortlist_eligible is False
+
+
+def test_analog_keeps_its_score():
+    """Закрыт короткий список — решение, а не оценка.
+
+    Обнулять балл было бы неправдой: доказательства найдены и проверены,
+    и закупщик должен видеть, насколько кандидат хорош, даже если брать
+    его без ручного сравнения нельзя.
+    """
+    assessment, evidence = _STRONG_MANUFACTURER
+    exact = score_supplier(assessment, evidence, identification_method="cas")
+    analog = score_supplier(assessment, evidence, identification_method="analog")
+
+    assert analog.total == exact.total
+    assert analog.total >= 90
+    assert analog.hard_exclusion is False
+
+
+def test_spec_search_is_not_affected():
+    """Ворота закрывают именно аналог, а не любой запрос без номера."""
+    assessment, evidence = _STRONG_MANUFACTURER
+    score = score_supplier(assessment, evidence, identification_method="spec")
+    assert score.shortlist_eligible is True
+
+
+def test_default_stays_exact():
+    """Без явного указания способа поведение прежнее."""
+    assessment, evidence = _STRONG_MANUFACTURER
+    assert score_supplier(assessment, evidence).shortlist_eligible is True

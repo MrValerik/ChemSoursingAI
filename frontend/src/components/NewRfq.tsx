@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, type RFQCreatePayload } from "../api/client";
 import type {
+  AnalogVariation,
   IdentificationMethod,
   ResolvedName,
   RFQListItem,
@@ -43,6 +44,33 @@ const INCOTERM_OPTIONS: { code: string; hint: string }[] = [
 ];
 
 const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
+
+// Чем аналог может отличаться от эталона. Слово «аналог» само по себе
+// означает сразу всё перечисленное, и поставщик отвечает не тем, что
+// ждали: границы замены задаёт закупщик, а не догадка модели.
+// Значения совпадают с AnalogVariation в контракте backend.
+const ANALOG_VARIATIONS: { value: AnalogVariation; label: string; hint: string }[] = [
+  {
+    value: "salt",
+    label: "Другая соль или форма",
+    hint: "Подойдёт гидрохлорид, гидрат или эфир вместо основания.",
+  },
+  {
+    value: "purity",
+    label: "Другая чистота или грейд",
+    hint: "Подойдёт другой грейд, если остальные требования выполнены.",
+  },
+  {
+    value: "form",
+    label: "Другое физическое состояние",
+    hint: "Подойдёт порошок вместо гранул или раствора.",
+  },
+  {
+    value: "manufacturer",
+    label: "Другой производитель",
+    hint: "Подойдёт то же вещество любого завода, не только эталонного.",
+  },
+];
 
 // Грейд — величина справочная, вариантов конечное число. Значение хранится
 // по-английски: оно уходит в письмо поставщику, а письмо английское.
@@ -146,6 +174,12 @@ export default function NewRfq({ onCreated }: Props) {
   // По умолчанию отмечены не все базисы: письмо с пятью вариантами просит
   // поставщика посчитать пять цен, и он считает одну или не отвечает.
   // Три прежних варианта и были умолчанием — набор расширился, умолчание нет.
+  // Поиск аналога выключен по умолчанию и включается явно. Молча искать
+  // замену нельзя: закупщик, который просил конкретный продукт, получил бы
+  // похожий и узнал об этом только из ответа поставщика.
+  const [analogMode, setAnalogMode] = useState(false);
+  const [analogReference, setAnalogReference] = useState("");
+  const [analogVariations, setAnalogVariations] = useState<AnalogVariation[]>([]);
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
   const [searchMode, setSearchMode] = useState<SearchModeKey>(DEFAULT_SEARCH_MODE);
@@ -256,19 +290,27 @@ export default function NewRfq({ onCreated }: Props) {
     (item) => item.relation === "different",
   );
 
+  // Эталон по умолчанию — то, что закупщик уже назвал в запросе: чаще
+  // всего он и есть образец, замену которому ищут. Отдельное поле нужно
+  // для случая, когда эталон — торговая марка, а закупают по функции.
+  const analogReferenceValue = analogReference.trim() || name.trim();
+
   // Способ идентификации остаётся в контракте поиска — он строит разные
-  // запросы, — но выводится из заполненного, а не спрашивается у человека.
-  const method: IdentificationMethod = casValid ? "cas" : "spec";
+  // запросы. Точный и спецификационный выводятся из заполненного, а поиск
+  // аналога человек включает сам: это другая задача, а не другое поле.
+  const method: IdentificationMethod = analogMode
+    ? "analog"
+    : casValid
+      ? "cas"
+      : "spec";
 
   const payload = (): RFQCreatePayload => ({
     identification_method: method,
     // Непрошедший проверку номер не уходит в запрос: форма к этому моменту
     // уже не даёт создать запрос с таким полем.
     cas: casValid ? casNormalized : null,
-    // Запрос создаётся строго по названному веществу: поиск аналога из формы
-    // убран, поле остаётся в контракте ради уже созданных запросов.
-    analog_reference: null,
-    analog_variations: [],
+    analog_reference: analogMode ? analogReferenceValue : null,
+    analog_variations: analogMode ? analogVariations : [],
     // Скрытое поле не отправляется: иначе набранные до ввода номера
     // требования молча уехали бы в письмо поставщику.
     specification: casValid ? null : specification.trim() || null,
@@ -306,6 +348,13 @@ export default function NewRfq({ onCreated }: Props) {
       current.includes(code)
         ? current.filter((item) => item !== code)
         : [...current, code],
+    );
+
+  const toggleAnalogVariation = (variation: AnalogVariation) =>
+    setAnalogVariations((current) =>
+      current.includes(variation)
+        ? current.filter((item) => item !== variation)
+        : [...current, variation],
     );
 
   const toggleCountry = (country: string) =>
@@ -354,6 +403,18 @@ export default function NewRfq({ onCreated }: Props) {
       setName(source.name);
       setCas(source.cas || "");
       setSpecification(source.specification || "");
+      // Повтор запроса на аналог остаётся запросом на аналог: скопировать
+      // условия и молча сменить задачу на точный поиск нельзя.
+      const sourceIsAnalog = source.identification_method === "analog";
+      setAnalogMode(sourceIsAnalog);
+      setAnalogReference(sourceIsAnalog ? source.analog_reference || "" : "");
+      setAnalogVariations(
+        sourceIsAnalog
+          ? ANALOG_VARIATIONS.map((item) => item.value).filter((value) =>
+              (source.analog_variations || []).includes(value),
+            )
+          : [],
+      );
       setSynonyms(source.confirmed_synonyms || []);
       setExcludedNames(source.excluded_names || []);
       const purity = parsePurity(source.purity);
@@ -617,6 +678,78 @@ export default function NewRfq({ onCreated }: Props) {
             value={excludedNames}
             onChange={setExcludedNames}
           />
+        </div>
+
+        {/* Поиск аналога — отдельная задача, а не послабление точного
+            поиска: он ищет замену эталону, и совпадение по функции здесь
+            не является совпадением по веществу. Поэтому переключатель, а
+            не молчаливое расширение выдачи. */}
+        <div className="field analog-block">
+          <label className="analog-switch">
+            <span className="analog-switch-head">
+              <input
+                type="checkbox"
+                aria-label="Искать возможный аналог"
+                checked={analogMode}
+                onChange={(event) => setAnalogMode(event.target.checked)}
+              />
+              <span className="analog-switch-label">Искать возможный аналог</span>
+            </span>
+            <span className="analog-switch-hint">
+              Обычный поиск ищет названное вещество. Аналог — это другой
+              продукт со схожей функцией: он никогда не считается точным
+              совпадением и всегда уходит на проверку специалисту.
+            </span>
+          </label>
+
+          {analogMode && (
+            <div className="analog-details">
+              <Field
+                label="Эталон: на что должен быть похож аналог"
+                hint="Продукт или торговая марка, замену которой ищем. Если оставить пустым, эталоном станет название из запроса."
+              >
+                <Input
+                  maxLength={255}
+                  placeholder={name.trim() || "например, Dowsil 556"}
+                  value={analogReference}
+                  onChange={(event) => setAnalogReference(event.target.value)}
+                />
+              </Field>
+
+              <div className="field">
+                <div className="heading-with-help">
+                  <label>Что можно менять относительно эталона</label>
+                  <HelpTip text="Без этих границ «аналог» для поставщика означает что угодно, и в ответ приходит не то, что просили. Отмеченное уходит в письмо отдельными строками." />
+                </div>
+                <div className="analog-variations">
+                  {ANALOG_VARIATIONS.map(({ value, label, hint }) => (
+                    <label
+                      key={value}
+                      className={`analog-variation${
+                        analogVariations.includes(value) ? " active" : ""
+                      }`}
+                    >
+                      <span className="analog-variation-head">
+                        <input
+                          type="checkbox"
+                          checked={analogVariations.includes(value)}
+                          onChange={() => toggleAnalogVariation(value)}
+                        />
+                        <span className="analog-variation-label">{label}</span>
+                      </span>
+                      <span className="analog-variation-hint">{hint}</span>
+                    </label>
+                  ))}
+                </div>
+                {analogVariations.length === 0 && (
+                  <p className="analog-note">
+                    Границы замены не заданы — поставщик решит их сам, и
+                    предложение может не подойти. Отметьте хотя бы одну.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Требования участвуют в построении поисковых запросов только

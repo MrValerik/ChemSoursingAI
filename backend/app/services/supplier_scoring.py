@@ -44,7 +44,30 @@ SELF_DECLARED_ONLY_FLAG = (
 )
 
 
-def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
+# Причина, по которой кандидат по запросу на аналог не попадает в короткий
+# список. Короткий список означает «можно запрашивать цену как у подходящего
+# поставщика», а аналог до сравнения свойств человеком подходящим не является.
+ANALOG_NEEDS_REVIEW_FLAG = (
+    "Запрос ищет аналог: равнозначность состава и свойств эталону "
+    "автоматически не доказана и требует решения специалиста"
+)
+
+
+def score_supplier(
+    assessment: dict,
+    evidence: list[dict],
+    *,
+    identification_method: str = "cas",
+) -> SupplierScore:
+    """Детерминированная оценка кандидата.
+
+    `identification_method="analog"` закрывает короткий список: поиск
+    аналога ищет замену эталону, и подтверждённая цитата означает там
+    «продукт со схожей функцией найден», а не «вещество то же». Раньше
+    это правило жило только в тексте промпта — то есть держалось на
+    добросовестности модели, — и кандидат по аналогу мог набрать 70+
+    баллов и уйти в короткий список как готовый ответ.
+    """
     supported = {
         item["claim_type"]
         for item in evidence
@@ -148,6 +171,10 @@ def score_supplier(assessment: dict, evidence: list[dict]) -> SupplierScore:
         and "manufacturer_role" in supported
         and bool(corroboration)
         and volume_status != "incompatible"
+        # Балл кандидату по аналогу сохраняется: он честно отражает
+        # найденные доказательства. Закрыт именно короткий список —
+        # решение, а не оценка.
+        and identification_method != "analog"
     )
     return SupplierScore(
         total=total,

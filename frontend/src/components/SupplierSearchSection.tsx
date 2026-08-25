@@ -58,6 +58,17 @@ const SUBSTANCE_CELL_BY_NAME: Record<CasEvidenceStatus, string> = {
   mismatch: "другое вещество",
 };
 
+// Запрос на аналог ищет замену эталону, а не сам эталон. Подтверждённая
+// цитата означает здесь «найден продукт со схожей функцией», а не «то же
+// вещество»: сходство функции точным совпадением не является, и назвать
+// его так в таблице нельзя — закупщик прочитает это как готовый ответ.
+const SUBSTANCE_CELL_ANALOG: Record<CasEvidenceStatus, string> = {
+  confirmed: "возможный аналог",
+  mentioned: "упомянуто вскользь",
+  not_found: "не подтверждено",
+  mismatch: "другое вещество",
+};
+
 // Решение человека о компании: статус в реестре плюс отказ в рамках этого
 // запроса. Два разных отказа: «не то вещество» не делает компанию плохой.
 export type SupplierDecision = {
@@ -396,6 +407,7 @@ function QualificationTable({
   results,
   activeCas,
   activeCountry,
+  isAnalog,
   onSelect,
   decisionFor,
   onDecide,
@@ -405,6 +417,7 @@ function QualificationTable({
   results: SupplierQualificationResponse["results"];
   activeCas: string | null;
   activeCountry: string;
+  isAnalog: boolean;
   onSelect: (result: SupplierQualificationResponse["results"][number]) => void;
   decisionFor: (
     result: SupplierQualificationResponse["results"][number],
@@ -453,12 +466,18 @@ function QualificationTable({
     {
       key: "cas",
       label: "Вещество",
-      hint: activeCas
-        ? `То ли это вещество: сверяется номер CAS ${activeCas}. Подтверждён — номер найден на странице дословно; упомянут — номер есть, но рядом с другим продуктом; не найден; не совпадает — на странице другой номер.`
-        : "То ли это вещество. Номера у смесей и промышленных марок нет, " +
-          "поэтому сверяются название, состав и грейд: «то же вещество» — " +
-          "страница подтверждает продукт, «упомянуто вскользь» — название " +
-          "встречается, но продукт другой, «другое вещество» — противоречие.",
+      hint: isAnalog
+        ? "Запрос ищет аналог, а не сам эталон, поэтому точного совпадения " +
+          "здесь не бывает: «возможный аналог» означает, что страница " +
+          "подтверждает продукт со схожей функцией. Равнозначность состава " +
+          "и свойств такой кандидат не доказывает — её подтверждает " +
+          "специалист, и до этого решения кандидат остаётся предположением."
+        : activeCas
+          ? `То ли это вещество: сверяется номер CAS ${activeCas}. Подтверждён — номер найден на странице дословно; упомянут — номер есть, но рядом с другим продуктом; не найден; не совпадает — на странице другой номер.`
+          : "То ли это вещество. Номера у смесей и промышленных марок нет, " +
+            "поэтому сверяются название, состав и грейд: «то же вещество» — " +
+            "страница подтверждает продукт, «упомянуто вскользь» — название " +
+            "встречается, но продукт другой, «другое вещество» — противоречие.",
     },
     {
       key: "country",
@@ -622,15 +641,19 @@ function QualificationTable({
               <td
                 className={
                   result.cas_status === "confirmed"
-                    ? "cell-ok"
+                    ? isAnalog
+                      ? "cell-warn"
+                      : "cell-ok"
                     : result.cas_status === "mismatch"
                       ? "cell-danger"
                       : "cell-muted"
                 }
               >
-                {activeCas
-                  ? SUBSTANCE_CELL_WITH_CAS[result.cas_status]
-                  : SUBSTANCE_CELL_BY_NAME[result.cas_status]}
+                {isAnalog
+                  ? SUBSTANCE_CELL_ANALOG[result.cas_status]
+                  : activeCas
+                    ? SUBSTANCE_CELL_WITH_CAS[result.cas_status]
+                    : SUBSTANCE_CELL_BY_NAME[result.cas_status]}
               </td>
               <td
                 className={
@@ -777,12 +800,14 @@ function QualificationDetail({
   result,
   activeCas,
   activeCountry,
+  isAnalog,
   trace,
   savedToRegistry,
 }: {
   result: SupplierQualificationResponse["results"][number];
   activeCas: string | null;
   activeCountry: string;
+  isAnalog: boolean;
   trace: SearchRunTrace | null;
   savedToRegistry: boolean;
 }) {
@@ -827,15 +852,19 @@ function QualificationDetail({
         <EvidenceBadge
           className={
             result.cas_status === "confirmed"
-              ? "tone-ok"
+              ? isAnalog
+                ? "tone-warn"
+                : "tone-ok"
               : result.cas_status === "mismatch"
                 ? "tone-danger"
                 : "tone-neutral"
           }
           label={`Вещество: ${
-            activeCas
-              ? SUBSTANCE_CELL_WITH_CAS[result.cas_status]
-              : SUBSTANCE_CELL_BY_NAME[result.cas_status]
+            isAnalog
+              ? SUBSTANCE_CELL_ANALOG[result.cas_status]
+              : activeCas
+                ? SUBSTANCE_CELL_WITH_CAS[result.cas_status]
+                : SUBSTANCE_CELL_BY_NAME[result.cas_status]
           }`}
           explanation={evidenceExplanation(
             result,
@@ -2067,6 +2096,10 @@ export default function SupplierSearchSection({
 
   const initialLoading = loadedRfqId !== rfq.id;
   const activeCas = trace ? runText(trace, "cas") : rfq.cas;
+  // Запрос на аналог меняет смысл столбца «Вещество»: там, где обычный
+  // поиск подтверждает то же вещество, аналог подтверждает лишь схожую
+  // функцию. Признак берётся из самого запроса, а не из результата.
+  const isAnalog = rfq.identification_method === "analog";
   const activeName = trace ? runText(trace, "name") : rfq.name;
   const activeCountry = trace
     ? runText(trace, "country")
@@ -2720,6 +2753,7 @@ export default function SupplierSearchSection({
                 results={qualification.results.filter((item) => !item.winnowed)}
                 activeCas={activeCas}
                 activeCountry={activeCountry}
+                isAnalog={isAnalog}
                 onSelect={(result) => setDetailUrl(result.url)}
                 decisionFor={decisionFor}
                 onDecide={(decision, action) => void decide(decision, action)}
@@ -2751,6 +2785,7 @@ export default function SupplierSearchSection({
                       )}
                       activeCas={activeCas}
                       activeCountry={activeCountry}
+                      isAnalog={isAnalog}
                       onSelect={(result) => setDetailUrl(result.url)}
                       decisionFor={decisionFor}
                       onDecide={(decision, action) => void decide(decision, action)}
@@ -2789,6 +2824,7 @@ export default function SupplierSearchSection({
                       result={detailResult}
                       activeCas={activeCas}
                       activeCountry={activeCountry}
+                      isAnalog={isAnalog}
                       trace={trace}
                       savedToRegistry={savedToRegistry(detailResult)}
                     />

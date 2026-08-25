@@ -107,6 +107,7 @@ from app.services.page_facts import (
 from app.services.supplier_scoring import (
     CORROBORATING_CLAIMS,
     SELF_DECLARED_ONLY_FLAG,
+    ANALOG_NEEDS_REVIEW_FLAG,
     score_supplier,
 )
 from app.services.supplier_verification import apply_supplier_verification
@@ -3407,7 +3408,11 @@ def execute_supplier_qualification(
                 },
                 volume_compatibility,
             )
-            fallback_score = score_supplier(fallback_payload, [])
+            fallback_score = score_supplier(
+                fallback_payload,
+                [],
+                identification_method=data.identification_method,
+            )
             fallback_payload["confidence"] = fallback_score.total
             fallback_payload["score_breakdown"] = fallback_score.to_dict()
             combined_results.append(fallback_payload)
@@ -3426,10 +3431,24 @@ def execute_supplier_qualification(
             qualification_payload,
             volume_compatibility,
         )
-        score = score_supplier(qualification_payload, evidence_items)
+        score = score_supplier(
+            qualification_payload,
+            evidence_items,
+            identification_method=data.identification_method,
+        )
         qualification_payload["confidence"] = score.total
         qualification_payload["score_breakdown"] = score.to_dict()
         qualification_payload["shortlist_eligible"] = score.shortlist_eligible
+        if (
+            data.identification_method == "analog"
+            and ANALOG_NEEDS_REVIEW_FLAG not in qualification_payload["red_flags"]
+        ):
+            # Причина отказа короткого списка должна стоять в карточке:
+            # иначе кандидат с высоким баллом выглядит отклонённым молча.
+            qualification_payload["red_flags"] = [
+                *qualification_payload["red_flags"],
+                ANALOG_NEEDS_REVIEW_FLAG,
+            ]
         if (
             not score.shortlist_eligible
             and qualification_payload.get("supplier_type") == "manufacturer"
