@@ -62,10 +62,6 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [dialogueQuotationId, setDialogueQuotationId] = useState<number | null>(
-    null,
-  );
-
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -74,7 +70,9 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
         if (cancelled) return;
         setRows(summaryRows);
         setDecision(savedDecision);
-        setSelectedQuotationId(savedDecision?.quotation_id ?? null);
+        setSelectedQuotationId(
+          savedDecision?.quotation_id ?? summaryRows[0]?.quotation_id ?? null,
+        );
         setDecisionNote(savedDecision?.note ?? "");
         setError(null);
       })
@@ -94,8 +92,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const shown = onlyComplete ? rows.filter((row) => row.is_complete) : rows;
   const selectedRow =
     rows.find((row) => row.quotation_id === selectedQuotationId) ?? null;
-  const dialogueRow =
-    rows.find((row) => row.quotation_id === dialogueQuotationId) ?? null;
+  const dialogueRow = selectedRow;
   const currencies = useMemo(
     () => Array.from(new Set(rows.map((row) => row.currency).filter(Boolean))),
     [rows],
@@ -138,13 +135,6 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
       row.quotation_id === decision?.quotation_id ? (decision.note ?? "") : "",
     );
     setNotice(null);
-  };
-
-  const toggleSupplierDialogue = (row: SummaryRow) => {
-    selectQuotation(row);
-    setDialogueQuotationId((current) =>
-      current === row.quotation_id ? null : row.quotation_id,
-    );
   };
 
   return (
@@ -227,17 +217,12 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                         </td>
                         <td>
                           <button
-                            aria-expanded={row.quotation_id === dialogueQuotationId}
+                            aria-pressed={row.quotation_id === selectedQuotationId}
                             className="summary-supplier-button"
-                            onClick={() => toggleSupplierDialogue(row)}
+                            onClick={() => selectQuotation(row)}
                             type="button"
                           >
                             <strong>{supplierName(row)}</strong>
-                            <span>
-                              {row.quotation_id === dialogueQuotationId
-                                ? "Скрыть диалог"
-                                : "Открыть диалог"}
-                            </span>
                           </button>
                         </td>
                         <td>{formatPrice(row.price, row.currency)}</td>
