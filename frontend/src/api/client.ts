@@ -827,8 +827,6 @@ export const api = {
   listRfqDocuments: (rfqId: number) =>
     request<SupplierDocumentRead[]>(`/rfq/${rfqId}/documents`),
 
-  documentFileUrl: (id: number) => `${BASE}/documents/${id}/file`,
-
   downloadDocument: (id: number) => requestFile(`/documents/${id}/file`),
 
   verifyDocument: (id: number) =>

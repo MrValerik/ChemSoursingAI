@@ -86,7 +86,31 @@ const formatAttachmentSize = (bytes: number) =>
   `${Math.max(1, Math.round(bytes / 1024))} КБ`;
 
 function TestMessageAttachments({ message }: { message: CommunicationTestMessage }) {
+  const [downloadBusy, setDownloadBusy] = useState<number | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   if (!message.attachments?.length) return null;
+
+  const downloadAttachment = async (documentId: number, filename: string) => {
+    setDownloadBusy(documentId);
+    setDownloadError(null);
+    try {
+      const blob = await api.downloadDocument(documentId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (reason) {
+      setDownloadError(String(reason));
+    } finally {
+      setDownloadBusy(null);
+    }
+  };
+
   return (
     <div className="communication-test-attachments">
       {message.attachments.map((attachment) => {
@@ -100,17 +124,27 @@ function TestMessageAttachments({ message }: { message: CommunicationTestMessage
               <div>
                 <strong>📎 {attachment.filename}</strong>
                 <small>
-                  PDF · {formatAttachmentSize(attachment.size)}
+                  {attachment.content_type || attachment.kind || "Файл"} ·{" "}
+                  {formatAttachmentSize(attachment.size)}
                   {attachment.page_count ? ` · ${attachment.page_count} стр.` : ""}
                 </small>
               </div>
               {attachment.document_id && (
-                <a
-                  className="secondary button-like btn-small"
-                  href={api.documentFileUrl(attachment.document_id)}
+                <button
+                  className="secondary btn-small"
+                  disabled={downloadBusy === attachment.document_id}
+                  onClick={() =>
+                    void downloadAttachment(
+                      attachment.document_id as number,
+                      attachment.filename,
+                    )
+                  }
+                  type="button"
                 >
-                  Скачать файл
-                </a>
+                  {downloadBusy === attachment.document_id
+                    ? "Скачивание…"
+                    : "Скачать файл"}
+                </button>
               )}
             </div>
             {verification ? (
@@ -149,6 +183,7 @@ function TestMessageAttachments({ message }: { message: CommunicationTestMessage
           </article>
         );
       })}
+      {downloadError && <p className="error">{downloadError}</p>}
     </div>
   );
 }
@@ -218,7 +253,6 @@ function EmbeddedCommunicationTesting({
   const [historyLoading, setHistoryLoading] = useState(true);
   const [supplierMessage, setSupplierMessage] = useState("");
   const [humanMessage, setHumanMessage] = useState("");
-  const [resumeAfterComplete, setResumeAfterComplete] = useState(false);
   const [translationRevealed, setTranslationRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -231,12 +265,10 @@ function EmbeddedCommunicationTesting({
     !["delivery_error", "complete", "escalated"].includes(active.status);
   const canResumeComplete =
     active?.status === "complete" && active.simulation_mode === "buyer_ai";
-  const canContinue =
-    canContinueNormally || (canResumeComplete && resumeAfterComplete);
+  const canContinue = canContinueNormally || canResumeComplete;
 
   const rememberRun = (run: CommunicationTestRun) => {
     setActive(run);
-    setResumeAfterComplete(false);
     setHistory((current) => [run, ...current.filter((item) => item.id !== run.id)]);
     onRunChanged?.(run);
   };
@@ -248,7 +280,6 @@ function EmbeddedCommunicationTesting({
     setHistoryLoading(true);
     setSupplierMessage("");
     setHumanMessage("");
-    setResumeAfterComplete(false);
     setTranslationRevealed(false);
     setError(null);
     api
@@ -298,7 +329,6 @@ function EmbeddedCommunicationTesting({
       rememberRun(created);
       setSupplierMessage("");
       setHumanMessage("");
-      setResumeAfterComplete(false);
       setTranslationRevealed(false);
     } catch (reason) {
       setError(String(reason));
@@ -370,7 +400,6 @@ function EmbeddedCommunicationTesting({
     setActive(saved);
     setSupplierMessage("");
     setHumanMessage("");
-    setResumeAfterComplete(false);
     setTranslationRevealed(false);
     setError(null);
   };
@@ -479,8 +508,8 @@ function EmbeddedCommunicationTesting({
               <strong>
                 {active.quote_assessment.is_complete
                   ? active.status === "complete"
-                    ? "Данные собраны — автоматический диалог остановлен."
-                    : "Данные собраны — диалог продолжен вручную."
+                    ? "Данные собраны — переписку можно продолжить."
+                    : "Данные собраны — диалог продолжается."
                   : "Проверка ответа поставщика"}
               </strong>
               <span>
@@ -517,23 +546,6 @@ function EmbeddedCommunicationTesting({
           )}
 
           {active.error && <p className="error">{active.error}</p>}
-
-          {canResumeComplete && !resumeAfterComplete && (
-            <div className="communication-resume">
-              <p className="note">
-                Котировка останется сохранённой и полной. Новая реплика будет
-                обработана только после вашего явного продолжения.
-              </p>
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() => setResumeAfterComplete(true)}
-                type="button"
-              >
-                Продолжить диалог
-              </button>
-            </div>
-          )}
 
           {active.status === "escalated" && (
             <div className="communication-reply communication-escalation-reply">
@@ -630,7 +642,6 @@ function FullCommunicationTesting({
   );
   const [history, setHistory] = useState<CommunicationTestRun[]>([]);
   const [active, setActive] = useState<CommunicationTestRun | null>(null);
-  const [resumeAfterComplete, setResumeAfterComplete] = useState(false);
   const [translationRevealed, setTranslationRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -669,7 +680,6 @@ function FullCommunicationTesting({
       setActive(updated);
       setTranslationRevealed(false);
       setSupplierMessage("");
-      setResumeAfterComplete(false);
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -705,7 +715,6 @@ function FullCommunicationTesting({
     setSupplierMessage("");
     setBuyerMessage("");
     setHumanMessage("");
-    setResumeAfterComplete(false);
     setError(null);
   }, [rfq]);
 
@@ -741,7 +750,6 @@ function FullCommunicationTesting({
       setTranslationRevealed(false);
       setSupplierMessage("");
       setHumanMessage("");
-      setResumeAfterComplete(false);
       if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
@@ -788,7 +796,6 @@ function FullCommunicationTesting({
       setSupplierMessage("");
       setBuyerMessage("");
       setHumanMessage("");
-      setResumeAfterComplete(false);
       if (!embedded) await loadHistory();
     } catch (reason) {
       setError(String(reason));
@@ -857,7 +864,6 @@ function FullCommunicationTesting({
     setSupplierMessage("");
     setBuyerMessage("");
     setHumanMessage("");
-    setResumeAfterComplete(false);
     setError(null);
   };
 
@@ -870,8 +876,7 @@ function FullCommunicationTesting({
     active.status !== "complete" &&
     active.status !== "escalated";
   const canResumeComplete = active?.status === "complete";
-  const canContinue =
-    canContinueNormally || (canResumeComplete && resumeAfterComplete);
+  const canContinue = canContinueNormally || canResumeComplete;
 
   return (
     <div
@@ -1132,8 +1137,8 @@ function FullCommunicationTesting({
                   <strong>
                     {active.quote_assessment.is_complete
                       ? active.status === "complete"
-                        ? "Данные собраны — автоматический диалог остановлен."
-                        : "Данные собраны — диалог продолжен вручную."
+                        ? "Данные собраны — переписку можно продолжить."
+                        : "Данные собраны — диалог продолжается."
                       : "Проверка ответа поставщика"}
                   </strong>
                   <span>
@@ -1169,22 +1174,6 @@ function FullCommunicationTesting({
                 </div>
               )}
               {active.error && <p className="error">{active.error}</p>}
-              {canResumeComplete && !resumeAfterComplete && (
-                <div className="communication-resume">
-                  <p className="note">
-                    Собранная котировка сохранится. Продолжение начнётся только
-                    после вашего явного действия.
-                  </p>
-                  <button
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => setResumeAfterComplete(true)}
-                    type="button"
-                  >
-                    Продолжить диалог
-                  </button>
-                </div>
-              )}
               {active.status === "escalated" &&
                 active.simulation_mode === "buyer_ai" && (
                   <div className="communication-reply communication-escalation-reply">

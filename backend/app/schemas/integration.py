@@ -256,8 +256,8 @@ class CommunicationTestContinue(BaseModel):
     supplier_message: str = Field(default="", max_length=8000)
     recipient: str = Field(default="", max_length=320)
     confirm_external_send: bool = False
-    # Полная котировка останавливает автоматические продолжения. Этот флаг
-    # передаётся только после явного действия администратора в интерфейсе.
+    # Полная котировка останавливает автоматические продолжения. Интерфейс
+    # передаёт флаг вместе с первой новой вручную отправленной репликой.
     continue_after_complete: bool = False
 
     @field_validator("message", "supplier_message", "recipient", mode="before")

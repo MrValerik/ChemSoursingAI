@@ -84,6 +84,11 @@ def test_owner_sees_document_and_downloads_it_as_attachment(client, seeded):
     assert downloaded.headers["x-content-type-options"] == "nosniff"
 
 
+def test_document_file_is_not_public(client, seeded):
+    response = client.get(f"/documents/{seeded['document_id']}/file")
+    assert response.status_code == 401
+
+
 def test_foreign_buyer_cannot_reach_the_document(client, seeded):
     other = _auth(client, "petrova")
     assert client.get(

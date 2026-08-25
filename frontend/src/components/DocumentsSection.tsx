@@ -44,6 +44,7 @@ export default function DocumentsSection({ rfqId }: { rfqId: number }) {
   const readOnly = user?.role === "auditor";
   const [documents, setDocuments] = useState<SupplierDocumentRead[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [downloadBusyId, setDownloadBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -82,6 +83,30 @@ export default function DocumentsSection({ rfqId }: { rfqId: number }) {
       );
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const download = async (document: SupplierDocumentRead) => {
+    setDownloadBusyId(document.id);
+    setError(null);
+    try {
+      const blob = await api.downloadDocument(document.id);
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = document.filename;
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? userErrorMessage(caught.message)
+          : String(caught),
+      );
+    } finally {
+      setDownloadBusyId(null);
     }
   };
 
@@ -131,13 +156,15 @@ export default function DocumentsSection({ rfqId }: { rfqId: number }) {
                       {VERIFICATION_LABELS[status] ?? status}
                     </span>
                   )}
-                  <a
-                    className="secondary button-like"
-                    href={api.documentFileUrl(document.id)}
+                  <button
+                    className="secondary"
+                    disabled={downloadBusyId === document.id}
+                    onClick={() => void download(document)}
+                    type="button"
                   >
                     <Icon name="save" size={14} />
-                    Скачать
-                  </a>
+                    {downloadBusyId === document.id ? "Скачивание…" : "Скачать"}
+                  </button>
                   {!readOnly &&
                     (document.text_status === "extracted" ||
                       document.text_status === "ocr_extracted") && (
