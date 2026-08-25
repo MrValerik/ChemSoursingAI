@@ -1047,6 +1047,9 @@ def test_embedded_dialogue_adds_and_understands_demo_coa(
     assert attachment["kind"] == "coa"
     assert attachment["status"] == "extracted"
     assert attachment["verification"]["status"] == "confirmed"
+    assert attachment["verification"]["confidence"] == 90
+    assert attachment["verification"]["model_confidence"] == 96
+    assert attachment["verification"]["confidence_breakdown"]
     assert attachment["verification"]["cas_in_document"] == ["50-78-2"]
     assert len(attachment["verification"]["accepted_claims"]) == 2
 
@@ -1064,6 +1067,9 @@ def test_embedded_dialogue_adds_and_understands_demo_coa(
     )
     assert repeated.status_code == 201
     assert len(repeated.json()["messages"]) == len(payload["messages"])
+    assert repeated.json()["messages"][-1]["attachments"][0]["verification"][
+        "confidence"
+    ] == 90
 
 
 def test_communication_testing_can_simulate_supplier_for_manual_buyer(

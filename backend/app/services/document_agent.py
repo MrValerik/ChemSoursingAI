@@ -42,7 +42,12 @@ def document_verification_prompt(prompt: PromptTemplate | None) -> str:
         + "\n\nВерни ровно один JSON-объект по схеме. В claims включай только "
         "утверждения, подтверждённые дословной цитатой из document_text. "
         "Если текст документа не относится к запрошенному веществу, укажи "
-        "substance_match=mismatch и recommended_action=reject."
+        "substance_match=mismatch и recommended_action=reject. Поле confidence "
+        "означает только уверенность в корректности твоей классификации, а не "
+        "вероятность принятия документа: защитная маркировка synthetic/demo сама "
+        "по себе не снижает эту уверенность. Если evaluation_context.synthetic_demo=true, "
+        "оцени внутреннее соответствие синтетического файла запросу по тем же "
+        "цитатам, CAS и партии; ожидаемую маркировку demo не считай несоответствием."
     )
 
 
@@ -62,6 +67,7 @@ def verify_document(
     *,
     expected_cas: str | None,
     expected_name: str | None = None,
+    synthetic_demo: bool = False,
     llm: LLMClient | None = None,
 ) -> dict:
     """Проверяет документ и сохраняет итог veto-gate в записи."""
@@ -71,6 +77,8 @@ def verify_document(
             document_text=None,
             expected_cas=expected_cas,
             expected_name=expected_name,
+            text_status=document.text_status,
+            synthetic_demo=synthetic_demo,
             unavailable_reason=(
                 "Из документа не извлечён текст: "
                 f"{document.extraction_error or document.text_status}"
@@ -93,6 +101,7 @@ def verify_document(
     document_text = document.text_content[: _document_text_budget()]
     payload = {
         "requested_substance": {"name": expected_name, "cas": expected_cas},
+        "evaluation_context": {"synthetic_demo": synthetic_demo},
         "document": {
             "filename": document.filename,
             "declared_kind": document.kind,
@@ -121,6 +130,8 @@ def verify_document(
         document_text=document_text,
         expected_cas=expected_cas,
         expected_name=expected_name,
+        text_status=document.text_status,
+        synthetic_demo=synthetic_demo,
         unavailable_reason=error,
     )
     result["prompt_id"] = prompt.id if prompt else None

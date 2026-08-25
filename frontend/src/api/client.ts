@@ -31,7 +31,6 @@ import type {
   TemplateRead,
   IntegrationConnectionResult,
   CommunicationTestRun,
-  CommunicationTestMessage,
   UserAdminRead,
   UserRead,
   WhatsAppIntegration,

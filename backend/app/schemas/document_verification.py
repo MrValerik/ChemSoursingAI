@@ -39,7 +39,16 @@ class DocumentVerification(BaseModel):
     substance_match: SubstanceMatch
     verification_status: DocumentStatus
     recommended_action: DocumentAction
-    confidence: int = Field(..., ge=0, le=100)
+    confidence: int = Field(
+        ...,
+        ge=0,
+        le=100,
+        description=(
+            "Уверенность модели именно в корректности собственной классификации, "
+            "а не вероятность принятия документа. Итоговую проверяемую уверенность "
+            "отдельно рассчитывает детерминированный валидатор."
+        ),
+    )
     reason: str = Field(..., min_length=5, max_length=1200)
     claims: list[DocumentClaim] = Field(default_factory=list, max_length=12)
     missing_fields: list[str] = Field(default_factory=list, max_length=8)
@@ -65,7 +74,15 @@ DOCUMENT_VERIFICATION_JSON_SCHEMA = {
             "type": "string",
             "enum": ["accept", "manual_review", "reject"],
         },
-        "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+        "confidence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": (
+                "Уверенность модели в корректности собственной классификации; "
+                "это не вероятность принятия документа."
+            ),
+        },
         "reason": {"type": "string", "minLength": 5, "maxLength": 1200},
         "claims": {
             "type": "array",

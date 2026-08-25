@@ -201,6 +201,13 @@ export default function DocumentsSection({ rfqId }: { rfqId: number }) {
               {verification && (
                 <div className="document-verification">
                   <p>{verification.gate_reason}</p>
+                  <p>
+                    <strong>
+                      {verification.confidence_breakdown?.length
+                        ? `Проверяемая уверенность: ${verification.confidence}%`
+                        : "Требуется повторная проверка по новой формуле"}
+                    </strong>
+                  </p>
                   {verification.reason && (
                     <p className="note">{verification.reason}</p>
                   )}
@@ -214,6 +221,30 @@ export default function DocumentsSection({ rfqId }: { rfqId: number }) {
                         : "не найден"}
                     </dd>
                   </dl>
+
+                  {(verification.confidence_breakdown?.length ?? 0) > 0 && (
+                    <details className="trace-subdetails">
+                      <summary>Из чего складывается уверенность</summary>
+                      <ul className="document-claims">
+                        {verification.confidence_breakdown?.map((factor) => (
+                          <li key={`confidence-${document.id}-${factor.key}`}>
+                            <strong>
+                              {factor.label}: {factor.score >= 0 ? "+" : ""}
+                              {factor.score}
+                              {factor.max_score > 0 ? `/${factor.max_score}` : ""}
+                            </strong>
+                            <small>{factor.reason}</small>
+                          </li>
+                        ))}
+                      </ul>
+                      {verification.model_confidence != null && (
+                        <p className="note">
+                          Справочная уверенность классификатора: {verification.model_confidence}%.
+                          Она не определяет итоговый процент.
+                        </p>
+                      )}
+                    </details>
+                  )}
 
                   {verification.accepted_claims?.length > 0 && (
                     <details className="trace-subdetails" open>

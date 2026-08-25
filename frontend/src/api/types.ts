@@ -981,13 +981,24 @@ export interface DocumentClaimRead {
   rejection_reason?: string;
 }
 
+export interface DocumentConfidenceFactor {
+  key: string;
+  label: string;
+  score: number;
+  max_score: number;
+  reason: string;
+}
+
 export interface DocumentVerificationResult {
   status: "confirmed" | "needs_review" | "rejected" | "unavailable";
   model_status: string | null;
   document_kind: string | null;
+  deterministic_document_kind?: string;
   substance_match: string;
   recommended_action: string;
   confidence: number;
+  model_confidence?: number | null;
+  confidence_breakdown?: DocumentConfidenceFactor[];
   reason: string;
   gate_reason: string;
   accepted_claims: DocumentClaimRead[];
@@ -997,6 +1008,10 @@ export interface DocumentVerificationResult {
   cas_in_document: string[];
   expected_cas: string | null;
   expected_name?: string | null;
+  name_matches?: boolean;
+  identity_basis?: string;
+  text_status?: string | null;
+  synthetic_demo?: boolean;
 }
 
 export interface SupplierDocumentRead {

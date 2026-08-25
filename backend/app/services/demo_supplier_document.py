@@ -8,6 +8,26 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import unicodedata
+
+
+_CYRILLIC_TRANSLITERATION = str.maketrans(
+    {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e",
+        "ё": "e", "ж": "zh", "з": "z", "и": "i", "й": "i", "к": "k",
+        "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r",
+        "с": "s", "т": "t", "у": "u", "ф": "f", "х": "kh", "ц": "ts",
+        "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "",
+        "э": "e", "ю": "yu", "я": "ya",
+    }
+)
+
+
+def _pdf_safe_name(value: str) -> str:
+    """Читаемая ASCII-транслитерация вместо знаков вопроса в Helvetica."""
+    decomposed = unicodedata.normalize("NFKD", (value or "").casefold())
+    transliterated = decomposed.translate(_CYRILLIC_TRANSLITERATION)
+    return "".join(char for char in transliterated if ord(char) < 128).strip()
 
 
 def _pdf_escape(value: str) -> str:
@@ -18,10 +38,11 @@ def build_demo_coa_pdf(*, substance_name: str, cas: str | None) -> bytes:
     """Возвращает минимальный PDF с текстовым слоем и синтетическим CoA."""
     manufactured = date.today().replace(day=1)
     expires = manufactured + timedelta(days=3 * 365)
+    safe_substance_name = _pdf_safe_name(substance_name) or "Requested chemical"
     lines = [
         "CHEMSOURCE DEMO SUPPLIER CO., LTD.",
         "CERTIFICATE OF ANALYSIS - SYNTHETIC DEMONSTRATION ONLY",
-        f"Product Name: {substance_name or 'Requested chemical'}",
+        f"Product Name: {safe_substance_name}",
         f"CAS No.: {cas or 'Not supplied in RFQ'}",
         f"Batch No.: DEMO-{manufactured:%Y%m}-01",
         f"Manufacturing Date: {manufactured:%Y-%m-%d}",
@@ -41,8 +62,8 @@ def build_demo_coa_pdf(*, substance_name: str, cas: str | None) -> bytes:
 
     content = "BT /F1 11 Tf 40 750 Td 14 TL\n"
     for line in lines:
-        # Встроенный Helvetica хранит только latin-1. CAS и числовые факты
-        # сохраняются без изменений; неподдерживаемые символы имени видны как ?.
+        # Встроенный Helvetica хранит только latin-1. Имя заранее переведено в
+        # однозначную ASCII-транслитерацию, поэтому текстовый слой не теряет его.
         safe = _pdf_escape(line).encode("latin-1", errors="replace").decode("latin-1")
         content += f"({safe}) Tj T*\n"
     content += "ET"

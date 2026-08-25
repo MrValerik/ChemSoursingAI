@@ -28,6 +28,7 @@ from app.models import (
     CommunicationTestRun,
     Quotation,
     RFQ,
+    SupplierDocument,
     User,
 )
 from app.schemas.integration import (
@@ -469,19 +470,46 @@ def add_demo_document_reply(
     if run.rfq_id is None or run.rfq is None:
         raise ValueError("Для демонстрации откройте диалог из карточки RFQ")
 
+    rfq = run.rfq
     for message in run.messages:
-        if any(
-            str(item.get("filename") or "").startswith("Demo_CoA_")
-            for item in message.attachments or []
-        ):
-            return _attach_quote_assessment(run)
+        attachments = list(message.attachments or [])
+        for index, item in enumerate(attachments):
+            if not str(item.get("filename") or "").startswith("Demo_CoA_"):
+                continue
+            document_id = item.get("document_id")
+            document = (
+                db.get(SupplierDocument, int(document_id))
+                if document_id is not None
+                else None
+            )
+            if document is not None:
+                if document.text_status == "stored":
+                    apply_extraction(document)
+                verify_document(
+                    db,
+                    document,
+                    expected_cas=rfq.cas,
+                    expected_name=rfq.name,
+                    synthetic_demo=True,
+                    llm=llm,
+                )
+                attachments[index] = {
+                    **item,
+                    "kind": document.kind,
+                    "status": document.text_status,
+                    "page_count": document.page_count,
+                    "error": document.extraction_error,
+                    "verification": document.verification,
+                }
+                message.attachments = attachments
+                db.commit()
+            return _attach_quote_assessment(_load_run(db, run.id) or run)
 
     if run.status in {"complete", "sending", "sent"}:
         raise ValueError("Диалог уже завершён")
     if not run.messages or run.messages[-1].sender_role != "assistant":
         raise ValueError("Сначала дождитесь сообщения покупателя")
 
-    rfq = run.rfq
     filename_cas = re.sub(r"[^0-9-]", "", rfq.cas or "") or "without-CAS"
     filename = f"Demo_CoA_{filename_cas}.pdf"
     payload = build_demo_coa_pdf(substance_name=rfq.name, cas=rfq.cas)
@@ -500,6 +528,7 @@ def add_demo_document_reply(
         document,
         expected_cas=rfq.cas,
         expected_name=rfq.name,
+        synthetic_demo=True,
         llm=llm,
     )
 

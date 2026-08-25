@@ -266,12 +266,76 @@ def test_passport_with_matching_cas_and_batch_is_confirmed():
         expected_name="Aspirin",
     )
     assert result["status"] == "confirmed"
+    assert result["confidence"] == 90
+    assert result["model_confidence"] == 92
+    assert sum(item["score"] for item in result["confidence_breakdown"]) == 90
     assert result["cas_in_document"] == ["50-78-2"]
     assert {claim["claim_type"] for claim in result["accepted_claims"]} == {
         "chemical_identity",
         "batch",
     }
     assert result["rejected_claims"] == []
+
+
+def test_model_confidence_does_not_replace_evidence_confidence():
+    from app.services.document_verification import apply_document_verification
+
+    result = apply_document_verification(
+        verification=_verification(confidence=1),
+        document_text=_DOCUMENT_TEXT,
+        expected_cas="50-78-2",
+        expected_name="Aspirin",
+    )
+
+    assert result["status"] == "confirmed"
+    assert result["confidence"] == 90
+    assert result["model_confidence"] == 1
+
+
+def test_document_without_requested_cas_can_be_confirmed_by_labeled_name():
+    from app.services.document_verification import apply_document_verification
+
+    verification = _verification(
+        claims=[
+            {
+                "claim_type": "chemical_identity",
+                "claim_value": "Aspirin",
+                "quote": "Product Name: Aspirin (Acetylsalicylic Acid)",
+            },
+            {
+                "claim_type": "batch",
+                "claim_value": "A-20240517",
+                "quote": "Batch No.: A-20240517",
+            },
+        ]
+    )
+    result = apply_document_verification(
+        verification=verification,
+        document_text=_DOCUMENT_TEXT,
+        expected_cas=None,
+        expected_name="Aspirin",
+    )
+
+    assert result["status"] == "confirmed"
+    assert result["name_matches"] is True
+    assert result["identity_basis"] == "name"
+    assert result["confidence"] == 85
+
+
+def test_missing_requested_cas_cannot_be_replaced_by_name_match():
+    from app.services.document_verification import apply_document_verification
+
+    text_without_cas = _DOCUMENT_TEXT.replace("CAS No.: 50-78-2\n", "")
+    result = apply_document_verification(
+        verification=_verification(),
+        document_text=text_without_cas,
+        expected_cas="50-78-2",
+        expected_name="Aspirin",
+    )
+
+    assert result["status"] == "needs_review"
+    assert result["identity_basis"] == "name_with_missing_expected_cas"
+    assert result["confidence"] == 60
 
 
 def test_document_for_another_substance_is_rejected():
@@ -326,6 +390,132 @@ def test_invented_quote_is_not_accepted_as_evidence():
     assert result["status"] == "needs_review"
     assert len(result["rejected_claims"]) == 1
     assert result["rejected_claims"][0]["quote_verified"] is False
+    assert result["confidence"] == 60
+
+
+def test_batch_value_must_match_its_verbatim_quote():
+    from app.services.document_verification import apply_document_verification
+
+    result = apply_document_verification(
+        verification=_verification(
+            claims=[
+                {
+                    "claim_type": "chemical_identity",
+                    "claim_value": "CAS 50-78-2",
+                    "quote": "CAS No.: 50-78-2",
+                },
+                {
+                    "claim_type": "batch",
+                    "claim_value": "INVENTED-BATCH",
+                    "quote": "Batch No.: A-20240517",
+                },
+            ]
+        ),
+        document_text=_DOCUMENT_TEXT,
+        expected_cas="50-78-2",
+    )
+
+    assert result["status"] == "needs_review"
+    assert result["confidence"] == 60
+    assert "claim_value" in result["rejected_claims"][0]["rejection_reason"]
+
+
+def test_demo_pdf_transliterates_russian_name_without_question_marks():
+    from app.services.demo_supplier_document import build_demo_coa_pdf
+    from app.services.document_text import extract_pdf_text
+
+    extracted = extract_pdf_text(
+        build_demo_coa_pdf(
+            substance_name="Ацетилсалициловая кислота",
+            cas="50-78-2",
+        )
+    )
+
+    assert "Product Name: atsetilsalitsilovaya kislota" in (extracted.text or "")
+    assert "Product Name: ?" not in (extracted.text or "")
+
+
+def test_demo_pdf_without_cas_passes_by_transliterated_requested_name():
+    import re
+
+    from app.services.demo_supplier_document import build_demo_coa_pdf
+    from app.services.document_text import extract_pdf_text
+    from app.services.document_verification import apply_document_verification
+
+    extracted = extract_pdf_text(
+        build_demo_coa_pdf(
+            substance_name="Ацетилсалициловая кислота",
+            cas=None,
+        )
+    )
+    text = extracted.text or ""
+    batch = re.search(r"Batch No.: ([A-Z0-9-]+)", text).group(1)
+    verification = _verification(
+        claims=[
+            {
+                "claim_type": "chemical_identity",
+                "claim_value": "atsetilsalitsilovaya kislota",
+                "quote": "Product Name: atsetilsalitsilovaya kislota",
+            },
+            {
+                "claim_type": "batch",
+                "claim_value": batch,
+                "quote": f"Batch No.: {batch}",
+            },
+        ]
+    )
+
+    result = apply_document_verification(
+        verification=verification,
+        document_text=text,
+        expected_cas=None,
+        expected_name="Ацетилсалициловая кислота",
+        synthetic_demo=True,
+    )
+
+    assert result["status"] == "confirmed"
+    assert result["identity_basis"] == "name"
+    assert result["confidence"] == 85
+
+
+def test_ocr_text_receives_a_deterministic_confidence_penalty():
+    from app.services.document_verification import apply_document_verification
+
+    result = apply_document_verification(
+        verification=_verification(),
+        document_text=_DOCUMENT_TEXT,
+        expected_cas="50-78-2",
+        expected_name="Aspirin",
+        text_status="ocr_extracted",
+    )
+
+    assert result["confidence"] == 76
+    assert result["status"] == "needs_review"
+    assert result["confidence_breakdown"][-1]["key"] == "ocr_quality"
+
+
+def test_synthetic_demo_uses_the_same_evidence_score_but_ignores_demo_veto():
+    from app.services.document_verification import apply_document_verification
+
+    result = apply_document_verification(
+        verification=_verification(
+            substance_match="mismatch",
+            verification_status="rejected",
+            recommended_action="reject",
+            confidence=1,
+            reason="The file is marked as synthetic.",
+            red_flags=["Synthetic demonstration file"],
+        ),
+        document_text=_DOCUMENT_TEXT + "\nSYNTHETIC DEMONSTRATION ONLY",
+        expected_cas="50-78-2",
+        expected_name="Aspirin",
+        synthetic_demo=True,
+    )
+
+    assert result["status"] == "confirmed"
+    assert result["confidence"] == 90
+    assert result["model_confidence"] == 1
+    assert result["synthetic_demo"] is True
 
 
 def test_unavailable_agent_blocks_acceptance():

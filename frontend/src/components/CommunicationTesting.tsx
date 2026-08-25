@@ -152,7 +152,9 @@ function TestMessageAttachments({ message }: { message: CommunicationTestMessage
                 <strong>
                   {DOCUMENT_VERIFICATION_LABELS[verification.status] ??
                     verification.status}
-                  {` · уверенность ${verification.confidence}%`}
+                  {verification.confidence_breakdown?.length
+                    ? ` · проверяемая уверенность ${verification.confidence}%`
+                    : " · требуется повторная проверка по новой формуле"}
                 </strong>
                 <span>{verification.gate_reason}</span>
                 <span>
@@ -161,6 +163,29 @@ function TestMessageAttachments({ message }: { message: CommunicationTestMessage
                     ? verification.cas_in_document.join(", ")
                     : "не найден"}
                 </span>
+                {(verification.confidence_breakdown?.length ?? 0) > 0 && (
+                  <details>
+                    <summary>Из чего складывается уверенность</summary>
+                    <ul>
+                      {verification.confidence_breakdown?.map((factor) => (
+                        <li key={`${attachment.document_id}-${factor.key}`}>
+                          <strong>
+                            {factor.label}: {factor.score >= 0 ? "+" : ""}
+                            {factor.score}
+                            {factor.max_score > 0 ? `/${factor.max_score}` : ""}
+                          </strong>
+                          <span>{factor.reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {verification.model_confidence != null && (
+                      <span>
+                        Справочная уверенность классификатора: {verification.model_confidence}%.
+                        Она не определяет итоговый процент.
+                      </span>
+                    )}
+                  </details>
+                )}
                 {verification.accepted_claims?.length > 0 && (
                   <details>
                     <summary>
