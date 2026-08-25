@@ -17,9 +17,31 @@ import {
   type SearchModeKey,
 } from "./searchModes";
 import { STATUS_LABELS } from "./statusLabels";
-import { Field, HelpTip, Icon, Input, Select, Textarea } from "./ui";
+import {
+  Field,
+  HelpTip,
+  Icon,
+  Input,
+  Select,
+  Textarea,
+  type SelectOption,
+} from "./ui";
 
-const ALL_INCOTERMS = ["CIP", "FCA", "EXW"];
+// Базисы поставки. Набор и порядок обязаны совпадать с SUPPORTED_INCOTERMS
+// в backend/app/services/incoterms.py — там же стоит тест, который ломается
+// при расхождении. Здесь к коду добавлено русское пояснение: «FCA» и «DAP»
+// сами по себе не говорят закупщику, до какого места довезёт поставщик.
+//
+// Пояснение описывает, кто что делает, и намеренно не обещает расчёт
+// стоимости доставки: программа её не считает и считать не собирается.
+const INCOTERM_OPTIONS: { code: string; hint: string }[] = [
+  { code: "EXW", hint: "Забираем со склада продавца. Вывоз, экспорт и перевозка — на нас." },
+  { code: "FCA", hint: "Продавец передаёт груз перевозчику и оформляет экспорт. Перевозка — на нас." },
+  { code: "FOB", hint: "Продавец грузит на судно в своём порту. Фрахт и страховка — на нас." },
+  { code: "CIP", hint: "Продавец везёт до названного места и страхует груз." },
+  { code: "DAP", hint: "Продавец довозит до названного места. Ввозная растаможка — на нас." },
+];
+
 const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
 
 // Грейд — величина справочная, вариантов конечное число. Значение хранится
@@ -27,19 +49,26 @@ const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
 // Списка грейдов в ТЗ нет: там названа чистота, а грейд упомянут в
 // извлечении ответов и сравнении. Поэтому список открытый — «Другое»
 // пропускает то, чего здесь не предусмотрели.
-const GRADES: { value: string; label: string }[] = [
+//
+// Наверху — четыре отраслевых грейда, которыми закупщик пользуется чаще
+// всего; промышленного среди них раньше не было вовсе, хотя основной
+// объём закупки идёт именно по нему. Фармакопейные стандарты стояли
+// первыми и вытесняли отраслевые вниз, поэтому убраны в свой раздел:
+// USP и BP нужны узкому кругу запросов.
+const GRADES: SelectOption[] = [
   { value: "", label: "Не задан" },
-  { value: "USP", label: "USP" },
-  { value: "EP (Ph. Eur.)", label: "EP / Ph. Eur." },
-  { value: "BP", label: "BP" },
-  { value: "JP", label: "JP" },
-  { value: "ACS reagent", label: "ACS, реактивный" },
   { value: "Pharmaceutical grade", label: "Фармацевтический" },
-  { value: "Food grade", label: "Пищевой" },
+  { value: "Industrial grade", label: "Промышленный" },
   { value: "Cosmetic grade", label: "Косметический" },
-  { value: "Feed grade", label: "Кормовой" },
-  { value: "Technical grade", label: "Технический" },
-  { value: "other", label: "Другое" },
+  { value: "Food grade", label: "Пищевой" },
+  { value: "USP", label: "USP", group: "Фармакопейные стандарты" },
+  { value: "EP (Ph. Eur.)", label: "EP / Ph. Eur.", group: "Фармакопейные стандарты" },
+  { value: "BP", label: "BP", group: "Фармакопейные стандарты" },
+  { value: "JP", label: "JP", group: "Фармакопейные стандарты" },
+  { value: "ACS reagent", label: "ACS, реактивный", group: "Фармакопейные стандарты" },
+  { value: "Feed grade", label: "Кормовой", group: "Прочие грейды" },
+  { value: "Technical grade", label: "Технический", group: "Прочие грейды" },
+  { value: "other", label: "Другое", group: "Прочие грейды" },
 ];
 
 const CURRENCIES: { value: string; label: string }[] = [
@@ -114,6 +143,9 @@ export default function NewRfq({ onCreated }: Props) {
   const [specialistComment, setSpecialistComment] = useState("");
   const [volumeAmount, setVolumeAmount] = useState("");
   const [volumeUnit, setVolumeUnit] = useState("kg");
+  // По умолчанию отмечены не все базисы: письмо с пятью вариантами просит
+  // поставщика посчитать пять цен, и он считает одну или не отвечает.
+  // Три прежних варианта и были умолчанием — набор расширился, умолчание нет.
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
   const [searchMode, setSearchMode] = useState<SearchModeKey>(DEFAULT_SEARCH_MODE);
@@ -745,16 +777,25 @@ export default function NewRfq({ onCreated }: Props) {
         </div>
 
         <div className="field">
-          <label>Условия поставки</label>
-          <div className="checks">
-            {ALL_INCOTERMS.map((code) => (
-              <label key={code}>
-                <input
-                  type="checkbox"
-                  checked={incoterms.includes(code)}
-                  onChange={() => toggleIncoterm(code)}
-                />
-                {code}
+          <div className="heading-with-help">
+            <label>Условия поставки</label>
+            <HelpTip text="Базис поставки говорит, до какого места везёт поставщик и с какого места расходы и риск переходят к покупателю. Отмеченные базисы уходят в письмо, и поставщик называет цену по каждому. Стоимость доставки программа не рассчитывает — её называет поставщик." />
+          </div>
+          <div className="incoterms">
+            {INCOTERM_OPTIONS.map(({ code, hint }) => (
+              <label
+                key={code}
+                className={`incoterm${incoterms.includes(code) ? " active" : ""}`}
+              >
+                <span className="incoterm-head">
+                  <input
+                    type="checkbox"
+                    checked={incoterms.includes(code)}
+                    onChange={() => toggleIncoterm(code)}
+                  />
+                  <span className="incoterm-code">{code}</span>
+                </span>
+                <span className="incoterm-hint">{hint}</span>
               </label>
             ))}
           </div>

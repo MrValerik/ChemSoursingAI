@@ -171,6 +171,23 @@ button.ui-select-option.is-selected {
   font-weight: 600;
 }
 
+/* Заголовок раздела в списке. Не кнопка и не пункт: выбрать его нельзя,
+   стрелки на нём не останавливаются. Отступ сверху есть у всех, кроме
+   первого, — иначе список начинался бы с пустой полосы. */
+.ui-select-group {
+  padding: 6px 9px 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.ui-select-group:not(:first-child) {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
 /* Обёртка нативного <select>: своя стрелка, которая умеет поворачиваться. */
 .select-wrap {
   position: relative;

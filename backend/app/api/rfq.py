@@ -28,6 +28,7 @@ from app.services.communication_testing import (
     CommunicationTestError,
     translate_preview_text,
 )
+from app.services.incoterms import SUPPORTED_INCOTERMS
 from app.services.rfq_builder import (
     RFQInput,
     UnsupportedIncotermError,
@@ -79,7 +80,7 @@ class RFQGenerateRequest(BaseModel):
     analog_reference: str | None = None
     analog_variations: list[str] = Field(default_factory=list)
     specification: str | None = None
-    incoterms: list[str] = Field(..., examples=[["CIP", "FCA", "EXW"]])
+    incoterms: list[str] = Field(..., examples=[list(SUPPORTED_INCOTERMS)])
     purity: str | None = None
     application: str | None = None
     volume: str | None = None

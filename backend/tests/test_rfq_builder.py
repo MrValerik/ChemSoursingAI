@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.services.incoterms import INCOTERM_PLACES, SUPPORTED_INCOTERMS
 from app.services.rfq_builder import (
     REQUIRED_DOCUMENTS,
     RFQInput,
@@ -52,3 +53,56 @@ def test_empty_incoterms_rejected():
 def test_unsupported_incoterm_rejected():
     with pytest.raises(UnsupportedIncotermError):
         build_rfq(_sample(incoterms=["DDP"]))
+
+
+# --- набор базисов поставки ---
+
+
+def test_supported_set_is_pinned():
+    """Набор базисов зафиксирован и совпадает со списком в форме.
+
+    Список во фронте (`NewRfq.tsx`, INCOTERM_OPTIONS) держится отдельно:
+    у него есть русские пояснения, которых бэкенду не нужно. Разъехаться
+    они не должны — этот тест ломается, если набор здесь изменили, а
+    форму не тронули.
+    """
+    assert SUPPORTED_INCOTERMS == ("EXW", "FCA", "FOB", "CIP", "DAP")
+
+
+@pytest.mark.parametrize("code", SUPPORTED_INCOTERMS)
+def test_every_supported_incoterm_reaches_the_letter(code):
+    """Каждый базис проходит сериализацию и попадает в текст письма."""
+    rfq = build_rfq(_sample(incoterms=[code]))
+    assert rfq["fields"]["incoterms"] == [code]
+    assert rfq["fields"]["delivery_terms"] == [INCOTERM_PLACES[code]]
+    # В письме базис назван вместе с местом поставки: Incoterm без
+    # названного места не говорит, где переходят риск и расходы.
+    assert f"  - {code} — {INCOTERM_PLACES[code]}" in rfq["body"]
+
+
+def test_new_bases_are_available():
+    """FOB и DAP — то, чего не хватало закупщику на встрече."""
+    rfq = build_rfq(_sample(incoterms=["FOB", "DAP"]))
+    assert rfq["fields"]["incoterms"] == ["FOB", "DAP"]
+
+
+def test_incoterm_order_follows_the_buyer():
+    """Порядок в письме — тот, в котором отметил закупщик, не канонический."""
+    rfq = build_rfq(_sample(incoterms=["DAP", "EXW"]))
+    assert rfq["fields"]["incoterms"] == ["DAP", "EXW"]
+
+
+def test_duplicate_incoterms_collapse():
+    """Повтор базиса не должен дублировать строку в письме."""
+    rfq = build_rfq(_sample(incoterms=["CIP", "cip", " CIP "]))
+    assert rfq["fields"]["incoterms"] == ["CIP"]
+    assert rfq["body"].count("  - CIP — ") == 1
+
+
+def test_rejection_names_the_supported_set():
+    """Отказ называет доступные базисы, а не только факт отказа."""
+    with pytest.raises(UnsupportedIncotermError) as exc:
+        build_rfq(_sample(incoterms=["DDP"]))
+    message = str(exc.value)
+    for code in SUPPORTED_INCOTERMS:
+        assert code in message

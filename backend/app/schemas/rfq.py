@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.models.enums import RFQStatus
 from app.services.cas import is_valid_cas, normalize_cas, suggest_check_digit
+from app.services.incoterms import SUPPORTED_INCOTERMS, normalize_incoterms
 from app.services.search_countries import normalize_search_country
 
 # Способ идентификации предмета закупки. Номер есть не у всего, что
@@ -33,7 +34,7 @@ class RFQCreate(BaseModel):
     specification: str | None = Field(default=None, max_length=4000)
     confirmed_synonyms: list[str] = Field(default_factory=list, max_length=50)
     excluded_names: list[str] = Field(default_factory=list, max_length=50)
-    incoterms: list[str] = Field(..., examples=[["CIP", "FCA", "EXW"]])
+    incoterms: list[str] = Field(..., examples=[list(SUPPORTED_INCOTERMS)])
     channels: list[str] = Field(default_factory=list, examples=[["email"]])
     search_countries: list[str] = Field(
         default_factory=lambda: ["Китай"],
@@ -50,6 +51,17 @@ class RFQCreate(BaseModel):
     target_price: float | None = None
     currency: str = "USD"
     specialist_comment: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("incoterms")
+    @classmethod
+    def check_incoterms(cls, values: list[str]) -> list[str]:
+        """Базис отклоняется здесь, а не при сборке письма.
+
+        Раньше единственной проверкой был генератор RFQ: запрос успевал
+        создаться, и закупщик узнавал про неподдерживаемый базис уже
+        после. Проверка на входе называет доступный набор сразу.
+        """
+        return normalize_incoterms(values)
 
     @field_validator("search_countries")
     @classmethod

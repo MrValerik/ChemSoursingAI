@@ -117,7 +117,12 @@ def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
             volume=rfq.volume,
             target_price=float(rfq.target_price) if rfq.target_price else None,
             currency=rfq.currency or "USD",
-        )
+        ),
+        # Запрос уже сохранён, и справочник базисов с тех пор мог измениться.
+        # Строгая проверка здесь роняла бы саму карточку: закупщик не смог бы
+        # открыть собственный отправленный запрос из-за того, что базис
+        # переименовали. Показываем сохранённое как есть.
+        strict=False,
     )
     return result["subject"], result["body"]
 

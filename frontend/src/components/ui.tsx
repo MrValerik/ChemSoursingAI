@@ -1,4 +1,5 @@
 import {
+  Fragment,
   forwardRef,
   useEffect,
   useRef,
@@ -22,6 +23,10 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
 export interface SelectOption {
   value: string;
   label: string;
+  // Заголовок раздела перед пунктом. Список остаётся плоским: заголовок
+  // рисуется, когда группа сменилась, и в счёт пунктов не идёт — иначе
+  // стрелки на клавиатуре вставали бы на подпись, которую нельзя выбрать.
+  group?: string;
 }
 
 // Свой список вместо нативного: раскрывающуюся часть <select> рисует
@@ -124,22 +129,28 @@ export function Select({
       {open && (
         <div className="ui-select-menu" role="listbox" tabIndex={-1}>
           {options.map((option, index) => (
-            <button
-              aria-selected={option.value === value}
-              className={classes(
-                "ui-select-option",
-                index === cursor && "is-cursor",
-                option.value === value && "is-selected",
+            <Fragment key={option.value}>
+              {option.group && option.group !== options[index - 1]?.group && (
+                <span className="ui-select-group" role="presentation">
+                  {option.group}
+                </span>
               )}
-              key={option.value}
-              role="option"
-              type="button"
-              onMouseEnter={() => setCursor(index)}
-              onClick={() => pick(option)}
-            >
-              <span>{option.label}</span>
-              {option.value === value && <Icon name="check" size={14} />}
-            </button>
+              <button
+                aria-selected={option.value === value}
+                className={classes(
+                  "ui-select-option",
+                  index === cursor && "is-cursor",
+                  option.value === value && "is-selected",
+                )}
+                role="option"
+                type="button"
+                onMouseEnter={() => setCursor(index)}
+                onClick={() => pick(option)}
+              >
+                <span>{option.label}</span>
+                {option.value === value && <Icon name="check" size={14} />}
+              </button>
+            </Fragment>
           ))}
         </div>
       )}

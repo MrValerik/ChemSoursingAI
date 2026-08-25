@@ -13,12 +13,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Человекочитаемые места поставки под каждый базис (целевые для MVP).
-INCOTERM_PLACES = {
-    "CIP": "CIP Moscow, Russia",
-    "FCA": "FCA Shanghai, China",
-    "EXW": "EXW (seller's works)",
-}
+from app.services.incoterms import (
+    INCOTERM_PLACES,
+    UnsupportedIncotermError,
+    describe_incoterm,
+    normalize_incoterms,
+)
+
+__all__ = [
+    "ANALOG_VARIATION_TEXT",
+    "INCOTERM_PLACES",
+    "REQUIRED_DOCUMENTS",
+    "RFQInput",
+    "UnsupportedIncotermError",
+    "build_rfq",
+]
 
 # Документы, обязательные к запросу в каждом RFQ.
 REQUIRED_DOCUMENTS = ["Certificate of Analysis (CoA)", "Technical Data Sheet (TDS)"]
@@ -54,25 +63,22 @@ class RFQInput:
     currency: str = "USD"
 
 
-class UnsupportedIncotermError(ValueError):
-    """Передан базис вне поддерживаемого набора (CIP/FCA/EXW)."""
+def _validate_incoterms(incoterms: list[str], *, strict: bool = True) -> list[str]:
+    # Набор и правила приведения — в app.services.incoterms: тем же кодом
+    # проверяется входящий RFQCreate, чтобы форма и письмо не разошлись.
+    return normalize_incoterms(incoterms, strict=strict)
 
 
-def _validate_incoterms(incoterms: list[str]) -> list[str]:
-    if not incoterms:
-        raise UnsupportedIncotermError("incoterms list is empty")
-    normalized = [i.strip().upper() for i in incoterms]
-    unsupported = [i for i in normalized if i not in INCOTERM_PLACES]
-    if unsupported:
-        raise UnsupportedIncotermError(f"unsupported incoterms: {unsupported}")
-    return normalized
-
-
-def build_rfq(data: RFQInput) -> dict:
+def build_rfq(data: RFQInput, *, strict: bool = True) -> dict:
     """Собирает RFQ: структурированные поля запроса (для рассылки/трекинга) +
     готовый текст письма под выбранные базисы.
+
+    `strict=False` — перерисовка уже сохранённого запроса: базис вне
+    текущего справочника показывается как есть, а не роняет карточку.
+    Новый запрос собирается строго: базис, который система не понимает,
+    нельзя отправить поставщику.
     """
-    incoterms = _validate_incoterms(data.incoterms)
+    incoterms = _validate_incoterms(data.incoterms, strict=strict)
 
     fields = {
         "substance": data.name,
@@ -85,7 +91,7 @@ def build_rfq(data: RFQInput) -> dict:
         "application": data.application,
         "quantity": data.volume or "to be confirmed",
         "incoterms": incoterms,
-        "delivery_terms": [INCOTERM_PLACES[i] for i in incoterms],
+        "delivery_terms": [describe_incoterm(i) for i in incoterms],
         "required_documents": REQUIRED_DOCUMENTS,
         "requested_quote_fields": [
             "unit price",
@@ -150,7 +156,7 @@ def _build_body(data: RFQInput, incoterms: list[str]) -> str:
 
     lines.append("Please quote on the following delivery basis (Incoterms 2020):")
     for code in incoterms:
-        lines.append(f"  - {code} — {INCOTERM_PLACES[code]}")
+        lines.append(f"  - {code} — {describe_incoterm(code)}")
     lines.append("")
 
     lines.append("Please include in your offer:")
