@@ -329,3 +329,120 @@ def test_endpoint_rejects_an_empty_name(monkeypatch):
         engine.dispose()
 
     assert response.status_code == 422
+
+
+# --- провенанс: на нём стоит автозаполнение синонимов ---
+
+
+def test_model_verdict_never_claims_registry_provenance(monkeypatch):
+    """Вывод модели не может выдать себя за запись справочника.
+
+    Форма автоматически отмечает равнозначные названия, и порогом служит
+    именно источник: синоним PubChem — запись реестра, кандидат из веба —
+    прочтение страницы моделью. Если бы веб-кандидат мог получить
+    source="pubchem", форма молча отметила бы догадку модели, а неверный
+    синоним в поиске находит настоящих поставщиков не того вещества.
+    """
+    _patch_sources(
+        monkeypatch,
+        results=_snippets(
+            (
+                "Betaine anhydrous",
+                "https://example.test/betaine",
+                "Betaine anhydrous is the same as glycine betaine",
+            ),
+        ),
+    )
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "Glycine betaine",
+                    "cas": None,
+                    "relation": "same",
+                    "reason": "Страница называет это тем же веществом",
+                    "source_url": "https://example.test/betaine",
+                    "quote": "Betaine anhydrous is the same as glycine betaine",
+                }
+            ]
+        }
+    )
+
+    result = resolve_substance("Betaine anhydrous", llm=llm)
+
+    assert result.candidates, "кандидат из веба должен остаться в выдаче"
+    assert all(item.source == "web" for item in result.candidates)
+    # Причина обязательна: форма показывает её закупщику рядом с названием.
+    assert all(item.reason for item in result.candidates)
+
+
+def test_registry_synonyms_are_ready_for_autofill(monkeypatch):
+    """Синонимы карточки PubChem пригодны для отметки без правки руками.
+
+    Форма отмечает их автоматически, поэтому в списке не должно быть
+    номеров и складских артикулов: закупщик увидел бы их в письме
+    поставщику как названия вещества.
+    """
+    info = SubstanceInfo(
+        cas="Betaine",
+        found=True,
+        cid=247,
+        iupac_name="betaine",
+        molecular_formula="C5H11NO2",
+        synonyms=[
+            "Betaine",
+            "107-43-7",
+            "Glycine betaine",
+            "AKOS015896321",
+            "NSC 27640",
+            "Trimethylglycine",
+        ],
+    )
+    _patch_sources(monkeypatch, pubchem=info)
+
+    result = resolve_substance("Betaine", llm=_StubLLM({"candidates": []}))
+
+    card = result.candidates[0]
+    assert card.source == "pubchem"
+    assert card.relation == "same"
+    assert "Glycine betaine" in card.synonyms
+    assert "Trimethylglycine" in card.synonyms
+    for junk in ("107-43-7", "AKOS015896321", "NSC 27640"):
+        assert junk not in card.synonyms, junk
+    # Само предпочтительное название в синонимах не дублируется.
+    assert card.name not in card.synonyms
+
+
+def test_neighbouring_name_never_arrives_as_same(monkeypatch):
+    """Другая соль остаётся different и в автозаполнение не попадает."""
+    _patch_sources(
+        monkeypatch,
+        results=_snippets(
+            (
+                "Betaine hydrochloride",
+                "https://example.test/bet-hcl",
+                "Betaine hydrochloride CAS 590-46-5 is the salt form",
+            ),
+        ),
+    )
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "Betaine hydrochloride",
+                    "cas": "590-46-5",
+                    "relation": "different",
+                    "reason": "Гидрохлорид — другое вещество",
+                    "source_url": "https://example.test/bet-hcl",
+                    "quote": "Betaine hydrochloride CAS 590-46-5 is the salt form",
+                }
+            ]
+        }
+    )
+
+    result = resolve_substance("Betaine", llm=llm)
+
+    same = [item for item in result.candidates if item.relation == "same"]
+    different = [item for item in result.candidates if item.relation == "different"]
+    assert not same
+    assert [item.name for item in different] == ["Betaine hydrochloride"]

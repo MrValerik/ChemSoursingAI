@@ -25,6 +25,13 @@ interface Props {
   value: string[];
   onChange: (next: string[]) => void;
   placeholder?: string;
+  /**
+   * Откуда взялось предложение и почему. Отмеченное название закупщик
+   * увидит в письме поставщику, поэтому должен иметь возможность узнать,
+   * кто за него отвечает: запись реестра или прочтение страницы моделью.
+   * Названия без объяснения — добавленные вручную.
+   */
+  hintFor?: (name: string) => string | undefined;
 }
 
 export default function NameCandidates({
@@ -34,6 +41,7 @@ export default function NameCandidates({
   value,
   onChange,
   placeholder,
+  hintFor,
 }: Props) {
   const [draft, setDraft] = useState("");
 
@@ -93,6 +101,7 @@ export default function NameCandidates({
             const checked = value.some(
               (item) => item.toLowerCase() === name.toLowerCase(),
             );
+            const explanation = hintFor?.(name);
             return (
               <label
                 key={name}
@@ -105,6 +114,7 @@ export default function NameCandidates({
                 />
                 <span className="name-check-box" aria-hidden="true" />
                 <span className="name-check-text">{name}</span>
+                {explanation && <HelpTip text={explanation} />}
               </label>
             );
           })}

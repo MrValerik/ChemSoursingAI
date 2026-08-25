@@ -137,6 +137,23 @@ const parsePurity = (
   return { percent, grade: "", gradeOther: "" };
 };
 
+// Названия сравниваются без учёта регистра и лишних пробелов: «Betaine»,
+// «betaine » и «BETAINE» — одно название, и в списке им место одно.
+const nameKey = (value: string) => value.trim().toLocaleLowerCase();
+
+const dedupeNames = (names: string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of names) {
+    const name = value.trim();
+    const key = nameKey(name);
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    result.push(name);
+  }
+  return result;
+};
+
 const parseVolume = (stored: string | null): [string, string] => {
   const match = /^\s*(\d+(?:[.,]\d+)?)\s*(.*)$/.exec(stored || "");
   if (!match) return ["", "kg"];
@@ -202,6 +219,10 @@ export default function NewRfq({ onCreated }: Props) {
   // Отмечает он сам: равнозначное название и соседнее вещество различает
   // специалист, а не совпадение строк.
   const [suggestedSynonyms, setSuggestedSynonyms] = useState<string[]>([]);
+  // Названия, которые закупщик снял руками. Автозаполнение обязано их
+  // помнить: иначе повторный выбор той же карточки молча вернёт снятое,
+  // и решение человека отменится перерисовкой формы.
+  const [dismissedSynonyms, setDismissedSynonyms] = useState<string[]>([]);
 
   // Прошлые запросы — то же самое, что раньше давал справочник, только
   // вместе с условиями закупки, а не одним названием.
@@ -244,32 +265,88 @@ export default function NewRfq({ onCreated }: Props) {
   // Выбранное название становится основным, а остальные равнозначные
   // предлагаются синонимами. Введённое человеком название тоже уходит в
   // предложения: поставщики нередко пишут именно так, как написал он.
+  const isDismissed = (name: string) =>
+    dismissedSynonyms.some((item) => nameKey(item) === nameKey(name));
+
+  // Снятие и возврат названия — решения закупщика, и оба надо запомнить:
+  // снятое не должно возвращаться автозаполнением, возвращённое не должно
+  // считаться снятым.
+  const changeSynonyms = (next: string[]) => {
+    const removed = synonyms.filter(
+      (item) => !next.some((value) => nameKey(value) === nameKey(item)),
+    );
+    const added = next.filter(
+      (item) => !synonyms.some((value) => nameKey(value) === nameKey(item)),
+    );
+    if (removed.length || added.length) {
+      setDismissedSynonyms((current) =>
+        dedupeNames([
+          ...current.filter(
+            (item) => !added.some((value) => nameKey(value) === nameKey(item)),
+          ),
+          ...removed,
+        ]),
+      );
+    }
+    setSynonyms(next);
+  };
+
   const applyCandidate = (candidate: ResolvedName) => {
-    const others = (resolution?.candidates ?? [])
-      .filter(
-        (item) =>
-          item.relation === "same" &&
-          item.name.toLowerCase() !== candidate.name.toLowerCase(),
-      )
-      .map((item) => item.name);
-    const merged = [...candidate.synonyms, ...others];
+    const others = (resolution?.candidates ?? []).filter(
+      (item) =>
+        item.relation === "same" &&
+        item.name.toLowerCase() !== candidate.name.toLowerCase(),
+    );
+
+    // Автозаполняется только то, что подтвердил справочник. Синонимы
+    // PubChem — запись реестра: там уже отброшены номера и складские
+    // артикулы, и название относится к той самой карточке. Веб-кандидат —
+    // прочтение страницы моделью: связь «то же вещество» там утверждение,
+    // а не факт, и в рабочий список оно попадает только рукой закупщика.
+    // Неверный синоним в поиске опаснее пустого поля: он находит настоящих
+    // поставщиков не того вещества, и провал выглядит как успех.
+    const confirmed =
+      candidate.source === "pubchem" ? [...candidate.synonyms] : [];
+    confirmed.push(
+      ...others.filter((item) => item.source === "pubchem").map((item) => item.name),
+    );
+
+    // Показываются все равнозначные названия, включая веб: закупщик видит
+    // их рядом с автодобавленными и отмечает нужные одним кликом. Сужен
+    // именно набор автоотметки, а не список предложений — иначе синонимы
+    // веб-карточки пропали бы из формы совсем.
+    const shown = [
+      ...confirmed,
+      ...candidate.synonyms,
+      ...others.map((item) => item.name),
+    ];
     if (
       nameForLookup &&
       nameForLookup.toLowerCase() !== candidate.name.toLowerCase()
     ) {
-      merged.unshift(nameForLookup);
+      // Собственное написание закупщика — не подтверждённое название, а
+      // его формулировка. Предлагаем, но сами не отмечаем.
+      shown.unshift(nameForLookup);
     }
-    const unique: string[] = [];
-    for (const item of merged) {
-      if (!unique.some((value) => value.toLowerCase() === item.toLowerCase())) {
-        unique.push(item);
-      }
-    }
+
     setName(candidate.name);
     // Номер подставляется только подтверждённый. Неподтверждённый показан
     // в карточке, но в поле не попадает: непроверенный номер хуже пустого.
     if (candidate.cas && candidate.cas_confirmed) setCas(candidate.cas);
-    setSuggestedSynonyms(unique);
+    // Название, совпавшее с основным, синонимом не является. Справочник
+    // его и так отсеивает, но отметка уходит в письмо поставщику, и
+    // полагаться здесь на чужую аккуратность не стоит.
+    const isMainName = (item: string) => nameKey(item) === nameKey(candidate.name);
+
+    setSuggestedSynonyms(dedupeNames(shown.filter((item) => !isMainName(item))));
+    setSynonyms((current) =>
+      dedupeNames([
+        ...current,
+        // Снятое руками не возвращается: повторный выбор той же карточки
+        // не должен отменять решение закупщика.
+        ...confirmed.filter((item) => !isMainName(item) && !isDismissed(item)),
+      ]),
+    );
     setIdentityLocked(true);
   };
 
@@ -289,6 +366,37 @@ export default function NewRfq({ onCreated }: Props) {
   const differentNames = (resolution?.candidates ?? []).filter(
     (item) => item.relation === "different",
   );
+
+  // Откуда взялось название и почему. Ищется и среди самих кандидатов, и
+  // среди синонимов карточки: в поле синонимов попадает и то, и другое.
+  const explainName = (value: string): string | undefined => {
+    const key = nameKey(value);
+    const candidate = (resolution?.candidates ?? []).find(
+      (item) => nameKey(item.name) === key,
+    );
+    if (candidate) {
+      const origin =
+        candidate.source === "pubchem"
+          ? "Источник: справочник PubChem."
+          : "Источник: страница из поиска, прочитанная ИИ-агентом. Связь с веществом — его вывод, а не запись реестра, поэтому название не отмечено автоматически.";
+      return `${origin} ${candidate.reason}`.trim();
+    }
+    const owner = (resolution?.candidates ?? []).find((item) =>
+      item.synonyms.some((synonym) => nameKey(synonym) === key),
+    );
+    if (owner) {
+      return owner.source === "pubchem"
+        ? `Источник: справочник PubChem, синоним карточки «${owner.name}». Отмечено автоматически как равнозначное название.`
+        : `Источник: страница из поиска, синоним карточки «${owner.name}». Прочтение страницы ИИ-агентом, а не запись реестра, поэтому название не отмечено автоматически.`;
+    }
+    // Именно resolution.query, а не текущее содержимое поля: выбор карточки
+    // подменяет название в поле, и живая переменная перестала бы совпадать
+    // с тем написанием, которое закупщик когда-то ввёл.
+    if (resolution?.query && nameKey(resolution.query) === key) {
+      return "Ваше написание названия. Поставщики нередко пишут именно так, поэтому оно предложено — но справочником оно не подтверждено и само не отмечается.";
+    }
+    return undefined;
+  };
 
   // Эталон по умолчанию — то, что закупщик уже назвал в запросе: чаще
   // всего он и есть образец, замену которому ищут. Отдельное поле нужно
@@ -416,6 +524,9 @@ export default function NewRfq({ onCreated }: Props) {
           : [],
       );
       setSynonyms(source.confirmed_synonyms || []);
+      // Форма перезаполняется чужим запросом целиком, поэтому память о
+      // снятых названиях сбрасывается: она относилась к прошлому набору.
+      setDismissedSynonyms([]);
       setExcludedNames(source.excluded_names || []);
       const purity = parsePurity(source.purity);
       setPurityPercent(purity.percent);
@@ -668,7 +779,8 @@ export default function NewRfq({ onCreated }: Props) {
             placeholder="например, Cocamidopropyl betaine"
             candidates={suggestedSynonyms}
             value={synonyms}
-            onChange={setSynonyms}
+            onChange={changeSynonyms}
+            hintFor={explainName}
           />
           <NameCandidates
             label="Похожие названия, которые НЕ подходят"
@@ -677,6 +789,7 @@ export default function NewRfq({ onCreated }: Props) {
             candidates={differentNames.map((item) => item.name)}
             value={excludedNames}
             onChange={setExcludedNames}
+            hintFor={explainName}
           />
         </div>
 
