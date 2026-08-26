@@ -159,8 +159,20 @@ def update_intermediary(
             raise HTTPException(
                 status_code=409, detail=f"Домен {data.domain} уже в реестре"
             )
-    for field, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(item, field, value)
+    # Кто отключил правило, записывается независимо от того, каким действием:
+    # переключателем в реестре или отдельной кнопкой. Исход один и тот же —
+    # правило перестаёт резать выдачу, — и в аудите он должен выглядеть
+    # одинаково, иначе половина отмен остаётся безымянной.
+    if "is_active" in changes:
+        if changes["is_active"]:
+            item.deactivated_by_id = None
+            item.deactivated_at = None
+        else:
+            item.deactivated_by_id = user.id
+            item.deactivated_at = utc_now()
     db.commit()
     db.refresh(item)
     return _read(item)

@@ -356,3 +356,32 @@ def test_marking_a_subdomain_updates_the_covering_rule(client):
     listed = client.get("/intermediaries", headers=buyer).json()
     labels = [item["domain"] for item in listed if "cover-demo" in item["domain"]]
     assert labels == ["cover-demo.example"], labels
+
+
+def test_the_toggle_records_the_author_too(client):
+    """Отключить правило можно двумя действиями — аудит обязан быть один.
+
+    Переключатель в реестре и отдельная кнопка дают один и тот же исход:
+    правило перестаёт резать выдачу. Если автора записывает только одно из
+    них, половина отмен остаётся безымянной.
+    """
+    buyer = _auth(client, "ivanov")
+    created = _mark(client, buyer, url="https://toggle-demo.example/x").json()
+
+    off = client.patch(
+        f"/intermediaries/{created['id']}",
+        headers=buyer,
+        json={"is_active": False},
+    ).json()
+    assert off["is_active"] is False
+    assert off["deactivated_by_name"] == "Иван Иванов"
+    assert off["deactivated_at"]
+
+    on = client.patch(
+        f"/intermediaries/{created['id']}",
+        headers=buyer,
+        json={"is_active": True},
+    ).json()
+    assert on["is_active"] is True
+    assert on["deactivated_at"] is None
+    assert on["reason"], "причина отметки от включения-выключения не страдает"
