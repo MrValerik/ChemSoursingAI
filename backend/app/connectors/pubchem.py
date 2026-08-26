@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from time import sleep
+from urllib.parse import quote
 
 import httpx
 
@@ -116,6 +117,41 @@ class PubChemConnector:
             synonyms=synonyms,
         )
 
+    def lookup_name(self, name: str) -> SubstanceInfo:
+        """Находит вещество в справочнике по названию, а не по номеру.
+
+        `verify_cas` для названия не годится: он начинается с проверки
+        контрольной суммы и на «Betaine» отвечает invalid_cas_checksum, не
+        дойдя до сети. Опознание вещества по названию из-за этого никогда не
+        получало ответа справочника и держалось на одном веб-поиске — то
+        есть на прочтении страниц моделью вместо записи реестра.
+
+        Номер здесь не задан заранее, а выводится из синонимов карточки:
+        PubChem отдаёт CAS именно там.
+        """
+        query = (name or "").strip()
+        if not query:
+            return SubstanceInfo(cas="", found=False, error="empty_name")
+        try:
+            with httpx.Client(timeout=self.timeout_s) as client:
+                cid = self._fetch_cid(client, query)
+                if cid is None:
+                    return SubstanceInfo(cas="", found=False, error="not_found")
+                props = self._fetch_properties(client, cid)
+                synonyms = self._fetch_synonyms(client, cid)
+        except httpx.HTTPError as exc:
+            return SubstanceInfo(cas="", found=False, error=f"http_error: {exc}")
+
+        return SubstanceInfo(
+            cas="",
+            found=True,
+            cid=cid,
+            iupac_name=props.get("IUPACName"),
+            molecular_formula=props.get("MolecularFormula"),
+            molecular_weight=_to_float(props.get("MolecularWeight")),
+            synonyms=synonyms,
+        )
+
     # --- внутренние запросы ---
 
     def _get(self, client: httpx.Client, url: str) -> httpx.Response:
@@ -144,8 +180,12 @@ class PubChemConnector:
                 sleep(min(delay or _THROTTLED_BACKOFF_S, _THROTTLED_BACKOFF_S))
         return response
 
-    def _fetch_cid(self, client: httpx.Client, cas: str) -> int | None:
-        url = f"{self.base_url}/compound/name/{cas}/cids/JSON"
+    def _fetch_cid(self, client: httpx.Client, value: str) -> int | None:
+        # Значение уходит в путь URL, а по этой ветке приходит уже не только
+        # номер, но и название вещества: пробелы и запятые в «Glycine betaine»
+        # или «Dowsil 556» сломали бы адрес. Для номера кодирование ничего
+        # не меняет — дефис и цифры и так безопасны.
+        url = f"{self.base_url}/compound/name/{quote(value, safe='')}/cids/JSON"
         resp = self._get(client, url)
         if resp.status_code == 404:
             return None

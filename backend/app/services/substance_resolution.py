@@ -214,7 +214,9 @@ def _lookup_pubchem(name: str, resolution: SubstanceResolution) -> None:
     """Детерминированная ветка: справочник знает название — берём как есть."""
     connector = PubChemConnector()
     try:
-        info = connector.verify_cas(name)
+        # Именно поиск по названию: verify_cas отсекает всё, что не является
+        # номером, ещё до сети, и справочная ветка опознания молчала всегда.
+        info = connector.lookup_name(name)
     except Exception as exc:  # noqa: BLE001 - справочник не должен ронять кнопку
         logger.warning("PubChem lookup failed for %r: %s", name, exc)
         resolution.warnings.append(

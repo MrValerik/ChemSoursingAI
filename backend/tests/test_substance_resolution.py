@@ -44,10 +44,17 @@ def _patch_sources(
     results: list[dict] | None = None,
 ) -> None:
     class _StubPubChem:
-        def verify_cas(self, name: str) -> SubstanceInfo:
+        # Опознание вещества ходит в справочник по названию, а не по номеру:
+        # verify_cas отсекал бы название на проверке контрольной суммы.
+        def lookup_name(self, name: str) -> SubstanceInfo:
             if pubchem is not None:
                 return pubchem
-            return SubstanceInfo(cas=name, found=False, error="not_found")
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+        def verify_cas(self, cas: str) -> SubstanceInfo:
+            if pubchem is not None:
+                return pubchem
+            return SubstanceInfo(cas=cas, found=False, error="not_found")
 
     monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
     monkeypatch.setattr(
@@ -446,3 +453,43 @@ def test_neighbouring_name_never_arrives_as_same(monkeypatch):
     different = [item for item in result.candidates if item.relation == "different"]
     assert not same
     assert [item.name for item in different] == ["Betaine hydrochloride"]
+
+
+def test_registry_is_asked_by_name_not_by_number(monkeypatch):
+    """Опознание идёт по названию — и должно доходить до сети.
+
+    `verify_cas` начинается с проверки контрольной суммы и на «Betaine»
+    отвечает invalid_cas_checksum, не сделав ни одного запроса. Пока
+    опознание звало именно его, справочная ветка молчала всегда: карточки
+    приходили только из веб-поиска, то есть из прочтения страниц моделью.
+    На проде это выглядело как «PubChem опрошен, кандидатов из него нет».
+    """
+    asked: list[tuple[str, str]] = []
+
+    class _RecordingPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            asked.append(("lookup_name", name))
+            return SubstanceInfo(
+                cas="",
+                found=True,
+                cid=247,
+                iupac_name="betaine",
+                synonyms=["Betaine", "107-43-7", "Trimethylglycine"],
+            )
+
+        def verify_cas(self, cas: str) -> SubstanceInfo:
+            asked.append(("verify_cas", cas))
+            return SubstanceInfo(cas=cas, found=False, error="invalid_cas_checksum")
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _RecordingPubChem)
+    monkeypatch.setattr(substance_resolution, "search_web", lambda query, limit=8: [])
+
+    result = resolve_substance("Betaine", llm=_StubLLM({"candidates": []}))
+
+    assert asked and asked[0][0] == "lookup_name", (
+        "справочник обязан спрашиваться по названию, иначе ветка мертва"
+    )
+    registry = [item for item in result.candidates if item.source == "pubchem"]
+    assert registry, "карточка из справочника должна появиться"
+    assert registry[0].cas == "107-43-7"
+    assert "Trimethylglycine" in registry[0].synonyms
