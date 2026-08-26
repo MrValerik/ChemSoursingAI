@@ -143,7 +143,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
 
   return (
     <div className="summary-workspace">
-      <section className="panel">
+      <section className="panel summary-comparison-panel">
         <div className="summary-heading">
           <div>
             <h2>Сводная сравнительная таблица</h2>
