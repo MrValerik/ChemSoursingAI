@@ -129,7 +129,15 @@ export default function IntermediariesSection() {
   };
 
   const remove = async (item: IntermediaryRead) => {
-    if (!window.confirm(`Удалить «${item.name}» из реестра посредников?`)) return;
+    // Запись не стирается: прошлые поиски шли с этим правилом, и убрать его
+    // задним числом значит соврать в аудите. Отключение — то, что нужно.
+    if (
+      !window.confirm(
+        `Отключить правило «${item.name}»? Оно перестанет влиять на будущие ` +
+          "поиски, но останется в реестре вместе с автором и причиной.",
+      )
+    )
+      return;
     try {
       await api.deleteIntermediary(item.id);
       await load();
@@ -275,7 +283,27 @@ export default function IntermediariesSection() {
                         }
                       />
                     ) : (
-                      item.notes || "—"
+                      <>
+                        {item.notes || (item.reason ? "" : "—")}
+                        {item.reason && (
+                          <div className="intermediary-origin">
+                            {item.reason}
+                          </div>
+                        )}
+                        {item.added_by_name && (
+                          <div className="intermediary-origin is-muted">
+                            отметил: {item.added_by_name}
+                            {item.source_rfq_id
+                              ? ` · запрос №${item.source_rfq_id}`
+                              : ""}
+                          </div>
+                        )}
+                        {item.deactivated_by_name && (
+                          <div className="intermediary-origin is-muted">
+                            отключил: {item.deactivated_by_name}
+                          </div>
+                        )}
+                      </>
                     )}
                   </td>
                   <td>

@@ -409,6 +409,7 @@ function QualificationTable({
   activeCountry,
   isAnalog,
   onSelect,
+  onMark,
   decisionFor,
   onDecide,
   busySupplierId,
@@ -418,6 +419,7 @@ function QualificationTable({
   activeCas: string | null;
   activeCountry: string;
   isAnalog: boolean;
+  onMark: (result: SupplierQualificationResponse["results"][number]) => void;
   onSelect: (result: SupplierQualificationResponse["results"][number]) => void;
   decisionFor: (
     result: SupplierQualificationResponse["results"][number],
@@ -762,6 +764,16 @@ function QualificationTable({
                               Не подходит для этого запроса
                             </button>
                           )}
+                          <button
+                            className="dropdown-item"
+                            type="button"
+                            onClick={() => {
+                              setMenuFor(null);
+                              onMark(result);
+                            }}
+                          >
+                            Отметить как посредника
+                          </button>
                           {decision.qualification_status !== "rejected" && (
                             <button
                               className="dropdown-item is-danger"
@@ -775,11 +787,17 @@ function QualificationTable({
                       )}
                     </div>
                   ) : (
-                    // Страница компанией не назвалась — в реестр её не
-                    // сохраняли, и решать не о чем.
-                    <span className="note" title="Страница не сохранена как компания">
-                      —
-                    </span>
+                    // Страница компанией не назвалась — решать о поставщике
+                    // нечего. Но именно здесь чаще всего и оказывается
+                    // площадка, поэтому отметить домен посредником можно.
+                    <button
+                      className="link-btn"
+                      title="Отметить домен как посредника"
+                      type="button"
+                      onClick={() => onMark(result)}
+                    >
+                      посредник?
+                    </button>
                   )}
                 </td>
               )}
@@ -788,6 +806,109 @@ function QualificationTable({
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Отметка домена посредником. Причина обязательна, область выбирается явно.
+//
+// Глобальное правило меняет выдачу будущих поисков у всех закупщиков —
+// такое решение нельзя принимать одним кликом и без объяснения: через месяц
+// запись без причины неотличима от стартового списка, и оспорить её нельзя.
+function MarkIntermediaryForm({
+  result,
+  onSubmit,
+  onCancel,
+}: {
+  result: SupplierQualificationResponse["results"][number];
+  onSubmit: (reason: string, scope: "global" | "rfq") => void;
+  onCancel: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [scope, setScope] = useState<"global" | "rfq">("global");
+  const [busy, setBusy] = useState(false);
+  const domain = (() => {
+    try {
+      return new URL(result.url).hostname.replace(/^www\./, "");
+    } catch {
+      return result.url;
+    }
+  })();
+
+  return (
+    <div className="panel mark-intermediary">
+      <h3>Отметить как посредника</h3>
+      <p className="note">
+        {result.company_name || domain} · <code>{domain}</code>
+      </p>
+
+      <div className="field">
+        <div className="heading-with-help">
+          <label htmlFor="mark-reason">Почему это посредник</label>
+          <HelpTip text="Причина сохраняется вместе с автором, временем и ссылкой на результат. Правило отсева меняет будущие поиски, и без причины его нельзя ни проверить, ни оспорить." />
+        </div>
+        <textarea
+          className="ui-control"
+          id="mark-reason"
+          maxLength={2000}
+          placeholder="Например: перепродаёт чужой товар, своего производства нет"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </div>
+
+      <div className="field">
+        <div className="heading-with-help">
+          <label>Область действия</label>
+          <HelpTip text="Глобальное правило заносит домен в реестр посредников и применяется ко всем будущим поискам всех закупщиков. Локальное вычёркивает компанию только из этого запроса и глобальный тип компании не меняет." />
+        </div>
+        <div className="search-modes">
+          <label className={`search-mode${scope === "global" ? " active" : ""}`}>
+            <input
+              type="radio"
+              name="mark-scope"
+              checked={scope === "global"}
+              onChange={() => setScope("global")}
+            />
+            <span className="search-mode-label">Глобально: реестр доменов</span>
+            <span className="search-mode-hint">
+              Домен уйдёт в реестр посредников и перестанет попадать в будущие
+              поиски — во всех запросах, не только в этом.
+            </span>
+          </label>
+          <label className={`search-mode${scope === "rfq" ? " active" : ""}`}>
+            <input
+              type="radio"
+              name="mark-scope"
+              checked={scope === "rfq"}
+              onChange={() => setScope("rfq")}
+            />
+            <span className="search-mode-label">Только этот запрос</span>
+            <span className="search-mode-hint">
+              Компания вычеркнется из этого запроса. Реестр и её глобальный тип
+              не изменятся.
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div className="actions">
+        <button
+          disabled={busy || reason.trim().length < 3}
+          title={
+            reason.trim().length < 3 ? "Укажите причину отметки" : undefined
+          }
+          onClick={() => {
+            setBusy(true);
+            onSubmit(reason.trim(), scope);
+          }}
+        >
+          {busy ? "Сохраняю…" : "Отметить"}
+        </button>
+        <button className="secondary" onClick={onCancel} disabled={busy}>
+          Отмена
+        </button>
+      </div>
     </div>
   );
 }
@@ -2100,6 +2221,11 @@ export default function SupplierSearchSection({
   // поиск подтверждает то же вещество, аналог подтверждает лишь схожую
   // функцию. Признак берётся из самого запроса, а не из результата.
   const isAnalog = rfq.identification_method === "analog";
+  // Результат, который закупщик отмечает посредником. Отметка требует
+  // причины и выбора области, поэтому это форма, а не пункт меню в один клик.
+  const [markTarget, setMarkTarget] = useState<
+    SupplierQualificationResponse["results"][number] | null
+  >(null);
   const activeName = trace ? runText(trace, "name") : rfq.name;
   const activeCountry = trace
     ? runText(trace, "country")
@@ -2195,6 +2321,50 @@ export default function SupplierSearchSection({
       setBusySupplierId(null);
     }
   };
+  // Отметка посредника. Глобальное правило меняет выдачу будущих поисков у
+  // всех закупщиков, локальное — вычёркивает компанию только из этого
+  // запроса и глобальный тип компании не трогает. Разница существенная,
+  // поэтому область выбирает человек, а не догадывается программа.
+  const submitMark = async (
+    result: SupplierQualificationResponse["results"][number],
+    reason: string,
+    scope: "global" | "rfq",
+  ) => {
+    setError(null);
+    try {
+      if (scope === "global") {
+        await api.markIntermediary({
+          url: result.url,
+          name: result.company_name || null,
+          reason,
+          kind: "reseller",
+          rfq_id: rfq.id,
+        });
+        setNotice(
+          "Домен отмечен посредником: правило применится к будущим поискам.",
+        );
+      } else {
+        const decision = decisionFor(result);
+        if (!decision) {
+          setError(
+            "Компания не сохранена в реестре, поэтому вычеркнуть её только " +
+              "из этого запроса нельзя. Отметьте домен глобально или " +
+              "сохраните компанию.",
+          );
+          return;
+        }
+        await api.setSupplierExclusion(rfq.id, decision.supplier_id, true);
+        setRegistry(await api.listSuppliers());
+        setNotice(
+          "Компания вычеркнута из этого запроса; глобальный реестр не изменён.",
+        );
+      }
+      setMarkTarget(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  };
+
   const detailResult =
     qualification?.results.find(
       (result) => result.url === detailUrl,
@@ -2754,6 +2924,7 @@ export default function SupplierSearchSection({
                 activeCas={activeCas}
                 activeCountry={activeCountry}
                 isAnalog={isAnalog}
+                onMark={setMarkTarget}
                 onSelect={(result) => setDetailUrl(result.url)}
                 decisionFor={decisionFor}
                 onDecide={(decision, action) => void decide(decision, action)}
@@ -2786,6 +2957,7 @@ export default function SupplierSearchSection({
                       activeCas={activeCas}
                       activeCountry={activeCountry}
                       isAnalog={isAnalog}
+                      onMark={setMarkTarget}
                       onSelect={(result) => setDetailUrl(result.url)}
                       decisionFor={decisionFor}
                       onDecide={(decision, action) => void decide(decision, action)}
@@ -2794,6 +2966,23 @@ export default function SupplierSearchSection({
                     />
                   </div>
                 </details>
+              )}
+              {markTarget && (
+                <div
+                  className="request-delete-backdrop"
+                  role="presentation"
+                  onClick={() => setMarkTarget(null)}
+                >
+                  <div role="dialog" onClick={(event) => event.stopPropagation()}>
+                    <MarkIntermediaryForm
+                      result={markTarget}
+                      onCancel={() => setMarkTarget(null)}
+                      onSubmit={(reason, scope) =>
+                        void submitMark(markTarget, reason, scope)
+                      }
+                    />
+                  </div>
+                </div>
               )}
               {detailResult && (
                 <div

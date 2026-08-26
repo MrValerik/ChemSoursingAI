@@ -444,6 +444,19 @@ export const api = {
     }),
   deleteIntermediary: (id: number) =>
     request<void>(`/intermediaries/${id}`, { method: "DELETE" }),
+  markIntermediary: (body: {
+    url: string;
+    name?: string | null;
+    reason: string;
+    kind?: IntermediaryKind;
+    rfq_id?: number | null;
+  }) =>
+    request<IntermediaryRead>(`/intermediaries/mark`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  restoreIntermediary: (id: number) =>
+    request<IntermediaryRead>(`/intermediaries/${id}/restore`, { method: "POST" }),
 
   addSupplier: (
     payload: {

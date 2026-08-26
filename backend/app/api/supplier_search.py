@@ -29,6 +29,7 @@ from app.extraction.llm_client import (
 from app.models import (
     AgentRun,
     EvidenceClaim,
+    Intermediary,
     PromptTemplate,
     RFQ,
     SearchRun,
@@ -79,6 +80,7 @@ from app.services.intermediaries import (
     active_domains,
     is_intermediary,
     marketplace_page_kind,
+    normalize_domain as normalize_site_domain,
     split_by_intermediary,
 )
 from app.services.contacts import find_contact_barrier, find_contacts, has_contacts
@@ -2651,11 +2653,16 @@ def execute_supplier_search(
             raw_results, known_domains
         )
         if intermediary_results:
+            # Домены называются поимённо, а отмеченные человеком — отдельно.
+            # Молчаливый отсев выглядит как «поиск ничего не нашёл», и
+            # закупщик не может ни проверить правило, ни оспорить его: он
+            # даже не знает, что правило сработало.
+            deferred = _deferred_domains_note(db, intermediary_results)
             log_agent_event(
                 search_stage,
                 f"Отложено {len(intermediary_results)} ссылок на торговые "
                 "площадки и каталоги: бюджет загрузки уходит на сайты "
-                "самих компаний",
+                f"самих компаний. {deferred}",
             )
         if not raw_results and intermediary_results:
             # Вся выдача — площадки. Раньше здесь возвращался пустой
@@ -2806,6 +2813,43 @@ def execute_supplier_search(
     search_run.status = "search_completed"
     db.commit()
     return response_payload
+
+
+def _deferred_domains_note(db: Session, results: list[dict]) -> str:
+    """Какие домены отложены и какие из них отметил человек.
+
+    Правило, внесённое закупщиком, называется вместе с автором: оно меняет
+    выдачу всех будущих поисков, и предъявить его нужно тому, кто увидел
+    результат отсева.
+    """
+    domains: list[str] = []
+    for result in results:
+        domain = normalize_site_domain(str(result.get("url") or ""))
+        if domain and domain not in domains:
+            domains.append(domain)
+    if not domains:
+        return ""
+
+    marked = {
+        item.domain: item
+        for item in db.scalars(
+            select(Intermediary).where(
+                Intermediary.domain.in_(domains), Intermediary.is_active.is_(True)
+            )
+        ).all()
+        if item.added_by_id is not None
+    }
+    shown = domains[:8]
+    tail = f" и ещё {len(domains) - len(shown)}" if len(domains) > len(shown) else ""
+    parts = [", ".join(shown) + tail]
+    for domain, item in marked.items():
+        author = item.added_by.full_name if item.added_by else "закупщик"
+        reason = (item.reason or "").strip()
+        parts.append(
+            f"{domain} отмечен как посредник ({author})"
+            + (f": {reason}" if reason else "")
+        )
+    return "Домены: " + ". ".join(parts) + "."
 
 
 def execute_supplier_qualification(

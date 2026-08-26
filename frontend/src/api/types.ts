@@ -1123,6 +1123,17 @@ export interface IntermediaryRead {
   kind: IntermediaryKind;
   notes: string | null;
   is_active: boolean;
+  /** Почему домен отмечен посредником. Пусто у записей стартового списка. */
+  reason: string | null;
+  /** Результат поиска, по которому принято решение. */
+  source_url: string | null;
+  source_rfq_id: number | null;
+  added_by_id: number | null;
+  added_by_name: string | null;
+  created_at: string | null;
+  /** Отмена ошибочной отметки: запись остаётся, но выдачу больше не режет. */
+  deactivated_at: string | null;
+  deactivated_by_name: string | null;
 }
 
 // Режим поиска: только изготовители или все продавцы (для сравнения цен).

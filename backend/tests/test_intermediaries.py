@@ -188,3 +188,145 @@ def test_unknown_kind_is_rejected(client):
         json={"domain": "x.example", "name": "X", "kind": "выдуманный"},
     )
     assert response.status_code == 422
+
+
+# --- отметка посредника из карточки результата (MEET2-08) ---
+
+
+def _mark(client, headers, **kw):
+    body = {
+        "url": "https://trader-demo.example/catalog/betaine",
+        "name": "Trader Demo",
+        "reason": "Перепродаёт чужой товар, своего производства нет",
+    }
+    body.update(kw)
+    return client.post("/intermediaries/mark", headers=headers, json=body)
+
+
+def _find(client, headers, domain: str):
+    listed = client.get("/intermediaries", headers=headers).json()
+    return next((item for item in listed if item["domain"] == domain), None)
+
+
+def test_marking_records_who_why_and_from_which_result(client):
+    """Правило меняет будущие поиски всех — значит должно быть предъявимым."""
+    buyer = _auth(client, "ivanov")
+    response = _mark(client, buyer, rfq_id=1)
+    assert response.status_code == 201, response.text
+    item = response.json()
+
+    assert item["domain"] == "trader-demo.example"
+    assert item["is_active"] is True
+    assert item["reason"].startswith("Перепродаёт")
+    # Доказательство отметки: исходный результат и запрос, где его увидели.
+    assert item["source_url"].endswith("/catalog/betaine")
+    assert item["source_rfq_id"] == 1
+    assert item["added_by_name"] == "Иван Иванов"
+
+
+def test_marking_the_same_domain_twice_does_not_duplicate_it(client):
+    buyer = _auth(client, "ivanov")
+    _mark(client, buyer, url="https://dup-demo.example/a")
+    second = _mark(
+        client, buyer, url="https://dup-demo.example/b", reason="Уточнённая причина"
+    )
+    assert second.status_code == 201
+
+    listed = client.get("/intermediaries", headers=buyer).json()
+    matches = [item for item in listed if item["domain"] == "dup-demo.example"]
+    assert len(matches) == 1
+    assert matches[0]["reason"] == "Уточнённая причина"
+
+
+def test_reason_is_required(client):
+    """Без причины правило нельзя ни проверить, ни оспорить."""
+    buyer = _auth(client, "ivanov")
+    response = client.post(
+        "/intermediaries/mark",
+        headers=buyer,
+        json={"url": "https://no-reason.example/x", "reason": ""},
+    )
+    assert response.status_code == 422
+
+
+def test_auditor_can_look_but_not_mark(client):
+    auditor = _auth(client, "auditor")
+    assert _mark(client, auditor, url="https://denied.example/x").status_code == 403
+    assert client.get("/intermediaries", headers=auditor).status_code == 200
+
+
+def test_head_and_admin_can_mark_too(client):
+    for username, domain in (("petrova", "head-demo.example"), ("admin", "admin-demo.example")):
+        headers = _auth(client, username)
+        assert _mark(client, headers, url=f"https://{domain}/x").status_code == 201
+
+
+def test_a_used_rule_is_deactivated_not_erased(client):
+    """Прошлые поиски шли с этим правилом — стереть его значит соврать."""
+    buyer = _auth(client, "ivanov")
+    created = _mark(client, buyer, url="https://undo-demo.example/x").json()
+
+    assert client.delete(f"/intermediaries/{created['id']}", headers=buyer).status_code == 204
+
+    item = _find(client, buyer, "undo-demo.example")
+    assert item is not None, "запись обязана остаться в реестре"
+    assert item["is_active"] is False
+    # Видно, кто и когда отменил — иначе отмена сама по себе неотличима.
+    assert item["deactivated_by_name"] == "Иван Иванов"
+    assert item["deactivated_at"]
+    # И причина, по которой её когда-то завели, тоже на месте.
+    assert item["reason"]
+
+
+def test_an_erroneous_mark_can_be_undone_and_the_trace_stays(client):
+    buyer = _auth(client, "ivanov")
+    created = _mark(client, buyer, url="https://restore-demo.example/x").json()
+    client.delete(f"/intermediaries/{created['id']}", headers=buyer)
+
+    restored = client.post(
+        f"/intermediaries/{created['id']}/restore", headers=buyer
+    )
+    assert restored.status_code == 200
+    assert restored.json()["is_active"] is True
+    assert restored.json()["deactivated_at"] is None
+    # Причина и автор отметки от отмены не страдают.
+    assert restored.json()["reason"]
+    assert restored.json()["added_by_name"] == "Иван Иванов"
+
+
+def test_auditor_cannot_undo(client):
+    buyer = _auth(client, "ivanov")
+    created = _mark(client, buyer, url="https://rbac-restore.example/x").json()
+    auditor = _auth(client, "auditor")
+    assert client.delete(f"/intermediaries/{created['id']}", headers=auditor).status_code == 403
+    assert (
+        client.post(f"/intermediaries/{created['id']}/restore", headers=auditor).status_code
+        == 403
+    )
+
+
+def test_deactivated_rule_stops_affecting_new_searches(client):
+    """Отключённая запись остаётся в истории, но выдачу больше не режет."""
+    from app.core.db import SessionLocal
+    from app.services.intermediaries import active_domains
+
+    buyer = _auth(client, "ivanov")
+    created = _mark(client, buyer, url="https://stops-demo.example/x").json()
+
+    with SessionLocal() as db:
+        assert "stops-demo.example" in active_domains(db)
+
+    client.delete(f"/intermediaries/{created['id']}", headers=buyer)
+
+    with SessionLocal() as db:
+        assert "stops-demo.example" not in active_domains(db)
+
+
+def test_a_url_without_a_domain_is_refused(client):
+    buyer = _auth(client, "ivanov")
+    response = client.post(
+        "/intermediaries/mark",
+        headers=buyer,
+        json={"url": "localhost", "reason": "неважно"},
+    )
+    assert response.status_code == 422

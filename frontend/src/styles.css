@@ -4856,3 +4856,19 @@ button.substance-list-item.active {
   margin-top: 12px;
 }
 .rfq-import-defaults .field { margin-bottom: 0; }
+
+/* Отметка домена посредником. Причина обязательна, область выбирается
+   явно: глобальное правило меняет выдачу будущих поисков у всех. */
+.mark-intermediary { max-width: 620px; }
+.mark-intermediary h3 { margin: 0 0 4px; }
+.mark-intermediary textarea { min-height: 68px; resize: vertical; }
+.mark-intermediary code {
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.mark-intermediary .actions { display: flex; gap: 8px; margin-top: 4px; }
+/* Происхождение правила в реестре: причина, автор и запрос, где его увидели.
+   Без этого запись через месяц неотличима от стартового списка. */
+.intermediary-origin { margin-top: 3px; font-size: 12px; line-height: 1.4; }
+.intermediary-origin.is-muted { color: var(--muted); }

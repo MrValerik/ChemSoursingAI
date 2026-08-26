@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
@@ -10,7 +12,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.models import Intermediary, User
 from app.models.enums import UserRole
-from app.services.intermediaries import normalize_domain
+from app.services.intermediaries import domain_label, normalize_domain
+from app.services.search_trace import utc_now
 
 router = APIRouter(prefix="/intermediaries", tags=["intermediaries"])
 
@@ -73,8 +76,26 @@ class IntermediaryRead(BaseModel):
     kind: str
     notes: str | None
     is_active: bool
+    reason: str | None = None
+    source_url: str | None = None
+    source_rfq_id: int | None = None
+    added_by_id: int | None = None
+    added_by_name: str | None = None
+    created_at: datetime | None = None
+    deactivated_at: datetime | None = None
+    deactivated_by_name: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+def _read(item: Intermediary) -> IntermediaryRead:
+    """Запись реестра вместе с тем, кто и почему её завёл."""
+    data = IntermediaryRead.model_validate(item)
+    data.added_by_name = item.added_by.full_name if item.added_by else None
+    data.deactivated_by_name = (
+        item.deactivated_by.full_name if item.deactivated_by else None
+    )
+    return data
 
 
 def _require_editor(user: User) -> None:
@@ -90,13 +111,12 @@ def list_intermediaries(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[Intermediary]:
-    return list(
-        db.scalars(
-            select(Intermediary).order_by(
-                Intermediary.kind, Intermediary.domain
-            )
+    return [
+        _read(item)
+        for item in db.scalars(
+            select(Intermediary).order_by(Intermediary.kind, Intermediary.domain)
         ).all()
-    )
+    ]
 
 
 @router.post("", response_model=IntermediaryRead, status_code=201)
@@ -113,11 +133,11 @@ def create_intermediary(
         raise HTTPException(
             status_code=409, detail=f"Домен {data.domain} уже в реестре"
         )
-    item = Intermediary(**data.model_dump())
+    item = Intermediary(**data.model_dump(), added_by_id=user.id)
     db.add(item)
     db.commit()
     db.refresh(item)
-    return item
+    return _read(item)
 
 
 @router.patch("/{intermediary_id}", response_model=IntermediaryRead)
@@ -143,7 +163,7 @@ def update_intermediary(
         setattr(item, field, value)
     db.commit()
     db.refresh(item)
-    return item
+    return _read(item)
 
 
 @router.delete("/{intermediary_id}", status_code=204, response_class=Response)
@@ -156,6 +176,90 @@ def delete_intermediary(
     item = db.get(Intermediary, intermediary_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Запись не найдена")
-    db.delete(item)
+    # Запись отключается, а не стирается. Прошлые поиски шли с этим правилом:
+    # отсев по домену уже повлиял на выдачу и на решения закупщика, и убрать
+    # правило задним числом значит соврать в аудите. Отключённая запись
+    # перестаёт влиять на будущие поиски — этого и добивались.
+    item.is_active = False
+    item.deactivated_by_id = user.id
+    item.deactivated_at = utc_now()
     db.commit()
     return Response(status_code=204)
+
+
+class IntermediaryMark(BaseModel):
+    """Отметка посредника прямо из карточки результата поиска."""
+
+    url: str = Field(..., min_length=4, max_length=1000)
+    name: str | None = Field(default=None, max_length=255)
+    # Причина обязательна: правило меняет будущие поиски всех закупщиков, и
+    # без причины его нельзя ни проверить, ни оспорить.
+    reason: str = Field(..., min_length=3, max_length=2000)
+    kind: str = Field(default="reseller", max_length=32)
+    rfq_id: int | None = Field(default=None, ge=1)
+
+    @field_validator("kind")
+    @classmethod
+    def known_kind(cls, value: str) -> str:
+        if value not in _KINDS:
+            raise ValueError(f"Допустимые виды: {', '.join(sorted(_KINDS))}")
+        return value
+
+
+@router.post("/mark", response_model=IntermediaryRead, status_code=201)
+def mark_intermediary(
+    data: IntermediaryMark,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> IntermediaryRead:
+    """Заносит домен результата в реестр посредников с причиной и автором.
+
+    Экспертное решение по одному результату превращается в проверяемое
+    правило будущего поиска. Повторная отметка уже известного домена не
+    создаёт дубликат: она обновляет причину и возвращает запись в строй,
+    если та была отключена.
+    """
+    _require_editor(user)
+    domain = normalize_domain(data.url)
+    if "." not in domain:
+        raise HTTPException(
+            status_code=422, detail="Из ссылки не удалось выделить домен"
+        )
+
+    item = db.scalar(select(Intermediary).where(Intermediary.domain == domain))
+    if item is None:
+        item = Intermediary(
+            domain=domain,
+            name=(data.name or "").strip() or domain_label(domain),
+            kind=data.kind,
+        )
+        db.add(item)
+    item.reason = data.reason.strip()
+    item.source_url = data.url
+    item.source_rfq_id = data.rfq_id
+    item.added_by_id = user.id
+    item.is_active = True
+    item.deactivated_by_id = None
+    item.deactivated_at = None
+    db.commit()
+    db.refresh(item)
+    return _read(item)
+
+
+@router.post("/{intermediary_id}/restore", response_model=IntermediaryRead)
+def restore_intermediary(
+    intermediary_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> IntermediaryRead:
+    """Отменяет ошибочную отметку, не стирая её след."""
+    _require_editor(user)
+    item = db.get(Intermediary, intermediary_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    item.is_active = True
+    item.deactivated_by_id = None
+    item.deactivated_at = None
+    db.commit()
+    db.refresh(item)
+    return _read(item)
