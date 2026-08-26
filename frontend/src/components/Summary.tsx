@@ -35,19 +35,7 @@ const supplierName = (row: SummaryRow) => row.supplier ?? row.manager ?? "—";
 
 const costCurrency = (row: SummaryRow) => row.cost_currency ?? row.currency;
 
-const pricePerUnit = (row: SummaryRow) => {
-  const price = formatPrice(row.price, row.currency);
-  return row.price_unit && row.price !== null ? `${price} / ${row.price_unit}` : price;
-};
-
-const customsLabel = (row: SummaryRow) => {
-  const currency = costCurrency(row);
-  if (row.duty_cost === null && row.vat_cost === null) return "—";
-  return [
-    row.duty_cost !== null ? `пошлина ${formatPrice(row.duty_cost, currency)}` : null,
-    row.vat_cost !== null ? `НДС ${formatPrice(row.vat_cost, currency)}` : null,
-  ].filter(Boolean).join(" · ");
-};
+const pricePerUnit = (row: SummaryRow) => formatPrice(row.price, row.currency);
 
 const documentsLabel = (row: SummaryRow) => {
   const documents = [row.has_coa ? "CoA" : null, row.has_tds ? "TDS" : null].filter(
@@ -193,23 +181,36 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                   : "Полных котировок пока нет. Отключите фильтр, чтобы увидеть неполные ответы."}
               </p>
             ) : (
-              <div className="summary-table-frame">
+              <div
+                aria-label="Сравнительная таблица предложений поставщиков"
+                className="summary-table-frame"
+                role="region"
+                tabIndex={0}
+              >
                 <table className="summary summary-detailed-table">
                   <thead>
                     <tr>
                       <th>Итог</th>
                       <th>Поставщик</th>
+                      <th>Производитель</th>
+                      <th>Страна</th>
                       <th>Фасовка</th>
-                      <th>Цена / ед.</th>
-                      <th>Объём / MOQ</th>
+                      <th>Грейд</th>
+                      <th>HAZMAT</th>
+                      <th>Цена</th>
+                      <th>Единица</th>
+                      <th>Объём</th>
+                      <th>MOQ</th>
                       <th>Закупка</th>
                       <th>Доставка</th>
-                      <th>Пошлина / НДС</th>
+                      <th>Пошлина</th>
+                      <th>НДС</th>
                       <th>Итого до склада</th>
-                      <th>Базис</th>
+                      <th>Incoterm</th>
                       <th>Оплата</th>
                       <th>Срок</th>
-                      <th>Документы / статус</th>
+                      <th>Документы</th>
+                      <th>Статус</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -240,33 +241,33 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                             type="button"
                           >
                             <strong>{supplierName(row)}</strong>
-                            {row.manufacturer && row.manufacturer !== supplierName(row) && (
-                              <span>Производитель: {row.manufacturer}</span>
-                            )}
-                            {row.origin_country && <span>{row.origin_country}</span>}
                           </button>
                         </td>
+                        <td>{row.manufacturer ?? "—"}</td>
+                        <td>{row.origin_country ?? "—"}</td>
+                        <td>{row.packaging ?? "—"}</td>
+                        <td>{row.grade ?? "—"}</td>
                         <td>
-                          {row.packaging ?? "—"}
-                          {row.grade && <small>{row.grade}</small>}
-                          {row.is_hazmat !== null && (
-                            <small>{row.is_hazmat ? "HAZMAT" : "не HAZMAT"}</small>
-                          )}
+                          {row.is_hazmat === null
+                            ? "—"
+                            : row.is_hazmat
+                              ? "да"
+                              : "нет"}
                         </td>
                         <td>{pricePerUnit(row)}</td>
-                        <td>
-                          {row.quoted_quantity ?? "—"}
-                          <small>MOQ: {row.moq ?? "—"}</small>
-                        </td>
+                        <td>{row.price_unit ?? "—"}</td>
+                        <td>{row.quoted_quantity ?? "—"}</td>
+                        <td>{row.moq ?? "—"}</td>
                         <td>{formatPrice(row.total_price, costCurrency(row))}</td>
                         <td>{formatPrice(row.delivery_cost, costCurrency(row))}</td>
-                        <td>{customsLabel(row)}</td>
+                        <td>{formatPrice(row.duty_cost, costCurrency(row))}</td>
+                        <td>{formatPrice(row.vat_cost, costCurrency(row))}</td>
                         <td>{formatPrice(row.landed_cost, costCurrency(row))}</td>
                         <td>{row.incoterm ?? "—"}</td>
                         <td>{row.payment_terms ?? "—"}</td>
                         <td>{row.lead_time ?? "—"}</td>
+                        <td>{documentsLabel(row)}</td>
                         <td>
-                          <span>{documentsLabel(row)}</span>
                           <span className={`badge ${row.is_complete ? "tone-ok" : "tone-warn"}`}>
                             {row.is_complete ? "полная" : "неполная"}
                           </span>
