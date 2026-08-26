@@ -1110,3 +1110,47 @@ export interface RfqImportPreview {
   total_rows: number;
   importable_rows: number;
 }
+
+// --- пакетное создание запросов (MEET2-02) ---
+
+/** Итог по одной строке списка. Каждая строка отвечает за себя. */
+export interface RfqBatchItemResult {
+  row: number;
+  name: string;
+  rfq_id: number | null;
+  search_runs: number;
+  error: string | null;
+}
+
+export interface RfqBatchCreateResult {
+  batch_id: number;
+  /** false — пакет вернулся по ключу идемпотентности, а не создан заново. */
+  created: boolean;
+  source_name: string | null;
+  created_at: string | null;
+  total: number;
+  created_count: number;
+  failed_count: number;
+  search_runs: number;
+  results: RfqBatchItemResult[];
+}
+
+export interface RfqBatchItem {
+  rfq_id: number;
+  name: string;
+  cas: string | null;
+  status: string;
+  volume: string | null;
+  search_runs: number;
+}
+
+export interface RfqBatchSummary {
+  batch_id: number;
+  source_name: string | null;
+  created_at: string | null;
+  owner_id: number | null;
+  total: number;
+  /** Позиции пакета, недоступные этому пользователю по правам. */
+  hidden: number;
+  items: RfqBatchItem[];
+}

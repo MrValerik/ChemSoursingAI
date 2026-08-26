@@ -16,6 +16,7 @@ from app.models.enums import RFQStatus
 if TYPE_CHECKING:
     from app.models.escalation import Escalation
     from app.models.quotation import Quotation
+    from app.models.rfq_batch import RfqBatch
     from app.models.search_trace import SearchRun
     from app.models.substance import Substance
     from app.models.user import User
@@ -100,6 +101,16 @@ class RFQ(Base, TimestampMixin):
         ForeignKey("users.id"), index=True, default=None
     )
     owner: Mapped["User | None"] = relationship(foreign_keys=[owner_id])
+
+    # Пакет, которым позиция была заведена. Связь, а не объединение: запрос
+    # остаётся независимым, у него свой поиск и своя котировка. Пакет нужен,
+    # чтобы вернуться к сводке списка и увидеть соседние позиции.
+    # ON DELETE SET NULL: удаление пакета не должно уносить запросы, по
+    # которым уже идёт переписка.
+    batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rfq_batches.id", ondelete="SET NULL"), index=True, default=None
+    )
+    batch: Mapped["RfqBatch | None"] = relationship(back_populates="rfqs")
 
     # Мягкое удаление сохраняет историю поиска, переписку и котировки для аудита.
     deleted_at: Mapped[datetime | None] = mapped_column(

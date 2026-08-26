@@ -4829,3 +4829,30 @@ button.substance-list-item.active {
 .rfq-import-row-warning { margin: 4px 0 0; color: var(--warn); line-height: 1.4; }
 .rfq-import-table tr.is-broken td { background: color-mix(in srgb, var(--err) 7%, transparent); }
 .rfq-import-table tr.is-skipped td { opacity: 0.5; }
+
+/* Действие и итог пакетного создания. Кнопка под таблицей: сначала
+   закупщик смотрит разбор, потом решает. */
+.rfq-import-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+.rfq-import-actions .rfq-import-hint { margin: 0; }
+.rfq-import-result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+.rfq-import-result .rfq-import-summary { margin-top: 0; }
+.rfq-import-result button { margin-top: 8px; }
+.rfq-import-defaults {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 12px;
+}
+.rfq-import-defaults .field { margin-bottom: 0; }

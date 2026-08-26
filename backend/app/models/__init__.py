@@ -19,6 +19,7 @@ from app.models.purchase_decision import PurchaseDecision
 from app.models.quotation import Quotation
 from app.models.recipient import RfqRecipient
 from app.models.rfq import RFQ
+from app.models.rfq_batch import RfqBatch
 from app.models.rfq_supplier import RfqSupplierLink
 from app.models.search_trace import (
     AgentRun,
@@ -37,6 +38,7 @@ __all__ = [
     "FeedbackMessage",
     "User",
     "RFQ",
+    "RfqBatch",
     "RfqSupplierLink",
     "Supplier",
     "Template",

@@ -5,7 +5,6 @@ import type {
   IdentificationMethod,
   ResolvedName,
   RFQListItem,
-  RfqImportRow,
   RFQRead,
   SubstanceResolution,
 } from "../api/types";
@@ -170,9 +169,11 @@ const parseVolume = (stored: string | null): [string, string] => {
 
 interface Props {
   onCreated: (rfq: RFQRead) => void;
+  /** Пакет создан — открыть его сводку. */
+  onBatchCreated: (batchId: number) => void;
 }
 
-export default function NewRfq({ onCreated }: Props) {
+export default function NewRfq({ onCreated, onBatchCreated }: Props) {
   // Форма открывается пустой. Демонстрационные «Ацетилсалициловая кислота»
   // и «50-78-2» стояли здесь с первых дней и читались как настоящее
   // содержимое запроса: их вычищали руками перед каждым вводом.
@@ -220,9 +221,6 @@ export default function NewRfq({ onCreated }: Props) {
   // Названия, предложенные опознанием, но ещё не отмеченные человеком.
   // Отмечает он сам: равнозначное название и соседнее вещество различает
   // специалист, а не совпадение строк.
-  // Строки, разобранные из файла и не исключённые закупщиком. Пакетное
-  // создание запросов по ним — MEET2-02.
-  const [importedRows, setImportedRows] = useState<RfqImportRow[]>([]);
   const [suggestedSynonyms, setSuggestedSynonyms] = useState<string[]>([]);
   // Названия, которые закупщик снял руками. Автозаполнение обязано их
   // помнить: иначе повторный выбор той же карточки молча вернёт снятое,
@@ -601,14 +599,7 @@ export default function NewRfq({ onCreated }: Props) {
             одну другой нельзя. Пакетное создание запросов по разобранным
             строкам — отдельная задача (MEET2-02); пока экран показывает,
             что именно система прочитала в файле. */}
-        <RfqImport onReady={setImportedRows} />
-        {importedRows.length > 0 && (
-          <p className="rfq-import-hint">
-            Готовых строк: {importedRows.length}. Массовое создание запросов
-            по ним появится следующим шагом — пока проверьте разбор и, если
-            нужно, заполните одну позицию формой ниже.
-          </p>
-        )}
+        <RfqImport onCreated={onBatchCreated} />
 
         <div className="row">
           <Field

@@ -54,6 +54,9 @@ const SECTION_ELEMENTS: { path: string; section: SectionKey; element: React.Reac
 const REQUEST_PATHS = [
   "/requests",
   "/requests/new",
+  // Статический сегмент стоит выше динамического, иначе адрес пакета
+  // разобрался бы как номер запроса.
+  "/requests/batch/:batchId",
   "/requests/:rfqId",
   "/requests/:rfqId/:tab",
 ];

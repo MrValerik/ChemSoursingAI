@@ -7,16 +7,18 @@ import { api, userErrorMessage } from "../api/client";
 import type { RFQRead } from "../api/types";
 import NewRfq from "./NewRfq";
 import RequestsTable from "./RequestsTable";
+import RfqBatchSummary from "./RfqBatchSummary";
 import RfqDetail from "./RfqDetail";
 
 export default function RfqWorkspace() {
-  const { rfqId } = useParams();
+  const { rfqId, batchId } = useParams();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [selected, setSelected] = useState<RFQRead | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isNew = pathname === "/requests/new";
+  const openedBatch = batchId ? Number(batchId) : null;
   const openedId = !isNew && rfqId ? Number(rfqId) : null;
 
   useEffect(() => {
@@ -50,8 +52,21 @@ export default function RfqWorkspace() {
         <button className="secondary back-btn" onClick={backToTable}>
           ← К запросам
         </button>
-        <NewRfq onCreated={(rfq) => navigate(`/requests/${rfq.id}`)} />
+        <NewRfq
+          onCreated={(rfq) => navigate(`/requests/${rfq.id}`)}
+          onBatchCreated={(id) => navigate(`/requests/batch/${id}`)}
+        />
       </div>
+    );
+  }
+
+  if (openedBatch !== null) {
+    return (
+      <RfqBatchSummary
+        batchId={openedBatch}
+        onOpenRfq={(id) => navigate(`/requests/${id}`)}
+        onBack={backToTable}
+      />
     );
   }
 

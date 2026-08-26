@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -17,6 +19,9 @@ from app.schemas.rfq import RFQCreate
 from app.services.rfq_builder import RFQInput, build_rfq
 from app.services.search_trace import cancel_search_run, utc_now
 
+if TYPE_CHECKING:
+    from app.models.substance import Substance
+
 
 def create_rfq(
     db: Session,
@@ -24,11 +29,17 @@ def create_rfq(
     *,
     verify: bool = True,
     owner_id: int | None = None,
+    commit: bool = True,
 ) -> RFQ:
     """Создаёт и сохраняет RFQ.
 
     Валидирует базисы (через build_rfq), при verify=True проверяет вещество
     по CAS (PubChem) и проставляет статус VERIFIED/DRAFT.
+
+    `commit=False` оставляет запись в текущей транзакции. Так её создаёт
+    пакет: каждая позиция там заворачивается в свою точку сохранения, и
+    коммит внутри отдельной позиции закрыл бы транзакцию всего пакета —
+    откатить одну неудачную строку стало бы нечем.
     """
     # Валидация базисов выполняется здесь (бросит UnsupportedIncotermError).
     build_rfq(
@@ -93,8 +104,11 @@ def create_rfq(
         owner_id=owner_id,
     )
     db.add(rfq)
-    db.commit()
-    db.refresh(rfq)
+    if commit:
+        db.commit()
+        db.refresh(rfq)
+    else:
+        db.flush()
     return rfq
 
 
@@ -174,3 +188,62 @@ def archive_rfq(
     rfq.deleted_by_id = actor_id
     db.commit()
     return rfq
+
+
+def merge_names(*groups: list[str] | None) -> list[str]:
+    """Объединяет списки названий без повторов, сохраняя порядок."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for raw in group or []:
+            name = raw.strip()
+            key = name.casefold()
+            if name and key not in seen:
+                seen.add(key)
+                merged.append(name)
+    return merged
+
+
+def search_run_payload(
+    rfq: RFQ,
+    *,
+    country: str,
+    substance: "Substance | None" = None,
+    additional_instructions: str | None = None,
+) -> dict:
+    """Вход поискового прогона по одной позиции и одной стране.
+
+    Вынесено из обработчика создания: пакетное создание ставит такие же
+    прогоны, и собирать этот словарь во второй раз значит гарантировать
+    расхождение. Однажды так уже вышло — кнопка «создать и начать поиск»
+    строила payload вручную и теряла способ идентификации вместе с
+    эталоном аналога, отчего поиск аналога тихо шёл как обычный.
+    """
+    return {
+        "cas": rfq.cas,
+        "name": rfq.name,
+        "catalog_preferred_name": substance.preferred_name if substance else None,
+        # Отметки закупщика по этому запросу идут вместе с накопленными в
+        # карточке: без CAS-номера якорем поиска служит название, и именно
+        # подтверждённые названия держат точность в этой ветке.
+        "known_synonyms": merge_names(
+            substance.synonyms if substance else None,
+            rfq.confirmed_synonyms,
+        ),
+        "excluded_names": merge_names(
+            substance.excluded_names if substance else None,
+            rfq.excluded_names,
+        ),
+        "catalog_notes": substance.notes if substance else None,
+        "country": country,
+        "identification_method": rfq.identification_method,
+        "analog_reference": rfq.analog_reference,
+        "analog_variations": list(rfq.analog_variations or []),
+        "specification": rfq.specification,
+        "application": rfq.application,
+        "requested_volume": rfq.volume,
+        "additional_instructions": (
+            additional_instructions.strip() if additional_instructions else None
+        ),
+        "limit": rfq.supplier_target,
+    }

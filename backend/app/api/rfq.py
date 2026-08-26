@@ -16,7 +16,9 @@ from app.models.enums import DispatchStatus, EscalationStatus, UserRole
 from app.models.escalation import Escalation
 from app.models.quotation import Quotation
 from app.models.recipient import RfqRecipient
+from app.models.search_trace import SearchRun
 from app.models.rfq import RFQ
+from app.models.rfq_batch import RfqBatch
 from app.schemas.rfq import (
     RFQCreate,
     RFQListItem,
@@ -29,6 +31,11 @@ from app.services.communication_testing import (
     translate_preview_text,
 )
 from app.services.incoterms import SUPPORTED_INCOTERMS
+from app.services.rfq_batch_service import (
+    MAX_BATCH_ITEMS,
+    create_rfq_batch,
+    existing_batch_result,
+)
 from app.services.rfq_import import (
     MAX_FILE_BYTES,
     RfqImportError,
@@ -43,6 +50,7 @@ from app.services.rfq_builder import (
 from app.services.rfq_service import (
     archive_rfq,
     create_rfq,
+    search_run_payload,
     render_rfq_text,
     update_rfq_message_draft,
 )
@@ -143,6 +151,116 @@ def recheck_import_row(
     return parse_import_row(data.row, data.raw).to_dict()
 
 
+class BatchItemIn(BaseModel):
+    """Строка списка. Значения сырые: их проверяет разбор каждой строки.
+
+    Схема запроса намеренно не валидирует поля позиции. Если бы валидировала,
+    одна негодная строка отвергала бы весь список ещё на разборе тела — а
+    закупщику нужны 49 созданных запросов и один понятный отказ.
+    """
+
+    row: int = Field(default=0, ge=0)
+    values: dict = Field(default_factory=dict)
+
+
+class BatchCreate(BaseModel):
+    # Ключ придумывает клиент и повторяет при повторной отправке.
+    idempotency_key: str = Field(..., min_length=8, max_length=64)
+    source_name: str | None = Field(default=None, max_length=255)
+    # Условия закупки, общие для списка: базисы и страны. В файле таких
+    # колонок обычно нет, а без них запрос не создаётся.
+    defaults: dict = Field(default_factory=dict)
+    items: list[BatchItemIn] = Field(..., min_length=1, max_length=MAX_BATCH_ITEMS)
+
+
+@router.post("/batch", status_code=201)
+def create_batch(
+    data: BatchCreate,
+    verify: bool = Query(
+        default=False,
+        description="Подтверждать номера в PubChem (медленно на большом списке)",
+    ),
+    start_search: bool = Query(
+        default=True, description="Ставить поиск по каждой позиции в очередь"
+    ),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Создаёт пакет запросов по списку позиций.
+
+    Каждая строка отвечает за себя: отказ одной не отменяет остальные, и
+    итог возвращается по каждой. Повтор с тем же ключом идемпотентности
+    возвращает уже созданный пакет, а не заводит второй.
+    """
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+
+    result = create_rfq_batch(
+        db,
+        owner_id=user.id,
+        idempotency_key=data.idempotency_key,
+        source_name=data.source_name,
+        items=[(item.row, item.values) for item in data.items],
+        defaults=data.defaults,
+        verify=verify,
+        start_search=start_search,
+    )
+    return result.to_dict()
+
+
+@router.get("/batch/{batch_id}")
+def read_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Сводка пакета: позиции, их статусы и число поставленных поисков.
+
+    Видимость пакета не расширяет права на запросы: закупщик, открывший
+    чужой пакет, не получает через него чужие карточки.
+    """
+    batch = db.get(RfqBatch, batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Пакет не найден")
+    if user.role not in _SEE_ALL_ROLES and batch.owner_id not in (None, user.id):
+        # 404, а не 403: существование чужого пакета — тоже сведения.
+        raise HTTPException(status_code=404, detail="Пакет не найден")
+
+    rows = db.scalars(
+        select(RFQ)
+        .where(RFQ.batch_id == batch.id, RFQ.deleted_at.is_(None))
+        .order_by(RFQ.id)
+    ).all()
+    visible = [rfq for rfq in rows if _can_see(user, rfq)]
+
+    run_counts = dict(
+        db.execute(
+            select(SearchRun.rfq_id, func.count(SearchRun.id))
+            .where(SearchRun.rfq_id.in_([rfq.id for rfq in visible] or [0]))
+            .group_by(SearchRun.rfq_id)
+        ).all()
+    )
+    return {
+        "batch_id": batch.id,
+        "source_name": batch.source_name,
+        "created_at": batch.created_at.isoformat() if batch.created_at else None,
+        "owner_id": batch.owner_id,
+        "total": len(visible),
+        "hidden": len(rows) - len(visible),
+        "items": [
+            {
+                "rfq_id": rfq.id,
+                "name": rfq.name,
+                "cas": rfq.cas,
+                "status": rfq.status.value,
+                "volume": rfq.volume,
+                "search_runs": run_counts.get(rfq.id, 0),
+            }
+            for rfq in visible
+        ],
+    }
+
+
 @router.post("/preview")
 def preview_rfq(
     req: RFQGenerateRequest,
@@ -212,54 +330,12 @@ def create(
                 db,
                 owner_id=user.id,
                 rfq_id=rfq.id,
-                input_payload={
-                    "cas": rfq.cas,
-                    "name": rfq.name,
-                    "catalog_preferred_name": (
-                        selected_substance.preferred_name
-                        if selected_substance
-                        else None
-                    ),
-                    # Отметки закупщика по этому запросу идут вместе с
-                    # накопленными в карточке: без CAS-номера якорем
-                    # поиска служит название, и именно подтверждённые
-                    # названия держат точность в этой ветке.
-                    "known_synonyms": _merge_names(
-                        selected_substance.synonyms if selected_substance else None,
-                        rfq.confirmed_synonyms,
-                    ),
-                    "excluded_names": _merge_names(
-                        selected_substance.excluded_names
-                        if selected_substance
-                        else None,
-                        rfq.excluded_names,
-                    ),
-                    "catalog_notes": (
-                        selected_substance.notes
-                        if selected_substance
-                        else None
-                    ),
-                    "country": country,
-                    # Способ идентификации и всё, что к нему прилагается.
-                    # Форма их собирает, карточка запроса хранит, а поиск
-                    # до этой правки не получал: кнопка «Создать запрос и
-                    # начать поиск» строила payload вручную и молча теряла
-                    # их. Поиск аналога при этом не падал — он выполнялся
-                    # как обычный поиск по названию, и по результату это
-                    # было незаметно.
-                    "identification_method": rfq.identification_method,
-                    "analog_reference": rfq.analog_reference,
-                    "analog_variations": list(rfq.analog_variations or []),
-                    "specification": rfq.specification,
-                    "application": rfq.application,
-                    "requested_volume": rfq.volume,
-                    "additional_instructions": (
-                        data.additional_instructions.strip()
-                        if data.additional_instructions
-                        else None
-                    ),
-                    "limit": data.supplier_target,
-                },
+                input_payload=search_run_payload(
+                    rfq,
+                    country=country,
+                    substance=selected_substance,
+                    additional_instructions=data.additional_instructions,
+                ),
                 mode="queued_search",
                 status="queued",
             )

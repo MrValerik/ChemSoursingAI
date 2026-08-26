@@ -4,6 +4,8 @@
 import type {
   AnalogVariation,
   ChannelStatus,
+  RfqBatchCreateResult,
+  RfqBatchSummary,
   RfqImportPreview,
   RfqImportRow,
   CommunicationMessageRead,
@@ -256,6 +258,17 @@ export const api = {
 
   // Обратная сторона verifyCas: номера нет, есть только название. Именно так
   // позиции и приходят от заказчика — списком названий.
+  createRfqBatch: (payload: {
+    idempotency_key: string;
+    source_name?: string | null;
+    items: { row: number; values: Record<string, unknown> }[];
+  }) =>
+    request<RfqBatchCreateResult>("/rfq/batch", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getRfqBatch: (batchId: number) =>
+    request<RfqBatchSummary>(`/rfq/batch/${batchId}`),
   previewRfqImport: (file: File) =>
     requestUpload<RfqImportPreview>("/rfq/import/preview", file),
   recheckRfqImportRow: (row: number, raw: Record<string, string>) =>
