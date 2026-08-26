@@ -33,6 +33,22 @@ const formatMoment = (value: string) =>
 
 const supplierName = (row: SummaryRow) => row.supplier ?? row.manager ?? "—";
 
+const costCurrency = (row: SummaryRow) => row.cost_currency ?? row.currency;
+
+const pricePerUnit = (row: SummaryRow) => {
+  const price = formatPrice(row.price, row.currency);
+  return row.price_unit && row.price !== null ? `${price} / ${row.price_unit}` : price;
+};
+
+const customsLabel = (row: SummaryRow) => {
+  const currency = costCurrency(row);
+  if (row.duty_cost === null && row.vat_cost === null) return "—";
+  return [
+    row.duty_cost !== null ? `пошлина ${formatPrice(row.duty_cost, currency)}` : null,
+    row.vat_cost !== null ? `НДС ${formatPrice(row.vat_cost, currency)}` : null,
+  ].filter(Boolean).join(" · ");
+};
+
 const documentsLabel = (row: SummaryRow) => {
   const documents = [row.has_coa ? "CoA" : null, row.has_tds ? "TDS" : null].filter(
     Boolean,
@@ -183,16 +199,17 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                     <tr>
                       <th>Итог</th>
                       <th>Поставщик</th>
-                      <th>Цена</th>
+                      <th>Фасовка</th>
+                      <th>Цена / ед.</th>
+                      <th>Объём / MOQ</th>
+                      <th>Закупка</th>
+                      <th>Доставка</th>
+                      <th>Пошлина / НДС</th>
+                      <th>Итого до склада</th>
                       <th>Базис</th>
-                      <th>MOQ</th>
-                      <th>Грейд</th>
                       <th>Оплата</th>
                       <th>Срок</th>
-                      <th>Документы</th>
-                      <th>Уверенность</th>
-                      <th>Получено</th>
-                      <th>Статус</th>
+                      <th>Документы / статус</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -223,18 +240,33 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                             type="button"
                           >
                             <strong>{supplierName(row)}</strong>
+                            {row.manufacturer && row.manufacturer !== supplierName(row) && (
+                              <span>Производитель: {row.manufacturer}</span>
+                            )}
+                            {row.origin_country && <span>{row.origin_country}</span>}
                           </button>
                         </td>
-                        <td>{formatPrice(row.price, row.currency)}</td>
+                        <td>
+                          {row.packaging ?? "—"}
+                          {row.grade && <small>{row.grade}</small>}
+                          {row.is_hazmat !== null && (
+                            <small>{row.is_hazmat ? "HAZMAT" : "не HAZMAT"}</small>
+                          )}
+                        </td>
+                        <td>{pricePerUnit(row)}</td>
+                        <td>
+                          {row.quoted_quantity ?? "—"}
+                          <small>MOQ: {row.moq ?? "—"}</small>
+                        </td>
+                        <td>{formatPrice(row.total_price, costCurrency(row))}</td>
+                        <td>{formatPrice(row.delivery_cost, costCurrency(row))}</td>
+                        <td>{customsLabel(row)}</td>
+                        <td>{formatPrice(row.landed_cost, costCurrency(row))}</td>
                         <td>{row.incoterm ?? "—"}</td>
-                        <td>{row.moq ?? "—"}</td>
-                        <td>{row.grade ?? "—"}</td>
                         <td>{row.payment_terms ?? "—"}</td>
                         <td>{row.lead_time ?? "—"}</td>
-                        <td>{documentsLabel(row)}</td>
-                        <td>{confidenceLabel(row)}</td>
-                        <td>{formatMoment(row.created_at)}</td>
                         <td>
+                          <span>{documentsLabel(row)}</span>
                           <span className={`badge ${row.is_complete ? "tone-ok" : "tone-warn"}`}>
                             {row.is_complete ? "полная" : "неполная"}
                           </span>
@@ -271,20 +303,33 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
               <div><span>Товар</span><strong>{rfq.name}</strong></div>
               <div><span>Планируемый объём</span><strong>{rfq.volume ?? "не указан"}</strong></div>
               <div><span>Поставщик</span><strong>{supplierName(selectedRow)}</strong></div>
-              <div><span>Предложенная цена</span><strong>{formatPrice(selectedRow.price, selectedRow.currency)}</strong></div>
+              <div><span>Производитель</span><strong>{selectedRow.manufacturer ?? "не указан"}</strong></div>
+              <div><span>Страна закупки</span><strong>{selectedRow.origin_country ?? "не указана"}</strong></div>
+              <div><span>Фасовка</span><strong>{selectedRow.packaging ?? "не указана"}</strong></div>
+              <div><span>Предложенная цена</span><strong>{pricePerUnit(selectedRow)}</strong></div>
+              <div><span>Предложенный объём</span><strong>{selectedRow.quoted_quantity ?? "не указан"}</strong></div>
+              <div><span>Стоимость закупки</span><strong>{formatPrice(selectedRow.total_price, costCurrency(selectedRow))}</strong></div>
+              <div><span>Доставка</span><strong>{formatPrice(selectedRow.delivery_cost, costCurrency(selectedRow))}</strong></div>
+              <div><span>Пошлина</span><strong>{formatPrice(selectedRow.duty_cost, costCurrency(selectedRow))}</strong></div>
+              <div><span>НДС</span><strong>{formatPrice(selectedRow.vat_cost, costCurrency(selectedRow))}</strong></div>
+              <div><span>Итого до склада</span><strong>{formatPrice(selectedRow.landed_cost, costCurrency(selectedRow))}</strong></div>
               <div><span>Базис поставки</span><strong>{selectedRow.incoterm ?? "не указан"}</strong></div>
               <div><span>MOQ</span><strong>{selectedRow.moq ?? "не указан"}</strong></div>
               <div><span>Условия оплаты</span><strong>{selectedRow.payment_terms ?? "не указаны"}</strong></div>
               <div><span>Срок</span><strong>{selectedRow.lead_time ?? "не указан"}</strong></div>
               <div><span>Документы</span><strong>{documentsLabel(selectedRow)}</strong></div>
+              <div><span>HAZMAT</span><strong>{selectedRow.is_hazmat === null ? "не указано" : selectedRow.is_hazmat ? "да" : "нет"}</strong></div>
+              <div><span>Уверенность извлечения</span><strong>{confidenceLabel(selectedRow)}</strong></div>
+              <div><span>Получено</span><strong>{formatMoment(selectedRow.created_at)}</strong></div>
               <div><span>Полнота</span><strong>{selectedRow.is_complete ? "полная котировка" : "есть недостающие условия"}</strong></div>
             </div>
 
-            <p className="summary-warning">
-              Итоговая сумма не рассчитывается: поставщик указал цену, но в текущих
-              данных нет подтверждённой единицы цены. Объём и цену нельзя перемножать
-              без риска ошибки.
-            </p>
+            {selectedRow.landed_cost === null && (
+              <p className="summary-warning">
+                Итоговая себестоимость пока не подтверждена. Система не перемножает
+                цену и объём без явной единицы и не придумывает доставку, пошлину или НДС.
+              </p>
+            )}
 
             {readOnly ? (
               <div className="purchase-decision-note">

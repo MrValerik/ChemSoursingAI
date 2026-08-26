@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, JSON, Numeric, String
+from sqlalchemy import Boolean, ForeignKey, JSON, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -32,6 +32,23 @@ class Quotation(Base, TimestampMixin):
     grade: Mapped[str | None] = mapped_column(String(120))
     payment_terms: Mapped[str | None] = mapped_column(String(255))
     lead_time: Mapped[str | None] = mapped_column(String(120))
+
+    # Коммерческая разбивка предложения. Поля повторяют только сравнимую
+    # часть рабочих калькуляций заказчика: контрагент, упаковка, объём и
+    # стоимость до склада. Внутренние формулы и технические Copy-столбцы
+    # исходных книг сюда намеренно не переносятся.
+    manufacturer: Mapped[str | None] = mapped_column(String(255), default=None)
+    origin_country: Mapped[str | None] = mapped_column(String(120), default=None)
+    packaging: Mapped[str | None] = mapped_column(String(255), default=None)
+    price_unit: Mapped[str | None] = mapped_column(String(32), default=None)
+    quoted_quantity: Mapped[str | None] = mapped_column(String(64), default=None)
+    total_price: Mapped[float | None] = mapped_column(Numeric(14, 4), default=None)
+    delivery_cost: Mapped[float | None] = mapped_column(Numeric(14, 4), default=None)
+    duty_cost: Mapped[float | None] = mapped_column(Numeric(14, 4), default=None)
+    vat_cost: Mapped[float | None] = mapped_column(Numeric(14, 4), default=None)
+    landed_cost: Mapped[float | None] = mapped_column(Numeric(14, 4), default=None)
+    cost_currency: Mapped[str | None] = mapped_column(String(3), default=None)
+    is_hazmat: Mapped[bool | None] = mapped_column(Boolean, default=None)
 
     has_coa: Mapped[bool] = mapped_column(default=False)
     has_tds: Mapped[bool] = mapped_column(default=False)

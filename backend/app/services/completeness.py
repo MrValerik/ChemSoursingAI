@@ -26,6 +26,23 @@ REQUIRED_FIELDS = (
     "lead_time",
 )
 
+# Дополнительные сравнимые поля из коммерческих калькуляций. Они не делают
+# котировку обязательнее, но должны накапливаться между письмами поставщика.
+OPTIONAL_FIELDS = (
+    "manufacturer",
+    "origin_country",
+    "packaging",
+    "price_unit",
+    "quoted_quantity",
+    "total_price",
+    "delivery_cost",
+    "duty_cost",
+    "vat_cost",
+    "landed_cost",
+    "cost_currency",
+    "is_hazmat",
+)
+
 # Порог уверенности извлечения по полю.
 CONFIDENCE_THRESHOLD = 0.70
 
@@ -112,6 +129,7 @@ def accumulate_quotations(
         "grade": None,
         "payment_terms": None,
         "lead_time": None,
+        **{name: None for name in OPTIONAL_FIELDS},
         "has_coa": False,
         "has_tds": False,
     }
@@ -120,7 +138,7 @@ def accumulate_quotations(
     for quotation in quotations:
         values = quotation if isinstance(quotation, Mapping) else vars(quotation)
         raw_confidence = values.get("field_confidence") or {}
-        for name in REQUIRED_FIELDS:
+        for name in (*REQUIRED_FIELDS, *OPTIONAL_FIELDS):
             value = values.get(name)
             if _is_empty(value):
                 continue
@@ -139,6 +157,8 @@ def accumulate_quotations(
                     confidence[name] = float(new_confidence)
         merged["has_coa"] = bool(merged["has_coa"] or values.get("has_coa"))
         merged["has_tds"] = bool(merged["has_tds"] or values.get("has_tds"))
+        if values.get("is_hazmat") is True:
+            merged["is_hazmat"] = True
 
     completeness = evaluate_completeness(
         merged,

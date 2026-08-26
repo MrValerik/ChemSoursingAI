@@ -16,6 +16,7 @@ from app.extraction.schema import ExtractedQuote
 from app.extraction.validators import (
     validate_currency,
     validate_incoterm,
+    validate_nonnegative_amount,
     validate_price,
 )
 
@@ -28,8 +29,31 @@ _VALIDATED_FIELDS = {
     "price": validate_price,
     "currency": validate_currency,
     "incoterm": validate_incoterm,
+    "total_price": validate_nonnegative_amount,
+    "delivery_cost": validate_nonnegative_amount,
+    "duty_cost": validate_nonnegative_amount,
+    "vat_cost": validate_nonnegative_amount,
+    "landed_cost": validate_nonnegative_amount,
+    "cost_currency": validate_currency,
 }
-_STRING_FIELDS = ("moq", "grade", "payment_terms", "lead_time")
+_EXPLICIT_AMOUNT_FIELDS = {
+    "total_price",
+    "delivery_cost",
+    "duty_cost",
+    "vat_cost",
+    "landed_cost",
+}
+_STRING_FIELDS = (
+    "moq",
+    "grade",
+    "payment_terms",
+    "lead_time",
+    "manufacturer",
+    "origin_country",
+    "packaging",
+    "price_unit",
+    "quoted_quantity",
+)
 
 
 def extract_quote(
@@ -73,7 +97,17 @@ def _merge(llm_dict: dict, rules: ExtractedQuote) -> ExtractedQuote:
     for fieldname, validator in _VALIDATED_FIELDS.items():
         llm_val = validator(llm_dict.get(fieldname))
         rule_val = getattr(rules, fieldname)
-        value, conf = _reconcile(llm_val, rule_val)
+        if fieldname in _EXPLICIT_AMOUNT_FIELDS and rule_val is None:
+            # Денежная разбивка влияет на сравнение предложений. Одного вывода
+            # модели недостаточно: сумма должна стоять рядом с явной меткой в
+            # исходном письме и подтверждаться детерминированным парсером.
+            value, conf = None, 0.0
+        elif fieldname == "cost_currency" and not any(
+            getattr(rules, name) is not None for name in _EXPLICIT_AMOUNT_FIELDS
+        ):
+            value, conf = None, 0.0
+        else:
+            value, conf = _reconcile(llm_val, rule_val)
         setattr(out, fieldname, value)
         if value is not None and value != "":
             confidence[fieldname] = conf
@@ -94,6 +128,21 @@ def _merge(llm_dict: dict, rules: ExtractedQuote) -> ExtractedQuote:
         confidence["has_coa"] = 0.9
     if out.has_tds:
         confidence["has_tds"] = 0.9
+
+    llm_hazmat = llm_dict.get("is_hazmat")
+    rule_hazmat = rules.is_hazmat
+    if llm_hazmat is True or rule_hazmat is True:
+        out.is_hazmat = True
+        confidence["is_hazmat"] = (
+            _AGREE_CONF if llm_hazmat is True and rule_hazmat is True else _DISAGREE_CONF
+        )
+    elif llm_hazmat is False or rule_hazmat is False:
+        out.is_hazmat = False
+        confidence["is_hazmat"] = (
+            _AGREE_CONF
+            if llm_hazmat is False and rule_hazmat is False
+            else _LLM_BASE_CONF
+        )
 
     out.field_confidence = confidence
     return out

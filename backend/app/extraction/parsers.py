@@ -144,3 +144,106 @@ def parse_grade(text: str) -> Parsed[str]:
     if m:
         return Parsed(m.group(1).strip(), 0.75)
     return Parsed(None, 0.0)
+
+
+_QUANTITY_UNITS = r"kg|g|mt|ton|tonne|l|lb|drum|bag|item|unit|pc|pcs"
+_CURRENCY_TOKEN = r"USD|EUR|CNY|RMB|GBP|RUB|JPY|\$|€|¥|£|₽"
+_MONEY_NUMBER = r"(?:\d{1,3}(?:[,\s]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
+
+
+def parse_price_unit(text: str) -> Parsed[str]:
+    """Единица цены из конструкции ``USD 12.5/kg`` или ``per kg``."""
+    patterns = [
+        rf"(?:/\s*|per\s+)({_QUANTITY_UNITS})\b",
+        rf"price\s+per\s+({_QUANTITY_UNITS})\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return Parsed(match.group(1).lower(), 0.9)
+    return Parsed(None, 0.0)
+
+
+def parse_quoted_quantity(text: str) -> Parsed[str]:
+    """Объём, на который поставщик дал цену; MOQ сюда не подменяется."""
+    pattern = (
+        rf"(?:quoted\s+quantity|quantity\s+quoted|offer\s+quantity|quantity)"
+        rf"[:\s]*({_NUMBER}\s*(?:{_QUANTITY_UNITS})s?)\b"
+    )
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if match:
+        return Parsed(match.group(1).strip(), 0.85)
+    return Parsed(None, 0.0)
+
+
+def parse_packaging(text: str) -> Parsed[str]:
+    """Фасовка только после явной метки packaging/packing/packed in."""
+    patterns = [
+        r"(?:packaging|packing)\s*:\s*([^\n.;]{1,120})",
+        r"packed\s+in\s+([^\n.;]{1,120})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return Parsed(match.group(1).strip(), 0.85)
+    return Parsed(None, 0.0)
+
+
+def _parse_labeled_money(text: str, label_pattern: str) -> Parsed[float]:
+    patterns = [
+        rf"(?:{label_pattern})\s*[:=]?\s*(?:{_CURRENCY_TOKEN})\s*({_MONEY_NUMBER})(?!\d|[.,]\d)",
+        rf"(?:{label_pattern})\s*[:=]?\s*({_MONEY_NUMBER})(?!\d|[.,]\d)\s*(?:{_CURRENCY_TOKEN})\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            amount = _to_float(match.group(1))
+            if amount is not None:
+                return Parsed(amount, 0.9)
+    return Parsed(None, 0.0)
+
+
+def parse_total_price(text: str) -> Parsed[float]:
+    return _parse_labeled_money(text, r"total(?:\s+(?:price|amount|cost))?")
+
+
+def parse_delivery_cost(text: str) -> Parsed[float]:
+    return _parse_labeled_money(text, r"(?:freight|shipping|delivery)(?:\s+cost)?")
+
+
+def parse_duty_cost(text: str) -> Parsed[float]:
+    return _parse_labeled_money(text, r"(?:import\s+)?dut(?:y|ies)")
+
+
+def parse_vat_cost(text: str) -> Parsed[float]:
+    return _parse_labeled_money(text, r"VAT")
+
+
+def parse_landed_cost(text: str) -> Parsed[float]:
+    return _parse_labeled_money(text, r"(?:total\s+)?landed\s+cost")
+
+
+def parse_manufacturer(text: str) -> Parsed[str]:
+    match = re.search(
+        r"(?:manufacturer|manufactured\s+by)\s*:\s*([^\n.;]{2,255})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return Parsed(match.group(1).strip(), 0.85) if match else Parsed(None, 0.0)
+
+
+def parse_origin_country(text: str) -> Parsed[str]:
+    match = re.search(
+        r"(?:country\s+of\s+origin|origin\s+country)\s*:\s*([^\n.;]{2,120})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return Parsed(match.group(1).strip(), 0.85) if match else Parsed(None, 0.0)
+
+
+def parse_hazmat(text: str) -> Parsed[bool]:
+    if re.search(r"\b(?:non[-\s]?hazardous|not\s+hazmat)\b", text, re.IGNORECASE):
+        return Parsed(False, 0.9)
+    if re.search(r"\b(?:hazmat|hazardous|dangerous\s+goods?)\b", text, re.IGNORECASE):
+        return Parsed(True, 0.85)
+    return Parsed(None, 0.0)

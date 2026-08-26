@@ -374,6 +374,10 @@ _DEMO_WORKSPACE_SUPPLIERS = (
         "grade": "USP grade, 99.5%",
         "payment_terms": "30% advance, 70% before shipment",
         "lead_time": "15 days",
+        "packaging": "25 kg fiber drums",
+        "delivery_cost": 820.0,
+        "duty_cost": 310.0,
+        "vat_cost": 1466.0,
         "has_coa": True,
         "has_tds": True,
         "is_complete": True,
@@ -405,6 +409,10 @@ _DEMO_WORKSPACE_SUPPLIERS = (
         "grade": "Pharma grade, 99.7%",
         "payment_terms": "100% T/T before dispatch",
         "lead_time": "21 days",
+        "packaging": "50 kg bags",
+        "delivery_cost": 950.0,
+        "duty_cost": 295.0,
+        "vat_cost": 1429.0,
         "has_coa": True,
         "has_tds": True,
         "is_complete": True,
@@ -436,6 +444,10 @@ _DEMO_WORKSPACE_SUPPLIERS = (
         "grade": "Industrial grade, 99%",
         "payment_terms": "50% deposit, balance before collection",
         "lead_time": "30 days",
+        "packaging": "25 kg bags",
+        "delivery_cost": 700.0,
+        "duty_cost": 272.5,
+        "vat_cost": 1284.5,
         "has_coa": True,
         "has_tds": False,
         "is_complete": False,
@@ -997,6 +1009,34 @@ def _seed_workspace_search(
 def _upgrade_workspace(db: Session, rfq: RFQ, owner: User) -> None:
     suppliers = _rename_workspace_entities(db, rfq)
     _seed_workspace_search(db, rfq=rfq, owner=owner, suppliers=suppliers)
+    item_by_key = {item["company_key"]: item for item in _DEMO_WORKSPACE_SUPPLIERS}
+    for quotation in db.scalars(
+        select(Quotation).where(Quotation.rfq_id == rfq.id)
+    ).all():
+        supplier = quotation.manager.supplier if quotation.manager else None
+        item = item_by_key.get(supplier.company_key if supplier else None)
+        if item is None:
+            continue
+        purchase_total = item["price"] * 500
+        quotation.manufacturer = (
+            item["company"] if item["type"] == SupplierType.MANUFACTURER else None
+        )
+        quotation.origin_country = item["country"]
+        quotation.packaging = item["packaging"]
+        quotation.price_unit = "kg"
+        quotation.quoted_quantity = "500 kg"
+        quotation.total_price = purchase_total
+        quotation.delivery_cost = item["delivery_cost"]
+        quotation.duty_cost = item["duty_cost"]
+        quotation.vat_cost = item["vat_cost"]
+        quotation.landed_cost = (
+            purchase_total
+            + item["delivery_cost"]
+            + item["duty_cost"]
+            + item["vat_cost"]
+        )
+        quotation.cost_currency = "USD"
+        quotation.is_hazmat = False
     db.commit()
 
 
@@ -1149,6 +1189,13 @@ def seed_demo_workspace(db: Session) -> None:
             )
 
         quote_at = started_at + timedelta(hours=index * 5 + 5)
+        purchase_total = item["price"] * 500
+        landed_total = (
+            purchase_total
+            + item["delivery_cost"]
+            + item["duty_cost"]
+            + item["vat_cost"]
+        )
         db.add(
             Quotation(
                 rfq_id=rfq.id,
@@ -1160,6 +1207,22 @@ def seed_demo_workspace(db: Session) -> None:
                 grade=item["grade"],
                 payment_terms=item["payment_terms"],
                 lead_time=item["lead_time"],
+                manufacturer=(
+                    item["company"]
+                    if item["type"] == SupplierType.MANUFACTURER
+                    else None
+                ),
+                origin_country=item["country"],
+                packaging=item["packaging"],
+                price_unit="kg",
+                quoted_quantity="500 kg",
+                total_price=purchase_total,
+                delivery_cost=item["delivery_cost"],
+                duty_cost=item["duty_cost"],
+                vat_cost=item["vat_cost"],
+                landed_cost=landed_total,
+                cost_currency="USD",
+                is_hazmat=False,
                 has_coa=item["has_coa"],
                 has_tds=item["has_tds"],
                 is_complete=item["is_complete"],

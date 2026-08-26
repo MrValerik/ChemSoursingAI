@@ -19,6 +19,18 @@ class QuotationCreate(BaseModel):
     grade: str | None = None
     payment_terms: str | None = None
     lead_time: str | None = None
+    manufacturer: str | None = Field(default=None, max_length=255)
+    origin_country: str | None = Field(default=None, max_length=120)
+    packaging: str | None = Field(default=None, max_length=255)
+    price_unit: str | None = Field(default=None, max_length=32)
+    quoted_quantity: str | None = Field(default=None, max_length=64)
+    total_price: float | None = Field(default=None, ge=0)
+    delivery_cost: float | None = Field(default=None, ge=0)
+    duty_cost: float | None = Field(default=None, ge=0)
+    vat_cost: float | None = Field(default=None, ge=0)
+    landed_cost: float | None = Field(default=None, ge=0)
+    cost_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    is_hazmat: bool | None = None
     has_coa: bool = False
     has_tds: bool = False
     field_confidence: dict[str, float] | None = None
@@ -39,6 +51,18 @@ class QuotationRead(BaseModel):
     grade: str | None
     payment_terms: str | None
     lead_time: str | None
+    manufacturer: str | None
+    origin_country: str | None
+    packaging: str | None
+    price_unit: str | None
+    quoted_quantity: str | None
+    total_price: float | None
+    delivery_cost: float | None
+    duty_cost: float | None
+    vat_cost: float | None
+    landed_cost: float | None
+    cost_currency: str | None
+    is_hazmat: bool | None
     has_coa: bool
     has_tds: bool
     is_complete: bool
@@ -66,6 +90,18 @@ class SummaryRow(BaseModel):
     grade: str | None = None
     payment_terms: str | None = None
     lead_time: str | None = None
+    manufacturer: str | None = None
+    origin_country: str | None = None
+    packaging: str | None = None
+    price_unit: str | None = None
+    quoted_quantity: str | None = None
+    total_price: float | None = None
+    delivery_cost: float | None = None
+    duty_cost: float | None = None
+    vat_cost: float | None = None
+    landed_cost: float | None = None
+    cost_currency: str | None = None
+    is_hazmat: bool | None = None
     has_coa: bool = False
     has_tds: bool = False
     is_complete: bool = False

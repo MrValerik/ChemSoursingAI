@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.communication import Communication
 from app.models.escalation import Escalation
 from app.models.integration import CommunicationTestRun
-from app.models.enums import EscalationStatus, RFQStatus
+from app.models.enums import EscalationStatus, RFQStatus, SupplierType
 from app.models.purchase_decision import PurchaseDecision
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
@@ -45,6 +45,18 @@ def create_quotation(db: Session, data: QuotationCreate) -> Quotation:
         grade=data.grade,
         payment_terms=data.payment_terms,
         lead_time=data.lead_time,
+        manufacturer=data.manufacturer,
+        origin_country=data.origin_country,
+        packaging=data.packaging,
+        price_unit=data.price_unit,
+        quoted_quantity=data.quoted_quantity,
+        total_price=data.total_price,
+        delivery_cost=data.delivery_cost,
+        duty_cost=data.duty_cost,
+        vat_cost=data.vat_cost,
+        landed_cost=data.landed_cost,
+        cost_currency=data.cost_currency,
+        is_hazmat=data.is_hazmat,
         has_coa=data.has_coa,
         has_tds=data.has_tds,
         is_complete=completeness.is_complete,
@@ -98,7 +110,15 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
     rows: list[SummaryRow] = []
     for q in db.scalars(stmt).all():
         manager = q.manager
-        supplier = manager.supplier.company if manager and manager.supplier else None
+        supplier_row = manager.supplier if manager else None
+        supplier = supplier_row.company if supplier_row else None
+        manufacturer = q.manufacturer
+        if (
+            not manufacturer
+            and supplier_row is not None
+            and supplier_row.type == SupplierType.MANUFACTURER
+        ):
+            manufacturer = supplier_row.company
         rows.append(
             SummaryRow(
                 quotation_id=q.id,
@@ -126,6 +146,28 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
                 grade=q.grade,
                 payment_terms=q.payment_terms,
                 lead_time=q.lead_time,
+                manufacturer=manufacturer,
+                origin_country=q.origin_country or (
+                    supplier_row.country if supplier_row else None
+                ),
+                packaging=q.packaging,
+                price_unit=q.price_unit,
+                quoted_quantity=q.quoted_quantity,
+                total_price=(
+                    float(q.total_price) if q.total_price is not None else None
+                ),
+                delivery_cost=(
+                    float(q.delivery_cost) if q.delivery_cost is not None else None
+                ),
+                duty_cost=(
+                    float(q.duty_cost) if q.duty_cost is not None else None
+                ),
+                vat_cost=float(q.vat_cost) if q.vat_cost is not None else None,
+                landed_cost=(
+                    float(q.landed_cost) if q.landed_cost is not None else None
+                ),
+                cost_currency=q.cost_currency or q.currency,
+                is_hazmat=q.is_hazmat,
                 has_coa=q.has_coa,
                 has_tds=q.has_tds,
                 is_complete=q.is_complete,

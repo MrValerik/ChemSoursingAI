@@ -95,3 +95,12 @@ def test_demo_workspace_seed_is_ready_and_idempotent() -> None:
             "Qingdao Nova Chemicals",
             "Eastern Trade Solutions",
         ]
+        assert [row.origin_country for row in summary] == ["Индия", "Китай", "Китай"]
+        assert [row.packaging for row in summary] == [
+            "50 kg bags",
+            "25 kg fiber drums",
+            "25 kg bags",
+        ]
+        assert [row.price_unit for row in summary] == ["kg", "kg", "kg"]
+        assert all(row.quoted_quantity == "500 kg" for row in summary)
+        assert all(row.landed_cost is not None for row in summary)

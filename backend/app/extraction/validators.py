@@ -36,6 +36,15 @@ def validate_price(value) -> float | None:
     return price if price > 0 else None
 
 
+def validate_nonnegative_amount(value) -> float | None:
+    """Проверяет явно сообщённую денежную составляющую, включая ноль."""
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return None
+    return amount if amount >= 0 else None
+
+
 def validate_cas(value) -> str | None:
     if value and is_valid_cas(str(value)):
         return str(value).strip()
