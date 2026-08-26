@@ -948,6 +948,15 @@ def _unit_key(value: str) -> str | None:
     return None
 
 
+# Разбор единиц и чисел понадобился второму потребителю — импорту списка
+# позиций из XLSX/CSV (services/rfq_import.py). Словарь алиасов набран по
+# живым данным: русские, английские и китайские написания одной единицы.
+# Заводить его второй раз значит гарантировать расхождение, поэтому здесь
+# публичные имена, а не копия на стороне импорта.
+unit_key = _unit_key
+UNIT_FACTORS = _UNIT_FACTORS
+
+
 def _decimal_number(value: str) -> Decimal | None:
     compact = (value or "").replace("\u00a0", "").replace(" ", "")
     if not compact:
@@ -964,6 +973,9 @@ def _decimal_number(value: str) -> Decimal | None:
     except InvalidOperation:
         return None
     return number if number > 0 else None
+
+
+decimal_number = _decimal_number
 
 
 def _quantity(

@@ -4745,3 +4745,87 @@ button.substance-list-item.active {
   font-size: 12px;
   line-height: 1.4;
 }
+
+/* Импорт списка позиций из XLSX/CSV.
+   Таблица предпросмотра широкая и на узком экране прокручивается внутри
+   своей рамки: горизонтальная прокрутка всей страницы ломает форму. */
+.rfq-import {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.rfq-import-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.rfq-import-pick input[type="file"] { display: none; }
+.rfq-import-pick-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rfq-import-pick-label:hover { border-color: var(--brand); }
+.rfq-import-file { color: var(--muted); font-size: 12px; }
+.rfq-import-summary { margin: 10px 0 6px; font-size: 13px; }
+.rfq-import-warning,
+.rfq-import-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.rfq-import-warning { color: var(--warn); }
+.rfq-import-hint { color: var(--muted); }
+
+.rfq-import-table-wrap {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+.rfq-import-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rfq-import-table th,
+.rfq-import-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.rfq-import-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rfq-import-col-take { width: 52px; }
+.rfq-import-col-row { width: 44px; color: var(--muted); }
+/* .field input задаёт ширину 100% — отметке нужен её собственный размер. */
+.rfq-import-table input[type="checkbox"] { width: auto; flex: 0 0 auto; }
+.rfq-import-cell {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.rfq-import-cell:hover { border-color: var(--border); }
+.rfq-import-cell:focus { border-color: var(--brand); background: var(--panel); outline: none; }
+.rfq-import-values { color: var(--muted); }
+.rfq-import-none { color: var(--muted); }
+.rfq-import-read { min-width: 240px; }
+/* Ошибка и предупреждение отличаются не только цветом: цвет здесь идёт
+   вместе с текстом причины, и текст остаётся единственным носителем смысла. */
+.rfq-import-row-error { margin: 4px 0 0; color: var(--err); line-height: 1.4; }
+.rfq-import-row-warning { margin: 4px 0 0; color: var(--warn); line-height: 1.4; }
+.rfq-import-table tr.is-broken td { background: color-mix(in srgb, var(--err) 7%, transparent); }
+.rfq-import-table tr.is-skipped td { opacity: 0.5; }

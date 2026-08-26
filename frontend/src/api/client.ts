@@ -4,6 +4,8 @@
 import type {
   AnalogVariation,
   ChannelStatus,
+  RfqImportPreview,
+  RfqImportRow,
   CommunicationMessageRead,
   CommunicationOverviewRead,
   CommunicationTranslationRead,
@@ -147,6 +149,42 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
+// Загрузка файла. Отдельно от request: тот жёстко ставит
+// Content-Type: application/json, а для multipart заголовок обязан
+// проставить браузер — он же вписывает в него границу частей.
+async function requestUpload<T>(path: string, file: File): Promise<T> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const body = new FormData();
+  body.append("file", file);
+
+  let resp: Response;
+  try {
+    resp = await fetch(`${BASE}${path}`, { method: "POST", headers, body });
+  } catch (error) {
+    throw new ApiError(
+      0,
+      userErrorMessage(
+        error,
+        "Не удалось связаться с сервером. Проверьте подключение и повторите попытку.",
+      ),
+    );
+  }
+  if (!resp.ok) {
+    if (resp.status === 401) onUnauthorized?.();
+    let detail: unknown = null;
+    try {
+      detail = ((await resp.json()) as { detail?: unknown }).detail;
+    } catch {
+      detail = null;
+    }
+    throw new ApiError(resp.status, apiResponseErrorMessage(resp.status, detail, path));
+  }
+  return (await resp.json()) as T;
+}
+
 async function requestFile(path: string): Promise<Blob> {
   const headers: Record<string, string> = {};
   const token = getToken();
@@ -218,6 +256,13 @@ export const api = {
 
   // Обратная сторона verifyCas: номера нет, есть только название. Именно так
   // позиции и приходят от заказчика — списком названий.
+  previewRfqImport: (file: File) =>
+    requestUpload<RfqImportPreview>("/rfq/import/preview", file),
+  recheckRfqImportRow: (row: number, raw: Record<string, string>) =>
+    request<RfqImportRow>("/rfq/import/row", {
+      method: "POST",
+      body: JSON.stringify({ row, raw }),
+    }),
   resolveSubstance: (name: string) =>
     request<SubstanceResolution>(`/substances/resolve`, {
       method: "POST",

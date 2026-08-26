@@ -4,7 +4,7 @@
 руководитель/администратор/аудитор — все. Права проверяются на сервере.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, joinedload
@@ -29,6 +29,12 @@ from app.services.communication_testing import (
     translate_preview_text,
 )
 from app.services.incoterms import SUPPORTED_INCOTERMS
+from app.services.rfq_import import (
+    MAX_FILE_BYTES,
+    RfqImportError,
+    parse_import_file,
+    parse_import_row,
+)
 from app.services.rfq_builder import (
     RFQInput,
     UnsupportedIncotermError,
@@ -86,6 +92,55 @@ class RFQGenerateRequest(BaseModel):
     volume: str | None = None
     target_price: float | None = None
     currency: str = "USD"
+
+
+@router.post("/import/preview")
+async def preview_import(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Разбирает XLSX/CSV со списком позиций и возвращает предпросмотр.
+
+    Ничего не создаёт и ничего не сохраняет: ни запросов, ни самого файла.
+    Список сырья — коммерческая тайна закупщика, а решения о сроке хранения
+    загруженного файла ещё нет. Создание запросов — отдельное действие
+    закупщика уже по разобранным строкам.
+    """
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+
+    payload = await file.read()
+    if len(payload) > MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Файл больше {MAX_FILE_BYTES // (1024 * 1024)} МБ."
+            ),
+        )
+    try:
+        preview = parse_import_file(file.filename or "", payload)
+    except RfqImportError as exc:
+        # Содержимое файла в ответ не попадает — только причина отказа.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return preview.to_dict()
+
+
+class ImportRowRecheck(BaseModel):
+    """Строка предпросмотра после правки закупщиком."""
+
+    row: int = Field(default=0, ge=0)
+    raw: dict[str, str] = Field(default_factory=dict)
+
+
+@router.post("/import/row")
+def recheck_import_row(
+    data: ImportRowRecheck,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Проверяет исправленную строку тем же разбором, что и файл."""
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    return parse_import_row(data.row, data.raw).to_dict()
 
 
 @router.post("/preview")

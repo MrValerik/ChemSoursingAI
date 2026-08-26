@@ -5,10 +5,12 @@ import type {
   IdentificationMethod,
   ResolvedName,
   RFQListItem,
+  RfqImportRow,
   RFQRead,
   SubstanceResolution,
 } from "../api/types";
 import NameCandidates from "./NameCandidates";
+import RfqImport from "./RfqImport";
 import { isValidCas, normalizeCas, suggestCheckDigit } from "./cas";
 import {
   DEFAULT_SEARCH_MODE,
@@ -218,6 +220,9 @@ export default function NewRfq({ onCreated }: Props) {
   // Названия, предложенные опознанием, но ещё не отмеченные человеком.
   // Отмечает он сам: равнозначное название и соседнее вещество различает
   // специалист, а не совпадение строк.
+  // Строки, разобранные из файла и не исключённые закупщиком. Пакетное
+  // создание запросов по ним — MEET2-02.
+  const [importedRows, setImportedRows] = useState<RfqImportRow[]>([]);
   const [suggestedSynonyms, setSuggestedSynonyms] = useState<string[]>([]);
   // Названия, которые закупщик снял руками. Автозаполнение обязано их
   // помнить: иначе повторный выбор той же карточки молча вернёт снятое,
@@ -590,6 +595,20 @@ export default function NewRfq({ onCreated }: Props) {
     <div className={`new-rfq${suggestions.length > 0 ? " has-suggestions" : ""}`}>
       <div className="panel">
         <h2>Создать новый запрос</h2>
+
+        {/* Список из файла — вход для закупки на несколько позиций. Форма
+            ниже остаётся входом для одной: это разные задачи, и подменять
+            одну другой нельзя. Пакетное создание запросов по разобранным
+            строкам — отдельная задача (MEET2-02); пока экран показывает,
+            что именно система прочитала в файле. */}
+        <RfqImport onReady={setImportedRows} />
+        {importedRows.length > 0 && (
+          <p className="rfq-import-hint">
+            Готовых строк: {importedRows.length}. Массовое создание запросов
+            по ним появится следующим шагом — пока проверьте разбор и, если
+            нужно, заполните одну позицию формой ниже.
+          </p>
+        )}
 
         <div className="row">
           <Field

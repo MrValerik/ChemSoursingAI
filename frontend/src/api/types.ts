@@ -1061,3 +1061,52 @@ export interface IntermediaryRead {
 
 // Режим поиска: только изготовители или все продавцы (для сравнения цен).
 export type SearchScope = "manufacturers" | "all_sellers";
+
+// --- импорт списка позиций из XLSX/CSV (MEET2-01) ---
+
+/**
+ * Замечание к строке или к файлу. Номер строки — такой же, как в Excel у
+ * закупщика: без него править файл приходится перебором.
+ */
+export interface RfqImportIssue {
+  message: string;
+  row: number | null;
+  column: string | null;
+  field: string | null;
+}
+
+/** Разобранные поля строки. Совпадают с полями карточки запроса. */
+export interface RfqImportValues {
+  name?: string;
+  cas?: string;
+  identification_method?: string;
+  specification?: string;
+  confirmed_synonyms?: string[];
+  purity?: string;
+  volume?: string;
+  target_price?: number;
+  currency?: string;
+  incoterms?: string[];
+  search_countries?: string[];
+  specialist_comment?: string;
+}
+
+export interface RfqImportRow {
+  row: number;
+  values: RfqImportValues;
+  /** Исходные ячейки строки до разбора — их правит закупщик в предпросмотре. */
+  raw: Record<string, string>;
+  errors: RfqImportIssue[];
+  warnings: RfqImportIssue[];
+  importable: boolean;
+}
+
+export interface RfqImportPreview {
+  rows: RfqImportRow[];
+  file_warnings: RfqImportIssue[];
+  /** Заголовок файла -> поле запроса. */
+  recognised_columns: Record<string, string>;
+  ignored_columns: string[];
+  total_rows: number;
+  importable_rows: number;
+}
