@@ -9,6 +9,9 @@ import type {
   RfqImportPreview,
   RfqImportRow,
   CommunicationMessageRead,
+  CommunicationProfile,
+  CommunicationProfileStatus,
+  CommunicationProfileVersion,
   CommunicationOverviewRead,
   CommunicationTranslationRead,
   IdentificationMethod,
@@ -620,6 +623,42 @@ export const api = {
     }),
 
   listUsers: () => request<UserAdminRead[]>(`/users`),
+
+  listCommunicationProfiles: () =>
+    request<CommunicationProfile[]>(`/communication-profiles`),
+
+  createCommunicationProfile: (payload: Omit<CommunicationProfile, "id" | "version" | "is_active" | "is_system" | "updated_by" | "updated_at">) =>
+    request<CommunicationProfile>(`/communication-profiles`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateCommunicationProfile: (
+    id: number,
+    payload: Partial<Omit<CommunicationProfile, "id" | "slug" | "version" | "is_system" | "updated_by" | "updated_at">>,
+  ) =>
+    request<CommunicationProfile>(`/communication-profiles/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  communicationProfileVersions: (id: number) =>
+    request<CommunicationProfileVersion[]>(`/communication-profiles/${id}/versions`),
+
+  assignUserCommunicationProfile: (userId: number, profileId: number | null) =>
+    request<{ user_id: number; profile_id: number | null }>(
+      `/communication-profiles/assignments/users/${userId}`,
+      { method: "PATCH", body: JSON.stringify({ profile_id: profileId }) },
+    ),
+
+  assignRfqCommunicationProfile: (rfqId: number, profileId: number | null) =>
+    request<{ rfq_id: number; profile_id: number | null }>(
+      `/communication-profiles/assignments/rfq/${rfqId}`,
+      { method: "PATCH", body: JSON.stringify({ profile_id: profileId }) },
+    ),
+
+  communicationProfileStatus: (rfqId: number) =>
+    request<CommunicationProfileStatus>(`/communication-profiles/status/${rfqId}`),
 
   createUser: (payload: {
     username: string;

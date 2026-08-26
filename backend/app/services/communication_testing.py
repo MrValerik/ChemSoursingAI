@@ -42,6 +42,16 @@ from app.services.integration_settings import (
 )
 from app.services.communication_recipient import protect_recipient, recipient_key
 from app.services.communication_policy import classify_supplier_message
+from app.services.communication_profiles import (
+    budget_escalation_note,
+    finalize_usage,
+    handoff_message,
+    profile_goal_reached,
+    profile_prompt_instructions,
+    record_policy,
+    resolve_profile,
+    start_audit,
+)
 from app.services.completeness import accumulate_quotations
 from app.services.cas import is_valid_cas, normalize_cas
 from app.services.demo_supplier_document import build_demo_coa_pdf
@@ -1035,6 +1045,11 @@ def _generate_reply(
             get_active_prompt_text(db, "supplier_communication")
             or SUPPLIER_COMMUNICATION_PROMPT
         )
+        profile = resolve_profile(
+            db,
+            rfq_id=run.rfq_id,
+            actor_id=run.actor_id,
+        )
 
         def generate(additional_instructions: str) -> str:
             return _plain_text_message(
@@ -1047,9 +1062,15 @@ def _generate_reply(
                 or ""
             )
 
-        reply = generate(_generation_instructions(run, stage=stage))
+        reply = generate(
+            f"{_generation_instructions(run, stage=stage)}\n\n"
+            f"{profile_prompt_instructions(profile)}"
+        )
         if reply and not _message_language_matches(reply, run.reply_language):
-            reply = generate(_language_retry_instructions(run, stage=stage))
+            reply = generate(
+                f"{_language_retry_instructions(run, stage=stage)}\n\n"
+                f"{profile_prompt_instructions(profile)}"
+            )
             if not reply or not _message_language_matches(
                 reply, run.reply_language
             ):
@@ -1067,6 +1088,7 @@ def _generate_reply(
         if quality_issue:
             reply = generate(
                 f"{_generation_instructions(run, stage=stage)}\n\n"
+                f"{profile_prompt_instructions(profile)}\n\n"
                 "КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ КАЧЕСТВА: предыдущий черновик "
                 f"отклонён. Причина: {quality_issue} Создай сообщение заново, "
                 "устрани причину и не объясняй исправление поставщику."
@@ -1226,9 +1248,44 @@ def run_communication_test(
             translation_ru=None,
         )
 
-    identity_issue = _validate_procurement_identity(context, llm=llm)
+    audit_start = start_audit(
+        db,
+        event_key=f"communication-test:{run.id}:initial",
+        text=context,
+        rfq_id=run.rfq_id,
+        test_run_id=run.id,
+        actor_id=actor.id,
+    )
+    if not audit_start.budget.allowed:
+        return _escalate_run(
+            db,
+            run,
+            explanation=budget_escalation_note(audit_start.audit),
+            category="budget_limit",
+        )
+
+    try:
+        client = llm or _communication_test_llm_client()
+    except LLMUnavailableError:
+        audit_start.audit.policy_route = "escalate"
+        audit_start.audit.policy_category = "unclear"
+        audit_start.audit.policy_explanation = "Нейросеть недоступна."
+        audit_start.audit.policy_method = "safe_fallback"
+        return _escalate_run(
+            db,
+            run,
+            explanation="Нейросеть недоступна, создание первого сообщения остановлено.",
+            category="unclear",
+        )
+
+    identity_issue = _validate_procurement_identity(context, llm=client)
     if identity_issue is not None:
         category, explanation = identity_issue
+        audit_start.audit.policy_route = "escalate"
+        audit_start.audit.policy_category = category
+        audit_start.audit.policy_explanation = explanation
+        audit_start.audit.policy_method = "identity_validation"
+        finalize_usage(audit_start.audit, client, reply_generated=False)
         return _escalate_run(
             db,
             run,
@@ -1237,6 +1294,11 @@ def run_communication_test(
         )
 
     if payload.initial_message:
+        audit_start.audit.policy_route = "manual"
+        audit_start.audit.policy_category = "initial_rfq"
+        audit_start.audit.policy_explanation = "Использован подтверждённый текст RFQ."
+        audit_start.audit.policy_method = "manual"
+        audit_start.audit.reply_generated = True
         return _save_assistant_reply(
             db,
             run=run,
@@ -1250,8 +1312,13 @@ def run_communication_test(
         run=run,
         user_text=_start_prompt(context),
         stage="initial",
-        llm=llm,
+        llm=client,
     )
+    audit_start.audit.policy_route = "auto_reply"
+    audit_start.audit.policy_category = "initial_rfq"
+    audit_start.audit.policy_explanation = "Первое сообщение создано в рамках профиля."
+    audit_start.audit.policy_method = "profile"
+    finalize_usage(audit_start.audit, client, reply_generated=True)
     return _save_assistant_reply(
         db,
         run=run,
@@ -1333,9 +1400,29 @@ def continue_communication_test(
     run.error = None
     db.commit()
 
+    audit_start = start_audit(
+        db,
+        event_key=f"communication-test-message:{supplier_message.id}",
+        text=payload.participant_message,
+        rfq_id=run.rfq_id,
+        test_run_id=run.id,
+        actor_id=run.actor_id,
+    )
+    if not audit_start.budget.allowed:
+        return _escalate_run(
+            db,
+            run,
+            explanation=budget_escalation_note(audit_start.audit),
+            category="budget_limit",
+        )
+
     try:
         client = llm or _communication_test_llm_client()
     except LLMUnavailableError:
+        audit_start.audit.policy_route = "escalate"
+        audit_start.audit.policy_category = "unclear"
+        audit_start.audit.policy_explanation = "Нейросеть недоступна."
+        audit_start.audit.policy_method = "safe_fallback"
         return _escalate_run(
             db,
             run,
@@ -1352,7 +1439,9 @@ def continue_communication_test(
         rfq_cas=None,
         llm=client,
     )
+    record_policy(audit_start.audit, policy)
     if not policy.auto_reply_allowed:
+        finalize_usage(audit_start.audit, client, reply_generated=False)
         return _escalate_run(
             db,
             run,
@@ -1362,10 +1451,32 @@ def continue_communication_test(
 
     _sync_test_quotation(db, run)
     assessed = _attach_quote_assessment(run)
+    quotation = db.get(Quotation, run.quotation_id) if run.quotation_id else None
+    if quotation is not None and profile_goal_reached(audit_start.profile, quotation):
+        if audit_start.profile.slug == "chemist" and not complete_dialogue_is_resumed:
+            reply = handoff_message(audit_start.profile)
+            audit_start.audit.policy_route = "handoff"
+            audit_start.audit.policy_category = "profile_goal_reached"
+            audit_start.audit.policy_explanation = (
+                "Цель профиля химика достигнута; диалог передан закупке."
+            )
+            audit_start.audit.policy_method = "deterministic_profile_rule"
+            finalize_usage(audit_start.audit, client, reply_generated=True)
+            saved = _save_assistant_reply(
+                db,
+                run=run,
+                reply=reply,
+                translation_ru=None,
+                recipient=payload.recipient,
+            )
+            saved.status = "complete"
+            db.commit()
+            return _attach_quote_assessment(_load_run(db, run.id) or saved)
     if (
         assessed.quote_assessment["is_complete"]
         and not complete_dialogue_is_resumed
     ):
+        finalize_usage(audit_start.audit, client, reply_generated=False)
         run.status = "complete"
         run.error = None
         db.commit()
@@ -1378,6 +1489,7 @@ def continue_communication_test(
         stage="reply",
         llm=client,
     )
+    finalize_usage(audit_start.audit, client, reply_generated=True)
     return _save_assistant_reply(
         db,
         run=run,

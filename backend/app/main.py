@@ -14,6 +14,7 @@ from app import __version__
 from app.api import (
     auth,
     communication_testing,
+    communication_profiles,
     communications,
     documents,
     escalations,
@@ -37,6 +38,7 @@ from app.core.config import get_settings
 from app.core.db import SessionLocal, init_db
 from app.core.seed import (
     seed_demo_workspace,
+    seed_communication_profiles,
     seed_prompts,
     seed_suppliers,
     seed_templates,
@@ -70,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(prompts.rfq_router)
     app.include_router(auth.router)
     app.include_router(communication_testing.router)
+    app.include_router(communication_profiles.router)
     app.include_router(communications.router)
     app.include_router(documents.router)
     app.include_router(substances.router)
@@ -93,6 +96,7 @@ def create_app() -> FastAPI:
         with SessionLocal() as db:
             seed_users(db)
             seed_prompts(db)
+            seed_communication_profiles(db)
             seed_suppliers(db)
             seed_templates(db)
             if settings.demo_workspace_enabled:

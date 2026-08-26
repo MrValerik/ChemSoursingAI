@@ -87,6 +87,10 @@ class Settings(BaseSettings):
         default="chat_template_kwargs"
     )
     communication_test_llm_timeout_s: int = Field(default=600, ge=1)
+    # Ставки нужны только для прозрачной оценки бюджета диалога. Секретов здесь
+    # нет; ноль означает, что конкретное развёртывание стоимость не считает.
+    communication_llm_input_cost_per_million_usd: float = Field(default=0, ge=0)
+    communication_llm_output_cost_per_million_usd: float = Field(default=0, ge=0)
 
     # --- Email-коннектор (IMAP/SMTP) ---
     # demo сохраняет безопасное поведение без внешней отправки; live включает SMTP.

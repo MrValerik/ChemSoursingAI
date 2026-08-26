@@ -2,6 +2,11 @@
 
 from app.models.base import Base
 from app.models.communication import Communication
+from app.models.communication_profile import (
+    CommunicationPolicyAudit,
+    CommunicationProfile,
+    CommunicationProfileVersion,
+)
 from app.models.document import SupplierDocument
 from app.models.domain_rate_slot import DomainRateSlot
 from app.models.llm_slot import LlmSlot
@@ -50,6 +55,9 @@ __all__ = [
     "PurchaseDecision",
     "RfqRecipient",
     "Communication",
+    "CommunicationProfile",
+    "CommunicationProfileVersion",
+    "CommunicationPolicyAudit",
     "SupplierDocument",
     "DomainRateSlot",
     "LlmSlot",

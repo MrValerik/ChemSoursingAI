@@ -45,3 +45,7 @@ class RfqAiSetting(Base, TimestampMixin):
         ForeignKey("prompt_templates.id", ondelete="SET NULL"), default=None
     )
     additional_instructions: Mapped[str] = mapped_column(Text, default="")
+    communication_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("communication_profiles.id", ondelete="SET NULL"),
+        default=None,
+    )

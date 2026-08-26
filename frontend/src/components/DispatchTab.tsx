@@ -6,6 +6,8 @@ import type {
   CommunicationAttachmentRead,
   CommunicationEscalationRead,
   CommunicationOverviewRead,
+  CommunicationProfile,
+  CommunicationProfileStatus,
   CommunicationTestRun,
   RFQRead,
   SupplierConversationRead,
@@ -169,6 +171,10 @@ export default function DispatchTab({
   >({});
   const [translationRevealed, setTranslationRevealed] = useState(false);
   const [translationBusy, setTranslationBusy] = useState(false);
+  const [profiles, setProfiles] = useState<CommunicationProfile[]>([]);
+  const [profileStatus, setProfileStatus] =
+    useState<CommunicationProfileStatus | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
 
   const canSyncEmail =
     user?.role === "buyer" || user?.role === "head" || user?.role === "admin";
@@ -181,12 +187,16 @@ export default function DispatchTab({
 
   const load = async () => {
     try {
-      const [communicationItems, testItems] = await Promise.all([
+      const [communicationItems, testItems, profileItems, currentProfileStatus] = await Promise.all([
         api.communicationOverview(rfqId),
         canTestCommunication
           ? api.listCommunicationTests(100, rfqId)
           : Promise.resolve([] as CommunicationTestRun[]),
+        api.listCommunicationProfiles(),
+        api.communicationProfileStatus(rfqId),
       ]);
+      setProfiles(profileItems.filter((item) => item.is_active));
+      setProfileStatus(currentProfileStatus);
       const embeddedTests = testItems.filter(
         (item) =>
           item.simulation_mode === "buyer_ai" && item.delivery_mode === "preview",
@@ -495,6 +505,20 @@ export default function DispatchTab({
     onStatusChanged();
   };
 
+  const assignProfile = async (profileId: number | null) => {
+    setProfileBusy(true);
+    setError(null);
+    try {
+      await api.assignRfqCommunicationProfile(rfqId, profileId);
+      await load();
+      setNotice("Профиль общения для запроса обновлён.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
   return (
     <div>
       {!compact && (
@@ -507,6 +531,63 @@ export default function DispatchTab({
             onStatusChanged();
           }}
         />
+      )}
+
+      {!compact && profileStatus && (
+        <div className="panel">
+          <div className="tab-toolbar">
+            <div>
+              <h2>Профиль общения</h2>
+              <p className="note">
+                {profileStatus.profile_name} · v{profileStatus.profile_version} ·{" "}
+                {profileStatus.source === "rfq"
+                  ? "назначен запросу"
+                  : profileStatus.source === "user"
+                    ? "назначен ответственному"
+                    : "системный по умолчанию"}
+              </p>
+            </div>
+            {user?.role === "admin" && (
+              <select
+                aria-label="Профиль общения запроса"
+                disabled={profileBusy}
+                value={profileStatus.source === "rfq" ? profileStatus.profile_id : ""}
+                onChange={(event) =>
+                  void assignProfile(event.target.value ? Number(event.target.value) : null)
+                }
+              >
+                <option value="">По профилю ответственного</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name} · v{profile.version}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="stack-inline">
+            <span className={`badge ${profileStatus.stopped ? "tone-warn" : "tone-ok"}`}>
+              {profileStatus.stopped ? "Автоответы остановлены" : "Автоответы разрешены"}
+            </span>
+            <span className="badge tone-neutral">
+              Осталось ответов: {Math.max(0, profileStatus.budget.max_auto_replies - profileStatus.budget.automatic_replies_used)}
+            </span>
+            <span className="badge tone-neutral">
+              Осталось токенов: {Math.max(
+                0,
+                profileStatus.budget.max_prompt_tokens + profileStatus.budget.max_completion_tokens -
+                  profileStatus.budget.prompt_tokens_used - profileStatus.budget.completion_tokens_used,
+              )}
+            </span>
+            <span className="badge tone-neutral">
+              Осталось времени: {Math.max(0, Math.ceil((profileStatus.budget.max_duration_seconds - profileStatus.budget.elapsed_seconds) / 3600))} ч
+            </span>
+            <span className="badge tone-neutral">
+              Осталось: ${Math.max(0, profileStatus.budget.max_estimated_cost_usd - profileStatus.budget.estimated_cost_usd).toFixed(4)}
+            </span>
+          </div>
+          {profileStatus.stopped && <p className="error">{profileStatus.explanation}</p>}
+        </div>
       )}
 
       <div

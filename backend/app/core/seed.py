@@ -12,6 +12,8 @@ from app.core.security import hash_password
 from app.models import (
     AgentRun,
     Communication,
+    CommunicationProfile,
+    CommunicationProfileVersion,
     EvidenceClaim,
     PromptTemplate,
     PromptVersion,
@@ -41,6 +43,7 @@ from app.services.supplier_communication_prompts import (
     RFQ_GENERATION_PROMPT,
     SUPPLIER_COMMUNICATION_PROMPT,
 )
+from app.services.communication_profiles import DEFAULT_PROFILE_SPECS
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +209,45 @@ def seed_prompts(db: Session) -> None:
                 name=name,
                 description=description,
                 system_prompt=system_prompt,
+                changed_by="система",
+            )
+        )
+    db.commit()
+
+
+def seed_communication_profiles(db: Session) -> None:
+    """Создаёт безопасные системные профили и не перезаписывает правки админа."""
+    for spec in DEFAULT_PROFILE_SPECS:
+        profile = db.scalar(
+            select(CommunicationProfile)
+            .where(CommunicationProfile.slug == spec["slug"])
+            .limit(1)
+        )
+        if profile is not None:
+            continue
+        profile = CommunicationProfile(
+            **spec,
+            version=1,
+            is_active=True,
+            is_system=True,
+            updated_by="система",
+        )
+        db.add(profile)
+        db.flush()
+        db.add(
+            CommunicationProfileVersion(
+                profile_id=profile.id,
+                version=profile.version,
+                name=profile.name,
+                description=profile.description,
+                system_instructions=profile.system_instructions,
+                required_fields=profile.required_fields,
+                max_input_chars=profile.max_input_chars,
+                max_auto_replies=profile.max_auto_replies,
+                max_duration_minutes=profile.max_duration_minutes,
+                max_prompt_tokens=profile.max_prompt_tokens,
+                max_completion_tokens=profile.max_completion_tokens,
+                max_estimated_cost_usd=profile.max_estimated_cost_usd,
                 changed_by="система",
             )
         )

@@ -12,6 +12,12 @@ from app.connectors.email import EmailConnector, IncomingEmail
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.models import CommunicationTestMessage, CommunicationTestRun
 from app.services.communication_policy import classify_supplier_message
+from app.services.communication_profiles import (
+    budget_escalation_note,
+    finalize_usage,
+    record_policy,
+    start_audit,
+)
 from app.services.communication_testing import (
     CommunicationTestError,
     _communication_test_llm_client,
@@ -188,9 +194,33 @@ def sync_communication_test_email(
                     seen_uids.append(incoming.uid)
                     continue
 
+            audit_start = start_audit(
+                db,
+                event_key=f"communication-test-email:{incoming.message_id}",
+                text=incoming.text,
+                rfq_id=run.rfq_id,
+                test_run_id=run.id,
+                actor_id=run.actor_id,
+            )
+            if not audit_start.budget.allowed:
+                _escalate(
+                    db,
+                    run,
+                    explanation=budget_escalation_note(audit_start.audit),
+                    category="budget_limit",
+                )
+                summary.escalated += 1
+                summary.processed += 1
+                seen_uids.append(incoming.uid)
+                continue
+
             try:
                 client = llm or _communication_test_llm_client()
             except LLMUnavailableError:
+                audit_start.audit.policy_route = "escalate"
+                audit_start.audit.policy_category = "unclear"
+                audit_start.audit.policy_explanation = "Нейросеть недоступна."
+                audit_start.audit.policy_method = "safe_fallback"
                 _escalate(
                     db,
                     run,
@@ -211,7 +241,9 @@ def sync_communication_test_email(
                 rfq_cas=None,
                 llm=client,
             )
+            record_policy(audit_start.audit, policy)
             if not policy.auto_reply_allowed:
+                finalize_usage(audit_start.audit, client, reply_generated=False)
                 _escalate(
                     db,
                     run,
@@ -232,6 +264,7 @@ def sync_communication_test_email(
                 stage="reply",
                 llm=client,
             )
+            finalize_usage(audit_start.audit, client, reply_generated=True)
             outgoing = CommunicationTestMessage(
                 run_id=run.id,
                 sender_role="assistant",

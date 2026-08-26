@@ -835,6 +835,91 @@ def test_nonstandard_supplier_question_creates_escalation_without_reply(
     assert client.get(f"/rfq/{rfq['id']}", headers=headers).json()["status"] == "escalated"
 
 
+def test_live_auto_followup_uses_rfq_identity_without_llm_draft(
+    client, monkeypatch
+):
+    headers = _login(client)
+    client.post(
+        "/suppliers",
+        json={
+            "company": "Automatic Follow-up Supplier",
+            "email": "auto-followup@supplier.example",
+        },
+        headers=headers,
+    )
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "64-19-7", "name": "Acetic acid", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+
+    class FakeConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="send",
+            email_delivery_mode="live",
+            email_from="buyer@example.com",
+        )
+
+        def __init__(self):
+            self.sent = []
+            self.seen = []
+
+        def fetch_unseen(self, limit=20):
+            return [
+                IncomingEmail(
+                    uid="auto-followup-1",
+                    message_id="<auto-followup-1@supplier.example>",
+                    subject=f"Re: [RFQ-{rfq['id']}] Acetic acid",
+                    from_address="auto-followup@supplier.example",
+                    to_addresses=["buyer@example.com"],
+                    text="Our indicative price is USD 10/kg.",
+                )
+            ]
+
+        def mark_seen(self, uids):
+            self.seen.extend(uids)
+
+        def send(self, **kwargs):
+            self.sent.append(kwargs)
+            return "<auto-followup-out@supplier.example>"
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Standard partial quotation.",
+            method="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: ExtractedQuote(
+            price=10,
+            currency="USD",
+            field_confidence={"price": 0.95, "currency": 0.95},
+            method="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow._render_followup",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Live auto-followup must not use an LLM draft")
+        ),
+    )
+
+    connector = FakeConnector()
+    with SessionLocal() as db:
+        result = sync_inbox(db, connector=connector)
+
+    assert result.followups_sent == 1
+    assert len(connector.sent) == 1
+    body = connector.sent[0]["body"]
+    assert "Acetic acid (CAS 64-19-7)" in body
+    assert "Water" not in body
+    assert connector.seen == ["auto-followup-1"]
+
+
 def test_email_sync_is_available_to_buyer_and_admin(client, monkeypatch):
     monkeypatch.setattr(
         "app.api.communications.sync_inbox",

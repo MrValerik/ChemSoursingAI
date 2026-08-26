@@ -10,6 +10,12 @@ from app.connectors.whatsapp import WhatsAppConnector
 from app.extraction.llm_client import LLMUnavailableError
 from app.models import CommunicationTestMessage, CommunicationTestRun
 from app.services.communication_policy import classify_supplier_message
+from app.services.communication_profiles import (
+    budget_escalation_note,
+    finalize_usage,
+    record_policy,
+    start_audit,
+)
 from app.services.communication_recipient import recipient_key, reveal_recipient
 from app.services.communication_testing import (
     CommunicationTestError,
@@ -108,9 +114,29 @@ def process_incoming_whatsapp(db: Session, *, run_id: int, message_id: str) -> N
         return
 
     try:
+        audit_start = start_audit(
+            db,
+            event_key=f"communication-test-whatsapp:{message_id}",
+            text=incoming.content,
+            rfq_id=run.rfq_id,
+            test_run_id=run.id,
+            actor_id=run.actor_id,
+        )
+        if not audit_start.budget.allowed:
+            _escalate(
+                db,
+                run,
+                explanation=budget_escalation_note(audit_start.audit),
+                category="budget_limit",
+            )
+            return
         try:
             llm = _communication_test_llm_client()
         except LLMUnavailableError:
+            audit_start.audit.policy_route = "escalate"
+            audit_start.audit.policy_category = "unclear"
+            audit_start.audit.policy_explanation = "Нейросеть недоступна."
+            audit_start.audit.policy_method = "safe_fallback"
             _escalate(
                 db,
                 run,
@@ -125,7 +151,9 @@ def process_incoming_whatsapp(db: Session, *, run_id: int, message_id: str) -> N
             rfq_cas=None,
             llm=llm,
         )
+        record_policy(audit_start.audit, policy)
         if not policy.auto_reply_allowed:
+            finalize_usage(audit_start.audit, llm, reply_generated=False)
             _escalate(
                 db,
                 run,
@@ -143,6 +171,7 @@ def process_incoming_whatsapp(db: Session, *, run_id: int, message_id: str) -> N
             stage="reply",
             llm=llm,
         )
+        finalize_usage(audit_start.audit, llm, reply_generated=True)
         outgoing = CommunicationTestMessage(
             run_id=run.id,
             sender_role="assistant",

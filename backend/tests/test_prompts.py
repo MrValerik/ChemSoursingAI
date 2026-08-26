@@ -137,6 +137,57 @@ def test_prompt_versions_and_roles(client):
     assert len(versions) >= 2
 
 
+def test_communication_profiles_are_versioned_and_assignable(client):
+    admin = _auth(client, "admin")
+    buyer = _auth(client, "ivanov")
+    profiles = client.get("/communication-profiles", headers=buyer).json()
+    assert {item["slug"] for item in profiles} >= {"buyer", "chemist"}
+    chemist = next(item for item in profiles if item["slug"] == "chemist")
+
+    denied = client.patch(
+        f"/communication-profiles/{chemist['id']}",
+        headers=buyer,
+        json={"max_auto_replies": 7},
+    )
+    assert denied.status_code == 403
+
+    updated = client.patch(
+        f"/communication-profiles/{chemist['id']}",
+        headers=admin,
+        json={"max_auto_replies": 7},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["version"] == chemist["version"] + 1
+    versions = client.get(
+        f"/communication-profiles/{chemist['id']}/versions",
+        headers=admin,
+    ).json()
+    assert versions[0]["version"] == updated.json()["version"]
+
+    users = client.get("/users", headers=admin).json()
+    ivanov = next(item for item in users if item["username"] == "ivanov")
+    assigned = client.patch(
+        f"/communication-profiles/assignments/users/{ivanov['id']}",
+        headers=admin,
+        json={"profile_id": chemist["id"]},
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["profile_id"] == chemist["id"]
+
+    rfq = client.post(
+        "/rfq?verify=false",
+        headers=buyer,
+        json={"cas": "50-78-2", "name": "Aspirin", "incoterms": ["CIP"]},
+    ).json()
+    status = client.get(
+        f"/communication-profiles/status/{rfq['id']}",
+        headers=buyer,
+    )
+    assert status.status_code == 200
+    assert status.json()["profile_slug"] == "chemist"
+    assert status.json()["source"] == "user"
+
+
 def test_russian_seed_does_not_overwrite_user_prompt(client):
     admin = _auth(client, "admin")
     prompts = client.get("/prompts", headers=admin).json()

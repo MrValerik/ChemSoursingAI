@@ -396,6 +396,10 @@ backend и проверяет публичный health endpoint. Подробн
 | GET/POST/PATCH | `/prompts` | Библиотека и версии ИИ-промптов |
 | POST | `/prompts/preview` | Предпросмотр промпта на локальной Qwen |
 | GET/PUT | `/rfq/{id}/ai-settings` | Промпт и инструкции конкретного RFQ |
+| GET/POST/PATCH | `/communication-profiles` | Версионируемые ролевые профили общения; изменение доступно администратору |
+| PATCH | `/communication-profiles/assignments/users/{id}` | Назначить профиль сотруднику |
+| PATCH | `/communication-profiles/assignments/rfq/{id}` | Переопределить профиль для запроса |
+| GET | `/communication-profiles/status/{rfq_id}` | Эффективный профиль, версия и остаток бюджета диалога |
 | POST | `/supplier-search` | ИИ-запрос и поиск кандидатов со ссылками |
 | POST | `/supplier-search/jobs?rfq_id={id}` | Поставить полный цикл поиска по России, Китаю или Индии и предварительной квалификации в очередь и сразу получить ID; worker не забирает задания до готовности локальной LLM |
 | GET | `/search-runs?rfq_id={id}` | Очередь, история и текущие статусы поисков запроса |
@@ -563,7 +567,11 @@ worker автоматически возвращает её в очередь (�
 См. `.env.example`. Ключевые: `DATABASE_URL`, `REDIS_URL`, `LLM_BASE_URL`,
 `LLM_MODEL`, `LLM_AUTH_SCHEME`, `LLM_PROJECT_ID`, `LLM_THINKING_CONTROL`,
 `PUBCHEM_BASE_URL`, `SUPPLIER_INDUSTRIAL_PACKAGE_MIN_MASS_KG` и
-`SUPPLIER_INDUSTRIAL_PACKAGE_MIN_VOLUME_L`. Для настроек каналов, сохранённых через
+`SUPPLIER_INDUSTRIAL_PACKAGE_MIN_VOLUME_L`. Для денежного аудита общения задайте
+`COMMUNICATION_LLM_INPUT_COST_PER_MILLION_USD` и
+`COMMUNICATION_LLM_OUTPUT_COST_PER_MILLION_USD`; нулевые значения сохраняют
+токены, но не рассчитывают стоимость. Остальные лимиты версионируются в профиле
+через раздел «ИИ-промпты». Для настроек каналов, сохранённых через
 интерфейс, задайте отдельный `INTEGRATION_ENCRYPTION_KEY`. Если он пуст,
 используется `AUTH_SECRET_KEY`; менять применённый ключ без переноса данных
 нельзя, иначе сохранённые пароли и токены перестанут расшифровываться.
@@ -599,6 +607,10 @@ AUTO_FOLLOWUP_MODE=draft
 ```
 
 Эти же параметры администратор может сохранить в разделе «Настройки».
+В режиме `send` внешний дозапрос строится детерминированно из сохранённого
+вещества, CAS и недостающих полей; неподтверждённый LLM-черновик автоматически
+не отправляется. Нестандартные вопросы, конфликт идентичности и исчерпание
+лимита продолжают создавать эскалацию человеку.
 Пароли SMTP/IMAP и токен WhatsApp шифруются перед записью в PostgreSQL и никогда
 не возвращаются в браузер. Значения из `.env` остаются fallback для первого
 запуска.

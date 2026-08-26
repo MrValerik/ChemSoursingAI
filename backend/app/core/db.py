@@ -323,6 +323,33 @@ def _apply_light_migrations() -> None:
                         ") WHERE substance_id IS NULL"
                     )
                 )
+    if "users" in tables:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "communication_profile_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN communication_profile_id "
+                        "INTEGER REFERENCES communication_profiles(id)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_users_communication_profile_id "
+                        "ON users (communication_profile_id)"
+                    )
+                )
+    if "rfq_ai_settings" in tables:
+        cols = {c["name"] for c in inspector.get_columns("rfq_ai_settings")}
+        if "communication_profile_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE rfq_ai_settings ADD COLUMN "
+                        "communication_profile_id INTEGER "
+                        "REFERENCES communication_profiles(id)"
+                    )
+                )
     if "suppliers" in tables:
         cols = {c["name"] for c in inspector.get_columns("suppliers")}
         with engine.begin() as conn:

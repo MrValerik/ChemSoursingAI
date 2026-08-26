@@ -80,6 +80,7 @@ class RfqAiSettingRead(BaseModel):
     rfq_id: int
     prompt_template_id: int | None
     additional_instructions: str
+    communication_profile_id: int | None
 
 
 class RfqAiSettingUpdate(BaseModel):
@@ -218,6 +219,9 @@ def get_rfq_ai_settings(
         rfq_id=rfq_id,
         prompt_template_id=setting.prompt_template_id if setting else None,
         additional_instructions=setting.additional_instructions if setting else "",
+        communication_profile_id=(
+            setting.communication_profile_id if setting else None
+        ),
     )
 
 

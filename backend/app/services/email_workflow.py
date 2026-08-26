@@ -31,6 +31,15 @@ from app.models.rfq import RFQ
 from app.schemas.quotation import QuotationCreate
 from app.services.completeness import accumulate_quotations
 from app.services.communication_policy import classify_supplier_message
+from app.services.communication_profiles import (
+    budget_escalation_note,
+    finalize_usage,
+    handoff_message,
+    profile_goal_reached,
+    profile_prompt_instructions,
+    record_policy,
+    start_audit,
+)
 from app.services.document_intake import store_incoming_attachments
 from app.services.integration_settings import effective_email_settings
 from app.services.prompt_service import get_rfq_prompt_context
@@ -174,7 +183,14 @@ def _fallback_followup(rfq: RFQ, missing: list[str]) -> str:
     )
 
 
-def _render_followup(db: Session, rfq: RFQ, missing: list[str]) -> str:
+def _render_followup(
+    db: Session,
+    rfq: RFQ,
+    missing: list[str],
+    *,
+    llm: LLMClient | None = None,
+    profile_instructions: str = "",
+) -> str:
     fallback = _fallback_followup(rfq, missing)
     system_prompt, saved_instructions = get_rfq_prompt_context(
         db, rfq.id, kind="followup"
@@ -182,7 +198,7 @@ def _render_followup(db: Session, rfq: RFQ, missing: list[str]) -> str:
     if not system_prompt:
         return fallback
     try:
-        return LLMClient().generate_text(
+        return (llm or LLMClient()).generate_text(
             system_prompt=system_prompt,
             user_text=(
                 f"RFQ: {_subject_label(rfq)}.\n"
@@ -192,6 +208,7 @@ def _render_followup(db: Session, rfq: RFQ, missing: list[str]) -> str:
                 "Подготовь только готовое письмо поставщику на английском языке. "
                 "Не добавляй новые требования. "
                 + (saved_instructions or "")
+                + (f"\n\n{profile_instructions}" if profile_instructions else "")
             ),
             max_tokens=256,
         )
@@ -207,12 +224,29 @@ def _create_followup(
     manager: Manager | None,
     missing: list[str],
     connector: EmailConnector,
+    llm: LLMClient | None = None,
+    profile_instructions: str = "",
+    body_override: str | None = None,
 ) -> str | None:
     runtime = getattr(connector, "settings", None) or effective_email_settings(db)[0]
     mode = runtime.auto_followup_mode.strip().lower()
-    if mode == "off" or not missing:
+    if mode == "off" or (not missing and body_override is None):
         return None
-    body = _render_followup(db, rfq, missing)
+    if body_override is not None:
+        body = body_override
+    elif mode == "send":
+        # Автоматическая внешняя отправка использует только детерминированный
+        # текст из сохранённого RFQ. LLM-черновик остаётся доступен оператору,
+        # но не может подменить вещество или CAS в письме без подтверждения.
+        body = _fallback_followup(rfq, missing)
+    else:
+        body = _render_followup(
+            db,
+            rfq,
+            missing,
+            llm=llm,
+            profile_instructions=profile_instructions,
+        )
     subject = (
         incoming.subject
         if incoming.subject.lower().startswith("re:")
@@ -307,12 +341,45 @@ def sync_inbox(
             )
             inbound.attachments = stored_attachments or None
 
+            audit_start = start_audit(
+                db,
+                event_key=f"email:{message.message_id}",
+                text=message.text,
+                rfq_id=rfq.id,
+                manager_id=manager.id if manager else None,
+                communication_id=inbound.id,
+                actor_id=rfq.owner_id,
+                prompt_kind="extraction",
+            )
+            if not audit_start.budget.allowed:
+                db.add(
+                    Escalation(
+                        rfq_id=rfq.id,
+                        communication_id=inbound.id,
+                        manager_id=manager.id if manager else None,
+                        reason=EscalationReason.OTHER,
+                        status=EscalationStatus.OPEN,
+                        note=budget_escalation_note(audit_start.audit),
+                    )
+                )
+                rfq.status = RFQStatus.ESCALATED
+                db.commit()
+                summary.escalations_created += 1
+                summary.processed += 1
+                seen_uids.append(message.uid)
+                continue
+
+            client = LLMClient()
+
             policy = classify_supplier_message(
                 message.text,
                 rfq_name=rfq.name,
                 rfq_cas=rfq.cas,
+                llm=client,
             )
+            record_policy(audit_start.audit, policy)
             if not policy.auto_reply_allowed:
+                finalize_usage(audit_start.audit, client, reply_generated=False)
                 db.add(
                     Escalation(
                         rfq_id=rfq.id,
@@ -340,6 +407,7 @@ def sync_inbox(
             quote = extract_quote(
                 message.text,
                 use_llm=True,
+                llm=client,
                 system_prompt=system_prompt,
                 additional_instructions=instructions,
             )
@@ -379,21 +447,52 @@ def sync_inbox(
                     rfq_id=rfq.id,
                     manager=manager,
                 )
+            profile_complete = profile_goal_reached(
+                audit_start.profile,
+                progress.quote,
+            )
+            handoff = (
+                handoff_message(audit_start.profile)
+                if audit_start.profile.slug == "chemist" and profile_complete
+                else None
+            )
+            missing_fields = list(
+                dict.fromkeys(
+                    [
+                        *progress.completeness.missing_fields,
+                        *progress.completeness.low_confidence_fields,
+                    ]
+                )
+            )
+            profile_missing = [
+                field
+                for field in missing_fields
+                if field in set(audit_start.profile.required_fields or [])
+            ]
             followup_status = _create_followup(
                 db,
                 rfq=rfq,
                 incoming=message,
                 manager=manager,
-                missing=list(
-                    dict.fromkeys(
-                        [
-                            *progress.completeness.missing_fields,
-                            *progress.completeness.low_confidence_fields,
-                        ]
-                    )
-                ),
+                missing=profile_missing,
                 connector=email,
+                llm=client,
+                profile_instructions=profile_prompt_instructions(audit_start.profile),
+                body_override=handoff,
             )
+            if handoff is not None:
+                audit_start.audit.policy_route = "handoff"
+                audit_start.audit.policy_category = "profile_goal_reached"
+                audit_start.audit.policy_explanation = (
+                    "Цель профиля химика достигнута; данные переданы закупке."
+                )
+                audit_start.audit.policy_method = "deterministic_profile_rule"
+            finalize_usage(
+                audit_start.audit,
+                client,
+                reply_generated=followup_status in {"draft", "sent"},
+            )
+            db.commit()
             if followup_status == "draft":
                 summary.followups_drafted += 1
             elif followup_status == "sent":

@@ -17,6 +17,7 @@ class UserRead(BaseModel):
     username: str
     full_name: str
     role: UserRole
+    communication_profile_id: int | None = None
 
 
 class TokenResponse(BaseModel):

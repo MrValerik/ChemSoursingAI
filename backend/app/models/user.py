@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Enum, String
+from sqlalchemy import Boolean, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -24,3 +24,8 @@ class User(Base, TimestampMixin):
         default=UserRole.BUYER,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    communication_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("communication_profiles.id", ondelete="SET NULL"),
+        default=None,
+        index=True,
+    )

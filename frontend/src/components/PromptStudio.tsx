@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { PromptKind, PromptRead, PromptVersionRead } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import CommunicationProfilesPanel from "./CommunicationProfilesPanel";
 
 const KIND_LABELS: Record<PromptKind, string> = {
   extraction: "Извлечение котировки",
@@ -235,6 +236,7 @@ export default function PromptStudio() {
           </div>
         )}
       </div>
+      <CommunicationProfilesPanel />
     </div>
   );
 }

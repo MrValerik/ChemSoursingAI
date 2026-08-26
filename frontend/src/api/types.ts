@@ -264,6 +264,7 @@ export interface UserRead {
   username: string;
   full_name: string;
   role: UserRole;
+  communication_profile_id: number | null;
 }
 
 export interface TokenResponse {
@@ -626,6 +627,71 @@ export interface RfqAiSetting {
   rfq_id: number;
   prompt_template_id: number | null;
   additional_instructions: string;
+  communication_profile_id: number | null;
+}
+
+export interface CommunicationProfile {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  system_instructions: string;
+  required_fields: string[];
+  version: number;
+  is_active: boolean;
+  is_system: boolean;
+  max_input_chars: number;
+  max_auto_replies: number;
+  max_duration_minutes: number;
+  max_prompt_tokens: number;
+  max_completion_tokens: number;
+  max_estimated_cost_usd: number;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface CommunicationProfileVersion {
+  id: number;
+  profile_id: number;
+  name: string;
+  description: string | null;
+  system_instructions: string;
+  required_fields: string[];
+  changed_by: string | null;
+  max_input_chars: number;
+  max_auto_replies: number;
+  max_duration_minutes: number;
+  max_prompt_tokens: number;
+  max_completion_tokens: number;
+  max_estimated_cost_usd: number;
+  version: number;
+  created_at: string;
+}
+
+export interface CommunicationProfileStatus {
+  profile_id: number;
+  profile_slug: string;
+  profile_name: string;
+  profile_version: number;
+  source: "rfq" | "user" | "default";
+  budget: {
+    input_chars: number;
+    max_input_chars: number;
+    automatic_replies_used: number;
+    max_auto_replies: number;
+    elapsed_seconds: number;
+    max_duration_seconds: number;
+    prompt_tokens_used: number;
+    max_prompt_tokens: number;
+    completion_tokens_used: number;
+    max_completion_tokens: number;
+    estimated_cost_usd: number;
+    max_estimated_cost_usd: number;
+    stop_reason: string | null;
+  };
+  stopped: boolean;
+  stop_reason: string | null;
+  explanation: string;
 }
 
 export interface SupplierSearchResult {
