@@ -226,7 +226,19 @@ def mark_intermediary(
             status_code=422, detail="Из ссылки не удалось выделить домен"
         )
 
-    item = db.scalar(select(Intermediary).where(Intermediary.domain == domain))
+    # Ищется не точное совпадение строки, а действующее правило по той же
+    # метке домена — тем же сравнением, каким отсеивает поиск. Иначе отметка
+    # поддомена «wap.21food.cn» заводила бы вторую запись рядом с уже
+    # покрывающей его «21food.cn»: правило дублируется, а отсев не меняется.
+    label = domain_label(domain)
+    item = next(
+        (
+            existing
+            for existing in db.scalars(select(Intermediary)).all()
+            if domain_label(existing.domain) == label
+        ),
+        None,
+    )
     if item is None:
         item = Intermediary(
             domain=domain,

@@ -330,3 +330,29 @@ def test_a_url_without_a_domain_is_refused(client):
         json={"url": "localhost", "reason": "неважно"},
     )
     assert response.status_code == 422
+
+
+def test_marking_a_subdomain_updates_the_covering_rule(client):
+    """Поддомен площадки уже покрыт её правилом — второй записи не нужно.
+
+    Отсев сравнивает домены по метке перед зоной, поэтому «21food.cn» уже
+    ловит «wap.21food.cn». Отметка поддомена отдельной записью дублировала
+    бы правило, ничего не меняя в выдаче.
+    """
+    buyer = _auth(client, "ivanov")
+    base = _mark(client, buyer, url="https://cover-demo.example/a", name="Cover").json()
+
+    sub = _mark(
+        client,
+        buyer,
+        url="https://wap.cover-demo.example/b",
+        reason="Мобильная версия той же площадки",
+    ).json()
+
+    assert sub["id"] == base["id"], "поддомен обязан попасть в то же правило"
+    assert sub["domain"] == "cover-demo.example"
+    assert sub["reason"] == "Мобильная версия той же площадки"
+
+    listed = client.get("/intermediaries", headers=buyer).json()
+    labels = [item["domain"] for item in listed if "cover-demo" in item["domain"]]
+    assert labels == ["cover-demo.example"], labels
