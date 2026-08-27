@@ -46,6 +46,7 @@ import type {
   WhatsAppWebStatus,
   ExtractedQuote,
   QuotationRead,
+  QuotationUpdate,
   RFQListItem,
   RFQPreview,
   RFQRead,
@@ -397,6 +398,16 @@ export const api = {
 
   getSummary: (rfqId: number) =>
     request<SummaryRow[]>(`/rfq/${rfqId}/summary`),
+
+  updateQuotation: (
+    rfqId: number,
+    quotationId: number,
+    payload: QuotationUpdate,
+  ) =>
+    request<QuotationRead>(`/rfq/${rfqId}/quotations/${quotationId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
 
   getPurchaseDecision: (rfqId: number) =>
     request<PurchaseDecisionRead | null>(`/rfq/${rfqId}/purchase-decision`),

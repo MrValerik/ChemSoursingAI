@@ -14,8 +14,12 @@ from app.models.purchase_decision import PurchaseDecision
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
 from app.models.user import User
-from app.schemas.quotation import QuotationCreate, SummaryRow
-from app.services.completeness import evaluate_completeness
+from app.schemas.quotation import QuotationCreate, QuotationUpdate, SummaryRow
+from app.services.completeness import (
+    OPTIONAL_FIELDS,
+    REQUIRED_FIELDS,
+    evaluate_completeness,
+)
 from app.services.escalation_rules import detect_escalation
 
 
@@ -75,6 +79,56 @@ def create_quotation(db: Session, data: QuotationCreate) -> Quotation:
                 note=f"Auto-escalated: {reason.value}",
             )
         )
+
+    db.commit()
+    db.refresh(quotation)
+    return quotation
+
+
+def update_quotation(
+    db: Session,
+    *,
+    quotation: Quotation,
+    data: QuotationUpdate,
+) -> Quotation:
+    """Сохраняет ручные правки и заново вычисляет полноту котировки."""
+    requested_fields = data.model_fields_set
+    if not requested_fields:
+        raise ValueError("Не передано ни одного поля для изменения")
+
+    changed_fields = {
+        field_name
+        for field_name in requested_fields
+        if getattr(quotation, field_name) != getattr(data, field_name)
+    }
+    if not changed_fields:
+        return quotation
+
+    for field_name in changed_fields:
+        setattr(quotation, field_name, getattr(data, field_name))
+
+    confidence = dict(quotation.field_confidence or {})
+    confidence_fields = set(REQUIRED_FIELDS) | set(OPTIONAL_FIELDS)
+    for field_name in changed_fields & confidence_fields:
+        value = getattr(quotation, field_name)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            confidence.pop(field_name, None)
+        else:
+            # Значение ввёл сотрудник, поэтому оно больше не зависит от
+            # вероятности автоматического извлечения из письма.
+            confidence[field_name] = 1.0
+
+    quotation.field_confidence = confidence or None
+    quote_dict = {
+        field_name: getattr(quotation, field_name)
+        for field_name in REQUIRED_FIELDS
+    }
+    quote_dict["has_coa"] = quotation.has_coa
+    quote_dict["has_tds"] = quotation.has_tds
+    quotation.is_complete = evaluate_completeness(
+        quote_dict,
+        quotation.field_confidence,
+    ).is_complete
 
     db.commit()
     db.refresh(quotation)

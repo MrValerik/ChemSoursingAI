@@ -71,6 +71,60 @@ class QuotationRead(BaseModel):
     updated_at: datetime
 
 
+class QuotationUpdate(BaseModel):
+    """Ручная корректировка сравнимых условий сохранённой котировки."""
+
+    price: float | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    incoterm: str | None = Field(default=None, max_length=8)
+    moq: str | None = Field(default=None, max_length=64)
+    grade: str | None = Field(default=None, max_length=120)
+    payment_terms: str | None = Field(default=None, max_length=255)
+    lead_time: str | None = Field(default=None, max_length=120)
+    manufacturer: str | None = Field(default=None, max_length=255)
+    origin_country: str | None = Field(default=None, max_length=120)
+    packaging: str | None = Field(default=None, max_length=255)
+    price_unit: str | None = Field(default=None, max_length=32)
+    quoted_quantity: str | None = Field(default=None, max_length=64)
+    total_price: float | None = Field(default=None, ge=0)
+    delivery_cost: float | None = Field(default=None, ge=0)
+    duty_cost: float | None = Field(default=None, ge=0)
+    vat_cost: float | None = Field(default=None, ge=0)
+    landed_cost: float | None = Field(default=None, ge=0)
+    cost_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    is_hazmat: bool | None = None
+    has_coa: bool = False
+    has_tds: bool = False
+
+    @field_validator(
+        "incoterm",
+        "moq",
+        "grade",
+        "payment_terms",
+        "lead_time",
+        "manufacturer",
+        "origin_country",
+        "packaging",
+        "price_unit",
+        "quoted_quantity",
+        mode="before",
+    )
+    @classmethod
+    def clean_optional_text(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
+    @field_validator("currency", "cost_currency", mode="before")
+    @classmethod
+    def clean_currency(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        cleaned = str(value).strip().upper()
+        return cleaned or None
+
+
 class SummaryRow(BaseModel):
     """Строка сводной сравнительной таблицы по RFQ (функция 6 ТЗ)."""
 

@@ -233,6 +233,30 @@ export interface QuotationRead {
   updated_at: string;
 }
 
+export interface QuotationUpdate {
+  price: number | null;
+  currency: string | null;
+  incoterm: string | null;
+  moq: string | null;
+  grade: string | null;
+  payment_terms: string | null;
+  lead_time: string | null;
+  manufacturer: string | null;
+  origin_country: string | null;
+  packaging: string | null;
+  price_unit: string | null;
+  quoted_quantity: string | null;
+  total_price: number | null;
+  delivery_cost: number | null;
+  duty_cost: number | null;
+  vat_cost: number | null;
+  landed_cost: number | null;
+  cost_currency: string | null;
+  is_hazmat: boolean | null;
+  has_coa: boolean;
+  has_tds: boolean;
+}
+
 export interface SummaryRow {
   quotation_id: number;
   supplier_id: number | null;

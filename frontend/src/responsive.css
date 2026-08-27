@@ -248,6 +248,10 @@ button.shell-nav-toggle,
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .summary-edit-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .summary-columns-checklist {
     max-height: 260px;
   }
@@ -282,6 +286,24 @@ button.shell-nav-toggle,
   .summary-columns-dialog {
     max-height: calc(100vh - 20px);
     padding: 16px;
+  }
+
+  .summary-edit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .summary-edit-wide-field {
+    grid-column: auto;
+  }
+
+  .summary-edit-documents,
+  .summary-edit-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .summary-edit-actions > button {
+    width: 100%;
   }
 
   /* Safari на iOS увеличивает страницу при фокусе в поле с текстом мельче

@@ -16,12 +16,14 @@ from app.schemas.quotation import (
     PurchaseDecisionUpdate,
     QuotationCreate,
     QuotationRead,
+    QuotationUpdate,
     SummaryRow,
 )
 from app.services.quotation_service import (
     build_summary,
     create_quotation,
     save_purchase_decision,
+    update_quotation,
 )
 
 router = APIRouter(tags=["quotations"], dependencies=[Depends(get_current_user)])
@@ -76,6 +78,30 @@ def summary(rfq_id: int, db: Session = Depends(get_db)) -> list[SummaryRow]:
     if rfq is None or rfq.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Запрос не найден")
     return build_summary(db, rfq_id)
+
+
+@router.patch(
+    "/rfq/{rfq_id}/quotations/{quotation_id}",
+    response_model=QuotationRead,
+)
+def edit_quotation(
+    rfq_id: int,
+    quotation_id: int,
+    payload: QuotationUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Quotation:
+    """Вручную корректирует условия предложения в сравнительной таблице."""
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    _load_visible_rfq(db, rfq_id, user)
+    quotation = db.get(Quotation, quotation_id)
+    if quotation is None or quotation.rfq_id != rfq_id:
+        raise HTTPException(status_code=404, detail="Котировка не найдена")
+    try:
+        return update_quotation(db, quotation=quotation, data=payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get(

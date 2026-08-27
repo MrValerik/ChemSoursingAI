@@ -360,6 +360,90 @@ def test_purchase_decision_is_detailed_persisted_and_role_protected(client):
     assert forbidden.status_code == 403
 
 
+def test_summary_quotation_can_be_edited_manually(client):
+    headers = _login(client)
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "64-17-5", "name": "Ethanol", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+    quotation = client.post(
+        "/quotations",
+        json={
+            "rfq_id": rfq["id"],
+            "price": 12.5,
+            "currency": "USD",
+            "field_confidence": {"price": 0.42},
+        },
+        headers=headers,
+    ).json()
+    assert quotation["is_complete"] is False
+
+    changed = client.patch(
+        f"/rfq/{rfq['id']}/quotations/{quotation['id']}",
+        json={
+            "price": 11.75,
+            "currency": " eur ",
+            "incoterm": " CIP ",
+            "moq": " 100 kg ",
+            "grade": " USP ",
+            "payment_terms": " 30 days ",
+            "lead_time": " 14 days ",
+            "manufacturer": " Manual Chemicals ",
+            "origin_country": " Germany ",
+            "packaging": " 25 kg drums ",
+            "price_unit": " kg ",
+            "quoted_quantity": " 500 kg ",
+            "total_price": 5875,
+            "delivery_cost": 300,
+            "duty_cost": 50,
+            "vat_cost": 1200,
+            "landed_cost": 7425,
+            "cost_currency": " eur ",
+            "is_hazmat": False,
+            "has_coa": True,
+            "has_tds": False,
+        },
+        headers=headers,
+    )
+    assert changed.status_code == 200
+    payload = changed.json()
+    assert payload["currency"] == "EUR"
+    assert payload["manufacturer"] == "Manual Chemicals"
+    assert payload["is_complete"] is True
+    assert payload["field_confidence"]["price"] == 1.0
+    assert payload["field_confidence"]["incoterm"] == 1.0
+
+    summary = client.get(f"/rfq/{rfq['id']}/summary", headers=headers).json()
+    row = next(item for item in summary if item["quotation_id"] == quotation["id"])
+    assert row["price"] == 11.75
+    assert row["currency"] == "EUR"
+    assert row["landed_cost"] == 7425.0
+    assert row["has_coa"] is True
+    assert row["is_complete"] is True
+
+    empty = client.patch(
+        f"/rfq/{rfq['id']}/quotations/{quotation['id']}",
+        json={},
+        headers=headers,
+    )
+    assert empty.status_code == 422
+    invalid = client.patch(
+        f"/rfq/{rfq['id']}/quotations/{quotation['id']}",
+        json={"price": -1},
+        headers=headers,
+    )
+    assert invalid.status_code == 422
+
+    auditor = _login(client, "auditor")
+    forbidden = client.patch(
+        f"/rfq/{rfq['id']}/quotations/{quotation['id']}",
+        json={"price": 10},
+        headers=auditor,
+    )
+    assert forbidden.status_code == 403
+
+
 def test_saved_rfq_preview_can_be_translated_without_changing_it(client, monkeypatch):
     headers = _login(client)
     rfq = client.post(

@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import type {
   PurchaseDecisionRead,
+  QuotationUpdate,
   RFQRead,
   SummaryRow,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
-import { IconButton, Textarea } from "./ui";
+import { Field, IconButton, Input, Select, Textarea } from "./ui";
 
 interface Props {
   rfq: RFQRead;
@@ -51,6 +52,92 @@ const confidenceLabel = (row: SummaryRow) => {
   if (values.length === 0) return "не указана";
   return `${Math.round(Math.min(...values) * 100)}% минимум`;
 };
+
+interface SummaryEditDraft {
+  price: string;
+  currency: string;
+  incoterm: string;
+  moq: string;
+  grade: string;
+  payment_terms: string;
+  lead_time: string;
+  manufacturer: string;
+  origin_country: string;
+  packaging: string;
+  price_unit: string;
+  quoted_quantity: string;
+  total_price: string;
+  delivery_cost: string;
+  duty_cost: string;
+  vat_cost: string;
+  landed_cost: string;
+  cost_currency: string;
+  is_hazmat: "unknown" | "yes" | "no";
+  has_coa: boolean;
+  has_tds: boolean;
+}
+
+const editDraftFromRow = (row: SummaryRow): SummaryEditDraft => ({
+  price: row.price?.toString() ?? "",
+  currency: row.currency ?? "",
+  incoterm: row.incoterm ?? "",
+  moq: row.moq ?? "",
+  grade: row.grade ?? "",
+  payment_terms: row.payment_terms ?? "",
+  lead_time: row.lead_time ?? "",
+  manufacturer: row.manufacturer ?? "",
+  origin_country: row.origin_country ?? "",
+  packaging: row.packaging ?? "",
+  price_unit: row.price_unit ?? "",
+  quoted_quantity: row.quoted_quantity ?? "",
+  total_price: row.total_price?.toString() ?? "",
+  delivery_cost: row.delivery_cost?.toString() ?? "",
+  duty_cost: row.duty_cost?.toString() ?? "",
+  vat_cost: row.vat_cost?.toString() ?? "",
+  landed_cost: row.landed_cost?.toString() ?? "",
+  cost_currency: row.cost_currency ?? row.currency ?? "",
+  is_hazmat:
+    row.is_hazmat === null ? "unknown" : row.is_hazmat ? "yes" : "no",
+  has_coa: row.has_coa,
+  has_tds: row.has_tds,
+});
+
+const optionalText = (value: string) => value.trim() || null;
+
+const optionalNumber = (value: string, label: string): number | null => {
+  const normalized = value.trim().replace(/\s/g, "").replace(",", ".");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${label}: укажите неотрицательное число`);
+  }
+  return parsed;
+};
+
+const updateFromDraft = (draft: SummaryEditDraft): QuotationUpdate => ({
+  price: optionalNumber(draft.price, "Цена"),
+  currency: optionalText(draft.currency)?.toUpperCase() ?? null,
+  incoterm: optionalText(draft.incoterm),
+  moq: optionalText(draft.moq),
+  grade: optionalText(draft.grade),
+  payment_terms: optionalText(draft.payment_terms),
+  lead_time: optionalText(draft.lead_time),
+  manufacturer: optionalText(draft.manufacturer),
+  origin_country: optionalText(draft.origin_country),
+  packaging: optionalText(draft.packaging),
+  price_unit: optionalText(draft.price_unit),
+  quoted_quantity: optionalText(draft.quoted_quantity),
+  total_price: optionalNumber(draft.total_price, "Стоимость закупки"),
+  delivery_cost: optionalNumber(draft.delivery_cost, "Доставка"),
+  duty_cost: optionalNumber(draft.duty_cost, "Пошлина"),
+  vat_cost: optionalNumber(draft.vat_cost, "НДС"),
+  landed_cost: optionalNumber(draft.landed_cost, "Итого до склада"),
+  cost_currency: optionalText(draft.cost_currency)?.toUpperCase() ?? null,
+  is_hazmat:
+    draft.is_hazmat === "unknown" ? null : draft.is_hazmat === "yes",
+  has_coa: draft.has_coa,
+  has_tds: draft.has_tds,
+});
 
 type SummaryColumnKey =
   | "decision"
@@ -214,6 +301,10 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editDraft, setEditDraft] = useState<SummaryEditDraft | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [websiteColumns, setWebsiteColumns] = useState<SummaryColumnKey[]>(() =>
     readStoredColumns(
       WEBSITE_COLUMNS_STORAGE_KEY,
@@ -224,6 +315,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
     readStoredColumns(DOWNLOAD_COLUMNS_STORAGE_KEY),
   );
   const columnSettingsTriggerRef = useRef<HTMLButtonElement>(null);
+  const editTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -255,6 +347,24 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [columnSettingsOpen]);
+
+  useEffect(() => {
+    if (!editOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !editSaving) {
+        setEditOpen(false);
+        setEditError(null);
+        editTriggerRef.current?.focus();
+      }
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [editOpen, editSaving]);
 
   useEffect(() => {
     let cancelled = false;
@@ -346,6 +456,53 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const closeColumnSettings = () => {
     setColumnSettingsOpen(false);
     columnSettingsTriggerRef.current?.focus();
+  };
+
+  const openEditor = () => {
+    if (!selectedRow || readOnly) return;
+    setEditDraft(editDraftFromRow(selectedRow));
+    setEditError(null);
+    setNotice(null);
+    setEditOpen(true);
+  };
+
+  const closeEditor = () => {
+    if (editSaving) return;
+    setEditOpen(false);
+    setEditError(null);
+    editTriggerRef.current?.focus();
+  };
+
+  const changeEditField = <Key extends keyof SummaryEditDraft>(
+    key: Key,
+    value: SummaryEditDraft[Key],
+  ) => {
+    setEditDraft((current) =>
+      current ? { ...current, [key]: value } : current,
+    );
+    setEditError(null);
+  };
+
+  const saveQuotationChanges = async () => {
+    if (!selectedRow || !editDraft || readOnly) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await api.updateQuotation(
+        rfq.id,
+        selectedRow.quotation_id,
+        updateFromDraft(editDraft),
+      );
+      const updatedRows = await api.getSummary(rfq.id);
+      setRows(updatedRows);
+      setEditOpen(false);
+      setNotice(`Данные поставщика «${supplierName(selectedRow)}» сохранены.`);
+      window.setTimeout(() => editTriggerRef.current?.focus(), 0);
+    } catch (caught) {
+      setEditError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const toggleColumn = (
@@ -486,6 +643,18 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
               />
               Только полные
             </label>
+            {!readOnly && (
+              <button
+                aria-haspopup="dialog"
+                className="secondary"
+                disabled={!selectedRow}
+                ref={editTriggerRef}
+                type="button"
+                onClick={openEditor}
+              >
+                Редактировать таблицу
+              </button>
+            )}
             <button
               className="secondary"
               disabled={shown.length === 0}
@@ -694,6 +863,274 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
               });
           }}
         />
+      )}
+
+      {editOpen && editDraft && selectedRow && (
+        <div
+          className="summary-columns-backdrop"
+          role="presentation"
+          onClick={closeEditor}
+        >
+          <form
+            aria-describedby="summary-edit-description"
+            aria-labelledby="summary-edit-title"
+            aria-modal="true"
+            className="summary-columns-dialog summary-edit-dialog"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveQuotationChanges();
+            }}
+          >
+            <header className="summary-columns-dialog-header">
+              <div>
+                <h2 id="summary-edit-title">Редактирование предложения</h2>
+                <p className="note" id="summary-edit-description">
+                  Поставщик: <strong>{supplierName(selectedRow)}</strong>. Изменения
+                  сохраняются в сравнительной таблице и пересчитывают её полноту.
+                </p>
+              </div>
+              <IconButton
+                icon="close"
+                label="Закрыть редактирование"
+                disabled={editSaving}
+                onClick={closeEditor}
+              />
+            </header>
+
+            <div className="summary-edit-sections">
+              <fieldset className="summary-edit-section">
+                <legend>Товар и поставка</legend>
+                <div className="summary-edit-grid">
+                  <Field label="Производитель">
+                    <Input
+                      autoFocus
+                      maxLength={255}
+                      value={editDraft.manufacturer}
+                      onChange={(event) =>
+                        changeEditField("manufacturer", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Страна">
+                    <Input
+                      maxLength={120}
+                      value={editDraft.origin_country}
+                      onChange={(event) =>
+                        changeEditField("origin_country", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Фасовка">
+                    <Input
+                      maxLength={255}
+                      value={editDraft.packaging}
+                      onChange={(event) =>
+                        changeEditField("packaging", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Грейд">
+                    <Input
+                      maxLength={120}
+                      value={editDraft.grade}
+                      onChange={(event) =>
+                        changeEditField("grade", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="HAZMAT">
+                    <Select
+                      ariaLabel="Статус HAZMAT"
+                      options={[
+                        { value: "unknown", label: "Не указано" },
+                        { value: "yes", label: "Да" },
+                        { value: "no", label: "Нет" },
+                      ]}
+                      value={editDraft.is_hazmat}
+                      onChange={(value) =>
+                        changeEditField(
+                          "is_hazmat",
+                          value as SummaryEditDraft["is_hazmat"],
+                        )
+                      }
+                    />
+                  </Field>
+                </div>
+              </fieldset>
+
+              <fieldset className="summary-edit-section">
+                <legend>Цена и объём</legend>
+                <div className="summary-edit-grid">
+                  <Field label="Цена">
+                    <Input
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={editDraft.price}
+                      onChange={(event) =>
+                        changeEditField("price", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Валюта цены">
+                    <Input
+                      maxLength={3}
+                      placeholder="USD"
+                      value={editDraft.currency}
+                      onChange={(event) =>
+                        changeEditField("currency", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Единица цены">
+                    <Input
+                      maxLength={32}
+                      placeholder="kg"
+                      value={editDraft.price_unit}
+                      onChange={(event) =>
+                        changeEditField("price_unit", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Предложенный объём">
+                    <Input
+                      maxLength={64}
+                      placeholder="500 kg"
+                      value={editDraft.quoted_quantity}
+                      onChange={(event) =>
+                        changeEditField("quoted_quantity", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="MOQ">
+                    <Input
+                      maxLength={64}
+                      placeholder="100 kg"
+                      value={editDraft.moq}
+                      onChange={(event) =>
+                        changeEditField("moq", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Incoterm">
+                    <Input
+                      maxLength={8}
+                      placeholder="CIP"
+                      value={editDraft.incoterm}
+                      onChange={(event) =>
+                        changeEditField("incoterm", event.target.value)
+                      }
+                    />
+                  </Field>
+                </div>
+              </fieldset>
+
+              <fieldset className="summary-edit-section">
+                <legend>Стоимость до склада</legend>
+                <div className="summary-edit-grid">
+                  {(
+                    [
+                      ["total_price", "Стоимость закупки"],
+                      ["delivery_cost", "Доставка"],
+                      ["duty_cost", "Пошлина"],
+                      ["vat_cost", "НДС"],
+                      ["landed_cost", "Итого до склада"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <Field key={key} label={label}>
+                      <Input
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={editDraft[key]}
+                        onChange={(event) =>
+                          changeEditField(key, event.target.value)
+                        }
+                      />
+                    </Field>
+                  ))}
+                  <Field label="Валюта расчёта">
+                    <Input
+                      maxLength={3}
+                      placeholder="USD"
+                      value={editDraft.cost_currency}
+                      onChange={(event) =>
+                        changeEditField("cost_currency", event.target.value)
+                      }
+                    />
+                  </Field>
+                </div>
+              </fieldset>
+
+              <fieldset className="summary-edit-section">
+                <legend>Условия и документы</legend>
+                <div className="summary-edit-grid">
+                  <Field label="Условия оплаты" className="summary-edit-wide-field">
+                    <Input
+                      maxLength={255}
+                      value={editDraft.payment_terms}
+                      onChange={(event) =>
+                        changeEditField("payment_terms", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Срок поставки">
+                    <Input
+                      maxLength={120}
+                      value={editDraft.lead_time}
+                      onChange={(event) =>
+                        changeEditField("lead_time", event.target.value)
+                      }
+                    />
+                  </Field>
+                </div>
+                <div className="summary-edit-documents">
+                  <label>
+                    <input
+                      checked={editDraft.has_coa}
+                      type="checkbox"
+                      onChange={(event) =>
+                        changeEditField("has_coa", event.target.checked)
+                      }
+                    />
+                    CoA получен
+                  </label>
+                  <label>
+                    <input
+                      checked={editDraft.has_tds}
+                      type="checkbox"
+                      onChange={(event) =>
+                        changeEditField("has_tds", event.target.checked)
+                      }
+                    />
+                    TDS получен
+                  </label>
+                </div>
+              </fieldset>
+            </div>
+
+            {editError && <p className="error">{editError}</p>}
+            <footer className="summary-columns-dialog-footer">
+              <span className="note">
+                Пустое поле удалит значение. Название поставщика меняется в его
+                карточке, а не в котировке.
+              </span>
+              <div className="summary-edit-actions">
+                <button
+                  className="secondary"
+                  disabled={editSaving}
+                  type="button"
+                  onClick={closeEditor}
+                >
+                  Отмена
+                </button>
+                <button disabled={editSaving} type="submit">
+                  {editSaving ? "Сохраняем…" : "Сохранить изменения"}
+                </button>
+              </div>
+            </footer>
+          </form>
+        </div>
       )}
 
       {columnSettingsOpen && (
