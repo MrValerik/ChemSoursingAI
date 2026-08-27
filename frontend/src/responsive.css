@@ -243,6 +243,14 @@ button.shell-nav-toggle,
   .table-panel {
     overflow-x: auto;
   }
+
+  .summary-columns-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .summary-columns-checklist {
+    max-height: 260px;
+  }
 }
 
 /* Ящик выезжает — это движение по существу: оно показывает, откуда взялось
@@ -256,6 +264,26 @@ button.shell-nav-toggle,
 /* ===== 600px: телефон ===== */
 
 @media (max-width: 600px) {
+  .summary-heading-actions,
+  .summary-columns-dialog-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .summary-heading-actions > button,
+  .summary-columns-dialog-footer > button {
+    width: 100%;
+  }
+
+  .summary-columns-backdrop {
+    padding: 10px;
+  }
+
+  .summary-columns-dialog {
+    max-height: calc(100vh - 20px);
+    padding: 16px;
+  }
+
   /* Safari на iOS увеличивает страницу при фокусе в поле с текстом мельче
      16px и обратно уже не отдаляет. Крупнее становятся только сами поля
      ввода — остальной текст остаётся прежним. */
