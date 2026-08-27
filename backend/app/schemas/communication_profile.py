@@ -17,7 +17,7 @@ class CommunicationProfileBase(BaseModel):
     max_duration_minutes: int = Field(default=10080, ge=10, le=525600)
     max_prompt_tokens: int = Field(default=60000, ge=1000, le=10_000_000)
     max_completion_tokens: int = Field(default=12000, ge=500, le=2_000_000)
-    max_estimated_cost_usd: float = Field(default=10, ge=0.01, le=100000)
+    max_estimated_cost_rub: float = Field(default=1000, ge=1, le=10_000_000)
 
     @field_validator("required_fields")
     @classmethod
@@ -45,7 +45,9 @@ class CommunicationProfileUpdate(BaseModel):
     max_duration_minutes: int | None = Field(default=None, ge=10, le=525600)
     max_prompt_tokens: int | None = Field(default=None, ge=1000, le=10_000_000)
     max_completion_tokens: int | None = Field(default=None, ge=500, le=2_000_000)
-    max_estimated_cost_usd: float | None = Field(default=None, ge=0.01, le=100000)
+    max_estimated_cost_rub: float | None = Field(
+        default=None, ge=1, le=10_000_000
+    )
     is_active: bool | None = None
 
     @field_validator("required_fields")
@@ -87,6 +89,8 @@ class CommunicationProfileAssignment(BaseModel):
 
 
 class CommunicationProfileStatusRead(BaseModel):
+    user_id: int
+    user_name: str
     profile_id: int
     profile_slug: str
     profile_name: str

@@ -89,6 +89,9 @@ class CommunicationPolicyAudit(Base, TimestampMixin):
         index=True,
         default=None,
     )
+    actor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True, default=None
+    )
     profile_id: Mapped[int | None] = mapped_column(
         ForeignKey("communication_profiles.id", ondelete="SET NULL"),
         index=True,

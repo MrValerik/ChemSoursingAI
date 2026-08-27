@@ -69,7 +69,7 @@ def test_profile_precedence_and_role_goals() -> None:
         db.add(rfq)
         db.flush()
 
-        assert resolve_profile(db, rfq_id=rfq.id).id == chemist.id
+        assert resolve_profile(db, rfq_id=rfq.id, actor_id=owner.id).id == chemist.id
         assert profile_goal_reached(
             chemist,
             {"price": 10, "currency": "USD", "grade": "99%"},
@@ -81,6 +81,7 @@ def test_profile_precedence_and_role_goals() -> None:
 
         db.add(RfqAiSetting(rfq_id=rfq.id, communication_profile_id=buyer.id))
         db.flush()
+        assert resolve_profile(db, rfq_id=rfq.id, actor_id=owner.id).id == chemist.id
         assert resolve_profile(db, rfq_id=rfq.id).id == buyer.id
 
 
@@ -140,6 +141,48 @@ def test_reply_and_token_budget_is_auditable() -> None:
         assert status.stop_reason == "auto_reply_limit"
         assert status.snapshot["prompt_tokens_used"] == 120
         assert status.snapshot["completion_tokens_used"] == 30
+
+
+def test_budget_is_individual_for_each_user() -> None:
+    with _session() as db:
+        profile = resolve_profile(db, rfq_id=None)
+        profile.max_auto_replies = 1
+        first_user = User(
+            username="first",
+            full_name="Первый пользователь",
+            password_hash="unused",
+            role=UserRole.BUYER,
+        )
+        second_user = User(
+            username="second",
+            full_name="Второй пользователь",
+            password_hash="unused",
+            role=UserRole.BUYER,
+        )
+        db.add_all([first_user, second_user])
+        db.flush()
+
+        first = start_audit(
+            db,
+            event_key="message:individual",
+            text="Price is USD 10/kg.",
+            rfq_id=None,
+            actor_id=first_user.id,
+        )
+        finalize_usage(first.audit, UsageClient(120, 30), reply_generated=True)
+        db.commit()
+
+        first_status = budget_status(
+            db, profile=profile, rfq_id=None, actor_id=first_user.id
+        )
+        second_status = budget_status(
+            db, profile=profile, rfq_id=None, actor_id=second_user.id
+        )
+        assert not first_status.allowed
+        assert first_status.snapshot["automatic_replies_used"] == 1
+        assert second_status.allowed
+        assert second_status.snapshot["automatic_replies_used"] == 0
+        assert first.audit.actor_id == first_user.id
 
 
 def test_profile_cannot_override_immutable_commercial_safety() -> None:

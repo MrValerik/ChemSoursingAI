@@ -17,7 +17,6 @@ from app.models.communication_profile import (
     CommunicationProfileVersion,
 )
 from app.models.prompt import PromptTemplate, RfqAiSetting
-from app.models.rfq import RFQ
 from app.models.user import User
 
 PROFILE_FIELDS = {
@@ -91,23 +90,24 @@ class AuditStart:
     duplicate: bool = False
 
 
+def usd_to_rub(value: Decimal | float | int) -> Decimal:
+    rate = Decimal(str(get_settings().communication_cost_usd_rub_rate))
+    return Decimal(str(value)) * rate
+
+
+def rub_to_usd(value: Decimal | float | int) -> Decimal:
+    rate = Decimal(str(get_settings().communication_cost_usd_rub_rate))
+    return Decimal(str(value)) / rate
+
+
 def resolve_profile(
     db: Session,
     *,
     rfq_id: int | None,
     actor_id: int | None = None,
 ) -> CommunicationProfile:
-    """RFQ override → владелец RFQ → текущий пользователь → системный закупщик."""
+    """Профиль текущего пользователя → системный профиль закупщика."""
     profile_ids: list[int] = []
-    rfq = db.get(RFQ, rfq_id) if rfq_id is not None else None
-    if rfq_id is not None:
-        setting = db.get(RfqAiSetting, rfq_id)
-        if setting and setting.communication_profile_id:
-            profile_ids.append(setting.communication_profile_id)
-    if rfq is not None and rfq.owner_id is not None:
-        owner = db.get(User, rfq.owner_id)
-        if owner and owner.communication_profile_id:
-            profile_ids.append(owner.communication_profile_id)
     if actor_id is not None:
         actor = db.get(User, actor_id)
         if actor and actor.communication_profile_id:
@@ -163,8 +163,13 @@ def _audit_scope(
     rfq_id: int | None,
     manager_id: int | None,
     test_run_id: int | None,
+    actor_id: int | None,
 ):
-    conditions = []
+    conditions = [
+        CommunicationPolicyAudit.actor_id == actor_id
+        if actor_id is not None
+        else CommunicationPolicyAudit.actor_id.is_(None)
+    ]
     if test_run_id is not None:
         conditions.append(CommunicationPolicyAudit.test_run_id == test_run_id)
     else:
@@ -181,11 +186,15 @@ def budget_status(
     rfq_id: int | None,
     manager_id: int | None = None,
     test_run_id: int | None = None,
+    actor_id: int | None = None,
     incoming_chars: int = 0,
     now: datetime | None = None,
 ) -> BudgetDecision:
     conditions = _audit_scope(
-        rfq_id=rfq_id, manager_id=manager_id, test_run_id=test_run_id
+        rfq_id=rfq_id,
+        manager_id=manager_id,
+        test_run_id=test_run_id,
+        actor_id=actor_id,
     )
     rows = db.execute(
         select(
@@ -222,8 +231,10 @@ def budget_status(
         "max_prompt_tokens": profile.max_prompt_tokens,
         "completion_tokens_used": int(completion_tokens or 0),
         "max_completion_tokens": profile.max_completion_tokens,
-        "estimated_cost_usd": float(estimated_cost),
-        "max_estimated_cost_usd": float(profile.max_estimated_cost_usd),
+        "estimated_cost_rub": float(usd_to_rub(estimated_cost)),
+        "max_estimated_cost_rub": float(
+            usd_to_rub(profile.max_estimated_cost_usd)
+        ),
     }
     checks = (
         (
@@ -307,6 +318,7 @@ def start_audit(
         rfq_id=rfq_id,
         manager_id=manager_id,
         test_run_id=test_run_id,
+        actor_id=actor_id,
         incoming_chars=len(text),
     )
     summary = " ".join(text.split())[:300]
@@ -335,6 +347,7 @@ def start_audit(
         manager_id=manager_id,
         communication_id=communication_id,
         test_run_id=test_run_id,
+        actor_id=actor_id,
         profile_id=profile.id,
         profile_slug=profile.slug,
         profile_name=profile.name,

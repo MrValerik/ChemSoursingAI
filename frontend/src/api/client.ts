@@ -675,9 +675,9 @@ export const api = {
       { method: "PATCH", body: JSON.stringify({ profile_id: profileId }) },
     ),
 
-  assignRfqCommunicationProfile: (rfqId: number, profileId: number | null) =>
-    request<{ rfq_id: number; profile_id: number | null }>(
-      `/communication-profiles/assignments/rfq/${rfqId}`,
+  assignCurrentUserCommunicationProfile: (profileId: number | null) =>
+    request<{ user_id: number; profile_id: number | null }>(
+      `/communication-profiles/assignments/me`,
       { method: "PATCH", body: JSON.stringify({ profile_id: profileId }) },
     ),
 

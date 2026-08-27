@@ -398,8 +398,8 @@ backend и проверяет публичный health endpoint. Подробн
 | GET/PUT | `/rfq/{id}/ai-settings` | Промпт и инструкции конкретного RFQ |
 | GET/POST/PATCH | `/communication-profiles` | Версионируемые ролевые профили общения; изменение доступно администратору |
 | PATCH | `/communication-profiles/assignments/users/{id}` | Назначить профиль сотруднику |
-| PATCH | `/communication-profiles/assignments/rfq/{id}` | Переопределить профиль для запроса |
-| GET | `/communication-profiles/status/{rfq_id}` | Эффективный профиль, версия и остаток бюджета диалога |
+| PATCH | `/communication-profiles/assignments/me` | Выбрать профиль текущей учётной записи; выбор индивидуален для пользователя |
+| GET | `/communication-profiles/status/{rfq_id}` | Профиль текущего пользователя, версия и его фактический расход бюджета диалога |
 | POST | `/supplier-search` | ИИ-запрос и поиск кандидатов со ссылками |
 | POST | `/supplier-search/jobs?rfq_id={id}` | Поставить полный цикл поиска по России, Китаю или Индии и предварительной квалификации в очередь и сразу получить ID; worker не забирает задания до готовности локальной LLM |
 | GET | `/search-runs?rfq_id={id}` | Очередь, история и текущие статусы поисков запроса |
@@ -571,7 +571,9 @@ worker автоматически возвращает её в очередь (�
 `SUPPLIER_INDUSTRIAL_PACKAGE_MIN_VOLUME_L`. Для денежного аудита общения задайте
 `COMMUNICATION_LLM_INPUT_COST_PER_MILLION_USD` и
 `COMMUNICATION_LLM_OUTPUT_COST_PER_MILLION_USD`; нулевые значения сохраняют
-токены, но не рассчитывают стоимость. Остальные лимиты версионируются в профиле
+токены, но не рассчитывают стоимость. API и интерфейс показывают бюджет в рублях
+по настраиваемому курсу `COMMUNICATION_COST_USD_RUB_RATE` (по умолчанию 100).
+Остальные лимиты версионируются в профиле
 через раздел «ИИ-промпты». Для настроек каналов, сохранённых через
 интерфейс, задайте отдельный `INTEGRATION_ENCRYPTION_KEY`. Если он пуст,
 используется `AUTH_SECRET_KEY`; менять применённый ключ без переноса данных

@@ -705,7 +705,7 @@ export interface CommunicationProfile {
   max_duration_minutes: number;
   max_prompt_tokens: number;
   max_completion_tokens: number;
-  max_estimated_cost_usd: number;
+  max_estimated_cost_rub: number;
   updated_by: string | null;
   updated_at: string;
 }
@@ -723,17 +723,19 @@ export interface CommunicationProfileVersion {
   max_duration_minutes: number;
   max_prompt_tokens: number;
   max_completion_tokens: number;
-  max_estimated_cost_usd: number;
+  max_estimated_cost_rub: number;
   version: number;
   created_at: string;
 }
 
 export interface CommunicationProfileStatus {
+  user_id: number;
+  user_name: string;
   profile_id: number;
   profile_slug: string;
   profile_name: string;
   profile_version: number;
-  source: "rfq" | "user" | "default";
+  source: "user" | "default";
   budget: {
     input_chars: number;
     max_input_chars: number;
@@ -745,8 +747,8 @@ export interface CommunicationProfileStatus {
     max_prompt_tokens: number;
     completion_tokens_used: number;
     max_completion_tokens: number;
-    estimated_cost_usd: number;
-    max_estimated_cost_usd: number;
+    estimated_cost_rub: number;
+    max_estimated_cost_rub: number;
     stop_reason: string | null;
   };
   stopped: boolean;

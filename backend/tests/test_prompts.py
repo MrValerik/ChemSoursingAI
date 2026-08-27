@@ -154,15 +154,17 @@ def test_communication_profiles_are_versioned_and_assignable(client):
     updated = client.patch(
         f"/communication-profiles/{chemist['id']}",
         headers=admin,
-        json={"max_auto_replies": 7},
+        json={"max_auto_replies": 7, "max_estimated_cost_rub": 750},
     )
     assert updated.status_code == 200
     assert updated.json()["version"] == chemist["version"] + 1
+    assert updated.json()["max_estimated_cost_rub"] == 750
     versions = client.get(
         f"/communication-profiles/{chemist['id']}/versions",
         headers=admin,
     ).json()
     assert versions[0]["version"] == updated.json()["version"]
+    assert versions[0]["max_estimated_cost_rub"] == 750
 
     users = client.get("/users", headers=admin).json()
     ivanov = next(item for item in users if item["username"] == "ivanov")
@@ -186,6 +188,22 @@ def test_communication_profiles_are_versioned_and_assignable(client):
     assert status.status_code == 200
     assert status.json()["profile_slug"] == "chemist"
     assert status.json()["source"] == "user"
+    assert status.json()["user_name"] == ivanov["full_name"]
+    assert "estimated_cost_rub" in status.json()["budget"]
+
+    reset = client.patch(
+        "/communication-profiles/assignments/me",
+        headers=buyer,
+        json={"profile_id": None},
+    )
+    assert reset.status_code == 200
+    assert reset.json()["profile_id"] is None
+    default_status = client.get(
+        f"/communication-profiles/status/{rfq['id']}",
+        headers=buyer,
+    ).json()
+    assert default_status["profile_slug"] == "buyer"
+    assert default_status["source"] == "default"
 
 
 def test_russian_seed_does_not_overwrite_user_prompt(client):

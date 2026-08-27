@@ -509,9 +509,9 @@ export default function DispatchTab({
     setProfileBusy(true);
     setError(null);
     try {
-      await api.assignRfqCommunicationProfile(rfqId, profileId);
+      await api.assignCurrentUserCommunicationProfile(profileId);
       await load();
-      setNotice("Профиль общения для запроса обновлён.");
+      setNotice("Ваш профиль общения обновлён.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -531,63 +531,6 @@ export default function DispatchTab({
             onStatusChanged();
           }}
         />
-      )}
-
-      {!compact && profileStatus && (
-        <div className="panel">
-          <div className="tab-toolbar">
-            <div>
-              <h2>Профиль общения</h2>
-              <p className="note">
-                {profileStatus.profile_name} · v{profileStatus.profile_version} ·{" "}
-                {profileStatus.source === "rfq"
-                  ? "назначен запросу"
-                  : profileStatus.source === "user"
-                    ? "назначен ответственному"
-                    : "системный по умолчанию"}
-              </p>
-            </div>
-            {user?.role === "admin" && (
-              <select
-                aria-label="Профиль общения запроса"
-                disabled={profileBusy}
-                value={profileStatus.source === "rfq" ? profileStatus.profile_id : ""}
-                onChange={(event) =>
-                  void assignProfile(event.target.value ? Number(event.target.value) : null)
-                }
-              >
-                <option value="">По профилю ответственного</option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name} · v{profile.version}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-          <div className="stack-inline">
-            <span className={`badge ${profileStatus.stopped ? "tone-warn" : "tone-ok"}`}>
-              {profileStatus.stopped ? "Автоответы остановлены" : "Автоответы разрешены"}
-            </span>
-            <span className="badge tone-neutral">
-              Осталось ответов: {Math.max(0, profileStatus.budget.max_auto_replies - profileStatus.budget.automatic_replies_used)}
-            </span>
-            <span className="badge tone-neutral">
-              Осталось токенов: {Math.max(
-                0,
-                profileStatus.budget.max_prompt_tokens + profileStatus.budget.max_completion_tokens -
-                  profileStatus.budget.prompt_tokens_used - profileStatus.budget.completion_tokens_used,
-              )}
-            </span>
-            <span className="badge tone-neutral">
-              Осталось времени: {Math.max(0, Math.ceil((profileStatus.budget.max_duration_seconds - profileStatus.budget.elapsed_seconds) / 3600))} ч
-            </span>
-            <span className="badge tone-neutral">
-              Осталось: ${Math.max(0, profileStatus.budget.max_estimated_cost_usd - profileStatus.budget.estimated_cost_usd).toFixed(4)}
-            </span>
-          </div>
-          {profileStatus.stopped && <p className="error">{profileStatus.explanation}</p>}
-        </div>
       )}
 
       <div
@@ -632,6 +575,61 @@ export default function DispatchTab({
             </div>
           )}
         </div>
+
+        {!compact && profileStatus && (
+          <details className="settings-accordion communication-settings">
+            <summary><span>Настройки общения</span></summary>
+            <div className="settings-accordion-body">
+              <div className="tab-toolbar">
+                <div>
+                  <h3>Профиль пользователя</h3>
+                  <p className="note">
+                    {profileStatus.user_name} · {profileStatus.profile_name} · v
+                    {profileStatus.profile_version} · {profileStatus.source === "user"
+                      ? "выбран пользователем"
+                      : "системный по умолчанию"}
+                  </p>
+                </div>
+                <select
+                  aria-label="Мой профиль общения"
+                  disabled={profileBusy || readOnly}
+                  value={profileStatus.source === "user" ? profileStatus.profile_id : ""}
+                  onChange={(event) =>
+                    void assignProfile(event.target.value ? Number(event.target.value) : null)
+                  }
+                >
+                  <option value="">Закупщик по умолчанию</option>
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name} · v{profile.version}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="note">
+                Выбор и расход лимитов относятся только к вашей учётной записи.
+              </p>
+              <div className="stack-inline">
+                <span className={`badge ${profileStatus.stopped ? "tone-warn" : "tone-ok"}`}>
+                  {profileStatus.stopped ? "Автоответы остановлены" : "Автоответы разрешены"}
+                </span>
+                <span className="badge tone-neutral">
+                  Ответы: {profileStatus.budget.automatic_replies_used} / {profileStatus.budget.max_auto_replies}
+                </span>
+                <span className="badge tone-neutral">
+                  Токены: {profileStatus.budget.prompt_tokens_used + profileStatus.budget.completion_tokens_used} / {profileStatus.budget.max_prompt_tokens + profileStatus.budget.max_completion_tokens}
+                </span>
+                <span className="badge tone-neutral">
+                  Время: {Math.ceil(profileStatus.budget.elapsed_seconds / 3600)} / {Math.ceil(profileStatus.budget.max_duration_seconds / 3600)} ч
+                </span>
+                <span className="badge tone-neutral">
+                  Расход: {profileStatus.budget.estimated_cost_rub.toFixed(2)} / {profileStatus.budget.max_estimated_cost_rub.toFixed(2)} ₽
+                </span>
+              </div>
+              {profileStatus.stopped && <p className="error">{profileStatus.explanation}</p>}
+            </div>
+          </details>
+        )}
 
         {notice && <p className="success-note">{notice}</p>}
         {error && <p className="error">{error}</p>}

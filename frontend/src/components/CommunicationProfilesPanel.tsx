@@ -70,7 +70,7 @@ export default function CommunicationProfilesPanel() {
         max_duration_minutes: draft.max_duration_minutes,
         max_prompt_tokens: draft.max_prompt_tokens,
         max_completion_tokens: draft.max_completion_tokens,
-        max_estimated_cost_usd: draft.max_estimated_cost_usd,
+        max_estimated_cost_rub: draft.max_estimated_cost_rub,
         is_active: draft.is_active,
       });
       await load();
@@ -98,7 +98,7 @@ export default function CommunicationProfilesPanel() {
         max_duration_minutes: 4320,
         max_prompt_tokens: 40000,
         max_completion_tokens: 8000,
-        max_estimated_cost_usd: 6,
+        max_estimated_cost_rub: 600,
       });
       await load();
       open(created);
@@ -193,7 +193,7 @@ export default function CommunicationProfilesPanel() {
                 ["max_duration_minutes", "Минут на диалог"],
                 ["max_prompt_tokens", "Входных токенов"],
                 ["max_completion_tokens", "Выходных токенов"],
-                ["max_estimated_cost_usd", "Бюджет, USD"],
+                ["max_estimated_cost_rub", "Бюджет, ₽"],
               ] as const).map(([field, label]) => (
                 <div className="field" key={field}>
                   <label>{label}</label>

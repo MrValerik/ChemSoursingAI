@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     # нет; ноль означает, что конкретное развёртывание стоимость не считает.
     communication_llm_input_cost_per_million_usd: float = Field(default=0, ge=0)
     communication_llm_output_cost_per_million_usd: float = Field(default=0, ge=0)
+    communication_cost_usd_rub_rate: float = Field(default=100, gt=0)
 
     # --- Email-коннектор (IMAP/SMTP) ---
     # demo сохраняет безопасное поведение без внешней отправки; live включает SMTP.
