@@ -175,6 +175,8 @@ export default function DispatchTab({
   const [profileStatus, setProfileStatus] =
     useState<CommunicationProfileStatus | null>(null);
   const [profileBusy, setProfileBusy] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const canSyncEmail =
     user?.role === "buyer" || user?.role === "head" || user?.role === "admin";
@@ -187,16 +189,26 @@ export default function DispatchTab({
 
   const load = async () => {
     try {
-      const [communicationItems, testItems, profileItems, currentProfileStatus] = await Promise.all([
+      const [communicationItems, testItems] = await Promise.all([
         api.communicationOverview(rfqId),
         canTestCommunication
           ? api.listCommunicationTests(100, rfqId)
           : Promise.resolve([] as CommunicationTestRun[]),
-        api.listCommunicationProfiles(),
-        api.communicationProfileStatus(rfqId),
       ]);
-      setProfiles(profileItems.filter((item) => item.is_active));
-      setProfileStatus(currentProfileStatus);
+      try {
+        const [profileItems, currentProfileStatus] = await Promise.all([
+          api.listCommunicationProfiles(),
+          api.communicationProfileStatus(rfqId),
+        ]);
+        setProfiles(profileItems.filter((item) => item.is_active));
+        setProfileStatus(currentProfileStatus);
+        setProfileError(null);
+      } catch (caught) {
+        setProfileStatus(null);
+        setProfileError(
+          caught instanceof Error ? caught.message : String(caught),
+        );
+      }
       const embeddedTests = testItems.filter(
         (item) =>
           item.simulation_mode === "buyer_ai" && item.delivery_mode === "preview",
@@ -549,6 +561,14 @@ export default function DispatchTab({
           </div>
           {!compact && (
             <div className="communication-toolbar-actions">
+              <button
+                aria-expanded={settingsOpen}
+                className="secondary"
+                onClick={() => setSettingsOpen((current) => !current)}
+                type="button"
+              >
+                {settingsOpen ? "Закрыть настройки" : "Настройки общения"}
+              </button>
               {activeEscalations.length > 0 && (
                 <span className="badge tone-warn" role="status">
                   Требуют ответа: {activeEscalations.length}
@@ -576,59 +596,69 @@ export default function DispatchTab({
           )}
         </div>
 
-        {!compact && profileStatus && (
-          <details className="settings-accordion communication-settings">
-            <summary><span>Настройки общения</span></summary>
-            <div className="settings-accordion-body">
-              <div className="tab-toolbar">
-                <div>
-                  <h3>Профиль пользователя</h3>
-                  <p className="note">
-                    {profileStatus.user_name} · {profileStatus.profile_name} · v
-                    {profileStatus.profile_version} · {profileStatus.source === "user"
-                      ? "выбран пользователем"
-                      : "системный по умолчанию"}
-                  </p>
+        {!compact && settingsOpen && (
+          <section className="settings-accordion-body communication-settings">
+            {profileStatus ? (
+              <>
+                <div className="tab-toolbar">
+                  <div>
+                    <h3>Профиль пользователя</h3>
+                    <p className="note">
+                      {profileStatus.user_name} · {profileStatus.profile_name} · v
+                      {profileStatus.profile_version} · {profileStatus.source === "user"
+                        ? "выбран пользователем"
+                        : "системный по умолчанию"}
+                    </p>
+                  </div>
+                  <select
+                    aria-label="Мой профиль общения"
+                    disabled={profileBusy || readOnly}
+                    value={profileStatus.source === "user" ? profileStatus.profile_id : ""}
+                    onChange={(event) =>
+                      void assignProfile(event.target.value ? Number(event.target.value) : null)
+                    }
+                  >
+                    <option value="">Закупщик по умолчанию</option>
+                    {profiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} · v{profile.version}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <select
-                  aria-label="Мой профиль общения"
-                  disabled={profileBusy || readOnly}
-                  value={profileStatus.source === "user" ? profileStatus.profile_id : ""}
-                  onChange={(event) =>
-                    void assignProfile(event.target.value ? Number(event.target.value) : null)
-                  }
-                >
-                  <option value="">Закупщик по умолчанию</option>
-                  {profiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name} · v{profile.version}
-                    </option>
-                  ))}
-                </select>
+                <p className="note">
+                  Выбор и расход лимитов относятся только к вашей учётной записи.
+                </p>
+                <div className="stack-inline">
+                  <span className={`badge ${profileStatus.stopped ? "tone-warn" : "tone-ok"}`}>
+                    {profileStatus.stopped ? "Автоответы остановлены" : "Автоответы разрешены"}
+                  </span>
+                  <span className="badge tone-neutral">
+                    Ответы: {profileStatus.budget.automatic_replies_used} / {profileStatus.budget.max_auto_replies}
+                  </span>
+                  <span className="badge tone-neutral">
+                    Токены: {profileStatus.budget.prompt_tokens_used + profileStatus.budget.completion_tokens_used} / {profileStatus.budget.max_prompt_tokens + profileStatus.budget.max_completion_tokens}
+                  </span>
+                  <span className="badge tone-neutral">
+                    Время: {Math.ceil(profileStatus.budget.elapsed_seconds / 3600)} / {Math.ceil(profileStatus.budget.max_duration_seconds / 3600)} ч
+                  </span>
+                  <span className="badge tone-neutral">
+                    Расход: {profileStatus.budget.estimated_cost_rub.toFixed(2)} / {profileStatus.budget.max_estimated_cost_rub.toFixed(2)} ₽
+                  </span>
+                </div>
+                {profileStatus.stopped && <p className="error">{profileStatus.explanation}</p>}
+              </>
+            ) : (
+              <div>
+                <h3>Профиль пользователя</h3>
+                <p className={profileError ? "error" : "note"}>
+                  {profileError
+                    ? `Не удалось загрузить настройки: ${profileError}`
+                    : "Настройки профиля загружаются…"}
+                </p>
               </div>
-              <p className="note">
-                Выбор и расход лимитов относятся только к вашей учётной записи.
-              </p>
-              <div className="stack-inline">
-                <span className={`badge ${profileStatus.stopped ? "tone-warn" : "tone-ok"}`}>
-                  {profileStatus.stopped ? "Автоответы остановлены" : "Автоответы разрешены"}
-                </span>
-                <span className="badge tone-neutral">
-                  Ответы: {profileStatus.budget.automatic_replies_used} / {profileStatus.budget.max_auto_replies}
-                </span>
-                <span className="badge tone-neutral">
-                  Токены: {profileStatus.budget.prompt_tokens_used + profileStatus.budget.completion_tokens_used} / {profileStatus.budget.max_prompt_tokens + profileStatus.budget.max_completion_tokens}
-                </span>
-                <span className="badge tone-neutral">
-                  Время: {Math.ceil(profileStatus.budget.elapsed_seconds / 3600)} / {Math.ceil(profileStatus.budget.max_duration_seconds / 3600)} ч
-                </span>
-                <span className="badge tone-neutral">
-                  Расход: {profileStatus.budget.estimated_cost_rub.toFixed(2)} / {profileStatus.budget.max_estimated_cost_rub.toFixed(2)} ₽
-                </span>
-              </div>
-              {profileStatus.stopped && <p className="error">{profileStatus.explanation}</p>}
-            </div>
-          </details>
+            )}
+          </section>
         )}
 
         {notice && <p className="success-note">{notice}</p>}
