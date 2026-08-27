@@ -82,7 +82,7 @@ interface SummaryColumnDefinition {
 }
 
 const SUMMARY_COLUMNS: SummaryColumnDefinition[] = [
-  { key: "decision", label: "Итог", width: 56 },
+  { key: "decision", label: "Выбор поставщика", width: 56 },
   { key: "supplier", label: "Поставщик", width: 190 },
   { key: "manufacturer", label: "Производитель", width: 180 },
   { key: "country", label: "Страна", width: 120 },
@@ -106,18 +106,24 @@ const SUMMARY_COLUMNS: SummaryColumnDefinition[] = [
 ];
 
 const ALL_SUMMARY_COLUMN_KEYS = SUMMARY_COLUMNS.map(({ key }) => key);
+const REQUIRED_WEBSITE_COLUMN_KEYS: SummaryColumnKey[] = ["decision"];
 const WEBSITE_COLUMNS_STORAGE_KEY = "chemsource.summary.columns.website.v1";
 const DOWNLOAD_COLUMNS_STORAGE_KEY = "chemsource.summary.columns.download.v1";
 
-const readStoredColumns = (storageKey: string): SummaryColumnKey[] => {
+const readStoredColumns = (
+  storageKey: string,
+  requiredColumns: SummaryColumnKey[] = [],
+): SummaryColumnKey[] => {
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (!raw) return [...ALL_SUMMARY_COLUMN_KEYS];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [...ALL_SUMMARY_COLUMN_KEYS];
     const allowed = new Set(ALL_SUMMARY_COLUMN_KEYS);
-    const selected = ALL_SUMMARY_COLUMN_KEYS.filter((key) =>
-      parsed.includes(key) && allowed.has(key),
+    const selected = ALL_SUMMARY_COLUMN_KEYS.filter(
+      (key) =>
+        (parsed.includes(key) && allowed.has(key)) ||
+        requiredColumns.includes(key),
     );
     return selected.length > 0 ? selected : [...ALL_SUMMARY_COLUMN_KEYS];
   } catch {
@@ -209,7 +215,10 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [websiteColumns, setWebsiteColumns] = useState<SummaryColumnKey[]>(() =>
-    readStoredColumns(WEBSITE_COLUMNS_STORAGE_KEY),
+    readStoredColumns(
+      WEBSITE_COLUMNS_STORAGE_KEY,
+      REQUIRED_WEBSITE_COLUMN_KEYS,
+    ),
   );
   const [downloadColumns, setDownloadColumns] = useState<SummaryColumnKey[]>(() =>
     readStoredColumns(DOWNLOAD_COLUMNS_STORAGE_KEY),
@@ -343,7 +352,9 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
     column: SummaryColumnKey,
     selected: SummaryColumnKey[],
     update: (columns: SummaryColumnKey[]) => void,
+    requiredColumns: SummaryColumnKey[] = [],
   ) => {
+    if (requiredColumns.includes(column)) return;
     if (selected.includes(column)) {
       if (selected.length === 1) return;
       update(selected.filter((key) => key !== column));
@@ -536,7 +547,14 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                   <thead>
                     <tr>
                       {visibleWebsiteColumns.map((column) => (
-                        <th key={column.key}>{column.label}</th>
+                        <th
+                          aria-label={
+                            column.key === "decision" ? column.label : undefined
+                          }
+                          key={column.key}
+                        >
+                          {column.key === "decision" ? null : column.label}
+                        </th>
                       ))}
                     </tr>
                   </thead>
@@ -728,16 +746,25 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                     <label key={column.key}>
                       <input
                         checked={websiteColumns.includes(column.key)}
+                        disabled={REQUIRED_WEBSITE_COLUMN_KEYS.includes(
+                          column.key,
+                        )}
                         type="checkbox"
                         onChange={() =>
                           toggleColumn(
                             column.key,
                             websiteColumns,
                             setWebsiteColumns,
+                            REQUIRED_WEBSITE_COLUMN_KEYS,
                           )
                         }
                       />
-                      <span>{column.label}</span>
+                      <span>
+                        {column.label}
+                        {REQUIRED_WEBSITE_COLUMN_KEYS.includes(column.key)
+                          ? " · всегда отображается"
+                          : ""}
+                      </span>
                     </label>
                   ))}
                 </div>
