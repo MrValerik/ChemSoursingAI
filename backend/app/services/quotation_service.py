@@ -142,8 +142,12 @@ def update_quotation(
 
 
 def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
-    """Сводная сравнительная таблица по RFQ: полные котировки — выше."""
-    stmt = select(Quotation).where(Quotation.rfq_id == rfq_id)
+    """Одна актуальная строка на поставщика; полные котировки — выше."""
+    stmt = (
+        select(Quotation)
+        .where(Quotation.rfq_id == rfq_id)
+        .order_by(Quotation.created_at, Quotation.id)
+    )
     test_run_by_quotation_id = {
         run.quotation_id: run.id
         for run in db.scalars(
@@ -167,21 +171,52 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
             latest_channel_by_manager[communication.manager_id] = (
                 communication.channel.value
             )
+    quotations = db.scalars(stmt).all()
+    grouped: dict[tuple[str, str | int], list[Quotation]] = {}
+    for quotation in quotations:
+        manager = quotation.manager
+        supplier_row = manager.supplier if manager else None
+        if supplier_row is not None:
+            company_key = (supplier_row.company_key or "").strip().casefold()
+            group_key = (
+                "supplier",
+                company_key or f"supplier:{supplier_row.id}",
+            )
+        elif quotation.id in test_run_by_quotation_id:
+            # Все старые тестовые прогоны отображаются как один и тот же
+            # синтетический контрагент, поэтому не размножаем одинаковые строки.
+            group_key = ("test_supplier", "default")
+        elif quotation.manager_id is not None:
+            group_key = ("manager", quotation.manager_id)
+        else:
+            # У ручной котировки без контрагента нет безопасного ключа для
+            # объединения: две безымянные записи могут относиться к разным лицам.
+            group_key = ("quotation", quotation.id)
+        grouped.setdefault(group_key, []).append(quotation)
+
     rows: list[SummaryRow] = []
-    for q in db.scalars(stmt).all():
+    for supplier_quotations in grouped.values():
+        q = supplier_quotations[-1]
         manager = q.manager
         supplier_row = manager.supplier if manager else None
         supplier = supplier_row.company if supplier_row else None
-        manufacturer = q.manufacturer
-        if (
-            not manufacturer
-            and supplier_row is not None
-            and supplier_row.type == SupplierType.MANUFACTURER
-        ):
-            manufacturer = supplier_row.company
+        supplier_types = {
+            item.manager.supplier.type
+            for item in supplier_quotations
+            if item.manager is not None
+            and item.manager.supplier is not None
+            and item.manager.supplier.type is not None
+        }
+        supplier_is_manufacturer = (
+            next(iter(supplier_types)) == SupplierType.MANUFACTURER
+            if len(supplier_types) == 1
+            else None
+        )
         rows.append(
             SummaryRow(
                 quotation_id=q.id,
+                quotation_ids=[item.id for item in supplier_quotations],
+                quotation_count=len(supplier_quotations),
                 supplier_id=manager.supplier_id if manager else None,
                 manager_id=q.manager_id,
                 test_run_id=test_run_by_quotation_id.get(q.id),
@@ -198,6 +233,7 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
                         else None
                     )
                 ),
+                supplier_is_manufacturer=supplier_is_manufacturer,
                 manager=manager.full_name if manager else None,
                 price=float(q.price) if q.price is not None else None,
                 currency=q.currency,
@@ -206,7 +242,7 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
                 grade=q.grade,
                 payment_terms=q.payment_terms,
                 lead_time=q.lead_time,
-                manufacturer=manufacturer,
+                manufacturer=q.manufacturer,
                 origin_country=q.origin_country or (
                     supplier_row.country if supplier_row else None
                 ),

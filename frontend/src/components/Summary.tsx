@@ -34,6 +34,16 @@ const formatMoment = (value: string) =>
 
 const supplierName = (row: SummaryRow) => row.supplier ?? row.manager ?? "—";
 
+const manufacturerRoleLabel = (row: SummaryRow) =>
+  row.supplier_is_manufacturer === null
+    ? "Не определено"
+    : row.supplier_is_manufacturer
+      ? "Да"
+      : "Нет";
+
+const containsQuotation = (row: SummaryRow, quotationId: number | null) =>
+  quotationId !== null && row.quotation_ids.includes(quotationId);
+
 const costCurrency = (row: SummaryRow) => row.cost_currency ?? row.currency;
 
 const pricePerUnit = (row: SummaryRow) => formatPrice(row.price, row.currency);
@@ -171,7 +181,7 @@ interface SummaryColumnDefinition {
 const SUMMARY_COLUMNS: SummaryColumnDefinition[] = [
   { key: "decision", label: "Выбор поставщика", width: 56 },
   { key: "supplier", label: "Поставщик", width: 190 },
-  { key: "manufacturer", label: "Производитель", width: 180 },
+  { key: "manufacturer", label: "Производитель", width: 130 },
   { key: "country", label: "Страна", width: 120 },
   { key: "packaging", label: "Фасовка", width: 150 },
   { key: "grade", label: "Грейд", width: 150 },
@@ -232,11 +242,11 @@ const exportColumnValue = (
 ) => {
   switch (column) {
     case "decision":
-      return row.quotation_id === selectedQuotationId ? "выбрано" : "";
+      return containsQuotation(row, selectedQuotationId) ? "выбрано" : "";
     case "supplier":
       return supplierName(row);
     case "manufacturer":
-      return row.manufacturer ?? "";
+      return manufacturerRoleLabel(row);
     case "country":
       return row.origin_country ?? "";
     case "packaging":
@@ -395,7 +405,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
 
   const shown = onlyComplete ? rows.filter((row) => row.is_complete) : rows;
   const selectedRow =
-    rows.find((row) => row.quotation_id === selectedQuotationId) ?? null;
+    rows.find((row) => containsQuotation(row, selectedQuotationId)) ?? null;
   const dialogueRow = selectedRow;
   const visibleWebsiteColumns = useMemo(
     () => SUMMARY_COLUMNS.filter(({ key }) => websiteColumns.includes(key)),
@@ -448,7 +458,9 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const selectQuotation = (row: SummaryRow) => {
     setSelectedQuotationId(row.quotation_id);
     setDecisionNote(
-      row.quotation_id === decision?.quotation_id ? (decision.note ?? "") : "",
+      containsQuotation(row, decision?.quotation_id ?? null)
+        ? (decision?.note ?? "")
+        : "",
     );
     setNotice(null);
   };
@@ -561,7 +573,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
         return (
           <input
             aria-label={`Выбрать предложение ${supplierName(row)}`}
-            checked={row.quotation_id === selectedQuotationId}
+            checked={containsQuotation(row, selectedQuotationId)}
             disabled={readOnly}
             name="purchase-decision"
             onChange={() => selectQuotation(row)}
@@ -571,7 +583,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
       case "supplier":
         return (
           <button
-            aria-pressed={row.quotation_id === selectedQuotationId}
+            aria-pressed={containsQuotation(row, selectedQuotationId)}
             className="summary-supplier-button"
             onClick={() => selectQuotation(row)}
             type="button"
@@ -580,7 +592,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
           </button>
         );
       case "manufacturer":
-        return row.manufacturer ?? "—";
+        return manufacturerRoleLabel(row);
       case "country":
         return row.origin_country ?? "—";
       case "packaging":
@@ -731,7 +743,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                     {shown.map((row) => (
                       <tr
                         className={`${row.is_complete ? "" : "incomplete"} ${
-                          row.quotation_id === selectedQuotationId
+                          containsQuotation(row, selectedQuotationId)
                             ? "summary-selected-row"
                             : ""
                         }`}
@@ -774,7 +786,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
               <div><span>Товар</span><strong>{rfq.name}</strong></div>
               <div><span>Планируемый объём</span><strong>{rfq.volume ?? "не указан"}</strong></div>
               <div><span>Поставщик</span><strong>{supplierName(selectedRow)}</strong></div>
-              <div><span>Производитель</span><strong>{selectedRow.manufacturer ?? "не указан"}</strong></div>
+              <div><span>Производитель</span><strong>{manufacturerRoleLabel(selectedRow)}</strong></div>
               <div><span>Страна закупки</span><strong>{selectedRow.origin_country ?? "не указана"}</strong></div>
               <div><span>Фасовка</span><strong>{selectedRow.packaging ?? "не указана"}</strong></div>
               <div><span>Предложенная цена</span><strong>{pricePerUnit(selectedRow)}</strong></div>
@@ -903,7 +915,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
               <fieldset className="summary-edit-section">
                 <legend>Товар и поставка</legend>
                 <div className="summary-edit-grid">
-                  <Field label="Производитель">
+                  <Field label="Название производителя из предложения">
                     <Input
                       autoFocus
                       maxLength={255}

@@ -132,11 +132,14 @@ class SummaryRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     quotation_id: int
+    quotation_ids: list[int] = Field(default_factory=list)
+    quotation_count: int = 1
     supplier_id: int | None = None
     manager_id: int | None = None
     test_run_id: int | None = None
     conversation_channel: str | None = None
     supplier: str | None = None
+    supplier_is_manufacturer: bool | None = None
     manager: str | None = None
     price: float | None = None
     currency: str | None = None

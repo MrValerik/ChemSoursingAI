@@ -13,8 +13,10 @@ from sqlalchemy.orm import sessionmaker
 
 from app.extraction.pipeline import extract_quote
 from app.models import Base
-from app.models.enums import EscalationReason, RFQStatus
+from app.models.enums import EscalationReason, RFQStatus, SupplierType
 from app.models.escalation import Escalation
+from app.models.manager import Manager
+from app.models.supplier import Supplier
 from app.schemas.quotation import QuotationCreate
 from app.schemas.rfq import RFQCreate
 from app.services.quotation_service import build_summary, create_quotation
@@ -125,3 +127,79 @@ def test_incoterm_preserves_non_target_basis(db):
     )
     q = _store_reply(db, rfq.id, "Price USD 20/kg FOB Ningbo. MOQ 200 kg. CoA included.")
     assert q.incoterm == "FOB"
+
+
+def test_summary_groups_supplier_quotes_and_exposes_manufacturer_role(db):
+    rfq = create_rfq(
+        db,
+        RFQCreate(cas="50-78-2", name="Aspirin", incoterms=["CIP"]),
+        verify=False,
+    )
+    manufacturer = Supplier(
+        company="Acme Chemicals Co., Ltd.",
+        company_key="acmechemicals",
+        type=SupplierType.MANUFACTURER,
+    )
+    distributor = Supplier(
+        company="Example Trading",
+        company_key="exampletrading",
+        type=SupplierType.DISTRIBUTOR,
+    )
+    db.add_all([manufacturer, distributor])
+    db.flush()
+    manufacturer_manager = Manager(
+        supplier_id=manufacturer.id,
+        full_name="Acme Sales",
+    )
+    distributor_manager = Manager(
+        supplier_id=distributor.id,
+        full_name="Trading Sales",
+    )
+    db.add_all([manufacturer_manager, distributor_manager])
+    db.flush()
+
+    old_quote = create_quotation(
+        db,
+        QuotationCreate(
+            rfq_id=rfq.id,
+            manager_id=manufacturer_manager.id,
+            price=12.5,
+            currency="USD",
+        ),
+    )
+    current_quote = create_quotation(
+        db,
+        QuotationCreate(
+            rfq_id=rfq.id,
+            manager_id=manufacturer_manager.id,
+            price=11.75,
+            currency="USD",
+        ),
+    )
+    distributor_quote = create_quotation(
+        db,
+        QuotationCreate(
+            rfq_id=rfq.id,
+            manager_id=distributor_manager.id,
+            price=13,
+            currency="USD",
+        ),
+    )
+
+    summary = build_summary(db, rfq.id)
+    assert len(summary) == 2
+    by_supplier = {row.supplier: row for row in summary}
+
+    manufacturer_row = by_supplier[manufacturer.company]
+    assert manufacturer_row.quotation_id == current_quote.id
+    assert manufacturer_row.quotation_ids == [old_quote.id, current_quote.id]
+    assert manufacturer_row.quotation_count == 2
+    assert manufacturer_row.price == 11.75
+    assert manufacturer_row.supplier_is_manufacturer is True
+    assert manufacturer_row.manufacturer is None
+
+    distributor_row = by_supplier[distributor.company]
+    assert distributor_row.quotation_id == distributor_quote.id
+    assert distributor_row.quotation_ids == [distributor_quote.id]
+    assert distributor_row.quotation_count == 1
+    assert distributor_row.supplier_is_manufacturer is False
