@@ -1,14 +1,17 @@
 """История общения по RFQ и безопасная синхронизация входящей почты."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.connectors.email import EmailConfigurationError, EmailDeliveryError
 from app.connectors.google_translate import GoogleTranslateError
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.models import Communication, RFQ, User
-from app.models.enums import UserRole
+from app.models.enums import Channel, UserRole
 from app.schemas.communication import (
     CommunicationDraftSend,
     CommunicationMessageRead,
@@ -126,6 +129,85 @@ def send_message(
             body=payload.body,
             subject=payload.subject,
             idempotency_key=str(payload.idempotency_key),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CommunicationSendError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _message_read(message)
+
+
+@router.post(
+    "/rfq/{rfq_id}/communications/send-with-attachments",
+    response_model=CommunicationMessageRead,
+    status_code=201,
+)
+async def send_message_with_attachments(
+    rfq_id: int,
+    manager_id: int = Form(gt=0),
+    channel: Channel = Form(),
+    body: str = Form(default="", max_length=12_000),
+    subject: str | None = Form(default=None, max_length=998),
+    idempotency_key: UUID = Form(),
+    confirm_external_send: bool = Form(default=False),
+    files: list[UploadFile] = File(),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CommunicationMessageRead:
+    """Отправляет файлы вместе с сообщением в существующий диалог."""
+    rfq = _visible_rfq(db, rfq_id, user)
+    _ensure_can_send(user)
+    if not confirm_external_send:
+        raise HTTPException(
+            status_code=422, detail="Подтвердите реальную внешнюю отправку"
+        )
+    if not 1 <= len(files) <= 5:
+        raise HTTPException(
+            status_code=422, detail="За одно сообщение можно отправить от 1 до 5 файлов"
+        )
+    max_bytes = get_settings().attachment_max_size_mb * 1024 * 1024
+    total_limit = max_bytes * 2
+    total_bytes = 0
+    attachments: list[dict] = []
+    for upload in files:
+        try:
+            content = await upload.read(max_bytes + 1)
+        finally:
+            await upload.close()
+        if len(content) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Файл {upload.filename or 'document'} больше "
+                    f"{get_settings().attachment_max_size_mb} МБ"
+                ),
+            )
+        total_bytes += len(content)
+        if total_bytes > total_limit:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    "Общий размер файлов превышает допустимый лимит "
+                    f"{get_settings().attachment_max_size_mb * 2} МБ"
+                ),
+            )
+        attachments.append(
+            {
+                "filename": upload.filename or "document",
+                "content_type": upload.content_type or "application/octet-stream",
+                "content": content,
+            }
+        )
+    try:
+        message = send_conversation_message(
+            db,
+            rfq=rfq,
+            manager_id=manager_id,
+            channel=channel,
+            body=body,
+            subject=subject,
+            idempotency_key=str(idempotency_key),
+            attachments=attachments,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

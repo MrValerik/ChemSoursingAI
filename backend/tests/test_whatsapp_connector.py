@@ -119,3 +119,68 @@ def test_web_gateway_pairing_code_is_requested_without_storing_phone():
 
     with pytest.raises(WhatsAppConfigurationError):
         connector.web_pairing_code("123")
+
+
+def test_web_gateway_sends_document_with_caption():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(201, json={"message_id": "web-file-1"})
+
+    settings = get_settings().model_copy(
+        update={
+            "whatsapp_transport": "web",
+            "whatsapp_web_base_url": "http://gateway:3000",
+            "whatsapp_web_service_token": "gateway-secret",
+        }
+    )
+    connector = WhatsAppConnector(settings, transport=httpx.MockTransport(handler))
+
+    result = connector.send_document(
+        to_number="+7 900 000-00-00",
+        filename="offer.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-test",
+        caption="Please review",
+    )
+
+    assert result == "web-file-1"
+    assert requests[0].url.path == "/media"
+    payload = json.loads(requests[0].content)
+    assert payload["filename"] == "offer.pdf"
+    assert payload["caption"] == "Please review"
+    assert payload["content_base64"] == "JVBERi10ZXN0"
+
+
+def test_cloud_api_uploads_then_sends_document():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/media"):
+            return httpx.Response(200, json={"id": "media-1"})
+        return httpx.Response(200, json={"messages": [{"id": "wamid.file-1"}]})
+
+    connector = WhatsAppConnector(
+        _settings(), transport=httpx.MockTransport(handler)
+    )
+    result = connector.send_document(
+        to_number="79000000000",
+        filename="offer.pdf",
+        content_type="application/pdf",
+        content=b"%PDF-test",
+        caption="Please review",
+    )
+
+    assert result == "wamid.file-1"
+    assert [request.url.path for request in requests] == [
+        "/v23.0/123456789/media",
+        "/v23.0/123456789/messages",
+    ]
+    sent = json.loads(requests[1].content)
+    assert sent["document"] == {
+        "id": "media-1",
+        "filename": "offer.pdf",
+        "caption": "Please review",
+    }

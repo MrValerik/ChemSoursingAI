@@ -1160,6 +1160,120 @@ def test_manual_email_message_is_live_idempotent_and_threaded(client, monkeypatc
     )
 
 
+def test_manual_email_message_sends_and_records_attachments(
+    client, monkeypatch, tmp_path
+):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="manual-file@supplier.example",
+    )
+    settings = SimpleNamespace(
+        email_delivery_mode="live",
+        email_from="buyer@example.com",
+    )
+    monkeypatch.setattr(
+        "app.services.communication_delivery.effective_email_settings",
+        lambda db: (settings, True, "database"),
+    )
+    monkeypatch.setattr(
+        "app.services.document_storage.storage_root", lambda: tmp_path
+    )
+    sent: list[dict] = []
+
+    def fake_send(self, **kwargs):
+        sent.append(kwargs)
+        return "<manual-file@example.com>"
+
+    monkeypatch.setattr(
+        "app.services.communication_delivery.EmailConnector.send", fake_send
+    )
+    payload = {
+        "manager_id": str(first.manager_id),
+        "channel": "email",
+        "body": "Please review the attached specification.",
+        "idempotency_key": "6a921ccf-f66c-4401-a451-e8b59923d865",
+        "confirm_external_send": "true",
+    }
+    files = {"files": ("specification.txt", b"Purity: 99.5%", "text/plain")}
+
+    response = client.post(
+        f"/rfq/{rfq['id']}/communications/send-with-attachments",
+        data=payload,
+        files=files,
+        headers=headers,
+    )
+    repeated = client.post(
+        f"/rfq/{rfq['id']}/communications/send-with-attachments",
+        data=payload,
+        files=files,
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    assert repeated.status_code == 201
+    assert len(sent) == 1
+    assert sent[0]["attachments"] == [
+        {
+            "filename": "specification.txt",
+            "content_type": "text/plain",
+            "content": b"Purity: 99.5%",
+        }
+    ]
+    attachment = response.json()["attachments"][0]
+    assert attachment["filename"] == "specification.txt"
+    assert attachment["status"] == "sent_file"
+    assert attachment["document_id"] > 0
+    assert not (tmp_path / "specification.txt").exists()
+    # Storage path is content-addressed, not controlled by the uploaded name.
+    assert any(tmp_path.rglob("*.bin"))
+
+
+def test_manual_message_rejects_unsupported_attachment(client, monkeypatch, tmp_path):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="unsafe-file@supplier.example",
+    )
+    settings = SimpleNamespace(
+        email_delivery_mode="live",
+        email_from="buyer@example.com",
+    )
+    monkeypatch.setattr(
+        "app.services.communication_delivery.effective_email_settings",
+        lambda db: (settings, True, "database"),
+    )
+    monkeypatch.setattr(
+        "app.services.document_storage.storage_root", lambda: tmp_path
+    )
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        "app.services.communication_delivery.EmailConnector.send",
+        lambda self, **kwargs: sent.append(kwargs),
+    )
+
+    response = client.post(
+        f"/rfq/{rfq['id']}/communications/send-with-attachments",
+        data={
+            "manager_id": str(first.manager_id),
+            "channel": "email",
+            "body": "Please open this file.",
+            "idempotency_key": "dce09fc9-2ac1-4888-9b10-22b463ad698f",
+            "confirm_external_send": "true",
+        },
+        files={"files": ("unsafe.exe", b"MZ-not-allowed", "application/octet-stream")},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert "не поддерживается" in response.json()["detail"]
+    assert sent == []
+
+
 def test_real_supplier_dialogue_translation_is_temporary_and_scoped(
     client, monkeypatch
 ):

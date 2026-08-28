@@ -57,6 +57,34 @@ def test_parse_email_removes_html_scripts():
     assert "ignore_instruction" not in parsed.text
 
 
+def test_parse_email_ignores_hidden_inline_images_but_keeps_attached_png():
+    message = EmailMessage()
+    message["From"] = "supplier@example.com"
+    message["To"] = "buyer@example.com"
+    message["Subject"] = "Re: [RFQ-30] Quote"
+    message.set_content("Please see the attached image.")
+    message.add_related(
+        b"inline-logo",
+        maintype="image",
+        subtype="png",
+        cid="<signature-logo>",
+        filename="1644835792312.png",
+        disposition="inline",
+    )
+    message.add_attachment(
+        b"attached-png",
+        maintype="image",
+        subtype="png",
+        filename="product-label.png",
+    )
+
+    parsed = parse_email(message.as_bytes(), uid="103")
+
+    assert [item["filename"] for item in parsed.attachments] == [
+        "product-label.png"
+    ]
+
+
 def test_send_preserves_explicit_message_id(monkeypatch):
     delivered: list[EmailMessage] = []
 
@@ -94,7 +122,19 @@ def test_send_preserves_explicit_message_id(monkeypatch):
         subject="Feedback",
         body="Message",
         message_id="<feedback-42@example.com>",
+        attachments=[
+            {
+                "filename": "offer.txt",
+                "content_type": "text/plain",
+                "content": b"price list",
+            }
+        ],
     )
 
     assert returned == "<feedback-42@example.com>"
     assert delivered[0]["Message-ID"] == "<feedback-42@example.com>"
+    attachment = next(
+        part for part in delivered[0].walk() if part.get_filename() == "offer.txt"
+    )
+    assert attachment.get_content_type() == "text/plain"
+    assert attachment.get_payload(decode=True) == b"price list"

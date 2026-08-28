@@ -1,6 +1,6 @@
 // Вкладка «Общение»: история диалогов с поставщиками и очередь эскалаций.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type {
   CommunicationAttachmentRead,
@@ -27,6 +27,10 @@ const conversationKey = (item: SupplierConversationRead) =>
 
 const testConversationKey = (runId: number) => `test:${runId}`;
 const NEW_TEST_CONVERSATION_KEY = "test:new";
+const MAX_CHAT_FILES = 5;
+const MAX_CHAT_FILE_BYTES = 25 * 1024 * 1024;
+const CHAT_FILE_ACCEPT =
+  ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.txt,.csv,.xlsx,.xls,.docx,.doc";
 
 const TEST_STATUS_LABELS: Record<string, string> = {
   previewed: "Диалог активен",
@@ -108,6 +112,7 @@ const deliveryStatusLabel = (status: string) =>
 
 const ATTACHMENT_STATUS_LABELS: Record<string, string> = {
   stored: "сохранён",
+  sent_file: "отправлен",
   extracted: "текст извлечён",
   ocr_extracted: "текст распознан",
   needs_ocr: "нужна ручная проверка",
@@ -162,6 +167,8 @@ export default function DispatchTab({
   const [syncing, setSyncing] = useState(false);
   const [escalationBusy, setEscalationBusy] = useState<number | null>(null);
   const [messageBody, setMessageBody] = useState("");
+  const [messageFiles, setMessageFiles] = useState<File[]>([]);
+  const messageFileInputRef = useRef<HTMLInputElement>(null);
   const [messageActionId, setMessageActionId] = useState(createActionId);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [draftBusy, setDraftBusy] = useState<number | null>(null);
@@ -280,6 +287,7 @@ export default function DispatchTab({
   useEffect(() => {
     // Текст одного поставщика нельзя случайно перенести в другой диалог.
     setMessageBody("");
+    setMessageFiles([]);
     setMessageActionId(createActionId());
   }, [selectedKey]);
 
@@ -356,7 +364,7 @@ export default function DispatchTab({
     if (
       !selectedConversation?.manager_id ||
       !selectedConversation.contact ||
-      !messageBody.trim()
+      (!messageBody.trim() && messageFiles.length === 0)
     ) {
       return;
     }
@@ -364,7 +372,10 @@ export default function DispatchTab({
       selectedConversation.channel === "email" ? "Email" : "WhatsApp";
     if (
       !window.confirm(
-        `Реально отправить сообщение через ${channelLabel} контакту ${selectedConversation.contact}?`,
+        `Реально отправить сообщение через ${channelLabel} контакту ${selectedConversation.contact}` +
+          (messageFiles.length > 0
+            ? ` и приложить файлов: ${messageFiles.length}?`
+            : "?"),
       )
     ) {
       return;
@@ -373,14 +384,23 @@ export default function DispatchTab({
     setError(null);
     setNotice(null);
     try {
-      await api.sendCommunicationMessage(rfqId, {
+      const payload = {
         manager_id: selectedConversation.manager_id,
         channel: selectedConversation.channel,
         body: messageBody.trim(),
         idempotency_key: messageActionId,
         confirm_external_send: true,
-      });
+      };
+      if (messageFiles.length > 0) {
+        await api.sendCommunicationMessageWithAttachments(rfqId, {
+          ...payload,
+          files: messageFiles,
+        });
+      } else {
+        await api.sendCommunicationMessage(rfqId, payload);
+      }
       setMessageBody("");
+      setMessageFiles([]);
       setMessageActionId(createActionId());
       setNotice(`Сообщение отправлено через ${channelLabel}.`);
       await load();
@@ -391,6 +411,33 @@ export default function DispatchTab({
     } finally {
       setSendingMessage(false);
     }
+  };
+
+  const selectMessageFiles = (files: FileList | null) => {
+    const incoming = Array.from(files ?? []);
+    if (incoming.length === 0) return;
+    const next = [...messageFiles, ...incoming];
+    if (next.length > MAX_CHAT_FILES) {
+      setError(
+        `К одному сообщению можно прикрепить не больше ${MAX_CHAT_FILES} файлов.`,
+      );
+      return;
+    }
+    const oversized = incoming.find((file) => file.size > MAX_CHAT_FILE_BYTES);
+    if (oversized) {
+      setError(`Файл ${oversized.name} больше 25 МБ.`);
+      return;
+    }
+    setMessageFiles(next);
+    setMessageActionId(createActionId());
+    setError(null);
+  };
+
+  const removeMessageFile = (index: number) => {
+    setMessageFiles((current) =>
+      current.filter((_, itemIndex) => itemIndex !== index),
+    );
+    setMessageActionId(createActionId());
   };
 
   const sendDraft = async (communicationId: number) => {
@@ -942,23 +989,71 @@ export default function DispatchTab({
                       {selectedConversation.manager_id &&
                       selectedConversation.contact ? (
                         <>
-                          <Textarea
-                            rows={4}
-                            placeholder="Напишите сообщение поставщику"
-                            value={messageBody}
-                            onChange={(event) => {
-                              setMessageBody(event.target.value);
-                              setMessageActionId(createActionId());
-                            }}
-                          />
+                          <div className="conversation-composer-input">
+                            <button
+                              aria-label="Прикрепить файл"
+                              className="conversation-attach-button secondary"
+                              disabled={sendingMessage}
+                              onClick={() => messageFileInputRef.current?.click()}
+                              title="Прикрепить файл"
+                              type="button"
+                            >
+                              <svg aria-hidden="true" viewBox="0 0 24 24">
+                                <path d="M8.5 12.5 15.9 5a3.2 3.2 0 0 1 4.6 4.5L10.2 19.8a5 5 0 0 1-7.1-7.1L13 2.8" />
+                              </svg>
+                            </button>
+                            <Textarea
+                              rows={4}
+                              placeholder="Напишите сообщение поставщику"
+                              value={messageBody}
+                              onChange={(event) => {
+                                setMessageBody(event.target.value);
+                                setMessageActionId(createActionId());
+                              }}
+                            />
+                            <input
+                              accept={CHAT_FILE_ACCEPT}
+                              className="visually-hidden"
+                              multiple
+                              onChange={(event) => {
+                                selectMessageFiles(event.target.files);
+                                event.target.value = "";
+                              }}
+                              ref={messageFileInputRef}
+                              type="file"
+                            />
+                          </div>
+                          {messageFiles.length > 0 && (
+                            <div className="conversation-selected-files">
+                              {messageFiles.map((file, index) => (
+                                <span
+                                  className="badge tone-neutral"
+                                  key={`${file.name}-${file.size}-${index}`}
+                                >
+                                  {file.name} · {formatAttachmentSize(file.size)}
+                                  <button
+                                    aria-label={`Убрать файл ${file.name}`}
+                                    disabled={sendingMessage}
+                                    onClick={() => removeMessageFile(index)}
+                                    type="button"
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           <div className="conversation-composer-footer">
                             <span className="note">
                               {selectedConversation.channel === "email"
-                                ? "Будет отправлено через подключённый SMTP."
-                                : "Будет отправлено через Meta WhatsApp Cloud API в открытом 24-часовом окне."}
+                                ? "Будет отправлено через подключённую электронную почту."
+                                : "Будет отправлено через подключённый канал WhatsApp."}
                             </span>
                             <button
-                              disabled={sendingMessage || !messageBody.trim()}
+                              disabled={
+                                sendingMessage ||
+                                (!messageBody.trim() && messageFiles.length === 0)
+                              }
                               onClick={() => void sendMessage()}
                               type="button"
                             >

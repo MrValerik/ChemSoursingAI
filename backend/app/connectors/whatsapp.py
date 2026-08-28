@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import re
 from typing import Any
 
@@ -216,5 +217,90 @@ class WhatsAppConnector:
             raise WhatsAppDeliveryError(
                 "WhatsApp Cloud API не отправил сообщение. Проверьте токен, "
                 "Phone Number ID и открытое 24-часовое окно общения."
+            ) from exc
+        return str(message_id)
+
+    def send_document(
+        self,
+        *,
+        to_number: str,
+        filename: str,
+        content_type: str,
+        content: bytes,
+        caption: str = "",
+    ) -> str:
+        """Отправляет один файл как документ с сохранением имени файла."""
+        if not self.configured:
+            raise WhatsAppConfigurationError("WhatsApp не настроен")
+        recipient = re.sub(r"\D", "", to_number)
+        if not 8 <= len(recipient) <= 15:
+            raise WhatsAppConfigurationError(
+                "Номер WhatsApp должен содержать 8–15 цифр с кодом страны"
+            )
+        if not content:
+            raise WhatsAppConfigurationError("Файл пуст")
+        safe_filename = re.sub(
+            r"[\x00-\x1f\x7f]", "", filename.replace("\\", "/").rsplit("/", 1)[-1]
+        ).strip()[:200] or "document"
+        mime = content_type.split(";", 1)[0].strip() or "application/octet-stream"
+        safe_caption = caption.strip()[:1024]
+        if self.is_web:
+            data = self._web_request(
+                "POST",
+                "/media",
+                payload={
+                    "to": recipient,
+                    "filename": safe_filename,
+                    "content_type": mime,
+                    "content_base64": base64.b64encode(content).decode("ascii"),
+                    "caption": safe_caption,
+                },
+            )
+            message_id = data.get("message_id")
+            if not message_id:
+                raise WhatsAppDeliveryError(
+                    "WhatsApp Web gateway не подтвердил отправку файла"
+                )
+            return str(message_id)
+
+        upload_headers = {
+            key: value for key, value in self._headers.items() if key != "Content-Type"
+        }
+        try:
+            with httpx.Client(
+                timeout=self.settings.whatsapp_timeout_s,
+                transport=self.transport,
+            ) as client:
+                uploaded = client.post(
+                    f"{self._phone_url}/media",
+                    headers=upload_headers,
+                    data={"messaging_product": "whatsapp"},
+                    files={"file": (safe_filename, content, mime)},
+                )
+                uploaded.raise_for_status()
+                media_id = uploaded.json()["id"]
+                payload = {
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": recipient,
+                    "type": "document",
+                    "document": {
+                        "id": media_id,
+                        "filename": safe_filename,
+                    },
+                }
+                if safe_caption:
+                    payload["document"]["caption"] = safe_caption
+                sent = client.post(
+                    f"{self._phone_url}/messages",
+                    headers=self._headers,
+                    json=payload,
+                )
+                sent.raise_for_status()
+                message_id = sent.json()["messages"][0]["id"]
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
+            raise WhatsAppDeliveryError(
+                "WhatsApp Cloud API не отправил файл. Проверьте токен, "
+                "тип файла и открытое 24-часовое окно общения."
             ) from exc
         return str(message_id)

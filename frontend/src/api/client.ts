@@ -158,13 +158,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 // Загрузка файла. Отдельно от request: тот жёстко ставит
 // Content-Type: application/json, а для multipart заголовок обязан
 // проставить браузер — он же вписывает в него границу частей.
-async function requestUpload<T>(path: string, file: File): Promise<T> {
+async function requestForm<T>(path: string, body: FormData): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-
-  const body = new FormData();
-  body.append("file", file);
 
   let resp: Response;
   try {
@@ -189,6 +186,12 @@ async function requestUpload<T>(path: string, file: File): Promise<T> {
     throw new ApiError(resp.status, apiResponseErrorMessage(resp.status, detail, path));
   }
   return (await resp.json()) as T;
+}
+
+async function requestUpload<T>(path: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append("file", file);
+  return requestForm<T>(path, body);
 }
 
 async function requestFile(path: string): Promise<Blob> {
@@ -623,6 +626,32 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  sendCommunicationMessageWithAttachments: (
+    rfqId: number,
+    payload: {
+      manager_id: number;
+      channel: "email" | "whatsapp";
+      body: string;
+      subject?: string | null;
+      idempotency_key: string;
+      confirm_external_send: boolean;
+      files: File[];
+    },
+  ) => {
+    const body = new FormData();
+    body.append("manager_id", String(payload.manager_id));
+    body.append("channel", payload.channel);
+    body.append("body", payload.body);
+    if (payload.subject) body.append("subject", payload.subject);
+    body.append("idempotency_key", payload.idempotency_key);
+    body.append("confirm_external_send", String(payload.confirm_external_send));
+    payload.files.forEach((file) => body.append("files", file));
+    return requestForm<CommunicationMessageRead>(
+      `/rfq/${rfqId}/communications/send-with-attachments`,
+      body,
+    );
+  },
 
   sendCommunicationDraft: (communicationId: number) =>
     request<CommunicationMessageRead>(`/communications/${communicationId}/send`, {

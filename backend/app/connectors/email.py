@@ -13,6 +13,7 @@ from email import message_from_bytes, policy
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid, parseaddr
+from pathlib import Path
 
 from app.core.config import Settings, get_settings
 
@@ -102,6 +103,16 @@ def parse_email(raw: bytes, uid: str) -> IncomingEmail:
         filename = part.get_filename()
         if not filename:
             continue
+        # Почтовые клиенты прячут логотипы, подписи и другие встроенные
+        # изображения внутри HTML-письма. У них может быть имя файла, поэтому
+        # одной проверки filename недостаточно: такие MIME-части не являются
+        # файлами, которые поставщик сознательно приложил к письму.
+        disposition = (part.get_content_disposition() or "").lower()
+        content_id = str(part.get("Content-ID") or "").strip()
+        if disposition == "inline" or (
+            content_id and part.get_content_maintype().lower() == "image"
+        ):
+            continue
         payload = part.get_payload(decode=True) or b""
         attachments.append(
             {
@@ -156,6 +167,7 @@ class EmailConnector:
         in_reply_to: str | None = None,
         references: list[str] | None = None,
         message_id: str | None = None,
+        attachments: list[dict] | None = None,
     ) -> str:
         if not self.smtp_configured:
             raise EmailConfigurationError(
@@ -194,6 +206,28 @@ class EmailConnector:
         if refs:
             message["References"] = " ".join(refs)
         message.set_content(body)
+        for attachment in attachments or []:
+            payload = attachment.get("content")
+            if not isinstance(payload, (bytes, bytearray)):
+                raise EmailConfigurationError(
+                    "Содержимое исходящего вложения недоступно"
+                )
+            content_type = str(
+                attachment.get("content_type") or "application/octet-stream"
+            ).split(";", 1)[0]
+            maintype, _, subtype = content_type.partition("/")
+            if not maintype or not subtype:
+                maintype, subtype = "application", "octet-stream"
+            filename = Path(
+                str(attachment.get("filename") or "document").replace("\\", "/")
+            ).name
+            filename = re.sub(r"[\x00-\x1f\x7f]", "", filename).strip()
+            message.add_attachment(
+                bytes(payload),
+                maintype=maintype,
+                subtype=subtype,
+                filename=(filename[:200] or "document"),
+            )
 
         try:
             context = ssl.create_default_context()

@@ -1,6 +1,8 @@
 """Хранение документов поставщика и извлечение из них текста."""
 
 import os
+from io import BytesIO
+from zipfile import ZipFile
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_documents.db")
 
@@ -109,6 +111,22 @@ def test_declared_content_type_is_not_trusted():
     # Отправитель объявил безобидный тип, но содержимое — PDF.
     assert sniff_content_type(pdf, "text/plain") == "application/pdf"
     assert sniff_content_type(b"plain body", "text/plain") == "text/plain"
+
+
+def test_office_document_type_is_detected_from_zip_contents():
+    workbook = BytesIO()
+    with ZipFile(workbook, "w") as archive:
+        archive.writestr("xl/workbook.xml", "<workbook />")
+    document = BytesIO()
+    with ZipFile(document, "w") as archive:
+        archive.writestr("word/document.xml", "<document />")
+
+    assert sniff_content_type(
+        workbook.getvalue(), "application/octet-stream"
+    ) == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert sniff_content_type(
+        document.getvalue(), "application/octet-stream"
+    ) == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 def test_filename_cannot_escape_storage_directory():

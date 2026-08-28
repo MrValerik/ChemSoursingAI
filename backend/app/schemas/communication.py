@@ -11,7 +11,7 @@ from app.models.enums import Channel, CommDirection, DispatchStatus
 
 
 class CommunicationAttachmentRead(BaseModel):
-    """Безопасные метаданные входящего файла без его содержимого."""
+    """Безопасные метаданные файла сообщения без его содержимого."""
 
     filename: str
     content_type: str | None = None

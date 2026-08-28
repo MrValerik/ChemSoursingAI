@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+import zipfile
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 
 from sqlalchemy import select
@@ -21,9 +23,19 @@ from app.models import SupplierDocument
 # Типы, которые система умеет хранить и (кроме сканов) читать.
 PDF = "application/pdf"
 PLAIN_TEXT = "text/plain"
+CSV = "text/csv"
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+XLS = "application/vnd.ms-excel"
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+DOC = "application/msword"
 SUPPORTED_CONTENT_TYPES = {
     PDF,
     PLAIN_TEXT,
+    CSV,
+    XLSX,
+    XLS,
+    DOCX,
+    DOC,
     "image/png",
     "image/jpeg",
     "image/tiff",
@@ -67,8 +79,23 @@ def sniff_content_type(payload: bytes, declared: str | None) -> str:
     if payload.startswith((b"II*\x00", b"MM\x00*")):
         return "image/tiff"
     normalized = (declared or "").split(";")[0].strip().lower()
-    if normalized == PLAIN_TEXT:
-        return PLAIN_TEXT
+    if payload.startswith(b"PK\x03\x04"):
+        try:
+            with zipfile.ZipFile(BytesIO(payload)) as archive:
+                names = set(archive.namelist())
+            if "xl/workbook.xml" in names:
+                return XLSX
+            if "word/document.xml" in names:
+                return DOCX
+        except (OSError, zipfile.BadZipFile):
+            pass
+    if payload.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1") and normalized in {
+        XLS,
+        DOC,
+    }:
+        return normalized
+    if normalized in {PLAIN_TEXT, CSV}:
+        return normalized
     return normalized or "application/octet-stream"
 
 

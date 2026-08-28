@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const express = require("express");
 const QRCode = require("qrcode");
-const { Client, LocalAuth } = require("whatsapp-web.js");
+const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 const {
   normalizedPendingEvent,
   providerMessageId,
@@ -266,7 +266,7 @@ async function startClient() {
 }
 
 const app = express();
-app.use(express.json({ limit: "32kb" }));
+app.use(express.json({ limit: "40mb" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, state }));
 app.use(authorize);
@@ -351,6 +351,27 @@ app.post("/messages", async (req, res) => {
     return res.status(201).json({ message_id: messageId });
   } catch (_error) {
     return res.status(502).json({ detail: "delivery_failed" });
+  }
+});
+app.post("/media", async (req, res) => {
+  if (state !== "ready" || !client) return res.status(409).json({ detail: "whatsapp_not_ready" });
+  const recipient = String(req.body.to || "").replace(/\D/g, "");
+  const filename = path.basename(String(req.body.filename || "document")).slice(0, 200);
+  const contentType = String(req.body.content_type || "application/octet-stream").slice(0, 200);
+  const contentBase64 = String(req.body.content_base64 || "");
+  const caption = String(req.body.caption || "").trim().slice(0, 1024);
+  if (recipient.length < 8 || recipient.length > 15 || !contentBase64) {
+    return res.status(422).json({ detail: "invalid_media" });
+  }
+  try {
+    const registered = await client.isRegisteredUser(`${recipient}@c.us`);
+    if (!registered) return res.status(422).json({ detail: "recipient_not_registered" });
+    const media = new MessageMedia(contentType, contentBase64, filename || "document");
+    const message = await client.sendMessage(`${recipient}@c.us`, media, { caption });
+    const messageId = providerMessageId(message) || `web-out-${crypto.randomUUID()}`;
+    return res.status(201).json({ message_id: messageId });
+  } catch (_error) {
+    return res.status(502).json({ detail: "media_delivery_failed" });
   }
 });
 
