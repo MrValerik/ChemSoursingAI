@@ -27,6 +27,7 @@ from app.models import (
     CommunicationPolicyAudit,
     Escalation,
     Manager,
+    Quotation,
     RFQ,
     Supplier,
     SupplierDocument,
@@ -518,6 +519,13 @@ def link_address_history(
         )
     ).all():
         document.supplier_id = manager.supplier_id
+    for quotation in db.scalars(
+        select(Quotation).where(
+            Quotation.source_communication_id.in_(message_ids),
+            Quotation.manager_id.is_(None),
+        )
+    ).all():
+        quotation.manager_id = manager.id
     for audit in db.scalars(
         select(CommunicationPolicyAudit).where(
             CommunicationPolicyAudit.communication_id.in_(message_ids)

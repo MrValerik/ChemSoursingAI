@@ -150,6 +150,26 @@ def _apply_light_migrations() -> None:
 
     inspector = inspect(engine)
     tables = inspector.get_table_names()
+    if "quotations" in tables:
+        quotation_cols = {
+            column["name"] for column in inspector.get_columns("quotations")
+        }
+        with engine.begin() as conn:
+            if "source_communication_id" not in quotation_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE quotations ADD COLUMN "
+                        "source_communication_id INTEGER "
+                        "REFERENCES communications(id) ON DELETE SET NULL"
+                    )
+                )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS "
+                    "ix_quotations_source_communication_id "
+                    "ON quotations (source_communication_id)"
+                )
+            )
     if "communication_test_runs" in tables:
         cols = {
             c["name"]

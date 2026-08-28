@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 
@@ -15,6 +16,8 @@ from app.connectors.email import (
     IncomingEmail,
 )
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
+from app.extraction.email_text import latest_reply_text
+from app.extraction.parsers import parse_explicit_price_offers
 from app.extraction.pipeline import extract_quote
 from app.models.communication import Communication
 from app.models.enums import (
@@ -28,6 +31,7 @@ from app.models.escalation import Escalation
 from app.models.manager import Manager
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
+from app.models.document import SupplierDocument
 from app.schemas.quotation import QuotationCreate
 from app.services.completeness import accumulate_quotations
 from app.services.communication_policy import classify_supplier_message
@@ -41,6 +45,7 @@ from app.services.communication_profiles import (
     start_audit,
 )
 from app.services.document_intake import store_incoming_attachments
+from app.services.document_agent import verify_document
 from app.services.email_identity import (
     SenderResolution,
     link_address_history,
@@ -50,8 +55,10 @@ from app.services.email_identity import (
 from app.services.integration_settings import effective_email_settings
 from app.services.prompt_service import get_rfq_prompt_context
 from app.services.quotation_service import create_quotation
+from app.services.rfq_service import external_rfq_name
 
 _RFQ_MARKER = re.compile(r"\[RFQ-(\d+)]", re.IGNORECASE)
+logger = logging.getLogger(__name__)
 _MISSING_LABELS = {
     "price": "unit price and currency",
     "currency": "quote currency",
@@ -61,6 +68,7 @@ _MISSING_LABELS = {
     "payment_terms": "payment terms",
     "lead_time": "production and delivery lead time",
     "specification": "CoA or TDS",
+    "requested_quantity_price": "unit price for the originally requested quantity",
 }
 
 
@@ -166,11 +174,18 @@ def _subject_label(rfq: RFQ) -> str:
     У запроса по спецификации номера нет, и «CAS None» в письме
     поставщику выглядит как ошибка системы.
     """
-    return f"{rfq.name} (CAS {rfq.cas})" if rfq.cas else rfq.name
+    name = external_rfq_name(rfq)
+    return f"{name} (CAS {rfq.cas})" if rfq.cas else name
 
 
 def _fallback_followup(rfq: RFQ, missing: list[str]) -> str:
-    fields = ", ".join(_MISSING_LABELS.get(item, item) for item in missing)
+    labels = []
+    for item in missing:
+        label = _MISSING_LABELS.get(item, item)
+        if item == "requested_quantity_price" and rfq.volume:
+            label = f"unit price applicable to the requested quantity of {rfq.volume}"
+        labels.append(label)
+    fields = ", ".join(labels)
     return (
         "Dear Supplier,\n\n"
         f"Thank you for your reply regarding {_subject_label(rfq)}. "
@@ -195,7 +210,7 @@ def _render_followup(
     if not system_prompt:
         return fallback
     try:
-        return (llm or LLMClient()).generate_text(
+        generated = (llm or LLMClient()).generate_text(
             system_prompt=system_prompt,
             user_text=(
                 f"RFQ: {_subject_label(rfq)}.\n"
@@ -204,13 +219,79 @@ def _render_followup(
             additional_instructions=(
                 "Подготовь только готовое письмо поставщику на английском языке. "
                 "Не добавляй новые требования. "
+                "Запрашивай только перечисленные недостающие данные и не "
+                "повторяй уже полученные условия. Письмо обязательно должно "
+                "содержать вежливое обращение, благодарность и подпись. "
                 + (saved_instructions or "")
                 + (f"\n\n{profile_instructions}" if profile_instructions else "")
             ),
             max_tokens=256,
         )
+        normalized = generated.casefold()
+        if not (
+            re.search(r"\b(?:dear|hello)\b", normalized)
+            and "thank" in normalized
+            and re.search(r"\b(?:best|kind) regards\b", normalized)
+        ):
+            return fallback
+        return generated.strip()
     except LLMUnavailableError:
         return fallback
+
+
+def _quantity_signature(value: str | None) -> tuple[float, str] | None:
+    match = re.search(
+        r"(?i)\b(\d+(?:\.\d+)?)\s*(kg|g|mt|ton|tonne|l|lb)\b",
+        value or "",
+    )
+    if match is None:
+        return None
+    amount = float(match.group(1))
+    unit = match.group(2).casefold()
+    if unit in {"ton", "tonne", "mt"}:
+        return amount * 1000, "kg"
+    if unit == "g":
+        return amount / 1000, "kg"
+    return amount, unit
+
+
+def _price_scope_needs_confirmation(rfq: RFQ, quote) -> bool:
+    requested = _quantity_signature(rfq.volume)
+    quoted = _quantity_signature(quote.quoted_quantity)
+    return bool(
+        quote.price is not None
+        and requested
+        and quoted
+        and requested != quoted
+    )
+
+
+def _verify_stored_documents(
+    db: Session,
+    *,
+    rfq: RFQ,
+    stored_attachments: list[dict],
+    llm: LLMClient,
+) -> None:
+    """Проверяет извлечённые документы, не блокируя обработку самого письма."""
+    for item in stored_attachments:
+        document_id = item.get("document_id")
+        if not document_id:
+            continue
+        document = db.get(SupplierDocument, int(document_id))
+        if document is None or document.verification is not None:
+            continue
+        try:
+            verify_document(
+                db,
+                document,
+                expected_cas=rfq.cas,
+                expected_name=rfq.name,
+                llm=llm,
+            )
+        except Exception:
+            logger.exception("Не удалось проверить документ %s", document_id)
+    db.flush()
 
 
 def _create_followup(
@@ -462,8 +543,9 @@ def sync_inbox(
                     seen_uids.append(message.uid)
                     continue
 
+            interpretation_text = latest_reply_text(message.text)
             policy = classify_supplier_message(
-                message.text,
+                interpretation_text,
                 rfq_name=rfq.name,
                 rfq_cas=rfq.cas,
                 llm=client,
@@ -496,7 +578,7 @@ def sync_inbox(
                 db, rfq.id, kind="extraction"
             )
             quote = extract_quote(
-                message.text,
+                interpretation_text,
                 use_llm=True,
                 llm=client,
                 system_prompt=system_prompt,
@@ -507,43 +589,69 @@ def sync_inbox(
                 for item in stored_attachments
                 if item.get("document_id") is not None
             }
-            quotation = create_quotation(
+            _verify_stored_documents(
                 db,
-                QuotationCreate(
-                    rfq_id=rfq.id,
-                    manager_id=manager.id if manager else None,
-                    price=quote.price,
-                    currency=quote.currency,
-                    incoterm=quote.incoterm,
-                    moq=quote.moq,
-                    grade=quote.grade,
-                    payment_terms=quote.payment_terms,
-                    lead_time=quote.lead_time,
-                    manufacturer=quote.manufacturer,
-                    origin_country=quote.origin_country,
-                    packaging=quote.packaging,
-                    price_unit=quote.price_unit,
-                    quoted_quantity=quote.quoted_quantity,
-                    total_price=quote.total_price,
-                    delivery_cost=quote.delivery_cost,
-                    duty_cost=quote.duty_cost,
-                    vat_cost=quote.vat_cost,
-                    landed_cost=quote.landed_cost,
-                    cost_currency=quote.cost_currency,
-                    is_hazmat=quote.is_hazmat,
-                    has_coa=quote.has_coa or "coa" in attachment_kinds,
-                    has_tds=quote.has_tds or "tds" in attachment_kinds,
-                    field_confidence=quote.field_confidence,
-                    source_text=message.text,
-                ),
+                rfq=rfq,
+                stored_attachments=stored_attachments,
+                llm=client,
             )
+
+            explicit_offers = parse_explicit_price_offers(interpretation_text)
+            offer_overrides = explicit_offers if len(explicit_offers) > 1 else [{}]
+            created_quotations: list[Quotation] = []
+            for offer in offer_overrides:
+                confidence = dict(quote.field_confidence or {})
+                for field_name in (
+                    "price",
+                    "currency",
+                    "incoterm",
+                    "price_unit",
+                    "quoted_quantity",
+                ):
+                    if offer.get(field_name) is not None:
+                        confidence[field_name] = 0.95
+                created_quotations.append(
+                    create_quotation(
+                        db,
+                        QuotationCreate(
+                            rfq_id=rfq.id,
+                            manager_id=manager.id if manager else None,
+                            price=offer.get("price", quote.price),
+                            currency=offer.get("currency", quote.currency),
+                            incoterm=offer.get("incoterm", quote.incoterm),
+                            moq=quote.moq,
+                            grade=quote.grade,
+                            payment_terms=quote.payment_terms,
+                            lead_time=quote.lead_time,
+                            manufacturer=quote.manufacturer,
+                            origin_country=quote.origin_country,
+                            packaging=quote.packaging,
+                            price_unit=offer.get("price_unit", quote.price_unit),
+                            quoted_quantity=offer.get(
+                                "quoted_quantity", quote.quoted_quantity
+                            ),
+                            total_price=quote.total_price,
+                            delivery_cost=quote.delivery_cost,
+                            duty_cost=quote.duty_cost,
+                            vat_cost=quote.vat_cost,
+                            landed_cost=quote.landed_cost,
+                            cost_currency=quote.cost_currency,
+                            is_hazmat=quote.is_hazmat,
+                            has_coa=quote.has_coa or "coa" in attachment_kinds,
+                            has_tds=quote.has_tds or "tds" in attachment_kinds,
+                            field_confidence=confidence,
+                            source_text=interpretation_text,
+                        ),
+                        source_communication_id=inbound.id,
+                    )
+                )
             supplier_quotations = _supplier_quotations(db, rfq.id, manager)
             progress = accumulate_quotations(
-                supplier_quotations if supplier_quotations else [quotation]
+                supplier_quotations if supplier_quotations else created_quotations
             )
             rfq.status = RFQStatus.PARSED
             db.commit()
-            summary.quotations_created += 1
+            summary.quotations_created += len(created_quotations)
             if progress.completeness.is_complete:
                 _cancel_pending_followups(
                     db,
@@ -572,6 +680,21 @@ def sync_inbox(
                 for field in missing_fields
                 if field in set(audit_start.profile.required_fields or [])
             ]
+            # Новая цена без собственного базиса остаётся несопоставимым
+            # вариантом, даже если в старом письме поставщик давал другой
+            # Incoterm. Не закрываем это поле накопленным значением.
+            if (
+                audit_start.profile.slug == "buyer"
+                and quote.price is not None
+                and quote.incoterm is None
+            ):
+                profile_missing.append("incoterm")
+            if (
+                audit_start.profile.slug == "buyer"
+                and _price_scope_needs_confirmation(rfq, quote)
+            ):
+                profile_missing.append("requested_quantity_price")
+            profile_missing = list(dict.fromkeys(profile_missing))
             followup_status = _create_followup(
                 db,
                 rfq=rfq,

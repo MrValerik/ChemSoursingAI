@@ -206,6 +206,7 @@ export interface QuotationRead {
   id: number;
   rfq_id: number;
   manager_id: number | null;
+  source_communication_id: number | null;
   price: number | null;
   currency: string | null;
   incoterm: string | null;

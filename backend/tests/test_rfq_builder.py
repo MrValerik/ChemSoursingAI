@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.models.rfq import RFQ
 from app.services.incoterms import INCOTERM_PLACES, SUPPORTED_INCOTERMS
 from app.services.rfq_builder import (
     REQUIRED_DOCUMENTS,
@@ -9,6 +10,7 @@ from app.services.rfq_builder import (
     UnsupportedIncotermError,
     build_rfq,
 )
+from app.services.rfq_service import external_rfq_name
 
 
 def _sample(**kw):
@@ -21,6 +23,19 @@ def test_subject_contains_name_and_cas():
     rfq = build_rfq(_sample())
     assert "Acetylsalicylic acid" in rfq["subject"]
     assert "50-78-2" in rfq["subject"]
+
+
+def test_external_letter_uses_verified_latin_name_for_russian_card():
+    rfq = RFQ(
+        name="Ацетилсалициловая кислота",
+        cas="50-78-2",
+        verification={
+            "synonyms": ["Aspirin", "Acetylsalicylic acid"],
+            "iupac_name": "2-acetyloxybenzoic acid",
+        },
+    )
+
+    assert external_rfq_name(rfq) == "Acetylsalicylic acid"
 
 
 def test_body_lists_all_incoterms_and_docs():

@@ -116,14 +116,19 @@ def _merge(llm_dict: dict, rules: ExtractedQuote) -> ExtractedQuote:
     for fieldname in _STRING_FIELDS:
         llm_val = llm_dict.get(fieldname)
         rule_val = getattr(rules, fieldname)
-        value, conf = _reconcile(_clean_str(llm_val), rule_val)
+        cleaned_llm = _clean_str(llm_val)
+        if fieldname == "lead_time":
+            cleaned_llm = validate_lead_time_value(cleaned_llm)
+        value, conf = _reconcile(cleaned_llm, rule_val)
         setattr(out, fieldname, value)
         if value:
             confidence[fieldname] = conf
 
-    # Документы: True, если подтверждает хоть один источник.
-    out.has_coa = bool(llm_dict.get("has_coa")) or rules.has_coa
-    out.has_tds = bool(llm_dict.get("has_tds")) or rules.has_tds
+    # Наличие документа — consequential fact. Модель не может повысить его из
+    # одного упоминания в процитированном запросе; здесь нужен положительный
+    # детерминированный маркер, а реальные вложения добавляет email workflow.
+    out.has_coa = rules.has_coa
+    out.has_tds = rules.has_tds
     if out.has_coa:
         confidence["has_coa"] = 0.9
     if out.has_tds:
@@ -173,3 +178,18 @@ def _clean_str(value):
         return None
     s = str(value).strip()
     return s or None
+
+
+def validate_lead_time_value(value: str | None) -> str | None:
+    """Не подменяет срок наличием товара на складе."""
+    if value is None:
+        return None
+    normalized = " ".join(value.casefold().split()).strip(" .!:")
+    availability_only = {
+        "in stock",
+        "available",
+        "available now",
+        "ready stock",
+        "stock available",
+    }
+    return None if normalized in availability_only else value

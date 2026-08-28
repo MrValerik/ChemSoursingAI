@@ -15,12 +15,17 @@ from app.connectors.whatsapp import WhatsAppDeliveryError
 from app.core.db import SessionLocal
 from app.extraction.llm_client import LLMUnavailableError
 from app.extraction.schema import ExtractedQuote
-from app.models import CommunicationPolicyAudit, Manager
+from app.models import CommunicationPolicyAudit, Manager, Quotation, SupplierDocument
 from app.models.communication import Communication
 from app.models.escalation import Escalation
 from app.models.enums import Channel, CommDirection
 from app.services.communication_policy import CommunicationPolicyDecision
-from app.services.email_workflow import sync_inbox
+from app.services.email_workflow import (
+    _fallback_followup,
+    _price_scope_needs_confirmation,
+    sync_inbox,
+)
+from app.services.quotation_reconciliation import reconcile_email_quotations
 
 
 def _communications(rfq_id: int) -> list[Communication]:
@@ -58,6 +63,24 @@ def test_supplier_registry_seeded(client):
     assert len(suppliers) >= 3
     haihua = next(s for s in suppliers if s["company"] == "Shandong Haihua")
     assert "email" in haihua["channels"]
+
+
+def test_followup_requests_price_for_original_quantity_when_supplier_quotes_moq():
+    rfq = SimpleNamespace(
+        name="Acetylsalicylic acid",
+        cas="50-78-2",
+        volume="500 kg",
+        verification=None,
+    )
+    quote = SimpleNamespace(price=48, quoted_quantity="25KG")
+
+    assert _price_scope_needs_confirmation(rfq, quote) is True
+    body = _fallback_followup(
+        rfq,
+        ["incoterm", "payment_terms", "lead_time", "requested_quantity_price"],
+    )
+    assert "requested quantity of 500 kg" in body
+    assert "production and delivery lead time" in body
 
 
 def test_add_supplier_manually(client):
@@ -692,6 +715,235 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
     quotes = client.get(f"/rfq/{rfq['id']}/quotations", headers=headers).json()
     assert len(quotes) == 1
     assert quotes[0]["price"] == 500
+    assert quotes[0]["source_communication_id"] == history[0].id
+
+
+def test_email_reply_saves_multiple_delivery_offers_without_quoted_rfq_noise(
+    client, monkeypatch
+):
+    headers = _login(client)
+    client.post(
+        "/suppliers",
+        json={
+            "company": "Multi Offer Supplier",
+            "email": "sales@multi-offer.example",
+        },
+        headers=headers,
+    )
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={
+            "cas": "58-08-2",
+            "name": "Caffeine",
+            "volume": "500 kg",
+            "incoterms": ["FOB", "CIP"],
+        },
+        headers=headers,
+    ).json()
+    text = (
+        "Price: USD 6.8/KG by sea FOB Shanghai for 500KG\r\n"
+        "Price: USD 7.5/KG by sea CIP Moscow for 500KG\r\n"
+        "Package: 25KG/Bag\r\n\r\n"
+        "发件人： ChemSource\r\n"
+        "Required documents: CoA and TDS\r\n"
+        "Please quote EXW."
+    )
+
+    class FakeConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="draft",
+            email_delivery_mode="demo",
+            email_from="buyer@example.com",
+        )
+
+        def fetch_unseen(self, limit=20):
+            return [
+                IncomingEmail(
+                    uid="multi-offer-1",
+                    message_id="<multi-offer-1@example.com>",
+                    subject=f"Re: [RFQ-{rfq['id']}] Caffeine",
+                    from_address="sales@multi-offer.example",
+                    to_addresses=["buyer@example.com"],
+                    text=text,
+                )
+            ]
+
+        def mark_seen(self, uids):
+            self.seen = uids
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Standard quotation reply.",
+            method="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: ExtractedQuote(
+            price=6.8,
+            currency="USD",
+            incoterm="FOB",
+            price_unit="kg",
+            quoted_quantity="500KG",
+            field_confidence={"price": 0.9, "currency": 0.95, "incoterm": 0.9},
+            method="test",
+        ),
+    )
+    captured_missing: list[str] = []
+
+    def render_followup(db, saved_rfq, missing, **kwargs):
+        captured_missing.extend(missing)
+        return "Dear Supplier,\n\nThank you. Please provide the missing terms.\n\nBest regards,\nProcurement Department"
+
+    monkeypatch.setattr(
+        "app.services.email_workflow._render_followup", render_followup
+    )
+
+    with SessionLocal() as db:
+        result = sync_inbox(db, connector=FakeConnector())
+        rows = list(
+            db.scalars(
+                select(Quotation)
+                .where(Quotation.rfq_id == rfq["id"])
+                .order_by(Quotation.id)
+            ).all()
+        )
+
+    assert result.quotations_created == 2
+    assert [(float(row.price), row.incoterm) for row in rows] == [
+        (6.8, "FOB"),
+        (7.5, "CIP"),
+    ]
+    assert all(row.quoted_quantity == "500KG" for row in rows)
+    assert all(row.has_coa is False and row.has_tds is False for row in rows)
+    assert "price" not in captured_missing
+    assert "currency" not in captured_missing
+    assert "incoterm" not in captured_missing
+
+
+def test_historical_email_reconciliation_repairs_quote_and_is_idempotent(
+    client, monkeypatch
+):
+    headers = _login(client)
+    supplier = client.post(
+        "/suppliers",
+        json={
+            "company": "Historical Repair Supplier",
+            "email": "sales@historical-repair.example",
+        },
+        headers=headers,
+    ).json()
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={
+            "cas": "58-08-2",
+            "name": "Caffeine",
+            "volume": "500 kg",
+            "incoterms": ["FOB", "CIP"],
+        },
+        headers=headers,
+    ).json()
+    body = (
+        "Price: USD 6.8/KG by sea FOB Shanghai for 500KG\n"
+        "Price: USD 7.5/KG by sea CIP Moscow for 500KG\n\n"
+        "From: ChemSource\n"
+        "Please quote EXW and attach CoA and TDS."
+    )
+    with SessionLocal() as db:
+        manager = db.scalar(
+            select(Manager).where(Manager.supplier_id == supplier["id"])
+        )
+        communication = Communication(
+            rfq_id=rfq["id"],
+            manager_id=manager.id,
+            direction=CommDirection.INBOUND,
+            channel=Channel.EMAIL,
+            subject=f"Re: [RFQ-{rfq['id']}] Acetylsalicylic acid",
+            body=body,
+            from_address=manager.email,
+            to_address="buyer@example.com",
+            status="received",
+        )
+        db.add(communication)
+        db.flush()
+        db.add(
+            Quotation(
+                rfq_id=rfq["id"],
+                manager_id=None,
+                source_communication_id=communication.id,
+                price=6.8,
+                currency="USD",
+                incoterm="EXW",
+                lead_time="In stock",
+                price_unit="bag",
+                has_coa=True,
+                has_tds=True,
+                is_complete=False,
+                field_confidence={
+                    "incoterm": 0.9,
+                    "lead_time": 0.8,
+                    "has_coa": 0.9,
+                    "has_tds": 0.9,
+                },
+            )
+        )
+        document = SupplierDocument(
+            rfq_id=rfq["id"],
+            communication_id=communication.id,
+            supplier_id=supplier["id"],
+            filename="note.txt",
+            content_type="text/plain",
+            size_bytes=4,
+            sha256="a" * 64,
+            storage_path="aa/note.txt",
+            kind="other",
+            text_status="extracted",
+            text_content="note",
+        )
+        db.add(document)
+        db.commit()
+
+        def fake_verify(db, saved_document, **kwargs):
+            saved_document.verification = {"status": "verified"}
+            return saved_document.verification
+
+        monkeypatch.setattr(
+            "app.services.quotation_reconciliation.verify_document", fake_verify
+        )
+        first = reconcile_email_quotations(
+            db,
+            rfq_id=rfq["id"],
+            email_address=manager.email,
+            verify_documents=True,
+        )
+        second = reconcile_email_quotations(
+            db,
+            rfq_id=rfq["id"],
+            email_address=manager.email,
+        )
+        rows = list(
+            db.scalars(
+                select(Quotation)
+                .where(Quotation.rfq_id == rfq["id"])
+                .order_by(Quotation.id)
+            ).all()
+        )
+
+    assert first.quotations_created == 1
+    assert first.documents_verified == 1
+    assert second.quotations_created == 0
+    assert [(float(row.price), row.incoterm) for row in rows] == [
+        (6.8, "FOB"),
+        (7.5, "CIP"),
+    ]
+    assert all(row.manager_id == manager.id for row in rows)
+    assert all(row.price_unit == "kg" for row in rows)
+    assert all(row.quoted_quantity == "500KG" for row in rows)
+    assert all(row.lead_time is None for row in rows)
+    assert all(row.has_coa is False and row.has_tds is False for row in rows)
 
 
 def test_email_dialogue_stops_after_cumulative_data_and_coa_attachment(
@@ -1162,6 +1414,15 @@ def test_email_sync_reconciles_already_saved_unlinked_domain_dialogue(
         )
         db.add(inbound)
         db.flush()
+        historical_quote = Quotation(
+            rfq_id=rfq["id"],
+            manager_id=None,
+            source_communication_id=inbound.id,
+            price=12,
+            currency="USD",
+            is_complete=False,
+        )
+        db.add(historical_quote)
         db.commit()
 
     with SessionLocal() as db:
@@ -1193,9 +1454,16 @@ def test_email_sync_reconciles_already_saved_unlinked_domain_dialogue(
                 CommunicationPolicyAudit.communication_id == linked.id
             )
         )
+        historical_quote = db.scalar(
+            select(Quotation).where(
+                Quotation.source_communication_id == linked.id
+            )
+        )
 
     assert result.contacts_linked >= 1
     assert linked is not None and linked.manager_id is not None
+    assert historical_quote is not None
+    assert historical_quote.manager_id == linked.manager_id
     assert linked.manager_id != first.manager_id
     assert audit is not None
     assert audit.manager_id == linked.manager_id

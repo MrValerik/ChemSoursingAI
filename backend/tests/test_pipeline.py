@@ -100,3 +100,35 @@ def test_llm_cannot_invent_unstated_cost_breakdown():
     assert result.delivery_cost is None
     assert result.landed_cost is None
     assert result.cost_currency is None
+
+
+def test_llm_cannot_turn_document_request_into_received_documents():
+    text = "Please provide CoA and TDS with your quotation."
+    result = extract_quote(
+        text,
+        llm=_Fake({"has_coa": True, "has_tds": True}),
+    )
+
+    assert result.has_coa is False
+    assert result.has_tds is False
+
+
+def test_stock_availability_is_not_a_lead_time_and_price_unit_uses_text():
+    result = extract_quote(
+        "Lead time: In stock. Price: USD 48/kg for 25KG.",
+        llm=_Fake(
+            {
+                "price": 48,
+                "currency": "USD",
+                "lead_time": "In stock",
+                "price_unit": "bag",
+                "quoted_quantity": "25KG",
+                "has_coa": False,
+                "has_tds": False,
+            }
+        ),
+    )
+
+    assert result.lead_time is None
+    assert result.price_unit == "kg"
+    assert result.quoted_quantity == "25KG"

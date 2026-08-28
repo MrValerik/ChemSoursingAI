@@ -96,13 +96,34 @@ def parse_moq(text: str) -> Parsed[str]:
 
 
 def parse_documents(text: str) -> tuple[Parsed[bool], Parsed[bool]]:
-    """Определяет упоминание CoA и TDS."""
+    """Определяет только положительное предоставление CoA и TDS.
+
+    Простое упоминание недостаточно: ``please provide CoA`` — это запрос
+    покупателя, а не доказательство наличия документа у поставщика.
+    """
     low = text.lower()
+    positive = (
+        r"(?:attached|enclosed|included|available|provided|"
+        r"can\s+be\s+provided|can\s+provide|will\s+provide|"
+        r"(?:we|i)\s+(?:have|provide)|yes)"
+    )
+    coa = r"(?:\bcoa\b|certificate\s+of\s+analysis)"
+    tds = r"(?:\btds\b|technical\s+data\s+sheet|spec(?:ification)?\s+sheet)"
+    shared_positive = bool(
+        re.search(rf"{positive}[^\n.]{{0,80}}{coa}[^\n.]{{0,50}}{tds}", low)
+        or re.search(rf"{positive}[^\n.]{{0,80}}{tds}[^\n.]{{0,50}}{coa}", low)
+        or re.search(rf"{coa}[^\n.]{{0,50}}{tds}[^\n.]{{0,50}}{positive}", low)
+        or re.search(rf"{tds}[^\n.]{{0,50}}{coa}[^\n.]{{0,50}}{positive}", low)
+    )
     has_coa = bool(
-        re.search(r"\bcoa\b|certificate of analysis", low)
+        re.search(rf"{coa}\s*(?:is|are|:)?\s*{positive}", low)
+        or re.search(rf"{positive}\s+(?:the\s+)?{coa}", low)
+        or shared_positive
     )
     has_tds = bool(
-        re.search(r"\btds\b|technical data sheet|spec(?:ification)? sheet", low)
+        re.search(rf"{tds}\s*(?:is|are|:)?\s*{positive}", low)
+        or re.search(rf"{positive}\s+(?:the\s+)?{tds}", low)
+        or shared_positive
     )
     return (
         Parsed(has_coa, 0.9 if has_coa else 0.5),
@@ -128,7 +149,11 @@ def parse_payment_terms(text: str) -> Parsed[str]:
     m = re.search(r"\b(T/T|L/C|D/P|D/A)\b", text, flags=re.IGNORECASE)
     if m:
         return Parsed(m.group(1).upper(), 0.85)
-    m = re.search(rf"({_NUMBER}\s*%\s*(?:deposit|advance|in advance))", text, flags=re.IGNORECASE)
+    m = re.search(
+        rf"({_NUMBER}\s*%\s*(?:deposit|advance|in advance))",
+        text,
+        flags=re.IGNORECASE,
+    )
     if m:
         return Parsed(m.group(1).strip(), 0.75)
     return Parsed(None, 0.0)
@@ -136,8 +161,12 @@ def parse_payment_terms(text: str) -> Parsed[str]:
 
 def parse_grade(text: str) -> Parsed[str]:
     """Грейд/чистота: 'USP grade', '99.5% purity', 'industrial grade'."""
-    m = re.search(r"\b(USP|BP|EP|ACS|HPLC|food|pharma(?:ceutical)?|industrial|technical|reagent)\s*grade\b",
-                  text, flags=re.IGNORECASE)
+    m = re.search(
+        r"\b(USP|BP|EP|ACS|HPLC|food|pharma(?:ceutical)?|industrial|"
+        r"technical|reagent)\s*grade\b",
+        text,
+        flags=re.IGNORECASE,
+    )
     if m:
         return Parsed(m.group(0).strip(), 0.85)
     m = re.search(rf"({_NUMBER}\s*%)\s*(?:purity|min|assay)", text, flags=re.IGNORECASE)
@@ -166,14 +195,70 @@ def parse_price_unit(text: str) -> Parsed[str]:
 
 def parse_quoted_quantity(text: str) -> Parsed[str]:
     """Объём, на который поставщик дал цену; MOQ сюда не подменяется."""
-    pattern = (
-        rf"(?:quoted\s+quantity|quantity\s+quoted|offer\s+quantity|quantity)"
-        rf"[:\s]*({_NUMBER}\s*(?:{_QUANTITY_UNITS})s?)\b"
-    )
-    match = re.search(pattern, text, flags=re.IGNORECASE)
-    if match:
-        return Parsed(match.group(1).strip(), 0.85)
+    patterns = [
+        (
+            rf"(?:quoted\s+quantity|quantity\s+quoted|offer\s+quantity|quantity)"
+            rf"[:\s]*({_NUMBER}\s*(?:{_QUANTITY_UNITS})s?)\b"
+        ),
+        (
+            rf"(?:{_CURRENCY_TOKEN})\s*{_MONEY_NUMBER}\s*"
+            rf"(?:/\s*|per\s+)(?:{_QUANTITY_UNITS})\b[^\n]{{0,100}}?"
+            rf"\bfor\s+({_NUMBER}\s*(?:{_QUANTITY_UNITS})s?)\b"
+        ),
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return Parsed(match.group(1).strip(), 0.85)
     return Parsed(None, 0.0)
+
+
+def parse_explicit_price_offers(text: str) -> list[dict[str, object]]:
+    """Читает несколько явно размеченных ценовых строк одного письма.
+
+    Скалярный structured output модели не может сохранить одновременно FOB и
+    CIP. Поэтому две строки ``Price: USD ...`` превращаются в две котировки, а
+    не в случайную смесь первой цены и последнего Incoterm.
+    """
+    offers: list[dict[str, object]] = []
+    price_pattern = re.compile(
+        rf"(?:\bprice\s*[:=]?\s*)?(?P<currency>{_CURRENCY_TOKEN})\s*"
+        rf"(?P<price>{_MONEY_NUMBER})\s*(?:/\s*|per\s+)"
+        rf"(?P<unit>{_QUANTITY_UNITS})\b",
+        flags=re.IGNORECASE,
+    )
+    quantity_pattern = re.compile(
+        rf"\bfor\s+(?P<quantity>{_NUMBER}\s*(?:{_QUANTITY_UNITS})s?)\b",
+        flags=re.IGNORECASE,
+    )
+    for raw_line in text.splitlines():
+        match = price_pattern.search(raw_line)
+        if match is None:
+            continue
+        price = _to_float(match.group("price"))
+        if price is None:
+            continue
+        raw_currency = match.group("currency").upper()
+        currency = CURRENCY_SYMBOLS.get(
+            raw_currency,
+            _CURRENCY_ALIASES.get(raw_currency, raw_currency),
+        )
+        incoterm = parse_incoterm(raw_line).value
+        quantity_match = quantity_pattern.search(raw_line)
+        offers.append(
+            {
+                "price": price,
+                "currency": currency,
+                "incoterm": incoterm,
+                "price_unit": match.group("unit").lower(),
+                "quoted_quantity": (
+                    quantity_match.group("quantity").strip()
+                    if quantity_match is not None
+                    else None
+                ),
+            }
+        )
+    return offers
 
 
 def parse_packaging(text: str) -> Parsed[str]:

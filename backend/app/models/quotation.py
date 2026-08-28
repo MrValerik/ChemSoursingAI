@@ -22,6 +22,13 @@ class Quotation(Base, TimestampMixin):
 
     rfq_id: Mapped[int] = mapped_column(ForeignKey("rfqs.id"), index=True)
     manager_id: Mapped[int | None] = mapped_column(ForeignKey("managers.id"))
+    # Исходное входящее письмо. Связь нужна, чтобы после безопасной проверки
+    # нового адреса перепривязать не только историю, но и извлечённые условия.
+    source_communication_id: Mapped[int | None] = mapped_column(
+        ForeignKey("communications.id", ondelete="SET NULL"),
+        index=True,
+        default=None,
+    )
 
     price: Mapped[float | None] = mapped_column(Numeric(14, 4))
     currency: Mapped[str | None] = mapped_column(String(3))

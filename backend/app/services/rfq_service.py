@@ -120,7 +120,7 @@ def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
     result = build_rfq(
         RFQInput(
             cas=rfq.cas,
-            name=rfq.name,
+            name=external_rfq_name(rfq),
             identification_method=rfq.identification_method,
             analog_reference=rfq.analog_reference,
             analog_variations=list(rfq.analog_variations or []),
@@ -139,6 +139,40 @@ def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
         strict=False,
     )
     return result["subject"], result["body"]
+
+
+def external_rfq_name(rfq: RFQ) -> str:
+    """Выбирает подтверждённое латинское название для внешнего письма.
+
+    Русское название остаётся в карточке и аудите. Если PubChem не подтвердил
+    англоязычный вариант, система ничего не переводит и не придумывает.
+    """
+    name = (rfq.name or "").strip()
+    if name.isascii():
+        return name
+    verification = rfq.verification or {}
+    candidates = [
+        item.strip()
+        for item in verification.get("synonyms") or []
+        if isinstance(item, str) and item.strip()
+    ]
+    iupac = verification.get("iupac_name")
+    if isinstance(iupac, str) and iupac.strip():
+        candidates.append(iupac.strip())
+
+    def usable(value: str) -> bool:
+        return (
+            value.isascii()
+            and 2 < len(value) <= 120
+            and any(char.isalpha() for char in value)
+            and not value.replace("-", "").isdigit()
+        )
+
+    usable_names = list(dict.fromkeys(item for item in candidates if usable(item)))
+    if not usable_names:
+        return name
+    acid_names = [item for item in usable_names if "acid" in item.casefold()]
+    return min(acid_names or usable_names, key=len)
 
 
 def update_rfq_message_draft(

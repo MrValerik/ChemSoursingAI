@@ -44,6 +44,7 @@ class QuotationRead(BaseModel):
     id: int
     rfq_id: int
     manager_id: int | None
+    source_communication_id: int | None
     price: float | None
     currency: str | None
     incoterm: str | None

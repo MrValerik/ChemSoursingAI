@@ -23,7 +23,12 @@ from app.services.completeness import (
 from app.services.escalation_rules import detect_escalation
 
 
-def create_quotation(db: Session, data: QuotationCreate) -> Quotation:
+def create_quotation(
+    db: Session,
+    data: QuotationCreate,
+    *,
+    source_communication_id: int | None = None,
+) -> Quotation:
     """Сохраняет котировку, вычисляет полноту и при необходимости заводит
     эскалацию специалисту."""
     quote_dict = {
@@ -42,6 +47,7 @@ def create_quotation(db: Session, data: QuotationCreate) -> Quotation:
     quotation = Quotation(
         rfq_id=data.rfq_id,
         manager_id=data.manager_id,
+        source_communication_id=source_communication_id,
         price=data.price,
         currency=data.currency,
         incoterm=data.incoterm,

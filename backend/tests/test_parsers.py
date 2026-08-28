@@ -16,6 +16,7 @@ from app.extraction.parsers import (
     parse_packaging,
     parse_payment_terms,
     parse_price,
+    parse_explicit_price_offers,
     parse_price_unit,
     parse_quoted_quantity,
     parse_total_price,
@@ -62,6 +63,34 @@ def test_documents():
     assert tds.value is True
     coa2, tds2 = parse_documents("No documents mentioned")
     assert coa2.value is False and tds2.value is False
+    requested_coa, requested_tds = parse_documents(
+        "Please provide CoA and TDS with your quotation."
+    )
+    assert requested_coa.value is False
+    assert requested_tds.value is False
+
+
+def test_multiple_explicit_delivery_offers_are_kept_separate():
+    offers = parse_explicit_price_offers(
+        "Price: USD 6.8/KG by sea FOB Shanghai for 500KG\n"
+        "Price: USD 7.5/KG by sea CIP Moscow for 500KG"
+    )
+    assert offers == [
+        {
+            "price": 6.8,
+            "currency": "USD",
+            "incoterm": "FOB",
+            "price_unit": "kg",
+            "quoted_quantity": "500KG",
+        },
+        {
+            "price": 7.5,
+            "currency": "USD",
+            "incoterm": "CIP",
+            "price_unit": "kg",
+            "quoted_quantity": "500KG",
+        },
+    ]
 
 
 def test_lead_time():
