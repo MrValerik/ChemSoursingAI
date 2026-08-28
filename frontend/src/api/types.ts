@@ -495,6 +495,7 @@ export interface EmailSyncRead {
   followups_drafted: number;
   followups_sent: number;
   escalations_created: number;
+  contacts_linked: number;
   errors: string[];
 }
 

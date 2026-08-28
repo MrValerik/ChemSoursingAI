@@ -157,7 +157,13 @@ def list_communication_overview(
                 recipient_status=None,
             )
             conversations[key] = conversation
-        elif conversation.manager_id is None and manager is not None:
+        elif manager is not None and (
+            conversation.manager_id is None
+            or message.direction == CommDirection.INBOUND
+        ):
+            # RFQ мог уйти на общий sales@, а ответить личный менеджер с
+            # другого адреса компании. Диалог остаётся один на поставщика,
+            # но следующий ответ должен идти на последний входящий адрес.
             conversation.manager_id = manager.id
             conversation.manager_name = manager.full_name
             conversation.contact = contact

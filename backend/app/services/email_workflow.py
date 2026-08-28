@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.connectors.email import (
@@ -41,6 +41,12 @@ from app.services.communication_profiles import (
     start_audit,
 )
 from app.services.document_intake import store_incoming_attachments
+from app.services.email_identity import (
+    SenderResolution,
+    link_address_history,
+    reconcile_unlinked_email_contacts,
+    resolve_sender_manager,
+)
 from app.services.integration_settings import effective_email_settings
 from app.services.prompt_service import get_rfq_prompt_context
 from app.services.quotation_service import create_quotation
@@ -68,6 +74,7 @@ class EmailSyncSummary:
     followups_drafted: int = 0
     followups_sent: int = 0
     escalations_created: int = 0
+    contacts_linked: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -80,6 +87,7 @@ class EmailSyncSummary:
             "followups_drafted": self.followups_drafted,
             "followups_sent": self.followups_sent,
             "escalations_created": self.escalations_created,
+            "contacts_linked": self.contacts_linked,
             "errors": self.errors,
         }
 
@@ -100,17 +108,6 @@ def _find_rfq(db: Session, message: IncomingEmail) -> RFQ | None:
             rfq = db.get(RFQ, communication.rfq_id)
             return rfq if rfq is not None and rfq.deleted_at is None else None
     return None
-
-
-def _find_manager(db: Session, address: str) -> Manager | None:
-    if not address:
-        return None
-    return db.scalar(
-        select(Manager)
-        .where(func.lower(Manager.email) == address.strip().lower())
-        .order_by(Manager.id)
-        .limit(1)
-    )
 
 
 def _supplier_manager_ids(db: Session, manager: Manager | None) -> list[int]:
@@ -288,6 +285,20 @@ def _create_followup(
     return status
 
 
+def _record_sender_resolution(audit, resolution: SenderResolution) -> None:
+    snapshot = dict(audit.budget_snapshot or {})
+    snapshot["sender_identity"] = resolution.audit_payload()
+    audit.budget_snapshot = snapshot
+
+
+def _unresolved_sender_note(resolution: SenderResolution) -> str:
+    return (
+        "Отправитель первого письма не сопоставлен с ранее выбранным "
+        "поставщиком. Автоматический ответ остановлен, чтобы не объединить "
+        f"чужие переписки. Причина: {resolution.explanation}"
+    )
+
+
 def sync_inbox(
     db: Session,
     connector: EmailConnector | None = None,
@@ -296,8 +307,18 @@ def sync_inbox(
 ) -> EmailSyncSummary:
     """Загружает новые письма и создаёт котировки один раз по Message-ID."""
     email = connector or EmailConnector(effective_email_settings(db)[0])
+    summary = EmailSyncSummary()
+    try:
+        summary.contacts_linked = reconcile_unlinked_email_contacts(db)
+        if summary.contacts_linked:
+            db.commit()
+    except Exception as exc:
+        db.rollback()
+        summary.errors.append(
+            f"Повторная привязка контактов: {type(exc).__name__}: {exc}"
+        )
     messages = email.fetch_unseen(limit=limit)
-    summary = EmailSyncSummary(fetched=len(messages))
+    summary.fetched = len(messages)
     seen_uids: list[str] = []
 
     for message in messages:
@@ -315,7 +336,13 @@ def sync_inbox(
             if rfq is None:
                 summary.unmatched += 1
                 continue
-            manager = _find_manager(db, message.from_address)
+            resolution = resolve_sender_manager(
+                db,
+                rfq=rfq,
+                message=message,
+                allow_ai=False,
+            )
+            manager = resolution.manager
             inbound = Communication(
                 rfq_id=rfq.id,
                 manager_id=manager.id if manager else None,
@@ -337,6 +364,7 @@ def sync_inbox(
                 db,
                 rfq_id=rfq.id,
                 communication_id=inbound.id,
+                supplier_id=manager.supplier_id if manager else None,
                 attachments=message.attachments,
             )
             inbound.attachments = stored_attachments or None
@@ -351,6 +379,7 @@ def sync_inbox(
                 actor_id=rfq.owner_id,
                 prompt_kind="extraction",
             )
+            _record_sender_resolution(audit_start.audit, resolution)
             if not audit_start.budget.allowed:
                 db.add(
                     Escalation(
@@ -370,6 +399,53 @@ def sync_inbox(
                 continue
 
             client = LLMClient()
+
+            if manager is None:
+                resolution = resolve_sender_manager(
+                    db,
+                    rfq=rfq,
+                    message=message,
+                    llm=client,
+                    allow_ai=True,
+                )
+                manager = resolution.manager
+                _record_sender_resolution(audit_start.audit, resolution)
+                if manager is not None:
+                    audit_start.audit.manager_id = manager.id
+                    link_address_history(
+                        db,
+                        rfq_id=rfq.id,
+                        address=message.from_address,
+                        resolution=resolution,
+                    )
+                    inbound.manager_id = manager.id
+                    summary.contacts_linked += 1
+                else:
+                    audit_start.audit.policy_route = "escalate"
+                    audit_start.audit.policy_category = "sender_identity_unknown"
+                    audit_start.audit.policy_explanation = resolution.explanation
+                    audit_start.audit.policy_method = resolution.method
+                    finalize_usage(
+                        audit_start.audit,
+                        client,
+                        reply_generated=False,
+                    )
+                    db.add(
+                        Escalation(
+                            rfq_id=rfq.id,
+                            communication_id=inbound.id,
+                            manager_id=None,
+                            reason=EscalationReason.OTHER,
+                            status=EscalationStatus.OPEN,
+                            note=_unresolved_sender_note(resolution),
+                        )
+                    )
+                    rfq.status = RFQStatus.ESCALATED
+                    db.commit()
+                    summary.escalations_created += 1
+                    summary.processed += 1
+                    seen_uids.append(message.uid)
+                    continue
 
             policy = classify_supplier_message(
                 message.text,

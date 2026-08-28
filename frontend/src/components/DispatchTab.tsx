@@ -346,6 +346,7 @@ export default function DispatchTab({
       const syncErrors = result.errors;
       setNotice(
         `Проверено писем: ${result.fetched}. Обработано: ${result.processed}. ` +
+          `Связано новых адресов: ${result.contacts_linked}. ` +
           `Новых эскалаций: ${result.escalations_created}.`,
       );
       await load();

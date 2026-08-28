@@ -26,6 +26,7 @@ def store_incoming_attachments(
     *,
     rfq_id: int | None,
     communication_id: int | None,
+    supplier_id: int | None = None,
     attachments: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Сохраняет вложения письма и возвращает метаданные без содержимого."""
@@ -52,6 +53,7 @@ def store_incoming_attachments(
                 declared_content_type=declared,
                 rfq_id=rfq_id,
                 communication_id=communication_id,
+                supplier_id=supplier_id,
             )
         except (DocumentTooLargeError, UnsupportedDocumentError) as exc:
             metadata["status"] = "rejected"
