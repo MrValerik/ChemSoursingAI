@@ -285,9 +285,16 @@ def _create_followup(
     return status
 
 
-def _record_sender_resolution(audit, resolution: SenderResolution) -> None:
+def _record_sender_resolution(
+    audit,
+    resolution: SenderResolution,
+    *,
+    message: IncomingEmail,
+) -> None:
     snapshot = dict(audit.budget_snapshot or {})
-    snapshot["sender_identity"] = resolution.audit_payload()
+    identity_payload = resolution.audit_payload()
+    identity_payload["sender_display_name"] = message.from_name
+    snapshot["sender_identity"] = identity_payload
     audit.budget_snapshot = snapshot
 
 
@@ -379,7 +386,11 @@ def sync_inbox(
                 actor_id=rfq.owner_id,
                 prompt_kind="extraction",
             )
-            _record_sender_resolution(audit_start.audit, resolution)
+            _record_sender_resolution(
+                audit_start.audit,
+                resolution,
+                message=message,
+            )
             if not audit_start.budget.allowed:
                 db.add(
                     Escalation(
@@ -409,7 +420,11 @@ def sync_inbox(
                     allow_ai=True,
                 )
                 manager = resolution.manager
-                _record_sender_resolution(audit_start.audit, resolution)
+                _record_sender_resolution(
+                    audit_start.audit,
+                    resolution,
+                    message=message,
+                )
                 if manager is not None:
                     audit_start.audit.manager_id = manager.id
                     link_address_history(

@@ -26,6 +26,7 @@ def test_parse_email_extracts_safe_text_and_attachments():
     assert parsed.uid == "101"
     assert parsed.message_id == "<reply-42@supplier.cn>"
     assert parsed.from_address == "sales@supplier.cn"
+    assert parsed.from_name == "Sales"
     assert parsed.subject == "Re: [RFQ-42] Аспирин"
     assert "USD 12/kg" in parsed.text
     assert parsed.in_reply_to == "<request-42@example.com>"

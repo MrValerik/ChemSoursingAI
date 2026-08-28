@@ -866,6 +866,17 @@ export default function DispatchTab({
                     </div>
                   </div>
 
+                  {selectedConversation.channel === "email" &&
+                    selectedConversation.linked_contacts.length > 1 && (
+                      <p className="success-note">
+                        Диалог объединён с почтой{" "}
+                        {selectedConversation.linked_contacts[0]}. Связанный
+                        адрес: {selectedConversation.linked_contacts
+                          .slice(1)
+                          .join(", ")}.
+                      </p>
+                    )}
+
                   {selectedConversation.escalations
                     .filter((item) => item.status !== "resolved")
                     .map((item) => (

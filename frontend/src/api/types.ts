@@ -466,6 +466,7 @@ export interface SupplierConversationRead {
   manager_name: string | null;
   channel: ChannelKind;
   contact: string | null;
+  linked_contacts: string[];
   recipient_status: DispatchStatusKind | null;
   data_collection_status: "not_started" | "collecting" | "complete" | "needs_human";
   missing_quote_fields: string[];

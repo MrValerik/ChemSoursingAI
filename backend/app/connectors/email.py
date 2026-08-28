@@ -36,6 +36,7 @@ class IncomingEmail:
     from_address: str
     to_addresses: list[str]
     text: str
+    from_name: str | None = None
     in_reply_to: str | None = None
     references: list[str] = field(default_factory=list)
     attachments: list[dict] = field(default_factory=list)
@@ -125,17 +126,19 @@ def parse_email(raw: bytes, uid: str) -> IncomingEmail:
                 "content": payload,
             }
         )
+    from_name, from_address = parseaddr(str(message.get("From") or ""))
     return IncomingEmail(
         uid=uid,
         message_id=message_id,
         subject=_decode_header(str(message.get("Subject") or "")),
-        from_address=parseaddr(str(message.get("From") or ""))[1].lower(),
+        from_address=from_address.lower(),
         to_addresses=[
             parseaddr(value.strip())[1].lower()
             for value in str(message.get("To") or "").split(",")
             if parseaddr(value.strip())[1]
         ],
         text=_plain_text(message),
+        from_name=_decode_header(from_name).strip() or None,
         in_reply_to=str(message.get("In-Reply-To") or "").strip() or None,
         references=references,
         attachments=attachments,

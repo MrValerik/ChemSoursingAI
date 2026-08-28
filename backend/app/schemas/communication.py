@@ -90,6 +90,7 @@ class SupplierConversationRead(BaseModel):
     manager_name: str | None
     channel: Channel
     contact: str | None
+    linked_contacts: list[str] = Field(default_factory=list)
     recipient_status: DispatchStatus | None
     data_collection_status: str = "not_started"
     missing_quote_fields: list[str] = Field(default_factory=list)

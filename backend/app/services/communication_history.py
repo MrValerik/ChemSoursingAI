@@ -54,6 +54,9 @@ def _new_conversation(
         manager_name=manager.full_name if manager else None,
         channel=channel,
         contact=contact,
+        # Адреса ниже собираются из фактических сообщений по хронологии:
+        # первый — исходный получатель, последующие — связанные ответы.
+        linked_contacts=[],
         recipient_status=recipient_status,
         last_message_at=None,
     )
@@ -167,6 +170,11 @@ def list_communication_overview(
             conversation.manager_id = manager.id
             conversation.manager_name = manager.full_name
             conversation.contact = contact
+        if contact and all(
+            saved.casefold() != contact.casefold()
+            for saved in conversation.linked_contacts
+        ):
+            conversation.linked_contacts.append(contact)
         conversation.messages.append(
             CommunicationMessageRead(
                 id=message.id,
