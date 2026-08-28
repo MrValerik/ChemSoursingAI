@@ -732,7 +732,7 @@ RFQ, а не только по последнему письму. Цена, ва
 изменения:
 
 ```bash
-docker compose exec -T backend python -m scripts.reconcile_email_quotations \
+docker compose exec -T backend python -m app.commands.reconcile_email_quotations \
   --rfq-id 30 --email sales4@example.com --verify-documents
 ```
 
