@@ -1165,24 +1165,6 @@ def test_email_sync_reconciles_already_saved_unlinked_domain_dialogue(
         )
         db.add(inbound)
         db.flush()
-        db.add(
-            CommunicationPolicyAudit(
-                event_key="email:<historical-link@example.com>",
-                rfq_id=rfq["id"],
-                manager_id=None,
-                communication_id=inbound.id,
-                actor_id=None,
-                profile_slug="buyer",
-                profile_name="Закупщик",
-                profile_version=1,
-                policy_route="escalate",
-                policy_category="sender_identity_unknown",
-                policy_explanation="Контакт ранее не был связан.",
-                policy_method="legacy",
-                input_chars=len(inbound.body),
-                budget_snapshot={},
-            )
-        )
         db.commit()
 
     with SessionLocal() as db:
@@ -1214,8 +1196,7 @@ def test_email_sync_reconciles_already_saved_unlinked_domain_dialogue(
         )
         audit = db.scalar(
             select(CommunicationPolicyAudit).where(
-                CommunicationPolicyAudit.event_key
-                == "email:<historical-link@example.com>"
+                CommunicationPolicyAudit.communication_id == linked.id
             )
         )
 
@@ -1229,6 +1210,7 @@ def test_email_sync_reconciles_already_saved_unlinked_domain_dialogue(
     )
     assert audit.budget_snapshot["sender_identity"]["rechecked"] is True
     assert audit.budget_snapshot["sender_identity"]["check_version"] == 2
+    assert audit.policy_category == "sender_identity_linked"
 
 
 def test_email_identity_ai_uses_explicit_company_signature(client, monkeypatch):

@@ -32,7 +32,7 @@ from app.models import (
     SupplierDocument,
 )
 from app.models.enums import Channel, CommDirection
-from app.services.communication_profiles import finalize_usage
+from app.services.communication_profiles import finalize_usage, start_audit
 
 _PRIOR_OUTBOUND_STATUSES = {"sent", "demo"}
 _IDENTITY_CHECK_VERSION = 2
@@ -519,6 +519,19 @@ def reconcile_unlinked_email_contacts(db: Session) -> int:
                 CommunicationPolicyAudit.communication_id == communication.id
             )
         )
+        if audit is None:
+            audit_start = start_audit(
+                db,
+                event_key=f"email-identity-reconcile:{communication.id}",
+                text=communication.body or "",
+                rfq_id=rfq.id,
+                communication_id=communication.id,
+                actor_id=rfq.owner_id,
+                prompt_kind="extraction",
+            )
+            audit = audit_start.audit
+            if not audit_start.budget.allowed:
+                continue
         previous_identity = (
             (audit.budget_snapshot or {}).get("sender_identity")
             if audit
@@ -564,6 +577,16 @@ def reconcile_unlinked_email_contacts(db: Session) -> int:
         identity_payload["rechecked"] = True
         snapshot["sender_identity"] = identity_payload
         audit.budget_snapshot = snapshot
+        audit.policy_route = (
+            "linked" if resolution.manager is not None else "escalate"
+        )
+        audit.policy_category = (
+            "sender_identity_linked"
+            if resolution.manager is not None
+            else "sender_identity_unknown"
+        )
+        audit.policy_explanation = resolution.explanation
+        audit.policy_method = resolution.method
         finalize_usage(audit, client, reply_generated=False)
         checked_addresses.add(key)
         if resolution.manager is None:
