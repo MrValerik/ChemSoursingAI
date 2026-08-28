@@ -55,6 +55,7 @@ def test_incoterm():
 def test_moq():
     assert parse_moq("MOQ 25 kg").value == "25 kg"
     assert parse_moq("Minimum order quantity: 1 ton").value.lower() == "1 ton"
+    assert parse_moq("MOQ is in 25KG bags!").value == "25KG"
 
 
 def test_documents():
@@ -126,3 +127,9 @@ def test_commercial_breakdown_fields_require_explicit_labels():
     assert parse_vat_cost(text).value == 1170
     assert parse_landed_cost(text).value == 7020
     assert parse_hazmat(text).value is False
+
+
+def test_price_unit_ignores_packaging_slash_before_the_price():
+    text = "Package: 25KG/Bag. Price: USD 48/kg by courier for MOQ 25KG."
+
+    assert parse_price_unit(text).value == "kg"

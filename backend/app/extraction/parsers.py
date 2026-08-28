@@ -85,7 +85,8 @@ def parse_incoterm(text: str) -> Parsed[str]:
 def parse_moq(text: str) -> Parsed[str]:
     """Извлекает минимальный заказ (MOQ): 'MOQ 25 kg', 'min order 1 ton'."""
     patterns = [
-        rf"MOQ[:\s]*({_NUMBER}\s*(?:kg|g|mt|ton|tonne|l|lb|drum|bag)s?)",
+        rf"MOQ(?:\s+is)?(?:\s+in)?[:\s]*"
+        rf"({_NUMBER}\s*(?:kg|g|mt|ton|tonne|l|lb|drum|bag)s?)",
         rf"min(?:imum)?\.?\s*order(?:\s*quantity)?[:\s]*({_NUMBER}\s*(?:kg|g|mt|ton|tonne|l|lb|drum|bag)s?)",
     ]
     for pat in patterns:
@@ -183,6 +184,9 @@ _MONEY_NUMBER = r"(?:\d{1,3}(?:[,\s]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
 def parse_price_unit(text: str) -> Parsed[str]:
     """Единица цены из конструкции ``USD 12.5/kg`` или ``per kg``."""
     patterns = [
+        rf"(?:{_CURRENCY_TOKEN})\s*{_MONEY_NUMBER}\s*"
+        rf"(?:/\s*|per\s+)({_QUANTITY_UNITS})\b",
+        rf"{_MONEY_NUMBER}\s*(?:{_CURRENCY_TOKEN})\s*"
         rf"(?:/\s*|per\s+)({_QUANTITY_UNITS})\b",
         rf"price\s+per\s+({_QUANTITY_UNITS})\b",
     ]
