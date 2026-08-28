@@ -1095,12 +1095,9 @@ def test_email_reply_joins_by_domain_and_company_mention_without_rfq_terms(
 
     monkeypatch.setattr(
         "app.services.email_identity.LLMClient.generate_json",
-        lambda self, **kwargs: {
-            "supplier_id": expected_supplier_id,
-            "confidence": 0.98,
-            "evidence_quote": expected_company,
-            "explanation": "Имя отправителя содержит название компании.",
-        },
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Явное название не требует вызова модели")
+        ),
     )
 
     monkeypatch.setattr(
@@ -1172,12 +1169,9 @@ def test_email_sync_reconciles_already_saved_unlinked_domain_dialogue(
 
     monkeypatch.setattr(
         "app.services.email_identity.LLMClient.generate_json",
-        lambda self, **kwargs: {
-            "supplier_id": expected_supplier_id,
-            "confidence": 0.99,
-            "evidence_quote": expected_company,
-            "explanation": "Подпись сохранённого письма называет компанию.",
-        },
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Явное название не требует вызова модели")
+        ),
     )
 
     class EmptyConnector:
@@ -1206,14 +1200,14 @@ def test_email_sync_reconciles_already_saved_unlinked_domain_dialogue(
     assert audit is not None
     assert audit.manager_id == linked.manager_id
     assert audit.budget_snapshot["sender_identity"]["method"] == (
-        "domain_and_ai_message"
+        "domain_and_company_mention"
     )
     assert audit.budget_snapshot["sender_identity"]["rechecked"] is True
-    assert audit.budget_snapshot["sender_identity"]["check_version"] == 2
+    assert audit.budget_snapshot["sender_identity"]["check_version"] == 3
     assert audit.policy_category == "sender_identity_linked"
 
 
-def test_email_identity_ai_uses_explicit_company_signature(client, monkeypatch):
+def test_email_identity_uses_explicit_company_signature(client, monkeypatch):
     headers = _login(client)
     rfq, first = _started_conversation(
         client,
@@ -1248,17 +1242,11 @@ def test_email_identity_ai_uses_explicit_company_signature(client, monkeypatch):
         def mark_seen(self, uids):
             self.seen = uids
 
-    def fake_identity(self, **kwargs):
-        assert kwargs["schema_name"] == "rfq_sender_identity"
-        return {
-            "supplier_id": expected_supplier_id,
-            "confidence": 0.97,
-            "evidence_quote": f"{expected_company} quotation: USD 500/MT",
-            "explanation": "Подпись письма совпадает с названием получателя RFQ.",
-        }
-
     monkeypatch.setattr(
-        "app.services.email_identity.LLMClient.generate_json", fake_identity
+        "app.services.email_identity.LLMClient.generate_json",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Явное название не требует вызова модели")
+        ),
     )
     monkeypatch.setattr(
         "app.services.email_workflow.classify_supplier_message",
@@ -1288,7 +1276,7 @@ def test_email_identity_ai_uses_explicit_company_signature(client, monkeypatch):
     assert alias.supplier_id == expected_supplier_id
     assert audit is not None
     assert audit.budget_snapshot["sender_identity"]["method"] == (
-        "domain_and_ai_message"
+        "domain_and_company_mention"
     )
 
 

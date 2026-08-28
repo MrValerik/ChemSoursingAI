@@ -35,7 +35,7 @@ from app.models.enums import Channel, CommDirection
 from app.services.communication_profiles import finalize_usage, start_audit
 
 _PRIOR_OUTBOUND_STATUSES = {"sent", "demo"}
-_IDENTITY_CHECK_VERSION = 2
+_IDENTITY_CHECK_VERSION = 3
 _PUBLIC_EMAIL_DOMAINS = {
     "126.com",
     "163.com",
@@ -209,22 +209,34 @@ def _evidence_names_company(evidence: str, company: str) -> bool:
     return bool(_distinctive_company_tokens(company) & evidence_tokens)
 
 
+def _company_mention(
+    message: IncomingEmail,
+    *,
+    company: str,
+) -> str | None:
+    """Возвращает явный токен названия из имени, темы, подписи или текста."""
+    company_tokens = _distinctive_company_tokens(company)
+    if not company_tokens:
+        return None
+    visible_identity = (
+        f"{message.from_name or ''}\n{message.subject}\n{message.text}"
+    ).casefold()
+    visible_tokens = re.findall(
+        r"[0-9a-zA-Zа-яА-ЯёЁ一-鿿]+",
+        visible_identity,
+    )
+    return next(
+        (token for token in visible_tokens if token in company_tokens),
+        None,
+    )
+
+
 def _sender_identity_names_company(
     message: IncomingEmail,
     *,
     company: str,
 ) -> bool:
-    """Проверяет название компании в имени, теме, подписи или тексте."""
-    company_tokens = _distinctive_company_tokens(company)
-    if not company_tokens:
-        return False
-    visible_identity = (
-        f"{message.from_name or ''}\n{message.subject}\n{message.text}"
-    ).casefold()
-    visible_tokens = set(
-        re.findall(r"[0-9a-zA-Zа-яА-ЯёЁ一-鿿]+", visible_identity)
-    )
-    return bool(company_tokens & visible_tokens)
+    return _company_mention(message, company=company) is not None
 
 
 def _ai_resolution(
@@ -380,6 +392,38 @@ def resolve_sender_manager(
             "unresolved",
             0.0,
             "Точный адрес и однозначный корпоративный домен не найдены.",
+        )
+
+    explicit_matches = [
+        (candidate, _company_mention(message, company=candidate.company))
+        for candidate in domain_matches
+    ]
+    explicit_matches = [
+        (candidate, mention)
+        for candidate, mention in explicit_matches
+        if mention is not None
+    ]
+    if (
+        domain
+        and domain not in _PUBLIC_EMAIL_DOMAINS
+        and len(explicit_matches) == 1
+    ):
+        candidate, mention = explicit_matches[0]
+        manager = _manager_for_new_address(
+            db,
+            supplier_id=candidate.supplier_id,
+            address=address,
+            rfq=rfq,
+        )
+        return SenderResolution(
+            manager,
+            "domain_and_company_mention",
+            1.0,
+            (
+                f"Домен @{domain} совпал, а первое письмо однозначно "
+                f"упоминает {candidate.company}."
+            ),
+            mention,
         )
 
     ai_candidates = domain_matches or candidates
