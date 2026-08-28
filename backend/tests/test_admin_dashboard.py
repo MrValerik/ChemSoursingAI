@@ -870,6 +870,34 @@ def test_embedded_communication_test_updates_one_summary_quotation(
     assert final_summary[0]["has_coa"] is True
     assert final_summary[0]["is_complete"] is True
 
+    another_run = client.post(
+        "/communication-testing",
+        json={
+            "rfq_id": rfq["id"],
+            "channel": "email",
+            "procurement_context": "50 kg Aspirin, CAS 50-78-2",
+            "initial_message": "Please quote 50 kg Aspirin, CAS 50-78-2.",
+            "delivery_mode": "preview",
+        },
+        headers=admin,
+    ).json()
+    another_reply = client.post(
+        f"/communication-testing/{another_run['id']}/messages",
+        json={"message": "Our price is USD 800 per MT, CIP Moscow."},
+        headers=admin,
+    )
+    assert another_reply.status_code == 201
+
+    separate_test_suppliers = client.get(
+        f"/rfq/{rfq['id']}/summary", headers=admin
+    ).json()
+    assert len(separate_test_suppliers) == 2
+    assert {row["test_run_id"] for row in separate_test_suppliers} == {
+        started["id"],
+        another_run["id"],
+    }
+    assert all(row["quotation_count"] == 1 for row in separate_test_suppliers)
+
 
 def test_buyer_can_use_embedded_test_supplier(client, monkeypatch):
     buyer = _login(client, "ivanov")

@@ -183,9 +183,10 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
                 company_key or f"supplier:{supplier_row.id}",
             )
         elif quotation.id in test_run_by_quotation_id:
-            # Все старые тестовые прогоны отображаются как один и тот же
-            # синтетический контрагент, поэтому не размножаем одинаковые строки.
-            group_key = ("test_supplier", "default")
+            # Каждый тестовый прогон — отдельный синтетический поставщик. У него
+            # нет реестрового supplier_id/company_key, поэтому одинаковая
+            # подпись «Тестовый поставщик» не означает одну компанию.
+            group_key = ("test_supplier", quotation.id)
         elif quotation.manager_id is not None:
             group_key = ("manager", quotation.manager_id)
         else:

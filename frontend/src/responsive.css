@@ -248,10 +248,6 @@ button.shell-nav-toggle,
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .summary-edit-sections {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .summary-columns-checklist {
     max-height: 260px;
   }
@@ -288,21 +284,13 @@ button.shell-nav-toggle,
     padding: 16px;
   }
 
-  .summary-edit-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .summary-edit-wide-field {
-    grid-column: auto;
-  }
-
-  .summary-edit-documents,
-  .summary-edit-actions {
+  .summary-inline-toolbar,
+  .summary-inline-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .summary-edit-actions > button {
+  .summary-inline-actions > button {
     width: 100%;
   }
 
