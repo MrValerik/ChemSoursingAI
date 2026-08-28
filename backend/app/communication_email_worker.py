@@ -9,6 +9,7 @@ from threading import Event
 from app.core.config import get_settings
 from app.core.db import SessionLocal, init_db
 from app.services.communication_test_email import sync_communication_test_email
+from app.services.email_identity import reconcile_unlinked_email_contacts
 
 logger = logging.getLogger(__name__)
 _stop_requested = Event()
@@ -22,6 +23,18 @@ def poll_once() -> None:
     settings = get_settings()
     if not settings.communication_test_email_auto_reply_enabled:
         return
+    try:
+        with SessionLocal() as db:
+            contacts_linked = reconcile_unlinked_email_contacts(db)
+            if contacts_linked:
+                db.commit()
+                logger.info(
+                    "Email contact reconciliation: linked=%s",
+                    contacts_linked,
+                )
+    except Exception:
+        logger.exception("Email contact reconciliation failed")
+
     with SessionLocal() as db:
         summary = sync_communication_test_email(
             db,
