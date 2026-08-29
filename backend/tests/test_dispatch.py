@@ -1,6 +1,7 @@
 """Тесты шага 4: поставщики, выбор получателей, рассылка со статусами."""
 
 import os
+from datetime import datetime
 from types import SimpleNamespace
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_dispatch.db")
@@ -1851,6 +1852,154 @@ def test_manual_email_message_is_live_idempotent_and_threaded(client, monkeypatc
         ).status_code
         == 403
     )
+
+
+def test_unmatched_inbox_email_is_saved_and_visible_in_mailbox(client):
+    headers = _login(client)
+
+    class FakeConnector:
+        seen: list[str] = []
+
+        def fetch_unseen(self, limit=20):
+            return [
+                IncomingEmail(
+                    uid="mailbox-unresolved-1",
+                    message_id="<mailbox-unresolved-1@unknown.example>",
+                    subject="Independent commercial offer",
+                    from_address="unknown@outside.example",
+                    to_addresses=["procurement@example.com"],
+                    text="We can offer industrial raw materials.",
+                )
+            ]
+
+        def mark_seen(self, uids):
+            self.seen.extend(uids)
+
+    connector = FakeConnector()
+    with SessionLocal() as db:
+        result = sync_inbox(db, connector=connector)
+
+    assert result.unmatched == 1
+    assert result.processed == 1
+    assert connector.seen == ["mailbox-unresolved-1"]
+
+    response = client.get(
+        "/mail/messages?folder=unresolved&query=Independent",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    mailbox = response.json()
+    assert mailbox["total"] == 1
+    assert mailbox["items"][0]["is_unresolved"] is True
+    assert mailbox["items"][0]["rfq_id"] is None
+    assert mailbox["items"][0]["from_address"] == "unknown@outside.example"
+
+
+def test_mailbox_can_send_reply_once_and_auditor_is_read_only(client, monkeypatch):
+    headers = _login(client)
+    with SessionLocal() as db:
+        inbound = Communication(
+            rfq_id=None,
+            manager_id=None,
+            direction=CommDirection.INBOUND,
+            channel=Channel.EMAIL,
+            subject="Question from outside",
+            body="Could you clarify your request?",
+            from_address="reply-target@outside.example",
+            to_address="procurement@example.com",
+            status="unresolved",
+            thread_id="<mailbox-target@outside.example>",
+            external_id="<mailbox-target@outside.example>",
+            attachments=None,
+        )
+        db.add(inbound)
+        db.commit()
+        inbound_id = inbound.id
+
+    settings = SimpleNamespace(
+        email_delivery_mode="live",
+        email_from="procurement@example.com",
+    )
+    monkeypatch.setattr(
+        "app.services.mailbox.effective_email_settings",
+        lambda db: (settings, True, "database"),
+    )
+    sent: list[dict] = []
+
+    def fake_send(self, **kwargs):
+        sent.append(kwargs)
+        return kwargs["message_id"]
+
+    monkeypatch.setattr("app.services.mailbox.EmailConnector.send", fake_send)
+    payload = {
+        "to_address": "reply-target@outside.example",
+        "subject": "Re: Question from outside",
+        "body": "Thank you. Please send the specification.",
+        "idempotency_key": "2f8ea821-2a0b-442f-8b87-2be07458be5b",
+        "reply_to_message_id": inbound_id,
+        "confirm_external_send": True,
+    }
+    response = client.post("/mail/messages", headers=headers, json=payload)
+    repeated = client.post("/mail/messages", headers=headers, json=payload)
+
+    assert response.status_code == 201
+    assert repeated.status_code == 201
+    assert len(sent) == 1
+    assert sent[0]["in_reply_to"] == "<mailbox-target@outside.example>"
+    assert response.json()["direction"] == "outbound"
+    assert response.json()["is_unresolved"] is False
+
+    auditor = _login(client, "auditor")
+    blocked = client.post(
+        "/mail/messages",
+        headers=auditor,
+        json={
+            **payload,
+            "idempotency_key": "b5088778-e38f-4e2a-920f-5af5945cfbe3",
+        },
+    )
+    assert blocked.status_code == 403
+
+
+def test_mailbox_date_filter_is_inclusive(client):
+    headers = _login(client)
+    with SessionLocal() as db:
+        db.add_all(
+            [
+                Communication(
+                    direction=CommDirection.OUTBOUND,
+                    channel=Channel.EMAIL,
+                    subject="Dated mailbox message",
+                    body="Inside the selected date.",
+                    from_address="procurement@example.com",
+                    to_address="dated@example.com",
+                    status="sent",
+                    external_id="<dated-mailbox-2020@example.com>",
+                    created_at=datetime(2020, 2, 20, 12, 0),
+                ),
+                Communication(
+                    direction=CommDirection.OUTBOUND,
+                    channel=Channel.EMAIL,
+                    subject="Outside dated mailbox message",
+                    body="Outside the selected date.",
+                    from_address="procurement@example.com",
+                    to_address="dated-other@example.com",
+                    status="sent",
+                    external_id="<dated-mailbox-2021@example.com>",
+                    created_at=datetime(2021, 2, 20, 12, 0),
+                ),
+            ]
+        )
+        db.commit()
+
+    response = client.get(
+        "/mail/messages?folder=sent&date_from=2020-02-20&date_to=2020-02-20",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    subjects = [item["subject"] for item in response.json()["items"]]
+    assert "Dated mailbox message" in subjects
+    assert "Outside dated mailbox message" not in subjects
 
 
 def test_manual_email_message_sends_and_records_attachments(

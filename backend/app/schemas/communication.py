@@ -36,6 +36,40 @@ class CommunicationMessageRead(BaseModel):
     created_at: datetime
 
 
+class MailboxMessageRead(CommunicationMessageRead):
+    """Письмо общего служебного ящика с необязательной привязкой к RFQ."""
+
+    rfq_id: int | None
+    manager_id: int | None
+    is_unresolved: bool
+    message_at: datetime
+
+
+class MailboxMessageListRead(BaseModel):
+    items: list[MailboxMessageRead] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+
+
+class MailboxSendCreate(BaseModel):
+    to_address: str = Field(min_length=3, max_length=320)
+    subject: str = Field(min_length=1, max_length=998)
+    body: str = Field(min_length=1, max_length=12_000)
+    idempotency_key: UUID
+    reply_to_message_id: int | None = Field(default=None, gt=0)
+    confirm_external_send: bool = False
+
+    @field_validator("to_address", "subject", "body", mode="before")
+    @classmethod
+    def clean_text(cls, value: object) -> str:
+        return str(value or "").strip()
+
+    @model_validator(mode="after")
+    def require_confirmation(self) -> "MailboxSendCreate":
+        if not self.confirm_external_send:
+            raise ValueError("Подтвердите реальную внешнюю отправку")
+        return self
+
+
 class CommunicationSendCreate(BaseModel):
     manager_id: int = Field(gt=0)
     channel: Channel

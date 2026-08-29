@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./auth/AuthContext";
 import AppShell, { isSectionAllowed, type SectionKey } from "./components/AppShell";
 import SplashScreen from "./components/Logo";
 import IntermediariesSection from "./components/IntermediariesSection";
+import MailSection from "./components/MailSection";
 import ActivityReporter from "./components/ActivityReporter";
 import CommunicationTesting from "./components/CommunicationTesting";
 import Login from "./components/Login";
@@ -37,6 +38,7 @@ const SECTION_ELEMENTS: { path: string; section: SectionKey; element: React.Reac
   { path: "/substances/:substanceId", section: "substances", element: <SubstancesSection /> },
   { path: "/suppliers", section: "suppliers", element: <SuppliersSection /> },
   { path: "/intermediaries", section: "intermediaries", element: <IntermediariesSection /> },
+  { path: "/mail", section: "mail", element: <MailSection /> },
   { path: "/review", section: "review", element: <ReviewQueue /> },
   { path: "/templates", section: "templates", element: <TemplatesSection /> },
   { path: "/prompts", section: "prompts", element: <PromptStudio /> },

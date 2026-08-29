@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, JSON, String, Text
+from sqlalchemy import DateTime, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -34,6 +35,11 @@ class Communication(Base, TimestampMixin):
     to_address: Mapped[str | None] = mapped_column(String(320))
     # draft / sent / received / error. Строка оставляет место статусам провайдера.
     status: Mapped[str | None] = mapped_column(String(32), index=True)
+    # Дата из RFC822-заголовка письма. Для старых записей и каналов без неё
+    # интерфейс использует created_at.
+    message_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
     # Сшивка по треду + идемпотентность входящих (дедупликация писем).
     thread_id: Mapped[str | None] = mapped_column(String(255), index=True)

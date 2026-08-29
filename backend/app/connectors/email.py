@@ -8,11 +8,12 @@ import imaplib
 import re
 import smtplib
 import ssl
+from datetime import datetime
 from dataclasses import dataclass, field
 from email import message_from_bytes, policy
 from email.header import decode_header, make_header
 from email.message import EmailMessage
-from email.utils import formataddr, make_msgid, parseaddr
+from email.utils import formataddr, make_msgid, parseaddr, parsedate_to_datetime
 from pathlib import Path
 
 from app.core.config import Settings, get_settings
@@ -40,6 +41,7 @@ class IncomingEmail:
     in_reply_to: str | None = None
     references: list[str] = field(default_factory=list)
     attachments: list[dict] = field(default_factory=list)
+    message_at: datetime | None = None
 
 
 def _decode_header(value: str | None) -> str:
@@ -127,6 +129,10 @@ def parse_email(raw: bytes, uid: str) -> IncomingEmail:
             }
         )
     from_name, from_address = parseaddr(str(message.get("From") or ""))
+    try:
+        message_at = parsedate_to_datetime(str(message.get("Date") or ""))
+    except (TypeError, ValueError, OverflowError):
+        message_at = None
     return IncomingEmail(
         uid=uid,
         message_id=message_id,
@@ -142,6 +148,7 @@ def parse_email(raw: bytes, uid: str) -> IncomingEmail:
         in_reply_to=str(message.get("In-Reply-To") or "").strip() or None,
         references=references,
         attachments=attachments,
+        message_at=message_at,
     )
 
 

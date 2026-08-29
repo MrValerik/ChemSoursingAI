@@ -9,6 +9,9 @@ import type {
   RfqImportPreview,
   RfqImportRow,
   CommunicationMessageRead,
+  MailboxFolder,
+  MailboxMessageListRead,
+  MailboxMessageRead,
   CommunicationProfile,
   CommunicationProfileStatus,
   CommunicationProfileVersion,
@@ -674,6 +677,32 @@ export const api = {
   syncEmailCommunications: (limit = 20) =>
     request<EmailSyncRead>(`/communications/email/sync?limit=${limit}`, {
       method: "POST",
+    }),
+
+  listMailboxMessages: (filters: {
+    folder: MailboxFolder;
+    date_from?: string;
+    date_to?: string;
+    query?: string;
+  }) => {
+    const params = new URLSearchParams({ folder: filters.folder });
+    if (filters.date_from) params.set("date_from", filters.date_from);
+    if (filters.date_to) params.set("date_to", filters.date_to);
+    if (filters.query?.trim()) params.set("query", filters.query.trim());
+    return request<MailboxMessageListRead>(`/mail/messages?${params.toString()}`);
+  },
+
+  sendMailboxMessage: (payload: {
+    to_address: string;
+    subject: string;
+    body: string;
+    idempotency_key: string;
+    reply_to_message_id?: number | null;
+    confirm_external_send: boolean;
+  }) =>
+    request<MailboxMessageRead>(`/mail/messages`, {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
 
   listEscalationQueue: () => request<EscalationRead[]>(`/escalations`),

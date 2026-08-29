@@ -13,6 +13,7 @@ def test_parse_email_extracts_safe_text_and_attachments():
     message["Subject"] = "Re: [RFQ-42] Аспирин"
     message["Message-ID"] = "<reply-42@supplier.cn>"
     message["In-Reply-To"] = "<request-42@example.com>"
+    message["Date"] = "Thu, 20 Feb 2020 12:00:00 +0000"
     message.set_content("Price USD 12/kg, CIP Moscow. MOQ 1 MT.")
     message.add_attachment(
         b"test-pdf",
@@ -30,6 +31,8 @@ def test_parse_email_extracts_safe_text_and_attachments():
     assert parsed.subject == "Re: [RFQ-42] Аспирин"
     assert "USD 12/kg" in parsed.text
     assert parsed.in_reply_to == "<request-42@example.com>"
+    assert parsed.message_at is not None
+    assert parsed.message_at.isoformat() == "2020-02-20T12:00:00+00:00"
     # Содержимое доходит до слоя workflow: без него паспорт качества нельзя
     # сохранить и прочитать. В JSON коммуникации оно уже не попадает.
     assert parsed.attachments == [

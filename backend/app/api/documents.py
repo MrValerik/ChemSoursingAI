@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.models import RFQ, SupplierDocument, User
-from app.models.enums import UserRole
+from app.models import Communication, RFQ, SupplierDocument, User
+from app.models.enums import Channel, UserRole
 from app.schemas.document import (
     DocumentVerificationRequest,
     SupplierDocumentDetail,
@@ -41,7 +41,13 @@ def _load_document(
     if document.rfq_id is not None:
         _require_rfq_access(user, db.get(RFQ, document.rfq_id))
     elif user.role not in _SEE_ALL_ROLES:
-        raise HTTPException(status_code=404, detail="Документ не найден")
+        communication = (
+            db.get(Communication, document.communication_id)
+            if document.communication_id is not None
+            else None
+        )
+        if communication is None or communication.channel != Channel.EMAIL:
+            raise HTTPException(status_code=404, detail="Документ не найден")
     return document
 
 

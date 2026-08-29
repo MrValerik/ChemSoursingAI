@@ -206,6 +206,7 @@ button.shell-nav-toggle,
      превратилось бы в область с собственным ходом внутри другой такой же. */
   .suppliers-page,
   .intermediaries-page,
+  .mail-page,
   .data-table.table-panel {
     height: auto;
     min-height: 0;
@@ -243,6 +244,15 @@ button.shell-nav-toggle,
   .table-panel {
     overflow-x: auto;
   }
+  .mail-page { padding: 16px 14px; }
+  .mail-header { align-items: flex-start; }
+  .mail-workspace { grid-template-columns: minmax(0, 1fr); overflow: visible; }
+  .mail-list { max-height: 380px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .mail-reader { min-height: 360px; }
+  .mail-folders { width: 100%; overflow-x: auto; }
+  .mail-folders button { flex: 1 0 auto; }
+  .mail-filters label:first-of-type,
+  .mail-filters label:first-of-type input { width: 100%; }
 
   .summary-columns-sections {
     grid-template-columns: minmax(0, 1fr);

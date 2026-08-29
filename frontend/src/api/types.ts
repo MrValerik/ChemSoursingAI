@@ -450,6 +450,20 @@ export interface CommunicationMessageRead {
   created_at: string;
 }
 
+export type MailboxFolder = "all" | "inbox" | "sent" | "unresolved";
+
+export interface MailboxMessageRead extends CommunicationMessageRead {
+  rfq_id: number | null;
+  manager_id: number | null;
+  is_unresolved: boolean;
+  message_at: string;
+}
+
+export interface MailboxMessageListRead {
+  items: MailboxMessageRead[];
+  total: number;
+}
+
 export interface CommunicationAttachmentRead {
   filename: string;
   content_type: string | null;

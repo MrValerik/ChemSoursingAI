@@ -422,7 +422,37 @@ def sync_inbox(
                 continue
             rfq = _find_rfq(db, message)
             if rfq is None:
+                inbound = Communication(
+                    rfq_id=None,
+                    manager_id=None,
+                    direction=CommDirection.INBOUND,
+                    channel=Channel.EMAIL,
+                    subject=message.subject,
+                    body=message.text,
+                    from_address=message.from_address,
+                    to_address=", ".join(message.to_addresses) or None,
+                    status="unresolved",
+                    message_at=message.message_at,
+                    thread_id=message.in_reply_to or message.message_id,
+                    external_id=message.message_id,
+                    attachments=None,
+                )
+                db.add(inbound)
+                db.flush()
+                inbound.attachments = (
+                    store_incoming_attachments(
+                        db,
+                        rfq_id=None,
+                        communication_id=inbound.id,
+                        supplier_id=None,
+                        attachments=message.attachments,
+                    )
+                    or None
+                )
+                db.commit()
                 summary.unmatched += 1
+                summary.processed += 1
+                seen_uids.append(message.uid)
                 continue
             resolution = resolve_sender_manager(
                 db,
@@ -441,6 +471,7 @@ def sync_inbox(
                 from_address=message.from_address,
                 to_address=", ".join(message.to_addresses) or None,
                 status="received",
+                message_at=message.message_at,
                 thread_id=message.in_reply_to or message.message_id,
                 external_id=message.message_id,
                 attachments=None,
