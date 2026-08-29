@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session, joinedload
 from app.connectors.pubchem import PubChemConnector
 from app.core.db import get_db
 from app.models.enums import UserRole
+from app.models.purchase_decision import PurchaseHistoryEntry
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
 from app.models.substance import Substance, SubstanceRevision
 from app.models.user import User
+from app.schemas.quotation import PurchaseHistoryRead
 from app.schemas.substance import (
     SubstanceCreate,
     SubstanceDecision,
@@ -23,6 +25,7 @@ from app.schemas.substance import (
     SubstanceUpdate,
 )
 from app.services.substance_resolution import resolve_substance
+from app.services.quotation_service import purchase_history_read
 from app.services.substance_service import (
     SubstanceConflictError,
     apply_rfq_decision,
@@ -221,6 +224,29 @@ def get_substance_history(
         item.actor_name = revision.actor.full_name if revision.actor else None
         result.append(item)
     return result
+
+
+@router.get(
+    "/{substance_id}/purchase-history",
+    response_model=list[PurchaseHistoryRead],
+)
+def get_substance_purchase_history(
+    substance_id: int,
+    db: Session = Depends(get_db),
+) -> list[PurchaseHistoryRead]:
+    """История итогов всех запросов, связанных с карточкой вещества."""
+    if db.get(Substance, substance_id) is None:
+        raise HTTPException(status_code=404, detail="Химическое вещество не найдено")
+    entries = db.scalars(
+        select(PurchaseHistoryEntry)
+        .options(joinedload(PurchaseHistoryEntry.actor))
+        .where(PurchaseHistoryEntry.substance_id == substance_id)
+        .order_by(
+            PurchaseHistoryEntry.created_at.desc(),
+            PurchaseHistoryEntry.id.desc(),
+        )
+    ).all()
+    return [purchase_history_read(entry) for entry in entries]
 
 
 @router.patch("/{substance_id}", response_model=SubstanceRead)

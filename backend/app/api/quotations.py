@@ -3,17 +3,18 @@ from app.api.deps import get_current_user
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.db import get_db
 from app.models.enums import UserRole
-from app.models.purchase_decision import PurchaseDecision
+from app.models.purchase_decision import PurchaseDecision, PurchaseHistoryEntry
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
 from app.models.user import User
 from app.schemas.quotation import (
     PurchaseDecisionRead,
     PurchaseDecisionUpdate,
+    PurchaseHistoryRead,
     QuotationCreate,
     QuotationRead,
     QuotationUpdate,
@@ -22,6 +23,7 @@ from app.schemas.quotation import (
 from app.services.quotation_service import (
     build_summary,
     create_quotation,
+    purchase_history_read,
     save_purchase_decision,
     update_quotation,
 )
@@ -119,6 +121,29 @@ def get_purchase_decision(
         select(PurchaseDecision).where(PurchaseDecision.rfq_id == rfq_id)
     )
     return _decision_read(decision) if decision else None
+
+
+@router.get(
+    "/rfq/{rfq_id}/purchase-history",
+    response_model=list[PurchaseHistoryRead],
+)
+def get_purchase_history(
+    rfq_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[PurchaseHistoryRead]:
+    """Возвращает каждое явное сохранение итога, а не только последнее."""
+    _load_visible_rfq(db, rfq_id, user)
+    entries = db.scalars(
+        select(PurchaseHistoryEntry)
+        .options(joinedload(PurchaseHistoryEntry.actor))
+        .where(PurchaseHistoryEntry.rfq_id == rfq_id)
+        .order_by(
+            PurchaseHistoryEntry.created_at.desc(),
+            PurchaseHistoryEntry.id.desc(),
+        )
+    ).all()
+    return [purchase_history_read(entry) for entry in entries]
 
 
 @router.put(

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { SubstanceHistoryEntry, SubstanceRecord } from "../api/types";
+import type {
+  PurchaseHistoryEntry,
+  SubstanceHistoryEntry,
+  SubstanceRecord,
+} from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { Field, HelpTip, Icon, Input, Textarea, Toast } from "./ui";
 
@@ -135,6 +139,7 @@ export default function SubstancesSection() {
   const [excludedNames, setExcludedNames] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
   const [history, setHistory] = useState<SubstanceHistoryEntry[]>([]);
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
@@ -181,16 +186,20 @@ export default function SubstancesSection() {
   useEffect(() => {
     if (selectedId === null || creating) {
       setHistory([]);
+      setPurchaseHistory([]);
       setHistoryError(null);
       return;
     }
     let active = true;
     setHistoryLoading(true);
-    api
-      .listSubstanceHistory(selectedId)
-      .then((data) => {
+    Promise.all([
+      api.listSubstanceHistory(selectedId),
+      api.listSubstancePurchaseHistory(selectedId),
+    ])
+      .then(([data, purchases]) => {
         if (!active) return;
         setHistory(data);
+        setPurchaseHistory(purchases);
         setHistoryError(null);
       })
       .catch((caught) => {
@@ -250,11 +259,13 @@ export default function SubstancesSection() {
       setCreating(false);
       setSelectedId(saved.id);
       setNotice("Правила идентификации сохранены и будут применяться в новых поисках.");
-      const [, updatedHistory] = await Promise.all([
+      const [, updatedHistory, updatedPurchaseHistory] = await Promise.all([
         load(),
         api.listSubstanceHistory(saved.id),
+        api.listSubstancePurchaseHistory(saved.id),
       ]);
       setHistory(updatedHistory);
+      setPurchaseHistory(updatedPurchaseHistory);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));
     } finally {
@@ -406,7 +417,10 @@ export default function SubstancesSection() {
                   {historyError && (
                     <p className="error">Не удалось загрузить историю: {historyError}</p>
                   )}
-                  {!historyLoading && !historyError && history.length === 0 && (
+                  {!historyLoading &&
+                    !historyError &&
+                    history.length === 0 &&
+                    purchaseHistory.length === 0 && (
                     <p className="note">
                       История начнёт формироваться после следующего экспертного решения.
                     </p>
@@ -444,6 +458,27 @@ export default function SubstancesSection() {
                             ))}
                           </ul>
                         )}
+                      </article>
+                    ))}
+                    {purchaseHistory.map((entry) => (
+                      <article className="substance-history-entry" key={`purchase-${entry.id}`}>
+                        <div className="substance-history-entry-header">
+                          <strong>Итог закупки сохранён</strong>
+                          <time dateTime={entry.created_at}>
+                            {new Date(entry.created_at).toLocaleString("ru-RU", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
+                          </time>
+                        </div>
+                        <div className="substance-history-meta">
+                          <span>{entry.actor_name ?? "Сотрудник"}</span>
+                          <span>Запрос #{entry.rfq_id}</span>
+                          {typeof entry.snapshot.supplier_name === "string" && (
+                            <span>{entry.snapshot.supplier_name}</span>
+                          )}
+                        </div>
+                        <p>{entry.note ?? "Комментарий не указан."}</p>
                       </article>
                     ))}
                   </div>

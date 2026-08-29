@@ -9,12 +9,18 @@ from sqlalchemy.orm import Session
 from app.models.communication import Communication
 from app.models.escalation import Escalation
 from app.models.integration import CommunicationTestRun
+from app.models.intermediary import Intermediary
 from app.models.enums import EscalationStatus, RFQStatus, SupplierType
-from app.models.purchase_decision import PurchaseDecision
+from app.models.purchase_decision import PurchaseDecision, PurchaseHistoryEntry
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
 from app.models.user import User
-from app.schemas.quotation import QuotationCreate, QuotationUpdate, SummaryRow
+from app.schemas.quotation import (
+    PurchaseHistoryRead,
+    QuotationCreate,
+    QuotationUpdate,
+    SummaryRow,
+)
 from app.services.completeness import (
     OPTIONAL_FIELDS,
     REQUIRED_FIELDS,
@@ -307,6 +313,92 @@ def save_purchase_decision(
     decision.quotation_id = quotation.id
     decision.selected_by_id = actor.id
     decision.note = note
+    supplier = quotation.manager.supplier if quotation.manager else None
+    intermediary = _purchase_intermediary(db, supplier)
+    db.add(
+        PurchaseHistoryEntry(
+            rfq_id=rfq.id,
+            quotation_id=quotation.id,
+            substance_id=rfq.substance_id,
+            supplier_id=supplier.id if supplier else None,
+            intermediary_id=intermediary.id if intermediary else None,
+            actor_id=actor.id,
+            note=note,
+            snapshot=_purchase_snapshot(
+                rfq=rfq,
+                quotation=quotation,
+                supplier=supplier,
+                intermediary=intermediary,
+            ),
+        )
+    )
     db.commit()
     db.refresh(decision)
     return decision
+
+
+def _purchase_intermediary(db: Session, supplier) -> Intermediary | None:
+    """Связывает итог с реестром посредников только по проверяемым признакам."""
+    if supplier is None:
+        return None
+    from app.services.intermediaries import domain_label, normalize_domain
+
+    source_domain = normalize_domain(supplier.source or "")
+    source_label = domain_label(source_domain) if "." in source_domain else ""
+    company = supplier.company.strip().casefold()
+    for item in db.scalars(select(Intermediary)).all():
+        item_domain = normalize_domain(item.domain)
+        if source_domain and (
+            source_domain == item_domain
+            or source_domain.endswith(f".{item_domain}")
+            or (source_label and source_label == domain_label(item_domain))
+        ):
+            return item
+        if (
+            supplier.type == SupplierType.DISTRIBUTOR
+            and company == item.name.strip().casefold()
+        ):
+            return item
+    return None
+
+
+def _purchase_snapshot(*, rfq: RFQ, quotation: Quotation, supplier, intermediary) -> dict:
+    """JSON-снимок сохраняет подписи и условия даже после правки реестров."""
+    snapshot = {
+        "rfq_name": rfq.name,
+        "rfq_cas": rfq.cas,
+        "rfq_volume": rfq.volume,
+        "supplier_name": supplier.company if supplier else None,
+        "supplier_type": supplier.type.value if supplier and supplier.type else None,
+        "intermediary_name": intermediary.name if intermediary else None,
+        "manufacturer": quotation.manufacturer,
+        "origin_country": quotation.origin_country,
+        "currency": quotation.currency,
+        "cost_currency": quotation.cost_currency,
+        "price_unit": quotation.price_unit,
+        "quoted_quantity": quotation.quoted_quantity,
+        "moq": quotation.moq,
+        "incoterm": quotation.incoterm,
+        "payment_terms": quotation.payment_terms,
+        "lead_time": quotation.lead_time,
+        "has_coa": quotation.has_coa,
+        "has_tds": quotation.has_tds,
+        "is_complete": quotation.is_complete,
+    }
+    for field in (
+        "price",
+        "total_price",
+        "delivery_cost",
+        "duty_cost",
+        "vat_cost",
+        "landed_cost",
+    ):
+        value = getattr(quotation, field)
+        snapshot[field] = float(value) if value is not None else None
+    return snapshot
+
+
+def purchase_history_read(entry: PurchaseHistoryEntry) -> PurchaseHistoryRead:
+    result = PurchaseHistoryRead.model_validate(entry, from_attributes=True)
+    result.actor_name = entry.actor.full_name if entry.actor else None
+    return result

@@ -11,7 +11,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, userErrorMessage } from "../api/client";
-import type { IntermediaryKind, IntermediaryRead } from "../api/types";
+import type {
+  IntermediaryKind,
+  IntermediaryRead,
+  PurchaseHistoryEntry,
+} from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { IconButton, Input, Select } from "./ui";
 
@@ -43,6 +47,9 @@ export default function IntermediariesSection() {
   const [kind, setKind] = useState<IntermediaryKind>("marketplace");
   const [notes, setNotes] = useState("");
   const [editing, setEditing] = useState<IntermediaryRead | null>(null);
+  const [historyForId, setHistoryForId] = useState<number | null>(null);
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -143,6 +150,24 @@ export default function IntermediariesSection() {
       await load();
     } catch (e) {
       setError(userErrorMessage(e));
+    }
+  };
+
+  const toggleHistory = async (item: IntermediaryRead) => {
+    if (historyForId === item.id) {
+      setHistoryForId(null);
+      setPurchaseHistory([]);
+      return;
+    }
+    setHistoryForId(item.id);
+    setHistoryLoading(true);
+    try {
+      setPurchaseHistory(await api.listIntermediaryPurchaseHistory(item.id));
+    } catch (caught) {
+      setPurchaseHistory([]);
+      setError(userErrorMessage(caught));
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -303,6 +328,34 @@ export default function IntermediariesSection() {
                             отключил: {item.deactivated_by_name}
                           </div>
                         )}
+                        <div className="intermediary-history-control">
+                          <button
+                            className="link-btn"
+                            type="button"
+                            onClick={() => void toggleHistory(item)}
+                          >
+                            {historyForId === item.id ? "Скрыть историю" : "История закупок"}
+                          </button>
+                          {historyForId === item.id && (
+                            <div className="registry-purchase-history compact">
+                              {historyLoading && <p className="note">Загрузка…</p>}
+                              {!historyLoading && purchaseHistory.length === 0 && (
+                                <p className="note">Сохранённых итогов нет.</p>
+                              )}
+                              {purchaseHistory.map((entry) => (
+                                <article key={entry.id}>
+                                  <div>
+                                    <strong>Запрос #{entry.rfq_id}</strong>
+                                    <time dateTime={entry.created_at}>
+                                      {new Date(entry.created_at).toLocaleString("ru-RU")}
+                                    </time>
+                                  </div>
+                                  <p>{entry.note ?? "Комментарий не указан."}</p>
+                                </article>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </>
                     )}
                   </td>

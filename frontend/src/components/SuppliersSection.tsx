@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { api, userErrorMessage } from "../api/client";
 import type {
   ChannelKind,
+  PurchaseHistoryEntry,
   SupplierQualificationStatus,
   SupplierRead,
   SupplierTypeKind,
@@ -81,6 +82,8 @@ export default function SuppliersSection() {
   const onOpenRfq = (id: number) => navigate(`/requests/${id}`);
   const [suppliers, setSuppliers] = useState<SupplierRead[]>([]);
   const [selected, setSelected] = useState<SupplierRead | null>(null);
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseHistoryEntry[]>([]);
+  const [purchaseHistoryLoading, setPurchaseHistoryLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -119,6 +122,29 @@ export default function SuppliersSection() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!selected) {
+      setPurchaseHistory([]);
+      return;
+    }
+    let active = true;
+    setPurchaseHistoryLoading(true);
+    api
+      .listSupplierPurchaseHistory(selected.id)
+      .then((items) => {
+        if (active) setPurchaseHistory(items);
+      })
+      .catch(() => {
+        if (active) setPurchaseHistory([]);
+      })
+      .finally(() => {
+        if (active) setPurchaseHistoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selected]);
 
   const countries = useMemo(
     () =>
@@ -715,6 +741,25 @@ export default function SuppliersSection() {
                   ))}
                 </div>
               )}
+              <section className="registry-purchase-history">
+                <h3>История итогов закупки</h3>
+                {purchaseHistoryLoading && <p className="note">Загрузка…</p>}
+                {!purchaseHistoryLoading && purchaseHistory.length === 0 && (
+                  <p className="note">Сохранённых итогов с этим поставщиком нет.</p>
+                )}
+                {purchaseHistory.map((entry) => (
+                  <article key={entry.id}>
+                    <div>
+                      <strong>Запрос #{entry.rfq_id}</strong>
+                      <time dateTime={entry.created_at}>
+                        {new Date(entry.created_at).toLocaleString("ru-RU")}
+                      </time>
+                    </div>
+                    <p>{entry.note ?? "Комментарий не указан."}</p>
+                    <span className="note">{entry.actor_name ?? "Сотрудник"}</span>
+                  </article>
+                ))}
+              </section>
               <p className="note">
                 Статус производителя и итоговый выбор подтверждает человек.
               </p>

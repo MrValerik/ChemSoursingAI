@@ -24,6 +24,7 @@ from app.connectors.whatsapp import (
 from app.core.db import get_db
 from app.models import (
     Communication,
+    PurchaseHistoryEntry,
     Quotation,
     RFQ,
     RfqRecipient,
@@ -41,6 +42,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.manager import Manager
+from app.schemas.quotation import PurchaseHistoryRead
 from app.schemas.supplier import (
     RecipientRead,
     RecipientsSelect,
@@ -59,6 +61,7 @@ from app.services.integration_settings import (
     effective_whatsapp_settings,
 )
 from app.services.rfq_service import render_rfq_text
+from app.services.quotation_service import purchase_history_read
 from app.services.supplier_registry import company_key
 
 router = APIRouter(tags=["suppliers"], dependencies=[Depends(get_current_user)])
@@ -170,6 +173,29 @@ def list_suppliers(db: Session = Depends(get_db)) -> list[SupplierRead]:
         )
         for supplier in suppliers
     ]
+
+
+@router.get(
+    "/suppliers/{supplier_id}/purchase-history",
+    response_model=list[PurchaseHistoryRead],
+)
+def supplier_purchase_history(
+    supplier_id: int,
+    db: Session = Depends(get_db),
+) -> list[PurchaseHistoryRead]:
+    """История итогов, в которых выбран этот реальный поставщик."""
+    if db.get(Supplier, supplier_id) is None:
+        raise HTTPException(status_code=404, detail="Поставщик не найден")
+    entries = db.scalars(
+        select(PurchaseHistoryEntry)
+        .options(joinedload(PurchaseHistoryEntry.actor))
+        .where(PurchaseHistoryEntry.supplier_id == supplier_id)
+        .order_by(
+            PurchaseHistoryEntry.created_at.desc(),
+            PurchaseHistoryEntry.id.desc(),
+        )
+    ).all()
+    return [purchase_history_read(entry) for entry in entries]
 
 
 @router.post("/suppliers", response_model=SupplierRead, status_code=201)

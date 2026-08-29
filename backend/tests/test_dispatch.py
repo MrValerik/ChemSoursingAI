@@ -292,9 +292,20 @@ def test_manual_rfq_draft_is_validated_persisted_and_dispatched(client):
 
 def test_purchase_decision_is_detailed_persisted_and_role_protected(client):
     headers = _login(client)
+    substance = client.post(
+        "/substances",
+        json={
+            "cas": "64-17-5",
+            "preferred_name": "Ethanol",
+            "synonyms": [],
+            "excluded_names": [],
+        },
+        headers=headers,
+    ).json()
     rfq = client.post(
         "/rfq?verify=false",
         json={
+            "substance_id": substance["id"],
             "cas": "64-17-5",
             "name": "Ethanol",
             "volume": "500 kg",
@@ -302,10 +313,30 @@ def test_purchase_decision_is_detailed_persisted_and_role_protected(client):
         },
         headers=headers,
     ).json()
+    intermediary = client.post(
+        "/intermediaries",
+        json={
+            "domain": "history-market.example",
+            "name": "History Market",
+            "kind": "reseller",
+        },
+        headers=headers,
+    ).json()
+    supplier = client.post(
+        f"/suppliers?rfq_id={rfq['id']}",
+        json={
+            "company": "History Market seller",
+            "type": "distributor",
+            "source": "https://history-market.example/vendor",
+            "email": "sales@history-market.example",
+        },
+        headers=headers,
+    ).json()
     quotation = client.post(
         "/quotations",
         json={
             "rfq_id": rfq["id"],
+            "manager_id": supplier["contacts"][0]["id"],
             "price": 12.5,
             "currency": "USD",
             "incoterm": "CIP",
@@ -347,11 +378,44 @@ def test_purchase_decision_is_detailed_persisted_and_role_protected(client):
     assert saved.json()["note"] == "Выбрано после технической проверки."
     assert saved.json()["selected_by_name"] == "Иван Иванов"
 
+    saved_again = client.put(
+        f"/rfq/{rfq['id']}/purchase-decision",
+        json={
+            "quotation_id": quotation["id"],
+            "note": "Повторно зафиксировано после согласования.",
+        },
+        headers=headers,
+    )
+    assert saved_again.status_code == 200
+    assert (
+        client.get(f"/intermediaries/{intermediary['id']}/purchase-history").status_code
+        == 401
+    )
+
+    for history_url in (
+        f"/rfq/{rfq['id']}/purchase-history",
+        f"/substances/{substance['id']}/purchase-history",
+        f"/suppliers/{supplier['id']}/purchase-history",
+        f"/intermediaries/{intermediary['id']}/purchase-history",
+    ):
+        history_response = client.get(history_url, headers=headers)
+        assert history_response.status_code == 200
+        purchase_history = history_response.json()
+        assert len(purchase_history) == 2
+        assert purchase_history[0]["note"] == (
+            "Повторно зафиксировано после согласования."
+        )
+        assert purchase_history[0]["snapshot"]["supplier_name"] == (
+            "History Market seller"
+        )
+        assert purchase_history[0]["actor_name"] == "Иван Иванов"
+
     persisted = client.get(
         f"/rfq/{rfq['id']}/purchase-decision", headers=headers
     )
     assert persisted.status_code == 200
     assert persisted.json()["id"] == saved.json()["id"]
+    assert persisted.json()["note"] == "Повторно зафиксировано после согласования."
 
     another_rfq = client.post(
         "/rfq?verify=false",

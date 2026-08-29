@@ -306,6 +306,20 @@ export interface PurchaseDecisionRead {
   updated_at: string;
 }
 
+export interface PurchaseHistoryEntry {
+  id: number;
+  rfq_id: number;
+  quotation_id: number;
+  substance_id: number | null;
+  supplier_id: number | null;
+  intermediary_id: number | null;
+  actor_id: number | null;
+  actor_name: string | null;
+  note: string | null;
+  snapshot: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface EscalationRead {
   id: number;
   rfq_id: number;

@@ -57,6 +57,7 @@ import type {
   SubstanceRecord,
   SummaryRow,
   PurchaseDecisionRead,
+  PurchaseHistoryEntry,
   TokenResponse,
 } from "./types";
 import {
@@ -323,6 +324,9 @@ export const api = {
   listSubstanceHistory: (id: number) =>
     request<SubstanceHistoryEntry[]>(`/substances/${id}/history`),
 
+  listSubstancePurchaseHistory: (id: number) =>
+    request<PurchaseHistoryEntry[]>(`/substances/${id}/purchase-history`),
+
   decideSubstanceIdentity: (
     rfqId: number,
     payload: {
@@ -415,6 +419,9 @@ export const api = {
   getPurchaseDecision: (rfqId: number) =>
     request<PurchaseDecisionRead | null>(`/rfq/${rfqId}/purchase-decision`),
 
+  listPurchaseHistory: (rfqId: number) =>
+    request<PurchaseHistoryEntry[]>(`/rfq/${rfqId}/purchase-history`),
+
   savePurchaseDecision: (
     rfqId: number,
     payload: { quotation_id: number; note: string | null },
@@ -440,7 +447,12 @@ export const api = {
 
   listSuppliers: () => request<SupplierRead[]>(`/suppliers`),
 
+  listSupplierPurchaseHistory: (id: number) =>
+    request<PurchaseHistoryEntry[]>(`/suppliers/${id}/purchase-history`),
+
   listIntermediaries: () => request<IntermediaryRead[]>(`/intermediaries`),
+  listIntermediaryPurchaseHistory: (id: number) =>
+    request<PurchaseHistoryEntry[]>(`/intermediaries/${id}/purchase-history`),
   createIntermediary: (body: {
     domain: string;
     name: string;

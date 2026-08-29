@@ -189,3 +189,21 @@ class PurchaseDecisionRead(BaseModel):
     note: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class PurchaseHistoryRead(BaseModel):
+    """Один неизменяемый снимок истории итогов закупки."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    rfq_id: int
+    quotation_id: int
+    substance_id: int | None
+    supplier_id: int | None
+    intermediary_id: int | None
+    actor_id: int | None
+    actor_name: str | None = None
+    note: str | None
+    snapshot: dict
+    created_at: datetime

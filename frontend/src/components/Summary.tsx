@@ -23,15 +23,6 @@ const formatPrice = (value: number | null, currency: string | null) => {
   return `${amount}${currency ? ` ${currency}` : ""}`;
 };
 
-const formatMoment = (value: string) =>
-  new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-
 const supplierName = (row: SummaryRow) => row.supplier ?? row.manager ?? "—";
 
 const manufacturerRoleLabel = (row: SummaryRow) =>
@@ -53,14 +44,6 @@ const documentsLabel = (row: SummaryRow) => {
     Boolean,
   );
   return documents.length > 0 ? documents.join(" · ") : "нет";
-};
-
-const confidenceLabel = (row: SummaryRow) => {
-  const values = Object.values(row.field_confidence ?? {}).filter((value) =>
-    Number.isFinite(value),
-  );
-  if (values.length === 0) return "не указана";
-  return `${Math.round(Math.min(...values) * 100)}% минимум`;
 };
 
 interface SummaryEditDraft {
@@ -427,10 +410,6 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
     () => Array.from(new Set(rows.map((row) => row.currency).filter(Boolean))),
     [rows],
   );
-  const decisionChanged =
-    selectedQuotationId !== (decision?.quotation_id ?? null) ||
-    decisionNote.trim() !== (decision?.note ?? "");
-
   const saveDecision = async () => {
     if (!selectedRow || readOnly) return;
     if (
@@ -451,7 +430,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
       });
       setDecision(saved);
       setDecisionNote(saved.note ?? "");
-      setNotice("Итог закупки сохранён.");
+      setNotice("Итог закупки добавлен в историю.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -1055,13 +1034,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
 
       <section className="panel purchase-result">
         <div className="purchase-result-heading">
-          <div>
-            <h2>Итог закупки</h2>
-            <p className="note">
-              Финальное предложение выбирает сотрудник. Это решение не отправляет
-              заказ, не заключает договор и не проводит оплату.
-            </p>
-          </div>
+          <h2>Итог закупки</h2>
           {decision && <span className="badge tone-ok">выбор сохранён</span>}
         </div>
 
@@ -1071,38 +1044,6 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
           </p>
         ) : (
           <>
-            <div className="purchase-result-grid">
-              <div><span>Товар</span><strong>{rfq.name}</strong></div>
-              <div><span>Планируемый объём</span><strong>{rfq.volume ?? "не указан"}</strong></div>
-              <div><span>Поставщик</span><strong>{supplierName(selectedRow)}</strong></div>
-              <div><span>Производитель</span><strong>{manufacturerRoleLabel(selectedRow)}</strong></div>
-              <div><span>Страна закупки</span><strong>{selectedRow.origin_country ?? "не указана"}</strong></div>
-              <div><span>Фасовка</span><strong>{selectedRow.packaging ?? "не указана"}</strong></div>
-              <div><span>Предложенная цена</span><strong>{pricePerUnit(selectedRow)}</strong></div>
-              <div><span>Предложенный объём</span><strong>{selectedRow.quoted_quantity ?? "не указан"}</strong></div>
-              <div><span>Стоимость закупки</span><strong>{formatPrice(selectedRow.total_price, costCurrency(selectedRow))}</strong></div>
-              <div><span>Доставка</span><strong>{formatPrice(selectedRow.delivery_cost, costCurrency(selectedRow))}</strong></div>
-              <div><span>Пошлина</span><strong>{formatPrice(selectedRow.duty_cost, costCurrency(selectedRow))}</strong></div>
-              <div><span>НДС</span><strong>{formatPrice(selectedRow.vat_cost, costCurrency(selectedRow))}</strong></div>
-              <div><span>Итого до склада</span><strong>{formatPrice(selectedRow.landed_cost, costCurrency(selectedRow))}</strong></div>
-              <div><span>Базис поставки</span><strong>{selectedRow.incoterm ?? "не указан"}</strong></div>
-              <div><span>MOQ</span><strong>{selectedRow.moq ?? "не указан"}</strong></div>
-              <div><span>Условия оплаты</span><strong>{selectedRow.payment_terms ?? "не указаны"}</strong></div>
-              <div><span>Срок</span><strong>{selectedRow.lead_time ?? "не указан"}</strong></div>
-              <div><span>Документы</span><strong>{documentsLabel(selectedRow)}</strong></div>
-              <div><span>HAZMAT</span><strong>{selectedRow.is_hazmat === null ? "не указано" : selectedRow.is_hazmat ? "да" : "нет"}</strong></div>
-              <div><span>Уверенность извлечения</span><strong>{confidenceLabel(selectedRow)}</strong></div>
-              <div><span>Получено</span><strong>{formatMoment(selectedRow.created_at)}</strong></div>
-              <div><span>Полнота</span><strong>{selectedRow.is_complete ? "полная котировка" : "есть недостающие условия"}</strong></div>
-            </div>
-
-            {selectedRow.landed_cost === null && (
-              <p className="summary-warning">
-                Итоговая себестоимость пока не подтверждена. Система не перемножает
-                цену и объём без явной единицы и не придумывает доставку, пошлину или НДС.
-              </p>
-            )}
-
             {readOnly ? (
               <div className="purchase-decision-note">
                 <span>Комментарий к выбору</span>
@@ -1124,22 +1065,17 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
               </label>
             )}
 
-            <div className="purchase-result-footer">
-              <span className="note">
-                {decision
-                  ? `Последнее решение: ${decision.selected_by_name ?? "сотрудник"}, ${formatMoment(decision.updated_at)}`
-                  : "Итог ещё не сохранён"}
-              </span>
-              {!readOnly && (
+            {!readOnly && (
+              <div className="purchase-result-footer">
                 <button
-                  disabled={saving || !decisionChanged}
+                  disabled={saving}
                   onClick={() => void saveDecision()}
                   type="button"
                 >
-                  {saving ? "Сохраняем…" : "Сохранить итог закупки"}
+                  {saving ? "Сохраняем…" : "Сохранить в историю"}
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </>
         )}
       </section>

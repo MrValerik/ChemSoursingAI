@@ -4,7 +4,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { ChannelKind, RecipientRead, SupplierRead } from "../api/types";
+import type {
+  ChannelKind,
+  PurchaseHistoryEntry,
+  RecipientRead,
+  SupplierRead,
+} from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { HelpTip } from "./ui";
 
@@ -96,6 +101,8 @@ export default function SuppliersTab({
   const [sortAsc, setSortAsc] = useState(true);
   // Компания, раскрытая в подробной карточке.
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseHistoryEntry[]>([]);
+  const [purchaseHistoryLoading, setPurchaseHistoryLoading] = useState(false);
 
   // Контакт, вписываемый руками в карточке компании.
   const [contactName, setContactName] = useState("");
@@ -131,6 +138,29 @@ export default function SuppliersTab({
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rfqId]);
+
+  useEffect(() => {
+    if (detailId === null) {
+      setPurchaseHistory([]);
+      return;
+    }
+    let active = true;
+    setPurchaseHistoryLoading(true);
+    api
+      .listSupplierPurchaseHistory(detailId)
+      .then((items) => {
+        if (active) setPurchaseHistory(items);
+      })
+      .catch(() => {
+        if (active) setPurchaseHistory([]);
+      })
+      .finally(() => {
+        if (active) setPurchaseHistoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [detailId]);
 
   // Таблица показывает контрагентов этого запроса, а не весь справочник.
   // Реестр общий и растёт от всех прогонов подряд: на стенде в нём 164
@@ -731,6 +761,26 @@ export default function SuppliersTab({
                       .join("; ")}
               </dd>
             </dl>
+
+            <section className="registry-purchase-history">
+              <h3>История итогов закупки</h3>
+              {purchaseHistoryLoading && <p className="note">Загрузка…</p>}
+              {!purchaseHistoryLoading && purchaseHistory.length === 0 && (
+                <p className="note">Сохранённых итогов с этим поставщиком нет.</p>
+              )}
+              {purchaseHistory.map((entry) => (
+                <article key={entry.id}>
+                  <div>
+                    <strong>Запрос #{entry.rfq_id}</strong>
+                    <time dateTime={entry.created_at}>
+                      {new Date(entry.created_at).toLocaleString("ru-RU")}
+                    </time>
+                  </div>
+                  <p>{entry.note ?? "Комментарий не указан."}</p>
+                  <span className="note">{entry.actor_name ?? "Сотрудник"}</span>
+                </article>
+              ))}
+            </section>
 
             <p className="note">
               Роль и найденные контакты прочитаны со страницы компании и

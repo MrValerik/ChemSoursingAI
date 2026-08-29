@@ -1058,6 +1058,49 @@ table.summary-detailed-table tr.summary-selected-row:hover {
 
 .purchase-result-footer {
   align-items: center;
+  justify-content: flex-end;
+}
+
+.registry-purchase-history {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.registry-purchase-history h3,
+.registry-purchase-history p {
+  margin: 0;
+}
+
+.registry-purchase-history article {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.registry-purchase-history article > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.registry-purchase-history time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.registry-purchase-history.compact {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.intermediary-history-control {
+  margin-top: 7px;
 }
 
 /* ===== Знак ChemSource AI и заставка загрузки ===== */

@@ -7,12 +7,14 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user, get_db
-from app.models import Intermediary, User
+from app.models import Intermediary, PurchaseHistoryEntry, User
 from app.models.enums import UserRole
+from app.schemas.quotation import PurchaseHistoryRead
 from app.services.intermediaries import domain_label, normalize_domain
+from app.services.quotation_service import purchase_history_read
 from app.services.search_trace import utc_now
 
 router = APIRouter(prefix="/intermediaries", tags=["intermediaries"])
@@ -117,6 +119,30 @@ def list_intermediaries(
             select(Intermediary).order_by(Intermediary.kind, Intermediary.domain)
         ).all()
     ]
+
+
+@router.get(
+    "/{intermediary_id}/purchase-history",
+    response_model=list[PurchaseHistoryRead],
+)
+def intermediary_purchase_history(
+    intermediary_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> list[PurchaseHistoryRead]:
+    """История итогов, связанных с площадкой или перекупщиком."""
+    if db.get(Intermediary, intermediary_id) is None:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    entries = db.scalars(
+        select(PurchaseHistoryEntry)
+        .options(joinedload(PurchaseHistoryEntry.actor))
+        .where(PurchaseHistoryEntry.intermediary_id == intermediary_id)
+        .order_by(
+            PurchaseHistoryEntry.created_at.desc(),
+            PurchaseHistoryEntry.id.desc(),
+        )
+    ).all()
+    return [purchase_history_read(entry) for entry in entries]
 
 
 @router.post("", response_model=IntermediaryRead, status_code=201)
