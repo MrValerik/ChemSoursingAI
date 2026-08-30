@@ -10,8 +10,8 @@ const {
   normalizedPendingEvent,
   providerMessageId,
 } = require("./message-id");
+const { buildIncomingEvent } = require("./incoming-event");
 const { removeStaleChromiumLocks } = require("./session-files");
-const { resolveSenderNumber } = require("./sender-number");
 
 const port = Number(process.env.PORT || 3000);
 const serviceToken = process.env.WHATSAPP_WEB_SERVICE_TOKEN || "";
@@ -24,6 +24,11 @@ const initRetryMs = Math.max(
   5000,
   Number(process.env.WHATSAPP_WEB_INIT_RETRY_MS || 15000),
 );
+const configuredMaxMediaMb = Number(process.env.WHATSAPP_WEB_MAX_MEDIA_MB || 25);
+const maxMediaMb = Number.isFinite(configuredMaxMediaMb) && configuredMaxMediaMb > 0
+  ? Math.min(configuredMaxMediaMb, 25)
+  : 25;
+const maxMediaBytes = maxMediaMb * 1024 * 1024;
 
 let client = null;
 let state = "stopped";
@@ -152,23 +157,9 @@ async function flushEvents() {
 }
 
 async function queueIncoming(message) {
-  const from = String(message.from || "");
-  if (
-    message.fromMe ||
-    !message.body ||
-    from.endsWith("@g.us") ||
-    from === "status@broadcast"
-  ) return;
-  const sender = await resolveSenderNumber(message, client);
-  if (!sender) return;
-  const event = {
-    event: "message",
-    message_id: providerMessageId(message) || "",
-    from: sender,
-    body: String(message.body).slice(0, 8000),
-    timestamp: Number(message.timestamp || Math.floor(Date.now() / 1000)),
-  };
-  pendingEvents.push(normalizedPendingEvent(event));
+  const event = await buildIncomingEvent(message, client, maxMediaBytes);
+  if (!event) return;
+  pendingEvents.push(event);
   persistEvents();
   void flushEvents();
 }

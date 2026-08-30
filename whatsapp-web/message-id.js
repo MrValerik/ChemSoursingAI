@@ -21,6 +21,10 @@ function fallbackInboundMessageId(event) {
     from: String(event.from || ""),
     body: String(event.body || ""),
     timestamp: Number(event.timestamp || 0),
+    attachments: (event.attachments || []).map((item) => ({
+      filename: String(item.filename || ""),
+      size: Number(item.size || 0),
+    })),
   });
   return `web-in-${crypto.createHash("sha256").update(fingerprint).digest("hex")}`;
 }

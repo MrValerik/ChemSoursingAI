@@ -107,6 +107,8 @@ const deliveryStatusLabel = (status: string) =>
     sending: "отправляется",
     sent: "отправлено",
     received: "получено",
+    received_ambiguous: "получено · требуется привязка",
+    processing_error: "получено · ошибка обработки",
     delivery_error: "доставка не подтверждена",
   })[status] ?? status;
 
@@ -913,12 +915,11 @@ export default function DispatchTab({
                               ? dialogueTranslations[message.id]
                               : message.body || "—"}
                           </p>
-                          {message.channel === "email" &&
-                            message.attachments &&
+                          {message.attachments &&
                             message.attachments.length > 0 && (
                               <div
                                 className="conversation-attachments"
-                                aria-label="Вложения письма"
+                                aria-label="Вложения сообщения"
                               >
                                 {message.attachments.map((attachment, index) => {
                                   const downloadable = attachment.document_id !== null;

@@ -1,4 +1,4 @@
-"""Приём вложений письма: сохранение файла и извлечение текста.
+"""Приём вложений сообщений: сохранение файла и извлечение текста.
 
 Отказ по одному вложению не должен ломать обработку письма, поэтому причина
 записывается в метаданные коммуникации, а не выбрасывается наружу.
@@ -29,7 +29,7 @@ def store_incoming_attachments(
     supplier_id: int | None = None,
     attachments: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """Сохраняет вложения письма и возвращает метаданные без содержимого."""
+    """Сохраняет вложения сообщения и возвращает метаданные без содержимого."""
     saved: list[dict[str, Any]] = []
     for attachment in attachments or []:
         filename = str(attachment.get("filename") or "document")
@@ -40,6 +40,12 @@ def store_incoming_attachments(
             "content_type": declared,
             "size": attachment.get("size") or (len(payload) if payload else 0),
         }
+        gateway_error = attachment.get("error")
+        if gateway_error:
+            metadata["status"] = "failed"
+            metadata["error"] = str(gateway_error)[:300]
+            saved.append(metadata)
+            continue
         if not isinstance(payload, (bytes, bytearray)):
             metadata["status"] = "skipped"
             metadata["error"] = "Содержимое вложения недоступно"

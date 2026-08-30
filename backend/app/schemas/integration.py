@@ -176,12 +176,24 @@ class IntegrationConnectionRead(BaseModel):
     details: dict[str, str | bool | int | None] = Field(default_factory=dict)
 
 
+class WhatsAppWebAttachment(BaseModel):
+    filename: str = Field(default="document", min_length=1, max_length=255)
+    content_type: str = Field(
+        default="application/octet-stream", min_length=1, max_length=255
+    )
+    size: int | None = Field(default=None, ge=0)
+    content_base64: str | None = Field(default=None, max_length=36_000_000)
+    error: str | None = Field(default=None, max_length=300)
+
+
 class WhatsAppWebEvent(BaseModel):
     event: Literal["message"]
     message_id: str = Field(min_length=1, max_length=255)
     from_number: str = Field(alias="from", min_length=1, max_length=64)
-    body: str = Field(min_length=1, max_length=8000)
-    timestamp: int
+    body: str = Field(default="", max_length=8000)
+    timestamp: int = Field(ge=0)
+    quoted_message_id: str | None = Field(default=None, max_length=255)
+    attachments: list[WhatsAppWebAttachment] = Field(default_factory=list, max_length=5)
 
 
 class CommunicationTestCreate(BaseModel):
