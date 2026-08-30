@@ -24,10 +24,12 @@ from app.extraction.llm_client import (
 )
 from app.extraction.rule_extractor import extract_with_rules
 from app.models import (
+    AgentRun,
     CommunicationTestMessage,
     CommunicationTestRun,
     Quotation,
     RFQ,
+    SearchRun,
     SupplierDocument,
     User,
 )
@@ -729,8 +731,16 @@ def _validate_procurement_identity(
     *,
     llm: LLMClient | None = None,
     pubchem: PubChemConnector | None = None,
+    saved_verification: dict | None = None,
 ):
-    """Проверяет CAS до первого сообщения и при сомнении запрещает RFQ."""
+    """Проверяет CAS до первого сообщения и при сомнении запрещает RFQ.
+
+    Подтверждённый снимок PubChem уже хранится в RFQ после создания и поиска.
+    Повторный сетевой запрос не добавляет доказательств, но делает общение
+    зависимым от кратковременной доступности внешнего сервиса. Поэтому снимок
+    используем первым, строго сверяя CAS и происхождение; сеть нужна только
+    для CAS, которого в сохранённой проверке нет.
+    """
     cas_numbers = list(
         dict.fromkeys(
             normalize_cas(match.group(1))
@@ -752,9 +762,15 @@ def _validate_procurement_identity(
             "CAS не прошёл проверку контрольной суммы: " + ", ".join(invalid),
         )
 
-    connector = pubchem or PubChemConnector()
     facts = []
+    connector = pubchem
     for cas in cas_numbers:
+        saved_fact = _saved_pubchem_fact(saved_verification, expected_cas=cas)
+        if saved_fact is not None:
+            facts.append(saved_fact)
+            continue
+
+        connector = connector or PubChemConnector()
         info = connector.verify_cas(cas)
         if not info.found:
             reason = {
@@ -813,6 +829,86 @@ def _validate_procurement_identity(
             "identity_or_custom_synthesis",
             explanation.strip(),
         )
+    return None
+
+
+def _saved_pubchem_fact(
+    verification: dict | None,
+    *,
+    expected_cas: str,
+) -> dict | None:
+    """Возвращает только доказуемо подходящий сохранённый снимок PubChem."""
+    if not isinstance(verification, dict):
+        return None
+    if verification.get("found") is not True:
+        return None
+    if verification.get("outcome") != "confirmed":
+        return None
+    if verification.get("source") != "pubchem":
+        return None
+
+    saved_cas = verification.get("cas")
+    if not isinstance(saved_cas, str):
+        return None
+    saved_cas = normalize_cas(saved_cas)
+    if saved_cas != expected_cas or not is_valid_cas(saved_cas):
+        return None
+
+    iupac_name = verification.get("iupac_name")
+    if not isinstance(iupac_name, str) or not iupac_name.strip():
+        iupac_name = None
+    synonyms = [
+        item.strip()
+        for item in verification.get("synonyms") or []
+        if isinstance(item, str) and item.strip()
+    ][:20]
+    if iupac_name is None and not synonyms:
+        return None
+
+    return {
+        "cas": saved_cas,
+        "iupac_name": iupac_name,
+        "synonyms": synonyms,
+    }
+
+
+def _saved_pubchem_verification_for_rfq(
+    db: Session,
+    rfq: RFQ | None,
+) -> dict | None:
+    """Находит подтверждение в RFQ или в сохранённой трассе его поиска."""
+    if rfq is None or not rfq.cas:
+        return None
+    expected_cas = normalize_cas(rfq.cas)
+    if not is_valid_cas(expected_cas):
+        return None
+
+    if rfq.verified and _saved_pubchem_fact(
+        rfq.verification,
+        expected_cas=expected_cas,
+    ) is not None:
+        return rfq.verification
+
+    # Пакетные и старые запросы могли запускать поиск без записи результата
+    # в rfqs.verification. Трасса первого этапа поиска всё равно хранит
+    # неизменённый ответ PubChem, поэтому переиспользуем его вместо сети.
+    statement = (
+        select(AgentRun.output_payload)
+        .join(SearchRun, AgentRun.search_run_id == SearchRun.id)
+        .where(
+            SearchRun.rfq_id == rfq.id,
+            AgentRun.agent_slug == "substance_lookup",
+            AgentRun.status == "completed",
+        )
+        .order_by(AgentRun.completed_at.desc(), AgentRun.id.desc())
+        .limit(20)
+    )
+    for verification in db.scalars(statement):
+        if _saved_pubchem_fact(
+            verification,
+            expected_cas=expected_cas,
+        ) is not None:
+            return verification
     return None
 
 
@@ -1203,6 +1299,7 @@ def run_communication_test(
         raise ValueError(
             "Для реальной отправки требуется явное подтверждение администратора"
         )
+    rfq: RFQ | None = None
     if payload.rfq_id is not None:
         rfq = db.get(RFQ, payload.rfq_id)
         if rfq is None or rfq.deleted_at is not None:
@@ -1290,7 +1387,11 @@ def run_communication_test(
             category="unclear",
         )
 
-    identity_issue = _validate_procurement_identity(context, llm=client)
+    identity_issue = _validate_procurement_identity(
+        context,
+        llm=client,
+        saved_verification=_saved_pubchem_verification_for_rfq(db, rfq),
+    )
     if identity_issue is not None:
         category, explanation = identity_issue
         audit_start.audit.policy_route = "escalate"

@@ -9,6 +9,7 @@ from app.services.communication_testing import (
     _message_language_matches,
     _plain_text_message,
     _reply_quality_issue,
+    _saved_pubchem_verification_for_rfq,
     _validate_procurement_identity,
 )
 from app.services.supplier_communication_prompts import (
@@ -208,6 +209,98 @@ def test_procurement_identity_gate_passes_verified_consistent_cas():
     assert pubchem.calls == ["67-64-1"]
     assert '"Acetone"' in llm.calls[0]["user_text"]
     assert llm.calls[0]["schema_name"] == "communication_procurement_identity"
+
+
+def test_procurement_identity_gate_reuses_saved_pubchem_verification():
+    llm = IdentityGateLlm(
+        {
+            "route": "continue",
+            "category": "consistent",
+            "explanation": "Название соответствует подтверждённому CAS.",
+        }
+    )
+    pubchem = IdentityPubChem({})
+
+    issue = _validate_procurement_identity(
+        "100 kg acetone, CAS 67-64-1",
+        llm=llm,
+        pubchem=pubchem,
+        saved_verification={
+            "cas": "67-64-1",
+            "found": True,
+            "outcome": "confirmed",
+            "source": "pubchem",
+            "iupac_name": "propan-2-one",
+            "synonyms": ["Acetone", "2-Propanone"],
+        },
+    )
+
+    assert issue is None
+    assert pubchem.calls == []
+    assert '"Acetone"' in llm.calls[0]["user_text"]
+
+
+def test_procurement_identity_gate_does_not_reuse_snapshot_for_another_cas():
+    pubchem = IdentityPubChem(
+        {
+            "67-56-1": SubstanceInfo(
+                cas="67-56-1",
+                found=False,
+                error="http_error: offline",
+            )
+        }
+    )
+
+    issue = _validate_procurement_identity(
+        "100 kg methanol, CAS 67-56-1",
+        llm=IdentityGateLlm({}),
+        pubchem=pubchem,
+        saved_verification={
+            "cas": "67-64-1",
+            "found": True,
+            "outcome": "confirmed",
+            "source": "pubchem",
+            "iupac_name": "propan-2-one",
+            "synonyms": ["Acetone"],
+        },
+    )
+
+    assert issue == (
+        "unclear",
+        "CAS 67-56-1 не проверен из-за недоступности PubChem; "
+        "первое сообщение остановлено.",
+    )
+    assert pubchem.calls == ["67-56-1"]
+
+
+def test_procurement_identity_gate_finds_saved_search_trace_verification():
+    saved = {
+        "cas": "67-64-1",
+        "found": True,
+        "outcome": "confirmed",
+        "source": "pubchem",
+        "iupac_name": "propan-2-one",
+        "synonyms": ["Acetone"],
+    }
+
+    class SavedSearchDb:
+        def __init__(self):
+            self.queries = []
+
+        def scalars(self, statement):
+            self.queries.append(statement)
+            return iter([saved])
+
+    db = SavedSearchDb()
+    rfq = SimpleNamespace(
+        id=42,
+        cas="67-64-1",
+        verified=False,
+        verification=None,
+    )
+
+    assert _saved_pubchem_verification_for_rfq(db, rfq) == saved
+    assert len(db.queries) == 1
 
 
 def test_procurement_identity_gate_escalates_name_cas_conflict():

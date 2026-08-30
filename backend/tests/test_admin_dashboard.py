@@ -1,6 +1,7 @@
 """Тесты шага 6: администрирование пользователей, каналы, интеграции."""
 
 import os
+from datetime import datetime, timezone
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_admin.db")
 
@@ -12,7 +13,7 @@ from app.connectors.pubchem import SubstanceInfo
 from app.core.db import SessionLocal, engine
 from app.extraction.llm_client import LLMUnavailableError
 from app.main import app
-from app.models import CommunicationTestRun, IntegrationSetting
+from app.models import AgentRun, CommunicationTestRun, IntegrationSetting, SearchRun
 from app.services.communication_policy import CommunicationPolicyDecision
 
 
@@ -1346,6 +1347,85 @@ def test_communication_testing_stops_before_first_message_on_identity_conflict(
     assert response.json()["generated_reply"] is None
     assert "Метанол не соответствует CAS ацетона" in response.json()["error"]
     assert "identity_or_custom_synthesis" in response.json()["error"]
+
+
+def test_communication_testing_reuses_pubchem_result_saved_by_search(
+    client, monkeypatch
+):
+    admin = _login(client)
+    actor_id = client.get("/auth/me", headers=admin).json()["id"]
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "67-64-1", "name": "Acetone", "incoterms": ["CIP"]},
+        headers=admin,
+    ).json()
+
+    now = datetime.now(timezone.utc)
+    with SessionLocal() as db:
+        search_run = SearchRun(
+            owner_id=actor_id,
+            rfq_id=rfq["id"],
+            status="completed",
+            mode="expert",
+            input_payload={"cas": "67-64-1"},
+            result_payload={},
+            started_at=now,
+            completed_at=now,
+        )
+        db.add(search_run)
+        db.flush()
+        db.add(
+            AgentRun(
+                search_run_id=search_run.id,
+                sequence=1,
+                agent_slug="substance_lookup",
+                agent_name="Проверка CAS в PubChem",
+                execution_type="tool",
+                status="completed",
+                output_payload={
+                    "cas": "67-64-1",
+                    "found": True,
+                    "outcome": "confirmed",
+                    "source": "pubchem",
+                    "iupac_name": "propan-2-one",
+                    "synonyms": ["Acetone", "2-Propanone"],
+                },
+                started_at=now,
+                completed_at=now,
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.PubChemConnector.verify_cas",
+        lambda self, cas: (_ for _ in ()).throw(
+            AssertionError("saved search verification must avoid PubChem")
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_json",
+        lambda self, **kwargs: {
+            "route": "continue",
+            "category": "consistent",
+            "explanation": "Название соответствует подтверждённому CAS.",
+        },
+    )
+
+    response = client.post(
+        "/communication-testing",
+        json={
+            "rfq_id": rfq["id"],
+            "channel": "email",
+            "procurement_context": "100 kg Acetone, CAS 67-64-1",
+            "initial_message": "Please quote 100 kg Acetone, CAS 67-64-1.",
+            "delivery_mode": "preview",
+        },
+        headers=admin,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "previewed"
+    assert response.json()["messages"][0]["content"].startswith("Please quote")
 
 
 def test_communication_testing_regenerates_reply_rejected_by_quality_gate(
