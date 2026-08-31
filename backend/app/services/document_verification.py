@@ -23,7 +23,9 @@ _PRODUCT_NAME_PATTERN = re.compile(
     r"наименование|название\s+вещества)\s*[:\-]\s*([^\r\n]+)"
 )
 _BATCH_VALUE_PATTERN = re.compile(
-    r"(?i)(?:batch(?:\s+no\.?)?|lot(?:\s+no\.?)?|номер\s+партии)\s*[:#\-]\s*([^\r\n;]+)"
+    r"(?i)(?:(?:\bbatch\s*(?:no\.?|number)|\blot\s*(?:no\.?|number)|номер\s+партии)"
+    r"(?:\s*[:#：\-]\s*|\s+)|(?:\bbatch|\blot)\s*[:#：\-]\s*)"
+    r"([a-zа-я0-9][a-zа-я0-9._/\-]*)"
 )
 _DOCUMENT_KIND_MARKERS = {
     "coa": ("certificate of analysis", "паспорт качества", "сертификат анализа"),
@@ -74,7 +76,7 @@ def _batch_claim_matches_quote(claim_value: str, quote: str) -> bool:
         return False
     stated = _normalize_name(match.group(1))
     claimed = _normalize_name(claim_value)
-    return bool(stated and claimed and (stated in claimed or claimed in stated))
+    return bool(stated and claimed and stated == claimed)
 
 
 def document_cas_numbers(document_text: str) -> set[str]:
@@ -97,10 +99,11 @@ def document_product_names(document_text: str) -> list[str]:
 def document_kind_from_text(document_text: str) -> str:
     """Распознаёт стандартный тип документа по его заголовку без модели."""
     normalized = _normalize_space(document_text or "")
-    for kind, markers in _DOCUMENT_KIND_MARKERS.items():
-        if any(marker in normalized for marker in markers):
-            return kind
-    return "unknown"
+    # A TDS can refer to a Certificate of Analysis in its footer. Its own
+    # heading comes first; mentioning CoA later does not change the file type.
+    matches = [(normalized.find(marker), kind) for kind, markers in _DOCUMENT_KIND_MARKERS.items()
+               for marker in markers if marker in normalized]
+    return min(matches)[1] if matches else "unknown"
 
 
 def _name_matches(expected_name: str | None, document_text: str) -> bool:
@@ -259,11 +262,24 @@ def apply_document_verification(
             claim.claim_type != "batch"
             or _batch_claim_matches_quote(claim.claim_value, claim.quote)
         )
+        if claim.claim_type == "manufacture_date" and not re.search(
+            r"manufactur(?:e|ing)|mfg|production\s+date|дата\s+(?:производства|изготовления)",
+            claim.quote, re.I,
+        ):
+            value_verified = False
+        if claim.claim_type == "standard":
+            named_standards = re.findall(r"\b(?:USP|EP|BP|JP|FCC)(?=\b|\d)", claim.claim_value, re.I)
+            if any(not re.search(rf"\b{standard}(?=\b|\d)", claim.quote, re.I) for standard in named_standards):
+                value_verified = False
         if quote_verified and value_verified:
             accepted.append({**entry, "quote_verified": True})
         else:
             rejection_reason = (
-                "номер партии в claim_value не совпадает с цитатой"
+                ("номер партии в claim_value не совпадает с цитатой"
+                 if claim.claim_type == "batch"
+                 else ("заявленный стандарт не указан в цитате; его нельзя вывести из набора анализов"
+                       if claim.claim_type == "standard"
+                       else "цитата не содержит дату производства; дата документа её не заменяет"))
                 if quote_verified and not value_verified
                 else "цитата дословно не найдена в тексте документа"
             )
@@ -377,9 +393,12 @@ def apply_document_verification(
         if confidence < 80:
             gaps.append(f"проверяемая уверенность ниже 80% ({confidence}%)")
         if not _REQUIRED_CLAIMS.issubset(accepted_types):
-            gaps.append("не подтверждены вещество и номер партии")
+            if document_kind_from_text(document_text) == "tds" and "batch" not in accepted_types:
+                gaps.append("TDS описывает продукт в целом, для проверки конкретной партии требуется CoA")
+            else:
+                gaps.append("не подтверждены вещество и номер партии")
         if rejected:
-            gaps.append("часть цитат не найдена в документе")
+            gaps.append("часть утверждений не подтверждена текстом документа")
         gate_reason = (
             "Требуется ручная проверка: " + "; ".join(gaps)
             if gaps

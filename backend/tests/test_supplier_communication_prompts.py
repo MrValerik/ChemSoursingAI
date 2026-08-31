@@ -66,7 +66,8 @@ def test_followup_only_requests_missing_or_conflicting_terms():
 
 
 def test_email_and_whatsapp_have_different_style_constraints():
-    assert "50–100 слов" in CHANNEL_INSTRUCTIONS["email"]
+    assert "30–70 слов" in CHANNEL_INSTRUCTIONS["email"]
+    assert "одной фразы" in CHANNEL_INSTRUCTIONS["email"]
     assert "1–4 короткие строки" in CHANNEL_INSTRUCTIONS["whatsapp"]
     assert "сразу переходи к сути" in CHANNEL_INSTRUCTIONS["email"]
     assert "без долгого приветствия" in CHANNEL_INSTRUCTIONS["whatsapp"]

@@ -59,6 +59,7 @@ from app.services.cas import is_valid_cas, normalize_cas
 from app.services.demo_supplier_document import build_demo_coa_pdf
 from app.services.document_agent import verify_document
 from app.services.communication_llm import communication_llm_client
+from app.services.communication_reply_quality import REPLY_DISCIPLINE, grounded_reply_issue, reply_focus
 from app.services.document_storage import store_document
 from app.services.document_text import apply_extraction
 from app.services.prompt_service import get_active_prompt_text
@@ -690,7 +691,7 @@ def _generation_instructions(run: CommunicationTestRun, *, stage: str) -> str:
             "безопасности:\n"
             f"{run.additional_instructions}"
         )
-    return (
+    result = (
         f"{instructions}\n\nКРИТИЧЕСКОЕ ТРЕБОВАНИЕ К РЕЗУЛЬТАТУ: "
         f"{_LANGUAGE_INSTRUCTIONS[run.reply_language]} "
         "Используй только объёмы и виды партий, прямо указанные в контексте "
@@ -710,6 +711,14 @@ def _generation_instructions(run: CommunicationTestRun, *, stage: str) -> str:
         " Не запрашивай цену с включённой доставкой или фрахтом, если оператор "
         "не задал доставку или пункт назначения."
     )
+    if stage == "reply":
+        result += f"\n\n{REPLY_DISCIPLINE}"
+        result += "\n" + reply_focus(
+            run.procurement_context,
+            "\n".join(message.content for message in run.messages if message.sender_role == "supplier"),
+            next((message.content for message in reversed(run.messages) if message.sender_role == "supplier"), ""),
+        )
+    return result
 
 
 def _escalate_run(
@@ -938,6 +947,12 @@ def _reply_quality_issue(
         if message.sender_role == "supplier"
     )
     known_text = f"{context}\n{supplier_text}"
+    grounded_issue = grounded_reply_issue(
+        context=context, supplier_text=supplier_text, reply=reply, stage=stage,
+        latest_supplier_text=latest_supplier,
+    )
+    if grounded_issue:
+        return grounded_issue
 
     if stage == "initial" and not _CONTEXT_CAS_RE.search(context):
         if not re.search(r"\bcas\b", outgoing, re.IGNORECASE):
