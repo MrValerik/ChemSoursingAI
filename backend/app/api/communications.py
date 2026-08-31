@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -14,7 +14,7 @@ from app.connectors.google_translate import GoogleTranslateError
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.models import Communication, RFQ, User
-from app.models.enums import Channel, CommDirection, UserRole
+from app.models.enums import Channel, UserRole
 from app.schemas.communication import (
     CommunicationDraftSend,
     CommunicationMessageRead,
@@ -26,6 +26,8 @@ from app.schemas.communication import (
     MailboxMessageListRead,
     MailboxMessageRead,
     MailboxSendCreate,
+    MailboxThreadListRead,
+    MailboxThreadDetailRead,
 )
 from app.services.communication_delivery import (
     CommunicationSendError,
@@ -36,6 +38,12 @@ from app.services.communication_history import list_communication_overview
 from app.services.communication_translation import translate_communication_messages
 from app.services.email_workflow import sync_inbox
 from app.services.mailbox import send_mailbox_message
+from app.services.mailbox_history import (
+    get_mailbox_thread,
+    list_mailbox_threads,
+    mailbox_criteria,
+    mailbox_message_read,
+)
 
 router = APIRouter(tags=["communications"])
 
@@ -109,15 +117,7 @@ def _message_read(message: Communication) -> CommunicationMessageRead:
 
 
 def _mailbox_message_read(message: Communication) -> MailboxMessageRead:
-    return MailboxMessageRead(
-        **_message_read(message).model_dump(),
-        rfq_id=message.rfq_id,
-        manager_id=message.manager_id,
-        is_unresolved=(
-            message.direction.value == "inbound" and message.rfq_id is None
-        ),
-        message_at=message.message_at or message.created_at,
-    )
+    return mailbox_message_read(message)
 
 
 def _ensure_can_send(user: User) -> None:
@@ -137,38 +137,15 @@ def list_mailbox_messages(
     _user: User = Depends(get_current_user),
 ) -> MailboxMessageListRead:
     """Показывает сохранённые входящие и исходящие общего Email-ящика."""
-    if date_from and date_to and date_from > date_to:
-        raise HTTPException(status_code=422, detail="Дата начала позже даты окончания")
-    criteria = [Communication.channel == Channel.EMAIL]
-    if folder == "inbox":
-        criteria.append(Communication.direction == CommDirection.INBOUND)
-    elif folder == "sent":
-        criteria.append(Communication.direction == CommDirection.OUTBOUND)
-    elif folder == "unresolved":
-        criteria.extend(
-            [
-                Communication.direction == CommDirection.INBOUND,
-                Communication.rfq_id.is_(None),
-            ]
+    try:
+        criteria = mailbox_criteria(
+            folder=folder, date_from=date_from, date_to=date_to, query=query,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     effective_date = func.coalesce(
         Communication.message_at, Communication.created_at
     )
-    if date_from:
-        criteria.append(func.date(effective_date) >= date_from.isoformat())
-    if date_to:
-        criteria.append(func.date(effective_date) <= date_to.isoformat())
-    clean_query = (query or "").strip().casefold()
-    if clean_query:
-        pattern = f"%{clean_query}%"
-        criteria.append(
-            or_(
-                func.lower(Communication.subject).like(pattern),
-                func.lower(Communication.body).like(pattern),
-                func.lower(Communication.from_address).like(pattern),
-                func.lower(Communication.to_address).like(pattern),
-            )
-        )
     total = db.scalar(
         select(func.count(Communication.id)).where(*criteria)
     ) or 0
@@ -183,6 +160,45 @@ def list_mailbox_messages(
         items=[_mailbox_message_read(message) for message in messages],
         total=total,
     )
+
+
+@router.get("/mail/threads", response_model=MailboxThreadListRead)
+def mailbox_threads(
+    folder: Literal["all", "inbox", "sent", "unresolved"] = "all",
+    date_from: date | None = None,
+    date_to: date | None = None,
+    query: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> MailboxThreadListRead:
+    """Shared mailbox access is unchanged; RFQ assignment is not inferred."""
+    try:
+        return list_mailbox_threads(
+            db, folder=folder, date_from=date_from, date_to=date_to,
+            query=query, limit=limit, offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/mail/messages/{message_id}/thread", response_model=MailboxThreadDetailRead)
+def mailbox_thread(
+    message_id: int,
+    before_id: int | None = Query(default=None, gt=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> MailboxThreadDetailRead:
+    try:
+        return get_mailbox_thread(
+            db, message_id=message_id, before_id=before_id, limit=limit,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post(

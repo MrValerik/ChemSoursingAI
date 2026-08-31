@@ -464,6 +464,30 @@ export interface MailboxMessageListRead {
   total: number;
 }
 
+export interface MailboxThreadRead {
+  key: string;
+  correspondent: string | null;
+  message_count: number;
+  matched_count: number;
+  unresolved_count: number;
+  rfq_ids: number[];
+  latest_message: MailboxMessageRead;
+}
+
+export interface MailboxThreadListRead {
+  items: MailboxThreadRead[];
+  total: number;
+  total_messages: number;
+}
+
+export interface MailboxThreadDetailRead {
+  key: string;
+  correspondent: string | null;
+  items: MailboxMessageRead[];
+  total: number;
+  next_before_id: number | null;
+}
+
 export interface CommunicationAttachmentRead {
   filename: string;
   content_type: string | null;

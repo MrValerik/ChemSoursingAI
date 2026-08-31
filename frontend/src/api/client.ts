@@ -12,6 +12,8 @@ import type {
   MailboxFolder,
   MailboxMessageListRead,
   MailboxMessageRead,
+  MailboxThreadListRead,
+  MailboxThreadDetailRead,
   CommunicationProfile,
   CommunicationProfileStatus,
   CommunicationProfileVersion,
@@ -691,6 +693,26 @@ export const api = {
     if (filters.query?.trim()) params.set("query", filters.query.trim());
     return request<MailboxMessageListRead>(`/mail/messages?${params.toString()}`);
   },
+
+  listMailboxThreads: (filters: {
+    folder: MailboxFolder;
+    date_from?: string;
+    date_to?: string;
+    query?: string;
+    offset?: number;
+  }) => {
+    const params = new URLSearchParams({ folder: filters.folder });
+    if (filters.date_from) params.set("date_from", filters.date_from);
+    if (filters.date_to) params.set("date_to", filters.date_to);
+    if (filters.query?.trim()) params.set("query", filters.query.trim());
+    if (filters.offset) params.set("offset", String(filters.offset));
+    return request<MailboxThreadListRead>(`/mail/threads?${params.toString()}`);
+  },
+
+  getMailboxThread: (messageId: number, beforeId?: number) =>
+    request<MailboxThreadDetailRead>(
+      `/mail/messages/${messageId}/thread${beforeId ? `?before_id=${beforeId}` : ""}`,
+    ),
 
   sendMailboxMessage: (payload: {
     to_address: string;

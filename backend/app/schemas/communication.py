@@ -50,6 +50,30 @@ class MailboxMessageListRead(BaseModel):
     total: int = Field(default=0, ge=0)
 
 
+class MailboxThreadRead(BaseModel):
+    key: str
+    correspondent: str | None
+    message_count: int = Field(ge=1)
+    matched_count: int = Field(ge=1)
+    unresolved_count: int = Field(ge=0)
+    rfq_ids: list[int] = Field(default_factory=list)
+    latest_message: MailboxMessageRead
+
+
+class MailboxThreadListRead(BaseModel):
+    items: list[MailboxThreadRead] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    total_messages: int = Field(default=0, ge=0)
+
+
+class MailboxThreadDetailRead(BaseModel):
+    key: str
+    correspondent: str | None
+    items: list[MailboxMessageRead] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    next_before_id: int | None = None
+
+
 class MailboxSendCreate(BaseModel):
     to_address: str = Field(min_length=3, max_length=320)
     subject: str = Field(min_length=1, max_length=998)
