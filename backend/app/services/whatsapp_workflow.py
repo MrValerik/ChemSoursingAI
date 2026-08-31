@@ -33,6 +33,7 @@ from app.models.quotation import Quotation
 from app.models.rfq import RFQ
 from app.schemas.quotation import QuotationCreate
 from app.services.communication_policy import classify_supplier_message
+from app.services.communication_llm import communication_llm_client
 from app.services.communication_profiles import (
     budget_escalation_note,
     finalize_usage,
@@ -461,7 +462,7 @@ def process_business_whatsapp(
         db.commit()
         return 0
 
-    client = LLMClient()
+    client = communication_llm_client()
     policy = classify_supplier_message(
         text,
         rfq_name=rfq.name,

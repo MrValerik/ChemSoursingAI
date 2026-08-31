@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     # превысить контекст модели даже при неверной настройке сервиса.
     llm_context_tokens: int = Field(default=12288)
 
+    # Модель общения и его вложений на том же провайдере, что и основной LLM.
+    # Пустое значение сохраняет прежнюю маршрутизацию; поиск не меняется.
+    communication_llm_model: str = Field(default="")
+    communication_llm_thinking_control: Literal[
+        "chat_template_kwargs", "reasoning_effort", "none"
+    ] = Field(default="reasoning_effort")
+
     # --- Выделенная LLM для администраторского тестирования общения ---
     # Пустой профиль сохраняет удобный локальный fallback на основной LLM.
     # В production задаётся отдельный облачный OpenAI-совместимый профиль,

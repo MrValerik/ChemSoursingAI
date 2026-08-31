@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
+from app.services.communication_llm import communication_llm_client
 
 _SOCIAL_QUESTION_PATTERNS = (
     re.compile(r"\bhow\s+(?:are|have)\s+you\b", re.IGNORECASE),
@@ -361,7 +362,7 @@ def classify_supplier_message(
     if rfq_cas:
         context += f", CAS {rfq_cas}"
     try:
-        result = (llm or LLMClient()).generate_json(
+        result = (llm or communication_llm_client()).generate_json(
             system_prompt=_ROUTING_PROMPT,
             user_text=(
                 f"{context}.\n"

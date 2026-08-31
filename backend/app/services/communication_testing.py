@@ -58,6 +58,7 @@ from app.services.completeness import accumulate_quotations
 from app.services.cas import is_valid_cas, normalize_cas
 from app.services.demo_supplier_document import build_demo_coa_pdf
 from app.services.document_agent import verify_document
+from app.services.communication_llm import communication_llm_client
 from app.services.document_storage import store_document
 from app.services.document_text import apply_extraction
 from app.services.prompt_service import get_active_prompt_text
@@ -258,8 +259,10 @@ class CommunicationTestError(RuntimeError):
 
 
 def _communication_test_llm_client() -> LLMClient:
-    """Возвращает выделенную облачную модель песочницы или локальный fallback."""
+    """Общая модель общения приоритетнее прежнего профиля только песочницы."""
     settings = get_settings()
+    if settings.communication_llm_model.strip():
+        return communication_llm_client()
     profile = {
         "base_url": settings.communication_test_llm_base_url.strip(),
         "model": settings.communication_test_llm_model.strip(),

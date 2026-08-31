@@ -34,6 +34,7 @@ from app.models import (
 )
 from app.models.enums import Channel, CommDirection
 from app.services.communication_profiles import finalize_usage, start_audit
+from app.services.communication_llm import communication_llm_client
 
 _PRIOR_OUTBOUND_STATUSES = {"sent", "demo"}
 _IDENTITY_CHECK_VERSION = 3
@@ -431,7 +432,7 @@ def resolve_sender_manager(
     supplier_id, confidence, evidence, explanation = _ai_resolution(
         message=message,
         candidates=ai_candidates,
-        llm=llm or LLMClient(),
+        llm=llm or communication_llm_client(),
     )
     domain_is_identity_signal = bool(
         domain
@@ -616,7 +617,7 @@ def reconcile_unlinked_email_contacts(db: Session) -> int:
         ):
             checked_addresses.add(key)
             continue
-        client = LLMClient()
+        client = communication_llm_client()
         resolution = resolve_sender_manager(
             db,
             rfq=rfq,

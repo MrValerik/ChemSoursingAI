@@ -192,7 +192,7 @@ def test_standard_reply_is_extracted_into_quotation(
             return 0, 0
 
     monkeypatch.setattr(
-        "app.services.whatsapp_workflow.LLMClient", lambda: FakeLLM()
+        "app.services.whatsapp_workflow.communication_llm_client", lambda: FakeLLM()
     )
     monkeypatch.setattr(
         "app.services.whatsapp_workflow.classify_supplier_message",

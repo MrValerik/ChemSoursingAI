@@ -24,6 +24,7 @@ from app.schemas.document_verification import (
     DocumentVerification,
 )
 from app.services.document_verification import apply_document_verification
+from app.services.communication_llm import communication_llm_client
 
 _MAX_OUTPUT_TOKENS = 1024
 
@@ -71,6 +72,16 @@ def verify_document(
     llm: LLMClient | None = None,
 ) -> dict:
     """Проверяет документ и сохраняет итог veto-gate в записи."""
+    # Demo-вложения тестового диалога не имеют обычного communication_id.
+    # Серверная отметка сохраняет маршрут при повторных ручных проверках,
+    # но не включает synthetic_demo и не ослабляет проверку документа.
+    previous = document.verification or {}
+    from_communication = (
+        document.communication_id is not None
+        or synthetic_demo
+        or bool(previous.get("synthetic_demo"))
+        or bool(previous.get("communication_document"))
+    )
     if not document.text_content:
         result = apply_document_verification(
             verification=None,
@@ -84,6 +95,7 @@ def verify_document(
                 f"{document.extraction_error or document.text_status}"
             ),
         )
+        result["communication_document"] = from_communication
         document.verification = result
         return result
 
@@ -97,7 +109,9 @@ def verify_document(
         .limit(1)
     )
     system_prompt = document_verification_prompt(prompt)
-    client = llm or LLMClient()
+    client = llm or (
+        communication_llm_client() if from_communication else LLMClient()
+    )
     document_text = document.text_content[: _document_text_budget()]
     payload = {
         "requested_substance": {"name": expected_name, "cas": expected_cas},
@@ -137,5 +151,6 @@ def verify_document(
     result["prompt_id"] = prompt.id if prompt else None
     result["prompt_version"] = prompt.version if prompt else None
     result["model"] = client.model
+    result["communication_document"] = from_communication
     document.verification = result
     return result

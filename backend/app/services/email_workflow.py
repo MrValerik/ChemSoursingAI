@@ -35,6 +35,7 @@ from app.models.document import SupplierDocument
 from app.schemas.quotation import QuotationCreate
 from app.services.completeness import accumulate_quotations
 from app.services.communication_policy import classify_supplier_message
+from app.services.communication_llm import communication_llm_client
 from app.services.communication_profiles import (
     budget_escalation_note,
     finalize_usage,
@@ -210,7 +211,7 @@ def _render_followup(
     if not system_prompt:
         return fallback
     try:
-        generated = (llm or LLMClient()).generate_text(
+        generated = (llm or communication_llm_client()).generate_text(
             system_prompt=system_prompt,
             user_text=(
                 f"RFQ: {_subject_label(rfq)}.\n"
@@ -521,7 +522,7 @@ def sync_inbox(
                 seen_uids.append(message.uid)
                 continue
 
-            client = LLMClient()
+            client = communication_llm_client()
 
             if manager is None:
                 resolution = resolve_sender_manager(
