@@ -1,22 +1,21 @@
 """Shared mailbox threads: exact addresses, complete history, no RFQ inference."""
 
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import Date, create_engine, select
+from sqlalchemy.dialects.postgresql.psycopg import PGDialect_psycopg
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.api.communications import router
-from app.api.deps import get_current_user
-from app.core.db import get_db
 from app.models import Communication, RFQ
 from app.models.base import Base
 from app.models.enums import Channel, CommDirection, UserRole
+from app.services.mailbox_history import mailbox_criteria
 
 
 @pytest.fixture
@@ -34,6 +33,12 @@ def db():
 
 @pytest.fixture
 def client(db):
+    # Defer the application engine import until collection is complete: other
+    # integration modules configure their own test database during collection.
+    from app.api.communications import router
+    from app.api.deps import get_current_user
+    from app.core.db import get_db
+
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
@@ -166,6 +171,17 @@ def test_old_message_date_fallback_and_attachments(client, db):
     assert history["items"][0]["attachments"][0]["document_id"] == 123
 
 
+def test_date_filter_binds_dates_not_varchar_for_postgresql():
+    # SQLite accepts DATE >= VARCHAR; PostgreSQL/psycopg correctly rejects it.
+    start, end = date(2026, 8, 1), date(2026, 8, 31)
+    statement = select(Communication.id).where(*mailbox_criteria(date_from=start, date_to=end))
+    compiled = statement.compile(dialect=PGDialect_psycopg())
+    assert compiled.params["date_1"] == start
+    assert compiled.params["date_2"] == end
+    assert isinstance(compiled.binds["date_1"].type, Date)
+    assert isinstance(compiled.binds["date_2"].type, Date)
+
+
 def test_invalid_requests_and_other_channel_do_not_leak_history(client, db):
     mail = add_mail(db)
     other = add_mail(db, "other@supplier.example")
@@ -180,6 +196,8 @@ def test_invalid_requests_and_other_channel_do_not_leak_history(client, db):
 
 
 def test_auth_required_and_auditor_can_read_but_not_send(client, db):
+    from app.api.deps import get_current_user
+
     mail = add_mail(db)
     client.app.dependency_overrides.pop(get_current_user)
     assert client.get("/mail/threads").status_code == 401

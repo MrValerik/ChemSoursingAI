@@ -37,9 +37,9 @@ def mailbox_criteria(*, folder="all", date_from=None, date_to=None, query=None):
         ])
     effective_date = func.coalesce(Communication.message_at, Communication.created_at)
     if date_from:
-        criteria.append(func.date(effective_date) >= date_from.isoformat())
+        criteria.append(func.date(effective_date) >= date_from)
     if date_to:
-        criteria.append(func.date(effective_date) <= date_to.isoformat())
+        criteria.append(func.date(effective_date) <= date_to)
     clean_query = (query or "").strip().casefold()
     if clean_query:
         pattern = f"%{clean_query}%"
