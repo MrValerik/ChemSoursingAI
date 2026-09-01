@@ -758,9 +758,26 @@ def test_a_matching_manufacturer_is_not_a_lead():
     assert result["manufacturer_match"]["lead"] is None
 
 
-def test_a_missing_passport_is_not_evidence_against_the_supplier():
-    """У настоящего завода со скупым сайтом документов может не быть."""
-    result = _verify_with_supplier("Hebei Chem Manufacturing")
+def test_a_passport_without_a_named_maker_is_not_evidence_against_anyone():
+    """У настоящего завода со скупым сайтом документов может не быть.
+
+    Документ без названного изготовителя — пробел в данных, а не довод
+    против поставщика: отсутствие доказательства доказательством не
+    является.
+    """
+    from app.schemas.document_verification import DocumentVerification
+    from app.services.document_verification import apply_document_verification
+
+    faceless = "\n".join(
+        line for line in _COA_LINES if "MANUFACTURING" not in line
+    )
+    result = apply_document_verification(
+        verification=DocumentVerification.model_validate(_verification().model_dump()),
+        document_text=faceless,
+        expected_cas="50-78-2",
+        expected_name="Aspirin",
+        supplier_company="Hebei Chem Manufacturing",
+    )
     match = result["manufacturer_match"]
 
     assert match["status"] == "insufficient"
@@ -786,9 +803,13 @@ def test_a_manufacturer_claim_without_a_verbatim_quote_is_not_used():
             }
         ],
     )
-    # Такой цитаты в документе нет — утверждение отклонено, сверять нечего.
-    assert result["manufacturer_match"]["status"] == "insufficient"
-    assert result["manufacturer_match"]["document_manufacturer"] is None
+    # Такой цитаты в документе нет — утверждение модели отклонено, и её
+    # значение в сверку не попадает. Изготовителем считается то, что
+    # действительно написано в документе.
+    match = result["manufacturer_match"]
+    assert match["document_manufacturer"] != "Qingdao Nova Chemicals"
+    assert match["source"] == "document"
+    assert match["document_manufacturer"] == "HEBEI CHEM MANUFACTURING CO., LTD."
 
 
 def test_the_trading_arm_of_the_same_plant_goes_to_a_human():
@@ -842,3 +863,47 @@ def test_an_unverified_document_reports_insufficient_not_mismatch():
     )
     assert result["manufacturer_match"]["status"] == "insufficient"
     assert result["manufacturer_match"]["lead"] is None
+
+
+def test_the_manufacturer_is_read_from_the_document_when_the_model_skips_it():
+    """Модель до изготовителя обычно не доходит, а в документе он есть.
+
+    На боевом прогоне из двенадцати принятых утверждений шесть оказались
+    assay, а manufacturer — ни одного, хотя компания названа первой
+    строкой паспорта. Без детерминированного разбора сверять было бы нечего
+    почти всегда.
+    """
+    result = _verify_with_supplier("Qingdao Nova Chemicals")
+    match = result["manufacturer_match"]
+
+    assert match["status"] == "mismatch"
+    assert match["document_manufacturer"] == "HEBEI CHEM MANUFACTURING CO., LTD."
+    assert match["source"] == "document"
+    # Цитата — дословная строка документа, а не пересказ.
+    assert match["quote"] in _DOCUMENT_TEXT
+
+
+def test_a_model_claim_wins_over_the_header_heuristic():
+    result = _verify_with_supplier(
+        "Hebei Chem Manufacturing", claims_extra=[_manufacturer_claim()]
+    )
+    assert result["manufacturer_match"]["source"] == "claim"
+
+
+def test_a_document_header_is_not_mistaken_for_a_company():
+    from app.services.document_verification import document_manufacturer
+
+    assert document_manufacturer("CERTIFICATE OF ANALYSIS\nProduct: Aspirin") is None
+    assert document_manufacturer("QUALITY CONTROL LAB\nCoA") is None
+
+
+def test_labelled_and_russian_manufacturers_are_read():
+    from app.services.document_verification import document_manufacturer
+
+    labelled = document_manufacturer(
+        "CERTIFICATE OF ANALYSIS\nManufacturer: Hunan Huateng Co., Ltd.\nBatch: X"
+    )
+    assert labelled and labelled[0] == "Hunan Huateng Co., Ltd."
+
+    russian = document_manufacturer("ООО «Хунань Хуатэн»\nПАСПОРТ КАЧЕСТВА")
+    assert russian and russian[0] == "ООО «Хунань Хуатэн»"

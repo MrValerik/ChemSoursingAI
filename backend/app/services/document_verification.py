@@ -139,6 +139,57 @@ def _tokens_pair_up(left: frozenset[str], right: frozenset[str]) -> bool:
     )
 
 
+# Метки, которыми изготовителя называют явно.
+_MANUFACTURER_LABEL_PATTERN = re.compile(
+    r"(?im)^\s*(?:manufacturer|manufactured\s+by|produced\s+by|producer|"
+    r"изготовитель|производитель|изготовлено)\s*[:\-]\s*([^\r\n]+)"
+)
+
+# Правовая форма в строке — признак того, что это название компании, а не
+# заголовок документа. «CERTIFICATE OF ANALYSIS» формы не содержит,
+# «CHEMSOURCE DEMO SUPPLIER CO., LTD.» содержит. По-английски форма стоит
+# в конце, по-русски впереди — проверяются оба края.
+_LEGAL_FORM_PATTERN = re.compile(
+    r"(?i)\b(?:co\.?\s*,?\s*ltd|ltd|limited|llc|inc|corp|corporation|"
+    r"gmbh|pte|pvt|plc|s\.?a\.?|b\.?v\.?|n\.?v\.?|"
+    r"ооо|оао|зао|пао|ао)\b\.?\s*$"
+)
+_RU_LEGAL_PREFIX_PATTERN = re.compile(
+    r"(?i)^(?:ооо|оао|зао|пао|ао|ип)\s*[«\"]?\s*\b"
+)
+
+
+
+def document_manufacturer(document_text: str) -> tuple[str, str] | None:
+    """Изготовитель прямо из текста паспорта: имя и строка-цитата.
+
+    Детерминированный разбор нужен не для подстраховки модели, а потому что
+    модель до изготовителя не доходит: лимит утверждений уходит на анализы.
+    На боевом прогоне из двенадцати принятых утверждений шесть оказались
+    assay, а manufacturer — ни одного, хотя компания названа первой строкой.
+
+    Сначала явная метка, затем шапка документа. Шапка берётся только с
+    правовой формой в конце: без этого условия изготовителем оказался бы
+    заголовок «CERTIFICATE OF ANALYSIS» или название лаборатории.
+    """
+    text = document_text or ""
+    labelled = _MANUFACTURER_LABEL_PATTERN.search(text)
+    if labelled:
+        name = labelled.group(1).strip()
+        if name:
+            return name, labelled.group(0).strip()
+
+    for line in text.splitlines()[:3]:
+        candidate = line.strip()
+        if len(candidate) < 4 or len(candidate) > 120:
+            continue
+        if _LEGAL_FORM_PATTERN.search(candidate) or _RU_LEGAL_PREFIX_PATTERN.search(
+            candidate
+        ):
+            return candidate, candidate
+    return None
+
+
 def match_manufacturer(
     document_manufacturer: str | None,
     supplier_company: str | None,
@@ -417,6 +468,7 @@ def apply_document_verification(
                 "document_manufacturer": None,
                 "supplier_company": supplier_company,
                 "quote": None,
+                "source": None,
                 "reason": (
                     "Документ не проверен, изготовителя сверять не с чем. "
                     "Это не довод против поставщика."
@@ -477,25 +529,35 @@ def apply_document_verification(
         (claim for claim in accepted if claim["claim_type"] == "manufacturer"),
         None,
     )
-    document_manufacturer = (
-        (manufacturer_claim or {}).get("claim_value") or None
-    )
+    manufacturer_name = (manufacturer_claim or {}).get("claim_value") or None
+    manufacturer_quote = (manufacturer_claim or {}).get("quote")
+    manufacturer_source = "claim" if manufacturer_name else None
+    if not manufacturer_name:
+        # Модель до изготовителя обычно не доходит, а в документе он есть.
+        extracted = document_manufacturer(document_text)
+        if extracted:
+            manufacturer_name, manufacturer_quote = extracted
+            manufacturer_source = "document"
     manufacturer_status, manufacturer_reason = match_manufacturer(
-        document_manufacturer, supplier_company
+        manufacturer_name, supplier_company
     )
     manufacturer_match = {
         "status": manufacturer_status,
         # Обе исходные строки показываются человеку как есть: решение
         # принимает он, и сравнивать ему нужно то, что написано, а не
         # то, что осталось после нормализации.
-        "document_manufacturer": document_manufacturer,
+        "document_manufacturer": manufacturer_name,
         "supplier_company": supplier_company,
-        "quote": (manufacturer_claim or {}).get("quote"),
+        "quote": manufacturer_quote,
+        # Откуда взято имя: из утверждения модели или из разбора текста.
+        # Оба опираются на дословную строку документа, но происхождение
+        # должно быть видно в аудите.
+        "source": manufacturer_source,
         "reason": manufacturer_reason,
         # Найденный в паспорте чужой изготовитель — наводка для нового
         # поиска, а не подтверждённый поставщик: о нём известно только имя
         # из чужого документа.
-        "lead": document_manufacturer if manufacturer_status == "mismatch" else None,
+        "lead": manufacturer_name if manufacturer_status == "mismatch" else None,
     }
 
     # CAS сверяем сами: это дешёвая детерминированная проверка, которая не
