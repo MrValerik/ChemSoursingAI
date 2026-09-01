@@ -1625,14 +1625,21 @@ def test_multiple_marketplace_cards_survive_deduplication(client, monkeypatch):
     assert len(payload["results"]) == 2
 
 
-def test_supplier_search_uses_indian_registries(client, monkeypatch):
+def test_supplier_search_ranks_an_indian_registry_first(client, monkeypatch):
+    """Реестр ищем не запросом, а узнаём в обычной выдаче.
+
+    Отдельных мест в плане у реестров больше нет: замер 3065 сохранённых
+    запросов дал по типу registry 18 запросов, 61% пустых и ноль карточек.
+    Страница реестра, пришедшая обычным запросом, по-прежнему получает
+    высший приоритет — она подтверждает изготовителя, а не продаёт.
+    """
     buyer = _auth(client, "ivanov")
     _mock_search_agents(monkeypatch, '"Aspirin" "50-78-2" manufacturer India')
     queries: list[str] = []
 
     def fake_search(query, limit):
         queries.append(query)
-        if "site:chemexcil.in" in query:
+        if len(queries) == 1:
             return [
                 {
                     "title": "CHEMEXCIL member chemical manufacturer India",
@@ -1659,8 +1666,8 @@ def test_supplier_search_uses_indian_registries(client, monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert any("site:chemexcil.in" in query for query in queries)
-    assert any("site:cdsco.gov.in" in query for query in queries)
+    assert not any("chemexcil.in" in query for query in queries)
+    assert not any("cdsco.gov.in" in query for query in queries)
     assert payload["results"][0]["source_kind"] == "india_registry"
     # Отраслевые реестры — не посредники: они подтверждают производителя, а не
     # продают, и в очереди стоят первыми.

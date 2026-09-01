@@ -115,6 +115,9 @@ def test_russia_asks_in_russian():
     )
     joined = " ".join(queries)
     assert "производитель" in joined
+    # Зона остаётся, хотя пустых у неё 43%: по замеру 3065 сохранённых
+    # запросов группа держит 0,32 уникальной карточки на запрос при базовой
+    # ставке 0,34 — она находит то, чего не находит никто другой.
     assert "site:.ru" in joined
 
 
@@ -192,7 +195,14 @@ def test_marketplace_no_longer_outranks_a_company_site():
     )
 
 
-def test_india_plan_uses_export_and_regulatory_sources():
+def test_india_plan_no_longer_spends_places_on_registries():
+    """Реестры и зона ушли из плана Индии, распознавание реестров осталось.
+
+    Замер 3065 сохранённых запросов: тип источника registry дал 18 запросов,
+    61% из них вернулись пустыми и ни одной карточки, которую не нашёл бы
+    другой запрос того же прогона. Освободившиеся места достаются общему
+    запросу и словам о выпуске.
+    """
     queries = build_search_queries(
         cas="50-78-2",
         name="Aspirin",
@@ -201,14 +211,20 @@ def test_india_plan_uses_export_and_regulatory_sources():
     )
 
     assert is_india("Индия")
-    required = queries[: minimum_query_count("India")]
-    assert any("site:chemexcil.in" in query for query in required)
-    assert any("site:cdsco.gov.in" in query for query in required)
-    assert any("site:pharmexcil.com" in query for query in required)
-    # Сужение по зоне остаётся в плане, но не в обязательной части:
-    # замер дал site:.in ноль результатов, тогда как реестры подтверждают
-    # изготовителя. Тратить на зону место в начале плана незачем.
-    assert any("site:.in" in query for query in queries)
+    joined = " ".join(queries)
+    assert "chemexcil.in" not in joined
+    assert "cdsco.gov.in" not in joined
+    assert "pharmexcil.com" not in joined
+    # Зона убрана не была: она единственная из тронутых групп держит
+    # уникальные находки. Убраны только реестры.
+    assert "site:.in" in joined
+    # План не опустел: обязательная часть по-прежнему набирается.
+    assert len(queries) >= minimum_query_count("India")
+
+
+def test_a_registry_page_is_still_recognised_when_it_turns_up():
+    """Своими запросами реестры не ищем, но найденную страницу узнаём."""
+    assert source_kind("https://chemexcil.in/members") == "india_registry"
 
 
 def test_supplier_source_classification():
@@ -625,3 +641,80 @@ def test_a_name_without_a_range_keeps_the_model_quotes():
 
     query = '"Adipic acid" manufacturer China'
     assert unquote_ranged_name(query, "Adipic acid") == query
+
+
+def test_a_query_buried_in_decoration_is_dropped():
+    """Обвес вокруг предмета поиска ограничен восемью словами.
+
+    Замер 3065 сохранённых запросов за 27 июля — 20 августа 2026: запросы с
+    обвесом больше восьми слов — это 59 штук, из которых лишь два когда-либо
+    довели дело до карточки, и ни одной такой, которую не нашёл бы другой
+    запрос того же прогона. Порог в семь стоил бы уже шестнадцати карточек.
+    """
+    from app.api.supplier_search import (
+        SearchPlanItem,
+        SubstanceIdentity,
+        SupplierSearchRequest,
+        _fallback_search_plan,
+        _merge_search_plans,
+    )
+
+    data = SupplierSearchRequest(cas="50-78-2", name="Aspirin", country="Китай")
+    identity = SubstanceIdentity(
+        status="verified", canonical_name="Aspirin", search_names=["Aspirin"]
+    )
+    bloated = SearchPlanItem(
+        query=(
+            '"Aspirin" "50-78-2" (equivalent OR alternative OR substitute) '
+            "(manufacturer OR factory OR producer) China supplier export"
+        ),
+        language="en",
+        purpose="manufacturer",
+        source_type="web",
+        priority=1,
+    )
+    lean = SearchPlanItem(
+        query='"Aspirin" "50-78-2" manufacturer China',
+        language="en",
+        purpose="manufacturer",
+        source_type="web",
+        priority=1,
+    )
+    fallback = _fallback_search_plan(data, identity)
+    merged, _ = _merge_search_plans(data, [bloated, lean], fallback)
+
+    queries = [item.query for item in merged]
+    assert bloated.query not in queries
+    assert lean.query in queries
+
+
+def test_a_long_trade_name_still_gets_a_plan():
+    """Длина запроса чаще следствие длинного названия, чем лишних слов.
+
+    У позиции без CAS с длинным торговым названием обвеса нет вовсе —
+    длинное здесь само название, и порог обязан её пропустить.
+    """
+    from app.api.supplier_search import (
+        SubstanceIdentity,
+        SupplierSearchRequest,
+        _fallback_search_plan,
+        _merge_search_plans,
+    )
+
+    data = SupplierSearchRequest(
+        name="Dowsil 556 Cosmetic Grade Fluid",
+        country="Китай",
+        identification_method="spec",
+        specification="Cosmetic grade silicone fluid",
+    )
+    identity = SubstanceIdentity(
+        status="unverified",
+        canonical_name=data.name,
+        search_names=[data.name],
+        substance_type="trade_name",
+    )
+    fallback = _fallback_search_plan(data, identity)
+    merged, _ = _merge_search_plans(data, [], fallback)
+
+    assert merged
+    assert any("Dowsil 556 Cosmetic Grade Fluid" in item.query for item in merged)
