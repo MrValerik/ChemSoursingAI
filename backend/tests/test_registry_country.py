@@ -201,6 +201,50 @@ def test_known_manufacturers_are_asked_in_one_query(db):
     assert '"107-43-7"' in plan[0].query
 
 
+def test_a_company_whose_role_is_not_yet_known_is_still_asked(db):
+    """Вопрос к реестру звучит «делаете ли вы ещё и это».
+
+    Замер на боевом прогоне 318: страна доказана у всех пяти заведённых
+    компаний, а роль установлена у одной. Требование роли оставило бы
+    волну без участников, а роль всё равно оценивается заново по той
+    странице, которую вернёт ответ.
+    """
+    for index in range(2):
+        db.add(
+            Supplier(
+                company=f"Unknown Role Factory {index}",
+                company_key=f"unknownrolefactory{index}",
+                country="Вьетнам",
+                country_status="claimed",
+                type=None,
+                qualification_status="candidate",
+            )
+        )
+    db.commit()
+
+    plan = _known_supplier_plan_items(db, country="Вьетнам", subject='"107-43-7"')
+
+    assert len(plan) == 1
+
+
+def test_a_known_trading_company_is_not_asked(db):
+    """Её роль уже установлена, и она не та."""
+    for index in range(2):
+        db.add(
+            Supplier(
+                company=f"Trading House {index}",
+                company_key=f"tradinghouse{index}",
+                country="Турция",
+                country_status="claimed",
+                type=SupplierType.DISTRIBUTOR,
+                qualification_status="candidate",
+            )
+        )
+    db.commit()
+
+    assert _known_supplier_plan_items(db, country="Турция", subject='"107-43-7"') == []
+
+
 def test_a_company_without_a_proven_country_is_not_asked(db):
     """Иначе поиск подтверждал бы собственное допущение."""
     db.add(

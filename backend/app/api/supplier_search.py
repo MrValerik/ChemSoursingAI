@@ -1842,7 +1842,14 @@ def _known_supplier_plan_items(
         .where(
             Supplier.country == country,
             Supplier.country_status.in_(("claimed", "likely")),
-            Supplier.type == SupplierType.MANUFACTURER,
+            # Роль здесь не требуется, и это намеренно. Замер на боевом
+            # прогоне 318: из пяти заведённых компаний страна доказана у
+            # всех пяти, а роль установлена у одной — требование роли
+            # оставило бы волну без участников. Вопрос к реестру звучит
+            # «делаете ли вы ещё и это», и роль будет заново оценена по
+            # той странице, которую вернёт ответ. Известный торговый дом
+            # исключается: его роль уже установлена, и она не та.
+            Supplier.type.isnot(SupplierType.DISTRIBUTOR),
         )
         .order_by(Supplier.evidence_score.desc().nullslast(), Supplier.id)
         .limit(limit)
