@@ -675,3 +675,49 @@ def test_a_long_trade_name_still_gets_a_plan():
 
     assert merged
     assert any("Dowsil 556 Cosmetic Grade Fluid" in item.query for item in merged)
+
+
+def test_dead_domains_are_struck_out_in_the_query_itself():
+    """Открывать их мы и так отказываемся — значит нечего и просить.
+
+    Замер по 21 436 сохранённым находкам: на этих доменах 2700 находок,
+    13% всей выдачи, и ни одна не дала поставщика с названной ролью.
+    Проверено на самом Serper: оператор применяется, мёртвых находок
+    становится ноль, а выдача возвращает на одну ссылку больше.
+    """
+    from app.services.supplier_sources import (
+        SEARCH_EXCLUDED_DOMAINS,
+        with_excluded_domains,
+    )
+
+    query = with_excluded_domains('"Menthyl lactate" (manufacturer OR factory) China')
+    assert query.startswith('"Menthyl lactate" (manufacturer OR factory) China')
+    for domain in SEARCH_EXCLUDED_DOMAINS:
+        assert f"-site:{domain}" in query
+
+
+def test_a_query_aimed_at_a_domain_is_left_alone():
+    """Свой site: — это намерение запроса, и спорить с ним нельзя."""
+    from app.services.supplier_sources import with_excluded_domains
+
+    query = 'site:echemi.com "107-43-7" betaine'
+    assert with_excluded_domains(query) == query
+
+
+def test_the_storefront_platforms_are_never_struck_out():
+    """Магазин одной компании на площадке — единственная страница завода.
+
+    Крупнейший в мире производитель эпоксидированного соевого масла
+    собственного сайта не имеет вовсе.
+    """
+    from app.services.supplier_sources import SEARCH_EXCLUDED_DOMAINS
+
+    for platform in (
+        "made-in-china.com",
+        "alibaba.com",
+        "lookchem.com",
+        "guidechem.com",
+        "chemball.cn",
+        "echemi.com",
+    ):
+        assert platform not in SEARCH_EXCLUDED_DOMAINS
