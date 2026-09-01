@@ -75,6 +75,15 @@ const procurementContextFromRfq = (rfq: RFQRead) =>
     .filter(Boolean)
     .join("\n");
 
+// Исходы сверки изготовителя человеческим языком. Смысл несёт текст,
+// цвет только помогает найти блок.
+const MANUFACTURER_MATCH_LABELS: Record<string, string> = {
+  match: "Изготовитель подтверждён паспортом",
+  mismatch: "Паспорт выпущен другой компанией",
+  manual_review: "Изготовителя нужно сверить вручную",
+  insufficient: "Изготовителя в документе нет",
+};
+
 const DOCUMENT_VERIFICATION_LABELS: Record<string, string> = {
   confirmed: "ИИ подтвердил документ",
   needs_review: "ИИ просит ручную проверку",
@@ -163,6 +172,46 @@ function TestMessageAttachments({ message }: { message: CommunicationTestMessage
                     ? verification.cas_in_document.join(", ")
                     : "не найден"}
                 </span>
+                {/* Изготовитель из паспорта против компании, приславшей
+                    файл. На поиске роль производителя держится на цитате с
+                    сайта самой компании, а «мы завод» пишет и завод, и
+                    перекупщик; имя в паспорте ставит тот, кто выпустил
+                    партию. Обе строки показываются как есть — решает человек. */}
+                {verification.manufacturer_match &&
+                  verification.manufacturer_match.status !== "insufficient" && (
+                    <div
+                      className={`document-manufacturer is-${verification.manufacturer_match.status}`}
+                    >
+                      <strong>
+                        {MANUFACTURER_MATCH_LABELS[
+                          verification.manufacturer_match.status
+                        ]}
+                      </strong>
+                      <span>
+                        В паспорте:{" "}
+                        {verification.manufacturer_match.document_manufacturer ||
+                          "—"}
+                      </span>
+                      <span>
+                        Прислал:{" "}
+                        {verification.manufacturer_match.supplier_company || "—"}
+                      </span>
+                      <span>{verification.manufacturer_match.reason}</span>
+                      {verification.manufacturer_match.quote && (
+                        <span className="document-quote">
+                          «{verification.manufacturer_match.quote}»
+                        </span>
+                      )}
+                      {verification.manufacturer_match.lead && (
+                        <span>
+                          Наводка для нового поиска:{" "}
+                          <strong>{verification.manufacturer_match.lead}</strong>.
+                          Подтверждённым поставщиком эта компания не становится —
+                          о ней известно только имя из чужого документа.
+                        </span>
+                      )}
+                    </div>
+                  )}
                 {(verification.confidence_breakdown?.length ?? 0) > 0 && (
                   <details>
                     <summary>Из чего складывается уверенность</summary>

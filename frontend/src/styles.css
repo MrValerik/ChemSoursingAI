@@ -5372,3 +5372,11 @@ button.substance-list-item.active {
   font-style: italic;
   line-height: 1.45;
 }
+/* Тот же блок в живом просмотре вложений диалога: там элементы идут
+   столбиком через flex, поэтому строки не слипаются. */
+.communication-test-document-result .document-manufacturer {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 2px;
+}
