@@ -230,7 +230,10 @@ def match_manufacturer(
             "части — сверка ненадёжна.",
         )
 
-    if left == right:
+    # Пробелы внутри имени сравнение не должно различать: «Hangzhou
+    # Keyingchem» и «Hangzhou Keying Chem» — одна компания, и так её пишут
+    # в паспорте и в карточке. Найдено на боевых документах.
+    if left == right or left.replace(" ", "") == right.replace(" ", ""):
         return (
             "match",
             f"Изготовитель в документе и поставщик — одна компания: «{document_name}».",

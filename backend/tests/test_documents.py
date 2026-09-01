@@ -907,3 +907,18 @@ def test_labelled_and_russian_manufacturers_are_read():
 
     russian = document_manufacturer("ООО «Хунань Хуатэн»\nПАСПОРТ КАЧЕСТВА")
     assert russian and russian[0] == "ООО «Хунань Хуатэн»"
+
+
+def test_spacing_inside_the_name_is_not_a_different_company():
+    """«Hangzhou Keyingchem» и «Hangzhou Keying Chem» — одна компания.
+
+    Найдено на боевом документе: паспорт и карточка поставщика писали одно
+    имя с разным пробелом, и сверка отправляла его на ручную проверку.
+    """
+    from app.services.document_verification import match_manufacturer
+
+    assert match_manufacturer(
+        "HANGZHOU KEYINGCHEM CO., LTD", "Hangzhou Keying Chem Co., Ltd."
+    )[0] == "match"
+    # Разные заводы от этого одинаковыми не становятся.
+    assert match_manufacturer("Hunan Huateng", "Hebei Huateng")[0] == "mismatch"
