@@ -168,3 +168,111 @@ def test_such_a_page_registers_no_company_and_no_contact(client):
 
         assert supplier is None
         assert db.query(Manager).count() == before
+
+
+# --- род площадки только на домене площадки ---
+
+
+def test_a_storefront_off_a_marketplace_is_the_companys_own_site():
+    """Каталог на своём домене выглядит как витрина, но домен не площадка.
+
+    Замер по 175 сохранённым страницам: 14 раз витрина стояла на
+    собственных сайтах компаний — ambeed, chemimpex, imcd. Закупщику это
+    сообщало, что страница чужая.
+    """
+    payload = _apply_evidence_gates(
+        _qualification(page_kind="marketplace_storefront"),
+        [_claim("chemical_identity"), _claim("production_site")],
+        page_url="https://www.ambeed.com/products/1234.html",
+    )
+    assert payload["page_kind"] == "company_site"
+    # Запрет не менялся: витрина и сайт компании одинаково не запрещены.
+    assert payload["supplier_type"] == "manufacturer"
+
+
+def test_a_listing_off_a_marketplace_is_a_directory():
+    """Перечень многих продавцов вне площадки — это справочник."""
+    payload = _apply_evidence_gates(
+        _qualification(page_kind="marketplace_listing"),
+        [_claim("chemical_identity"), _claim("production_site")],
+        page_url="https://www.21food.com/products/menthyl-lactate.html",
+    )
+    assert payload["page_kind"] == "directory"
+    # Оба рода лежат в NOT_A_SUPPLIER_PAGE, поэтому карточка как была
+    # закрыта, так и осталась — меняется только правдивость подписи.
+    assert payload["supplier_type"] == "unknown"
+    assert any("справочник" in f for f in payload["red_flags"])
+
+
+def test_a_real_marketplace_keeps_its_kind():
+    """На настоящей площадке род модели остаётся как есть."""
+    payload = _apply_evidence_gates(
+        _qualification(page_kind="marketplace_storefront"),
+        [_claim("chemical_identity"), _claim("production_site")],
+        page_url="https://xjleso.en.made-in-china.com/",
+    )
+    assert payload["page_kind"] == "marketplace_storefront"
+
+
+def test_an_ordinary_kind_is_not_touched_by_the_domain_rule():
+    payload = _apply_evidence_gates(
+        _qualification(page_kind="scientific"),
+        [_claim("chemical_identity")],
+        page_url="https://pmc.ncbi.nlm.nih.gov/articles/PMC10086574/",
+    )
+    assert payload["page_kind"] == "scientific"
+
+
+# --- страница, которой нет ---
+
+
+def test_a_page_that_did_not_load_proves_no_kind_and_no_role():
+    """Замер: 8 страниц пришли в 16–73 знака, и 7 из них получили род.
+
+    Шесть из семи — род площадки, то есть догадка по адресу. Две из
+    восьми при этом карточку не закрывали вовсе.
+    """
+    payload = _apply_evidence_gates(
+        _qualification(page_kind="marketplace_storefront"),
+        [_claim("chemical_identity"), _claim("production_site")],
+        page_url="https://www.foodtalks.cn/wefood/post/103476",
+        page_text="FoodTalks全球食品资讯网",
+        fetch_status="completed",
+    )
+    assert payload["page_kind"] == "other"
+    assert payload["supplier_type"] == "unknown"
+    assert any("не загрузилась" in f for f in payload["red_flags"])
+
+
+def test_a_failed_fetch_is_the_same_case():
+    payload = _apply_evidence_gates(
+        _qualification(page_kind="company_site"),
+        [_claim("chemical_identity"), _claim("production_site")],
+        page_url="https://example.com/",
+        page_text="x" * 4000,
+        fetch_status="failed",
+    )
+    assert payload["supplier_type"] == "unknown"
+    assert any("не загрузилась" in f for f in payload["red_flags"])
+
+
+def test_a_loaded_page_passes_the_rule():
+    payload = _apply_evidence_gates(
+        _qualification(page_kind="company_site"),
+        [_claim("chemical_identity"), _claim("production_site")],
+        page_url="https://hoseachem.com/L-Menthyl-lactate.html",
+        page_text="x" * 4000,
+        fetch_status="completed",
+    )
+    assert payload["page_kind"] == "company_site"
+    assert payload["supplier_type"] == "manufacturer"
+
+
+def test_a_caller_that_says_nothing_about_the_page_changes_nothing():
+    """Молчание о странице — не утверждение, что её нет."""
+    payload = _apply_evidence_gates(
+        _qualification(page_kind="company_site"),
+        [_claim("chemical_identity"), _claim("production_site")],
+        page_url="https://hoseachem.com/L-Menthyl-lactate.html",
+    )
+    assert payload["supplier_type"] == "manufacturer"

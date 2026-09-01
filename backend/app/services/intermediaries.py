@@ -207,6 +207,16 @@ _STOREFRONT_LABELS = frozenset(
 )
 
 
+def is_marketplace_domain(url: str) -> bool:
+    """Лежит ли адрес на домене торговой площадки.
+
+    Список закрытый и тот же, что у :func:`marketplace_page_kind`: род
+    «витрина» и «перечень площадки» осмыслен только на этих шести доменах.
+    На чужом домене такой род — догадка модели по виду страницы.
+    """
+    return domain_label(url) in _STOREFRONT_LABELS
+
+
 def marketplace_page_kind(url: str) -> str:
     """Что это за страница на домене площадки: витрина или магазин компании.
 

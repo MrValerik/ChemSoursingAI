@@ -79,6 +79,7 @@ from app.services.supplier_registry import (
 from app.services.intermediaries import (
     active_domains,
     is_intermediary,
+    is_marketplace_domain,
     marketplace_page_kind,
     normalize_domain as normalize_site_domain,
     split_by_intermediary,
@@ -358,6 +359,31 @@ _PAGE_KIND_REASONS = {
     "directory": "это справочник, он сам ничего не продаёт",
     "marketplace_listing": "это перечень продавцов на площадке",
 }
+
+# Род площадки осмыслен только на домене площадки. Модель ставит его по
+# виду страницы: каталог с карточками товара выглядит как витрина, даже
+# если это собственный сайт компании. Замер по 175 сохранённым страницам:
+# 32 раза род площадки стоял на домене, который площадкой не является, —
+# и это два разных вреда. Витрина на своём домене говорит закупщику, что
+# страница чужая (ambeed, chemimpex, imcd — собственные сайты компаний);
+# перечень площадки на домене справочника называет справочник не тем,
+# чем он является (21food, pipelinepharma, bioon).
+#
+# Перевод сохраняет запрет: и перечень площадки, и справочник одинаково
+# лежат в NOT_A_SUPPLIER_PAGE, а витрина и сайт компании одинаково в них
+# не лежат. Меняется только правдивость подписи, не судьба карточки.
+_PAGE_KIND_OFF_MARKETPLACE = {
+    "marketplace_storefront": "company_site",
+    "marketplace_listing": "directory",
+}
+
+# Ниже этого порога судить не по чему. Замер по тем же 175 страницам:
+# восемь пришли с текстом в 16–73 знака (одна строка вроде
+# «FoodTalks全球食品资讯网»), и семь из восьми модель всё равно уверенно
+# отнесла к какому-то роду, шесть — к площадке. Следующая по величине
+# страница набора больше 500 знаков, так что порог стоит в чистом
+# промежутке и живые страницы не задевает.
+_MIN_PAGE_TEXT_FOR_PAGE_KIND = 300
 
 
 class QualificationEvidence(BaseModel):
@@ -1121,6 +1147,8 @@ def _apply_evidence_gates(
     evidence_items: list[dict],
     *,
     page_url: str = "",
+    page_text: str | None = None,
+    fetch_status: str | None = None,
     intermediary_domains: set[str] | None = None,
     search_country: str = "",
 ) -> dict:
@@ -1135,6 +1163,32 @@ def _apply_evidence_gates(
         if marketplace_page_kind(page_url) != "storefront":
             payload["supplier_type"] = "marketplace"
             return payload
+
+    # Страница не открылась или пришла пустой. Род модель всё равно
+    # называет — по адресу и заголовку, потому что больше не по чему, — и
+    # догадка попадает в карточку наравне с разобранной страницей. Здесь
+    # запрещается и род, и роль: доказывать их нечем по определению.
+    #
+    # Правило действует только там, где страницу передали. Вызов без неё
+    # ничего о загрузке не утверждает, и молчание нельзя читать как отказ.
+    page_missing = page_text is not None and (
+        fetch_status != "completed"
+        or len(page_text) < _MIN_PAGE_TEXT_FOR_PAGE_KIND
+    )
+    if page_missing:
+        payload["page_kind"] = "other"
+        payload["supplier_type"] = "unknown"
+        not_loaded = "Страница не загрузилась: судить о роде и роли не по чему"
+        if not_loaded not in payload["red_flags"]:
+            payload["red_flags"] = [*payload["red_flags"], not_loaded]
+        return payload
+
+    # Витрину и перечень площадки модель ставит по виду страницы, а
+    # площадка — свойство домена, и оно известно точно.
+    if page_url and not is_marketplace_domain(page_url):
+        payload["page_kind"] = _PAGE_KIND_OFF_MARKETPLACE.get(
+            str(payload.get("page_kind")), payload.get("page_kind")
+        )
 
     supported = {
         item["claim_type"]
@@ -3409,6 +3463,15 @@ def execute_supplier_qualification(
     # их надо перенести по номеру кандидата. Они не зависят от того, вынесла
     # ли модель вердикт: даже у карточки без оценки должно остаться, куда
     # написать.
+    # Текст страницы и итог её загрузки нужны воротам: род и роль,
+    # названные по не открывшейся странице, — догадка по адресу.
+    page_by_index = {
+        int(source["result_index"]): (
+            str(source.get("page_text") or ""),
+            str(source.get("fetch_status") or ""),
+        )
+        for source in fetched_sources
+    }
     contacts_by_index = {
         int(source["result_index"]): {
             "contacts": source.get("contacts") or {},
@@ -3468,6 +3531,8 @@ def execute_supplier_qualification(
             page_url=(
                 candidates[index].url if index < len(candidates) else ""
             ),
+            page_text=page_by_index.get(index, ("", ""))[0],
+            fetch_status=page_by_index.get(index, ("", ""))[1],
             intermediary_domains=intermediary_domains,
             search_country=search_country,
         )
