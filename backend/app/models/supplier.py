@@ -32,7 +32,16 @@ class Supplier(Base, TimestampMixin):
     # найден или страница не сказала ничего.
     contact_barrier: Mapped[str | None] = mapped_column(String(32))
     city: Mapped[str | None] = mapped_column(String(120))
+    # Страна, с которой компанию связали. Заполняется страной поиска, и
+    # сама по себе фактом о компании не является.
     country: Mapped[str | None] = mapped_column(String(120))
+    # Чем эта связь подтверждена на странице: claimed — компания прямо
+    # пишет, что она там; likely — косвенно, по домену или региону;
+    # not_found — страница не сказала ничего. Значение mismatch сюда не
+    # попадает: там страна не записывается вовсе.
+    country_status: Mapped[str | None] = mapped_column(String(16), index=True)
+    # Дословная цитата со страницы, на которой держится статус.
+    country_evidence: Mapped[str | None] = mapped_column(String(500))
     type: Mapped[SupplierType | None] = mapped_column(SAEnum(SupplierType))
     reputation: Mapped[str | None] = mapped_column(String(255))
     # Источник сорсинга: сайт компании, каталог, реестр, ручное добавление.

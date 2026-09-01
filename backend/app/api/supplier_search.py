@@ -35,9 +35,10 @@ from app.models import (
     SearchRun,
     SourceDocument,
     Substance,
+    Supplier,
     User,
 )
-from app.models.enums import UserRole
+from app.models.enums import SupplierType, UserRole
 from app.schemas.supplier_verification import (
     SUPPLIER_VERIFICATION_JSON_SCHEMA,
     SupplierVerification,
@@ -1810,6 +1811,63 @@ def _rank_results(
 _MAX_COMPANY_FOLLOW_UPS = 3
 
 
+# Сколько известных компаний спрашиваем одним запросом. Группа имён через
+# OR стоит одного кредита поисковика на всех сразу, поэтому ограничение
+# здесь — не про бюджет, а про длину строки запроса.
+_MAX_KNOWN_SUPPLIERS = 6
+
+
+def _known_supplier_plan_items(
+    db: Session,
+    *,
+    country: str | None,
+    subject: str,
+    limit: int = _MAX_KNOWN_SUPPLIERS,
+) -> list[SearchPlanItem]:
+    """Спрашивает реестр: не делает ли это вещество кто-то уже известный.
+
+    Компанию, найденную однажды, незачем находить заново. Реестр к этому
+    моменту знает сотни компаний, у каждой записана страна и то, чем эта
+    страна подтверждена, — берём только тех, кто сам написал о себе на
+    странице, и только производителей.
+
+    Берётся одна строка с группой имён через OR: поисковик считает кредит
+    за запрос, а не за имя, поэтому шесть компаний стоят столько же,
+    сколько одна.
+    """
+    if not subject.strip() or not country:
+        return []
+    rows = db.scalars(
+        select(Supplier)
+        .where(
+            Supplier.country == country,
+            Supplier.country_status.in_(("claimed", "likely")),
+            Supplier.type == SupplierType.MANUFACTURER,
+        )
+        .order_by(Supplier.evidence_score.desc().nullslast(), Supplier.id)
+        .limit(limit)
+    ).all()
+    names = [
+        supplier.company.strip()
+        for supplier in rows
+        if supplier.company and supplier.company.strip()
+    ]
+    # Одна компания — это не проверка реестра, а случайная догадка: место
+    # в плане она займёт, а охвата не даст.
+    if len(names) < 2:
+        return []
+    group = " OR ".join(f'"{name}"' for name in names)
+    return [
+        SearchPlanItem(
+            query=f"({group}) {subject}",
+            language="en",
+            purpose="product",
+            source_type="web",
+            priority=2,
+        )
+    ]
+
+
 _MAX_SUBSTANCE_FOLLOW_UPS = 2
 
 
@@ -2555,6 +2613,26 @@ def execute_supplier_search(
     worklist = list(planned_queries)
     second_wave_done = False
     substance_wave_done = False
+    known_wave_done = False
+
+    def _add_known_supplier_follow_ups() -> bool:
+        """Спрашивает уже известные компании о новом веществе."""
+        nonlocal known_wave_done
+        known_wave_done = True
+        extra = _known_supplier_plan_items(
+            db,
+            country=data.country,
+            subject=f'"{data.cas}"' if data.cas else data.name,
+        )
+        if not extra:
+            return False
+        worklist.extend(extra)
+        log_agent_event(
+            search_stage,
+            "Спрашиваю компании, уже известные реестру по этой стране: "
+            + extra[0].query,
+        )
+        return True
 
     def _add_substance_follow_ups() -> bool:
         """Второй заход по настоящему имени вещества, если номера нет."""
@@ -2714,6 +2792,11 @@ def execute_supplier_search(
         # там, где кандидатов уже набралось, они чаще всего оказываются
         # торговыми домами, а завод стоит рядом в обзоре и остаётся
         # ненайденным.
+        # Реестр спрашивается раньше открытого веба второй волной:
+        # компанию, найденную однажды, незачем находить заново.
+        if not known_wave_done and (coverage_reached or position >= len(worklist)):
+            if _add_known_supplier_follow_ups():
+                continue
         # Имя вещества важнее имени компании: без него весь план был
         # перестановкой одних и тех же слов торговой марки. Поэтому этот
         # заход идёт первым и только там, где номера нет — с номером

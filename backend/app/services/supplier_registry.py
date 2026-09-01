@@ -171,6 +171,9 @@ def register_marketplace_seller(
         if supplier.company_key is None and key:
             supplier.company_key = key
 
+    if search_run.rfq_id is None:
+        return supplier
+
     link = db.scalar(
         select(RfqSupplierLink).where(
             RfqSupplierLink.rfq_id == search_run.rfq_id,
@@ -307,16 +310,44 @@ def _attach_contacts(
     db.flush()
 
 
+# Сила подтверждения страны. Прямое заявление компании о себе весомее
+# косвенного признака вроде доменной зоны, а тот — молчания страницы.
+_COUNTRY_RANK = {"claimed": 3, "likely": 2, "not_found": 1}
+
+
+def _country_rank(status: object) -> int:
+    return _COUNTRY_RANK.get(str(status or ""), 0)
+
+
+def _country_quote(result: dict) -> str | None:
+    """Дословная цитата, на которой держится страна компании."""
+    for item in result.get("evidence") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("claim_type") != "country":
+            continue
+        if item.get("quote_verified") is not True:
+            continue
+        quote = str(item.get("quote") or "").strip()
+        if quote:
+            return quote[:500]
+    return None
+
+
 def register_qualified_candidate(
     db: Session,
     *,
     search_run: SearchRun,
     result: dict,
 ) -> Supplier | None:
-    """Save a verified-page result as a candidate, never as an approved supplier."""
-    if search_run.rfq_id is None:
-        return None
+    """Save a verified-page result as a candidate, never as an approved supplier.
 
+    Заявка больше не обязательна. Раньше прогон без неё не заводил в реестр
+    ничего, и реестр рос с малой доли запусков: компания, найденная в
+    свободном поиске, забывалась к следующему разу, и её приходилось
+    находить заново за десяток запросов. Связь с заявкой по-прежнему
+    создаётся только там, где заявка есть.
+    """
     source_url = str(result.get("url") or "").strip()
     if not source_url:
         return None
@@ -378,11 +409,27 @@ def register_qualified_candidate(
         if result.get(field) == "claimed"
     ]
 
+    requested_country = (search_run.input_payload or {}).get("country")
+    country_status = result.get("country_status")
+    country_status = (
+        country_status
+        if country_status in {"claimed", "likely", "not_found"}
+        else None
+    )
+    country_evidence = _country_quote(result)
+    # При mismatch страница прямо назвала другую страну. Записать сюда
+    # страну поиска значило бы записать заведомо неверное.
+    evidenced_country = (
+        requested_country if result.get("country_status") != "mismatch" else None
+    )
+
     if supplier is None:
         supplier = Supplier(
             company=company[:255],
             company_key=key,
-            country=(search_run.input_payload or {}).get("country"),
+            country=evidenced_country,
+            country_status=country_status,
+            country_evidence=country_evidence,
             type=mapped_type,
             reputation=(
                 f"Автоматическая квалификация: {evidence_score}/100; "
@@ -409,6 +456,17 @@ def register_qualified_candidate(
             )
         if supplier.type is None and mapped_type is not None:
             supplier.type = mapped_type
+        # Подтверждение сильнее умолчания: «прямо указано» вытесняет
+        # «косвенно», а то — «страница не сказала ничего». Обратно статус
+        # не понижается: один неудачно загруженный источник не отменяет
+        # уже прочитанной цитаты.
+        if _country_rank(country_status) > _country_rank(supplier.country_status):
+            supplier.country_status = country_status
+            supplier.country_evidence = country_evidence
+            if evidenced_country:
+                supplier.country = evidenced_country
+        elif supplier.country is None and evidenced_country:
+            supplier.country = evidenced_country
         if certificates:
             supplier.certificates = sorted(
                 set(supplier.certificates or []).union(certificates)
@@ -422,6 +480,9 @@ def register_qualified_candidate(
         substance=str((search_run.input_payload or {}).get("name") or "").strip(),
         own_page=own_page,
     )
+
+    if search_run.rfq_id is None:
+        return supplier
 
     link = db.scalar(
         select(RfqSupplierLink).where(
