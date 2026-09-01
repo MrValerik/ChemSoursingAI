@@ -1559,43 +1559,6 @@ def _fallback_search_plan(
     return items
 
 
-# Сколько слов сверх предмета поиска запрос может себе позволить.
-#
-# Замер 3065 сохранённых запросов за 27 июля - 20 августа 2026 сперва
-# выглядел как порог по общей длине: до восьми слов запрос давал карточку в
-# 27-31% случаев, на 9-10 словах в 13%, на 11 и более в 2%. Но все запросы
-# от 11 слов приходятся на позиции без CAS, где длинное торговое название
-# само делает запрос длинным, и порог по общей длине оставил бы такую
-# позицию вовсе без плана. Длина там следствие, а не причина.
-#
-# Поэтому считается только обвес - слова, не принадлежащие ни названию, ни
-# номеру, ни составу, ни эталону, то есть ровно те, что накручивает вокруг
-# предмета сам план. По тому же замеру порог в восемь слов обвеса снимает
-# 59 запросов, из которых лишь два когда-либо давали карточку, и не теряет
-# ни одной карточки, которую не нашёл бы другой запрос того же прогона.
-# Порог в семь уже стоил бы шестнадцати таких карточек.
-_MAX_QUERY_DECORATION_WORDS = 8
-
-_QUERY_WORD_RE = re.compile(r"[^0-9a-zA-Zа-яА-ЯёЁ一-鿿-]+")
-
-
-def _query_tokens(text: str) -> set[str]:
-    return {part.casefold() for part in _QUERY_WORD_RE.split(text or "") if part}
-
-
-def _decoration_word_count(query: str, subject_tokens: set[str]) -> int:
-    """Слова запроса сверх предмета поиска; операторы не считаются."""
-    count = 0
-    for word in query.split():
-        if ":" in word:
-            continue
-        parts = _query_tokens(word)
-        if parts and parts <= subject_tokens:
-            continue
-        count += 1
-    return count
-
-
 def _merge_search_plans(
     data: SupplierSearchRequest,
     ai_items: list[SearchPlanItem],
@@ -1629,19 +1592,12 @@ def _merge_search_plans(
     else:
         anchors = [data.cas or data.name]
     anchors = [item.casefold() for item in anchors if item and item.strip()]
-    # Предмет поиска для порога длины: те же якоря, что стерегут план от
-    # ухода в сторону. Состав и эталон входят наравне с названием — иначе
-    # запрос по составу выглядел бы сплошным обвесом и отсекался бы весь.
-    subject_tokens: set[str] = set()
-    for anchor in anchors:
-        subject_tokens |= _query_tokens(anchor)
     # Якорь проверяется только у запросов модели: она без него уводит план
     # в сторону. Наши собственные запросы строятся из предмета поиска и в
     # надзоре не нуждаются — а под общее правило попадал ровно тот из них,
     # который намеренно идёт без номера. Он собирался и тут же выбрасывался,
     # то есть не работал ни разу с тех пор, как появился.
     deterministic = {item.query.strip().casefold() for item in fallback_items}
-    too_long: list[SearchPlanItem] = []
     for item in ordered_items:
         normalized = unquote_ranged_name(item.query.strip(), data.name)
         if normalized.casefold() not in deterministic and not any(
@@ -1653,21 +1609,9 @@ def _merge_search_plans(
         if key in seen:
             continue
         seen.add(key)
-        candidate = item.model_copy(update={"query": normalized})
-        if (
-            _decoration_word_count(normalized, subject_tokens)
-            > _MAX_QUERY_DECORATION_WORDS
-        ):
-            too_long.append(candidate)
-            continue
-        accepted.append(candidate)
+        accepted.append(item.model_copy(update={"query": normalized}))
         if len(accepted) == 8:
             break
-    # Длинный запрос лучше короткого только в одном случае: когда короткого
-    # нет вовсе. У вещества с длинным торговым названием любой запрос о нём
-    # длинный, и порог сам по себе оставил бы такую позицию без плана.
-    if not accepted:
-        accepted = too_long[:8]
     return accepted, rejected_count
 
 

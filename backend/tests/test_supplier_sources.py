@@ -643,56 +643,13 @@ def test_a_name_without_a_range_keeps_the_model_quotes():
     assert unquote_ranged_name(query, "Adipic acid") == query
 
 
-def test_a_query_buried_in_decoration_is_dropped():
-    """Обвес вокруг предмета поиска ограничен восемью словами.
-
-    Замер 3065 сохранённых запросов за 27 июля — 20 августа 2026: запросы с
-    обвесом больше восьми слов — это 59 штук, из которых лишь два когда-либо
-    довели дело до карточки, и ни одной такой, которую не нашёл бы другой
-    запрос того же прогона. Порог в семь стоил бы уже шестнадцати карточек.
-    """
-    from app.api.supplier_search import (
-        SearchPlanItem,
-        SubstanceIdentity,
-        SupplierSearchRequest,
-        _fallback_search_plan,
-        _merge_search_plans,
-    )
-
-    data = SupplierSearchRequest(cas="50-78-2", name="Aspirin", country="Китай")
-    identity = SubstanceIdentity(
-        status="verified", canonical_name="Aspirin", search_names=["Aspirin"]
-    )
-    bloated = SearchPlanItem(
-        query=(
-            '"Aspirin" "50-78-2" (equivalent OR alternative OR substitute) '
-            "(manufacturer OR factory OR producer) China supplier export"
-        ),
-        language="en",
-        purpose="manufacturer",
-        source_type="web",
-        priority=1,
-    )
-    lean = SearchPlanItem(
-        query='"Aspirin" "50-78-2" manufacturer China',
-        language="en",
-        purpose="manufacturer",
-        source_type="web",
-        priority=1,
-    )
-    fallback = _fallback_search_plan(data, identity)
-    merged, _ = _merge_search_plans(data, [bloated, lean], fallback)
-
-    queries = [item.query for item in merged]
-    assert bloated.query not in queries
-    assert lean.query in queries
-
-
 def test_a_long_trade_name_still_gets_a_plan():
-    """Длина запроса чаще следствие длинного названия, чем лишних слов.
+    """Позиция с длинным торговым названием обязана получить план.
 
-    У позиции без CAS с длинным торговым названием обвеса нет вовсе —
-    длинное здесь само название, и порог обязан её пропустить.
+    Порога по длине запроса здесь нет и быть не должно: длина у таких
+    позиций — следствие самого названия. Замер 3065 сохранённых запросов
+    проверялся дважды, и оба порога — по словам и по единицам смысла —
+    либо теряли находки, либо не отсекали ничего.
     """
     from app.api.supplier_search import (
         SubstanceIdentity,

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlparse
 
+from app.services.brand_aliases import brand_aliases
+
 SourceKind = Literal["echemi", "india_registry", "india_web", "web"]
 
 _INDIA_REGISTRY_DOMAINS = (
@@ -475,9 +477,15 @@ def _name_group(name: str, synonyms: list[str] | None) -> str:
     names = _distinct_names(name, synonyms)
     quotable = [item for item in names if _is_quotable(item)]
     if not quotable:
-        # Ни одно название не годится в точную фразу — отдаём основное как
-        # обычные слова. Ограничение задаст остальная часть запроса.
-        return names[0]
+        # Ни одно название не годится в точную фразу — отдаём их обычными
+        # словами. Раньше здесь оставалось только первое, и все остальные
+        # названия молча пропадали: у длинного торгового имени в кавычки не
+        # помещается ничего, а именно у него альтернативные имена и есть.
+        # Так терялось прежнее имя владельца марки — единственное, под
+        # которым завод описывает свой аналог.
+        if len(names) == 1:
+            return names[0]
+        return "(" + " OR ".join(names) + ")"
     if len(quotable) == 1:
         return f'"{quotable[0]}"'
     return "(" + " OR ".join(f'"{item}"' for item in quotable) + ")"
@@ -508,7 +516,10 @@ def build_search_queries(
     country_term = f" {localised}" if localised else ""
     if identification_method == "analog" and (analog_reference or name).strip():
         reference_name = (analog_reference or name).strip()
-        reference = _name_group(reference_name, None)
+        # Прежнее имя владельца марки — такой же равноправный якорь, как и
+        # нынешнее: страницы заводов написаны под тем именем, под которым
+        # продукт знали, когда они начинали его копировать.
+        reference = _name_group(reference_name, brand_aliases(reference_name))
         product_terms = analog_product_description(name, reference_name)
         composition_terms = specification_search_terms(specification)
         functional_subject = (
@@ -517,11 +528,18 @@ def build_search_queries(
         candidates: list[str | None] = []
         if is_china(country):
             candidates.append(
-                f"{reference} (替代品 OR 同等品) (生产厂家 OR 工厂) 中国"
+                f"{reference} (替代品 OR 同等品 OR 对标) (生产厂家 OR 工厂) 中国"
             )
         candidates.extend(
             [
-                f"{reference} (equivalent OR alternative OR substitute) "
+                # Словарь взят со страниц, которые надо находить, а не из
+                # общих слов: завод пишет «replacement product for …»,
+                # «similar to …», а отраслевые перечни аналогов называются
+                # countertype list. Прежний набор из equivalent/alternative/
+                # substitute мимо такой формулировки проходил.
+                f"{reference} (equivalent OR replacement OR countertype) "
+                f"{profile.role_terms}{country_term}",
+                f"{reference} (alternative OR substitute OR analogue) "
                 f"{profile.role_terms}{country_term}",
                 (
                     f"{functional_subject} {composition_terms} "
