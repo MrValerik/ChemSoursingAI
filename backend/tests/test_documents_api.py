@@ -172,7 +172,9 @@ def test_verification_uses_rfq_substance_and_stores_gate_result(
 def _make_document(rfq_id: int, company: str = "TNJ Chemical") -> int:
     """Документ с паспортом и привязанным поставщиком."""
     from app.models import Supplier
+    from app.schemas.document_verification import DocumentVerification
     from app.services.document_text import apply_extraction
+    from app.services.document_verification import apply_document_verification
 
     with SessionLocal() as db:
         supplier = Supplier(company=company)
@@ -180,18 +182,14 @@ def _make_document(rfq_id: int, company: str = "TNJ Chemical") -> int:
         db.flush()
         stored = store_document(
             db,
-            payload=_pdf_bytes(_COA_LINES),
-            filename=f"CoA-decision-{supplier.id}.pdf",
+            payload=_pdf_bytes([*_COA_LINES, "Batch No.: DECIDE-1"]),
+            filename="CoA-decision.pdf",
             declared_content_type="application/pdf",
             rfq_id=rfq_id,
         )
         document = stored.document
         document.supplier_id = supplier.id
         apply_extraction(document)
-        # Автоматическая сверка уже выполнена: паспорт от другой компании.
-        from app.schemas.document_verification import DocumentVerification
-        from app.services.document_verification import apply_document_verification
-
         document.verification = apply_document_verification(
             verification=DocumentVerification.model_validate(
                 {
@@ -220,26 +218,33 @@ def _make_document(rfq_id: int, company: str = "TNJ Chemical") -> int:
         return document.id
 
 
-def _rfq_id(client) -> int:
-    created = client.post(
-        "/rfq?verify=false",
-        json={
-            "name": "Аспирин",
-            "identification_method": "spec",
-            "specification": "тех",
-            "incoterms": ["CIP"],
-            "search_countries": ["Китай"],
-        },
-        headers=_auth(client, "ivanov"),
-    )
-    assert created.status_code == 201, created.text
-    return created.json()["id"]
+@pytest.fixture
+def decidable(client, seeded):
+    """Один документ на все тесты решения, с чистым состоянием перед каждым.
 
+    Модули набора делят одну базу SQLite: DATABASE_URL ставится через
+    setdefault, и выигрывает первый импортированный модуль. Поэтому лишние
+    строки видны чужим тестам — создаётся ровно один документ, а решение
+    снимается перед каждым использованием.
+    """
+    document_id = _make_document(seeded["rfq_id"])
+    yield document_id
+    with SessionLocal() as db:
+        from app.models import Supplier, SupplierDocument
 
-def test_a_human_decision_overrides_the_automatic_outcome(client):
+        document = db.get(SupplierDocument, document_id)
+        if document is not None:
+            supplier_id = document.supplier_id
+            db.delete(document)
+            if supplier_id:
+                supplier = db.get(Supplier, supplier_id)
+                if supplier is not None:
+                    db.delete(supplier)
+            db.commit()
+
+def test_a_human_decision_overrides_the_automatic_outcome(client, decidable):
     """Автосверка на сокращённом названии не может решить — решает человек."""
-    rfq_id = _rfq_id(client)
-    document_id = _make_document(rfq_id)
+    document_id = decidable
     headers = _auth(client, "ivanov")
 
     before = client.get(f"/documents/{document_id}", headers=headers).json()
@@ -262,13 +267,12 @@ def test_a_human_decision_overrides_the_automatic_outcome(client):
     assert match["decided_at"]
 
 
-def test_the_decision_survives_a_re_verification(client, monkeypatch):
+def test_the_decision_survives_a_re_verification(client, decidable, monkeypatch):
     """Перепроверка пересобирает verification — решение обязано уцелеть.
 
     Иначе очередной прогон модели молча отменял бы разбор человека.
     """
-    rfq_id = _rfq_id(client)
-    document_id = _make_document(rfq_id)
+    document_id = decidable
     headers = _auth(client, "ivanov")
     client.post(
         f"/documents/{document_id}/manufacturer-decision",
@@ -299,9 +303,8 @@ def test_the_decision_survives_a_re_verification(client, monkeypatch):
     assert match["decided_by"] == "Иван Иванов"
 
 
-def test_the_decision_can_be_withdrawn_and_the_machine_answer_returns(client):
-    rfq_id = _rfq_id(client)
-    document_id = _make_document(rfq_id)
+def test_the_decision_can_be_withdrawn_and_the_machine_answer_returns(client, decidable):
+    document_id = decidable
     headers = _auth(client, "ivanov")
     client.post(
         f"/documents/{document_id}/manufacturer-decision",
@@ -318,10 +321,9 @@ def test_the_decision_can_be_withdrawn_and_the_machine_answer_returns(client):
     assert "decided_by" not in match or match.get("decided_by") is None
 
 
-def test_a_reason_is_required(client):
+def test_a_reason_is_required(client, decidable):
     """Решение перекрывает машину — без объяснения его не проверить."""
-    rfq_id = _rfq_id(client)
-    document_id = _make_document(rfq_id)
+    document_id = decidable
     headers = _auth(client, "ivanov")
     response = client.post(
         f"/documents/{document_id}/manufacturer-decision",
@@ -331,9 +333,8 @@ def test_a_reason_is_required(client):
     assert response.status_code == 422
 
 
-def test_an_unknown_decision_is_refused(client):
-    rfq_id = _rfq_id(client)
-    document_id = _make_document(rfq_id)
+def test_an_unknown_decision_is_refused(client, decidable):
+    document_id = decidable
     headers = _auth(client, "ivanov")
     response = client.post(
         f"/documents/{document_id}/manufacturer-decision",
@@ -343,9 +344,8 @@ def test_an_unknown_decision_is_refused(client):
     assert response.status_code == 422
 
 
-def test_the_auditor_may_read_but_not_decide(client):
-    rfq_id = _rfq_id(client)
-    document_id = _make_document(rfq_id)
+def test_the_auditor_may_read_but_not_decide(client, decidable):
+    document_id = decidable
     auditor = _auth(client, "auditor")
 
     assert client.get(f"/documents/{document_id}", headers=auditor).status_code == 200
