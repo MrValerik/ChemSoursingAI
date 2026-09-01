@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.models.communication import Communication
     from app.models.rfq import RFQ
     from app.models.supplier import Supplier
+    from app.models.user import User
 
 
 class SupplierDocument(Base, TimestampMixin):
@@ -66,6 +67,31 @@ class SupplierDocument(Base, TimestampMixin):
         JSON, default=None
     )
 
+    # Решение человека по изготовителю: кто, что и почему решил.
+    #
+    # Автоматическая сверка сравнивает имена и на «Hefei TNJ Chemical
+    # Industry» против «TNJ Chemical» честно отвечает «нужна ручная
+    # проверка» — различить сокращение и другую фирму по названию нельзя.
+    # Без записи решения закупщик разбирается заново при каждом открытии
+    # документа, а результат его разбора нигде не остаётся.
+    #
+    # Поля живут на самом документе, а не внутри verification: тот
+    # пересобирается при каждой перепроверке, и решение человека
+    # затиралось бы очередным прогоном модели.
+    manufacturer_decision: Mapped[str | None] = mapped_column(
+        String(16), default=None, index=True
+    )
+    manufacturer_decision_reason: Mapped[str | None] = mapped_column(
+        Text, default=None
+    )
+    manufacturer_decided_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    manufacturer_decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+    manufacturer_decided_by: Mapped["User | None"] = relationship()
     rfq: Mapped["RFQ | None"] = relationship()
     communication: Mapped["Communication | None"] = relationship()
     supplier: Mapped["Supplier | None"] = relationship()

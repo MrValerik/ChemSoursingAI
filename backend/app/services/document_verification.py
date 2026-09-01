@@ -432,6 +432,39 @@ def _confidence_breakdown(
     return max(0, min(100, raw_score)), breakdown
 
 
+# Что человек может решить об изготовителе. Набор уже машинного: код
+# различает ещё «сверять нечего», а человек, взявшийся за документ, уже
+# знает, чем кончилось.
+MANUFACTURER_DECISIONS = ("match", "mismatch", "unclear")
+
+
+def apply_manufacturer_decision(
+    verification: dict | None,
+    *,
+    decision: str | None,
+    reason: str | None,
+    decided_by: str | None,
+    decided_at: str | None,
+) -> dict | None:
+    """Накладывает решение человека поверх автоматической сверки.
+
+    Автоматический вывод не стирается: он остаётся рядом как то, с чем
+    человек не согласился или что подтвердил. Стереть его значило бы
+    потерять половину аудита — по какому поводу решение вообще принималось.
+    """
+    if not verification or not decision:
+        return verification
+    match = dict(verification.get("manufacturer_match") or {})
+    match["decided_status"] = decision
+    match["decided_reason"] = (reason or "").strip() or None
+    match["decided_by"] = decided_by
+    match["decided_at"] = decided_at
+    # Автоматический исход сохраняется отдельно, а действующим становится
+    # решение человека: именно оно должно читаться как ответ.
+    match["auto_status"] = match.get("status")
+    match["status"] = decision
+    return {**verification, "manufacturer_match": match}
+
 def apply_document_verification(
     *,
     verification: DocumentVerification | None,

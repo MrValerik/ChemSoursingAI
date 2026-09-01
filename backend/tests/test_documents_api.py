@@ -164,3 +164,202 @@ def test_verification_uses_rfq_substance_and_stores_gate_result(
     assert verification["status"] == "confirmed"
     assert verification["expected_cas"] == "50-78-2"
     assert verification["cas_in_document"] == ["50-78-2"]
+
+
+# --- решение человека по изготовителю (MEET2-14) ---
+
+
+def _make_document(rfq_id: int, company: str = "TNJ Chemical") -> int:
+    """Документ с паспортом и привязанным поставщиком."""
+    from app.models import Supplier
+    from app.services.document_text import apply_extraction
+
+    with SessionLocal() as db:
+        supplier = Supplier(company=company)
+        db.add(supplier)
+        db.flush()
+        stored = store_document(
+            db,
+            payload=_pdf_bytes(_COA_LINES),
+            filename=f"CoA-decision-{supplier.id}.pdf",
+            declared_content_type="application/pdf",
+            rfq_id=rfq_id,
+        )
+        document = stored.document
+        document.supplier_id = supplier.id
+        apply_extraction(document)
+        # Автоматическая сверка уже выполнена: паспорт от другой компании.
+        from app.schemas.document_verification import DocumentVerification
+        from app.services.document_verification import apply_document_verification
+
+        document.verification = apply_document_verification(
+            verification=DocumentVerification.model_validate(
+                {
+                    "document_kind": "coa",
+                    "substance_match": "exact",
+                    "verification_status": "confirmed",
+                    "recommended_action": "accept",
+                    "confidence": 90,
+                    "reason": "Документ относится к запрошенному веществу.",
+                    "claims": [
+                        {
+                            "claim_type": "chemical_identity",
+                            "claim_value": "CAS 50-78-2",
+                            "quote": "CAS No.: 50-78-2",
+                        }
+                    ],
+                    "missing_fields": [],
+                    "red_flags": [],
+                }
+            ),
+            document_text=document.text_content,
+            expected_cas="50-78-2",
+            supplier_company=company,
+        )
+        db.commit()
+        return document.id
+
+
+def _rfq_id(client) -> int:
+    created = client.post(
+        "/rfq?verify=false",
+        json={
+            "name": "Аспирин",
+            "identification_method": "spec",
+            "specification": "тех",
+            "incoterms": ["CIP"],
+            "search_countries": ["Китай"],
+        },
+        headers=_auth(client, "ivanov"),
+    )
+    assert created.status_code == 201, created.text
+    return created.json()["id"]
+
+
+def test_a_human_decision_overrides_the_automatic_outcome(client):
+    """Автосверка на сокращённом названии не может решить — решает человек."""
+    rfq_id = _rfq_id(client)
+    document_id = _make_document(rfq_id)
+    headers = _auth(client, "ivanov")
+
+    before = client.get(f"/documents/{document_id}", headers=headers).json()
+    assert before["verification"]["manufacturer_match"]["status"] == "mismatch"
+
+    response = client.post(
+        f"/documents/{document_id}/manufacturer-decision",
+        json={"status": "match", "reason": "Проверил по реестру: это одна компания"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    match = response.json()["verification"]["manufacturer_match"]
+
+    assert match["status"] == "match"
+    # Автоматический вывод не стёрт: аудиту нужно и то, по какому поводу
+    # решение принималось.
+    assert match["auto_status"] == "mismatch"
+    assert match["decided_by"] == "Иван Иванов"
+    assert match["decided_reason"].startswith("Проверил")
+    assert match["decided_at"]
+
+
+def test_the_decision_survives_a_re_verification(client, monkeypatch):
+    """Перепроверка пересобирает verification — решение обязано уцелеть.
+
+    Иначе очередной прогон модели молча отменял бы разбор человека.
+    """
+    rfq_id = _rfq_id(client)
+    document_id = _make_document(rfq_id)
+    headers = _auth(client, "ivanov")
+    client.post(
+        f"/documents/{document_id}/manufacturer-decision",
+        json={"status": "match", "reason": "Одна компания, сокращённое название"},
+        headers=headers,
+    )
+
+    from app.extraction.llm_client import LLMUnavailableError
+    from app.services import document_agent
+
+    class _DeadLLM:
+        model = "stub"
+
+        def generate_json(self, **kwargs):
+            raise LLMUnavailableError("нет модели")
+
+    monkeypatch.setattr(document_agent, "LLMClient", lambda *a, **kw: _DeadLLM())
+    monkeypatch.setattr(
+        document_agent, "communication_llm_client", lambda *a, **kw: _DeadLLM()
+    )
+
+    again = client.post(
+        f"/documents/{document_id}/verify", json={}, headers=headers
+    )
+    assert again.status_code == 200, again.text
+    match = again.json()["verification"]["manufacturer_match"]
+    assert match["status"] == "match", "решение человека затёрто перепроверкой"
+    assert match["decided_by"] == "Иван Иванов"
+
+
+def test_the_decision_can_be_withdrawn_and_the_machine_answer_returns(client):
+    rfq_id = _rfq_id(client)
+    document_id = _make_document(rfq_id)
+    headers = _auth(client, "ivanov")
+    client.post(
+        f"/documents/{document_id}/manufacturer-decision",
+        json={"status": "match", "reason": "Ошибся, сейчас сниму"},
+        headers=headers,
+    )
+
+    cleared = client.delete(
+        f"/documents/{document_id}/manufacturer-decision", headers=headers
+    )
+    assert cleared.status_code == 200
+    match = cleared.json()["verification"]["manufacturer_match"]
+    assert match["status"] == "mismatch"
+    assert "decided_by" not in match or match.get("decided_by") is None
+
+
+def test_a_reason_is_required(client):
+    """Решение перекрывает машину — без объяснения его не проверить."""
+    rfq_id = _rfq_id(client)
+    document_id = _make_document(rfq_id)
+    headers = _auth(client, "ivanov")
+    response = client.post(
+        f"/documents/{document_id}/manufacturer-decision",
+        json={"status": "match", "reason": ""},
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+def test_an_unknown_decision_is_refused(client):
+    rfq_id = _rfq_id(client)
+    document_id = _make_document(rfq_id)
+    headers = _auth(client, "ivanov")
+    response = client.post(
+        f"/documents/{document_id}/manufacturer-decision",
+        json={"status": "confirmed_by_vibes", "reason": "почему бы и нет"},
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
+def test_the_auditor_may_read_but_not_decide(client):
+    rfq_id = _rfq_id(client)
+    document_id = _make_document(rfq_id)
+    auditor = _auth(client, "auditor")
+
+    assert client.get(f"/documents/{document_id}", headers=auditor).status_code == 200
+    assert (
+        client.post(
+            f"/documents/{document_id}/manufacturer-decision",
+            json={"status": "match", "reason": "хочу решить"},
+            headers=auditor,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.delete(
+            f"/documents/{document_id}/manufacturer-decision", headers=auditor
+        ).status_code
+        == 403
+    )

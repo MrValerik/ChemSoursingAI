@@ -128,6 +128,7 @@ from app.services.supplier_sources import (
     source_priority,
     specification_search_terms,
     unquote_ranged_name,
+    with_excluded_domains,
 )
 
 router = APIRouter(prefix="/supplier-search", tags=["supplier-search"])
@@ -2625,7 +2626,11 @@ def execute_supplier_search(
                 kind="warning",
             )
             break
-        query = plan_item.query
+        # Заведомо бесполезные домены вычёркиваются прямо в запросе, а не
+        # после получения выдачи: открывать их мы и так отказываемся, то
+        # есть иначе платим за них местами в десятке. В журнал уходит
+        # ровно отправленная строка — иначе трассу нельзя повторить.
+        query = with_excluded_domains(plan_item.query)
         attempted_queries.append(query)
         executed_items.append(plan_item)
         log_agent_event(search_stage, f"Ищу: «{query}»")

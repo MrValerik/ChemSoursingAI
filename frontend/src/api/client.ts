@@ -455,6 +455,16 @@ export const api = {
   listSupplierPurchaseHistory: (id: number) =>
     request<PurchaseHistoryEntry[]>(`/suppliers/${id}/purchase-history`),
 
+  decideDocumentManufacturer: (documentId: number, status: string, reason: string) =>
+    request<SupplierDocumentDetail>(
+      `/documents/${documentId}/manufacturer-decision`,
+      { method: "POST", body: JSON.stringify({ status, reason }) },
+    ),
+  clearDocumentManufacturerDecision: (documentId: number) =>
+    request<SupplierDocumentDetail>(
+      `/documents/${documentId}/manufacturer-decision`,
+      { method: "DELETE" },
+    ),
   listIntermediaries: () => request<IntermediaryRead[]>(`/intermediaries`),
   listIntermediaryPurchaseHistory: (id: number) =>
     request<PurchaseHistoryEntry[]>(`/intermediaries/${id}/purchase-history`),

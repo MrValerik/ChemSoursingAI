@@ -5380,3 +5380,14 @@ button.substance-list-item.active {
   gap: 3px;
   margin: 6px 0 2px;
 }
+/* Решение человека по изготовителю. Причина обязательна — кнопки до неё
+   заблокированы, потому что решение перекрывает машинный вывод. */
+.document-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.document-decision textarea { min-height: 54px; resize: vertical; }
+.document-decision-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.document-decision .link-btn { align-self: flex-start; }

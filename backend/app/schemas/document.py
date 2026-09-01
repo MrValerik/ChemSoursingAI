@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SupplierDocumentRead(BaseModel):
@@ -25,6 +25,12 @@ class SupplierDocumentRead(BaseModel):
     extraction_error: str | None
     extracted_at: datetime | None
     verification: dict[str, Any] | None
+    # Решение человека по изготовителю. Оно же наложено на
+    # verification.manufacturer_match — там его читает интерфейс.
+    manufacturer_decision: str | None = None
+    manufacturer_decision_reason: str | None = None
+    manufacturer_decided_at: datetime | None = None
+    manufacturer_decided_by_name: str | None = None
     created_at: datetime
 
 
@@ -37,3 +43,11 @@ class DocumentVerificationRequest(BaseModel):
     # Пустое значение означает «взять вещество из карточки запроса».
     cas: str | None = None
     name: str | None = None
+
+class ManufacturerDecisionRequest(BaseModel):
+    """Решение человека о том, тот ли изготовитель указан в паспорте."""
+
+    status: str
+    # Причина обязательна: решение перекрывает автоматический вывод, и без
+    # объяснения его нельзя ни проверить, ни оспорить.
+    reason: str = Field(..., min_length=3, max_length=2000)

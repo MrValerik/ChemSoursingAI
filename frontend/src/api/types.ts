@@ -1202,6 +1202,14 @@ export interface DocumentManufacturerMatch {
   reason: string;
   /** Чужой изготовитель — наводка для нового поиска, не поставщик. */
   lead: string | null;
+  /** Откуда взято имя: утверждение модели или разбор текста документа. */
+  source?: "claim" | "document" | null;
+  /** Решение человека. Оно перекрывает status, а auto_status хранит машинный. */
+  auto_status?: string | null;
+  decided_status?: string | null;
+  decided_reason?: string | null;
+  decided_by?: string | null;
+  decided_at?: string | null;
 }
 
 export interface DocumentVerificationResult {

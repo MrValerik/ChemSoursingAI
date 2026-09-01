@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type {
+  DocumentVerificationResult,
   CommunicationTestMessage,
   CommunicationTestRun,
   RFQRead,
@@ -77,6 +78,14 @@ const procurementContextFromRfq = (rfq: RFQRead) =>
 
 // Исходы сверки изготовителя человеческим языком. Смысл несёт текст,
 // цвет только помогает найти блок.
+// Что человек может решить. Формулировки — от лица закупщика, а не
+// машины: он отвечает на вопрос «тот ли это завод», а не выставляет статус.
+const DECISION_CHOICES = [
+  { value: "match", label: "Тот же изготовитель" },
+  { value: "mismatch", label: "Другая компания" },
+  { value: "unclear", label: "Установить не удалось" },
+];
+
 const MANUFACTURER_MATCH_LABELS: Record<string, string> = {
   match: "Изготовитель подтверждён паспортом",
   mismatch: "Паспорт выпущен другой компанией",
@@ -97,6 +106,12 @@ const formatAttachmentSize = (bytes: number) =>
 function TestMessageAttachments({ message }: { message: CommunicationTestMessage }) {
   const [downloadBusy, setDownloadBusy] = useState<number | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  // Свежая проверка после решения человека. Сервер остаётся источником
+  // правды — здесь лежит его же ответ, чтобы блок не ждал перезагрузки.
+  const [decided, setDecided] = useState<Record<number, DocumentVerificationResult>>({});
+  const [decisionFor, setDecisionFor] = useState<number | null>(null);
+  const [decisionReason, setDecisionReason] = useState("");
+  const [decisionBusy, setDecisionBusy] = useState(false);
 
   if (!message.attachments?.length) return null;
 
@@ -120,10 +135,49 @@ function TestMessageAttachments({ message }: { message: CommunicationTestMessage
     }
   };
 
+  const decide = async (documentId: number, status: string) => {
+    setDecisionBusy(true);
+    setDownloadError(null);
+    try {
+      const updated = await api.decideDocumentManufacturer(
+        documentId,
+        status,
+        decisionReason.trim(),
+      );
+      if (updated.verification) {
+        setDecided((current) => ({ ...current, [documentId]: updated.verification! }));
+      }
+      setDecisionFor(null);
+      setDecisionReason("");
+    } catch (reason) {
+      setDownloadError(String(reason));
+    } finally {
+      setDecisionBusy(false);
+    }
+  };
+
+  const clearDecision = async (documentId: number) => {
+    setDecisionBusy(true);
+    try {
+      const updated = await api.clearDocumentManufacturerDecision(documentId);
+      if (updated.verification) {
+        setDecided((current) => ({ ...current, [documentId]: updated.verification! }));
+      }
+    } catch (reason) {
+      setDownloadError(String(reason));
+    } finally {
+      setDecisionBusy(false);
+    }
+  };
+
   return (
     <div className="communication-test-attachments">
       {message.attachments.map((attachment) => {
-        const verification = attachment.verification;
+        // Решение человека, только что записанное, важнее того, что
+        // пришло вместе с сообщением.
+        const verification =
+          (attachment.document_id != null && decided[attachment.document_id]) ||
+          attachment.verification;
         return (
           <article
             className="communication-test-attachment"
@@ -201,6 +255,83 @@ function TestMessageAttachments({ message }: { message: CommunicationTestMessage
                         <span className="document-quote">
                           «{verification.manufacturer_match.quote}»
                         </span>
+                      )}
+                      {/* Решение человека. Автосверка на сокращённом
+                          названии честно отвечает «нужна ручная проверка»:
+                          различить «Hefei TNJ Chemical Industry» и «TNJ
+                          Chemical» по строке нельзя. Без записи решения
+                          закупщик разбирается заново каждый раз. */}
+                      {verification.manufacturer_match.decided_by ? (
+                        <span className="document-decision">
+                          Решение: {verification.manufacturer_match.decided_by} —
+                          {" "}
+                          {verification.manufacturer_match.decided_reason}
+                          {attachment.document_id != null && (
+                            <button
+                              className="link-btn"
+                              disabled={decisionBusy}
+                              type="button"
+                              onClick={() =>
+                                void clearDecision(attachment.document_id as number)
+                              }
+                            >
+                              снять
+                            </button>
+                          )}
+                        </span>
+                      ) : decisionFor === attachment.document_id ? (
+                        <span className="document-decision">
+                          <textarea
+                            aria-label="Причина решения об изготовителе"
+                            className="ui-control"
+                            placeholder="Почему вы так решили — например: сверил по реестру, это одна компания"
+                            value={decisionReason}
+                            onChange={(event) => setDecisionReason(event.target.value)}
+                          />
+                          <span className="document-decision-actions">
+                            {DECISION_CHOICES.map((choice) => (
+                              <button
+                                disabled={decisionBusy || decisionReason.trim().length < 3}
+                                key={choice.value}
+                                title={
+                                  decisionReason.trim().length < 3
+                                    ? "Укажите причину решения"
+                                    : undefined
+                                }
+                                type="button"
+                                onClick={() =>
+                                  void decide(
+                                    attachment.document_id as number,
+                                    choice.value,
+                                  )
+                                }
+                              >
+                                {choice.label}
+                              </button>
+                            ))}
+                            <button
+                              className="secondary"
+                              disabled={decisionBusy}
+                              type="button"
+                              onClick={() => setDecisionFor(null)}
+                            >
+                              Отмена
+                            </button>
+                          </span>
+                        </span>
+                      ) : (
+                        attachment.document_id != null && (
+                          <button
+                            className="link-btn"
+                            type="button"
+                            onClick={() => {
+                              setDecisionFor(attachment.document_id as number);
+                              setDecisionReason("");
+                            }}
+                          >
+                            Записать решение
+                          </button>
+                        )
                       )}
                       {verification.manufacturer_match.lead && (
                         <span>
