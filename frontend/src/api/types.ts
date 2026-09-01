@@ -1179,6 +1179,31 @@ export interface DocumentConfidenceFactor {
   reason: string;
 }
 
+/**
+ * Сверка изготовителя из паспорта с компанией, приславшей документ.
+ *
+ * На поиске роль производителя подтверждается цитатой с сайта самой
+ * компании, а «мы завод» пишет и завод, и перекупщик. Имя в паспорте
+ * ставит тот, кто выпустил партию, — это доказательство другого качества.
+ */
+export interface DocumentManufacturerMatch {
+  /**
+   * match — одна компания; mismatch — паспорт чужого завода (похоже на
+   * торговый дом); manual_review — совпало частично или разной
+   * транслитерацией; insufficient — сверять нечего, и это НЕ довод против
+   * поставщика.
+   */
+  status: "match" | "mismatch" | "manual_review" | "insufficient";
+  /** Исходные строки показываются как есть: решает человек. */
+  document_manufacturer: string | null;
+  supplier_company: string | null;
+  /** Дословная цитата из документа, на которой стоит вывод. */
+  quote: string | null;
+  reason: string;
+  /** Чужой изготовитель — наводка для нового поиска, не поставщик. */
+  lead: string | null;
+}
+
 export interface DocumentVerificationResult {
   status: "confirmed" | "needs_review" | "rejected" | "unavailable";
   model_status: string | null;
@@ -1199,6 +1224,7 @@ export interface DocumentVerificationResult {
   expected_cas: string | null;
   expected_name?: string | null;
   name_matches?: boolean;
+  manufacturer_match?: DocumentManufacturerMatch;
   identity_basis?: string;
   text_status?: string | null;
   synthetic_demo?: boolean;

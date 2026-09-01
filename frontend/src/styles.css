@@ -5350,3 +5350,25 @@ button.substance-list-item.active {
    Без этого запись через месяц неотличима от стартового списка. */
 .intermediary-origin { margin-top: 3px; font-size: 12px; line-height: 1.4; }
 .intermediary-origin.is-muted { color: var(--muted); }
+
+/* Сверка изготовителя из паспорта с компанией, приславшей документ.
+   Цвет здесь только помогает найти блок: смысл несут заголовок и причина,
+   и без цвета они читаются так же. */
+.document-manufacturer {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.document-manufacturer.is-match { border-left-color: var(--ok); }
+.document-manufacturer.is-mismatch { border-left-color: var(--err); }
+.document-manufacturer.is-manual_review { border-left-color: var(--warn); }
+.document-manufacturer .document-facts { margin: 6px 0; }
+.document-quote {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.45;
+}

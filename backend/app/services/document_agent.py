@@ -77,6 +77,13 @@ def _document_text_budget() -> int:
     return max(600, available) * 2
 
 
+def _supplier_company(document: SupplierDocument) -> str | None:
+    """Компания, приславшая документ, — вторая сторона сверки изготовителя."""
+    supplier = getattr(document, "supplier", None)
+    company = (getattr(supplier, "company", None) or "").strip()
+    return company or None
+
+
 def verify_document(
     db: Session,
     document: SupplierDocument,
@@ -103,6 +110,7 @@ def verify_document(
             document_text=None,
             expected_cas=expected_cas,
             expected_name=expected_name,
+            supplier_company=_supplier_company(document),
             text_status=document.text_status,
             synthetic_demo=synthetic_demo,
             unavailable_reason=(
@@ -159,6 +167,7 @@ def verify_document(
         document_text=document_text,
         expected_cas=expected_cas,
         expected_name=expected_name,
+        supplier_company=_supplier_company(document),
         text_status=document.text_status,
         synthetic_demo=synthetic_demo,
         unavailable_reason=error,

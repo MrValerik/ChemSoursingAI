@@ -39,6 +39,15 @@ const formatSize = (bytes: number) =>
     ? `${(bytes / 1024 / 1024).toFixed(1)} МБ`
     : `${Math.max(1, Math.round(bytes / 1024))} КБ`;
 
+// Исходы сверки изготовителя человеческим языком. Цвет идёт вместе с
+// текстом: смысл несёт текст, цвет только помогает его найти.
+const MANUFACTURER_MATCH_LABELS: Record<string, string> = {
+  match: "Изготовитель подтверждён паспортом",
+  mismatch: "Паспорт выпущен другой компанией",
+  manual_review: "Изготовителя нужно сверить вручную",
+  insufficient: "Изготовителя в документе нет",
+};
+
 export default function DocumentsSection({ rfqId }: { rfqId: number }) {
   const { user } = useAuth();
   const readOnly = user?.role === "auditor";
@@ -221,6 +230,53 @@ export default function DocumentsSection({ rfqId }: { rfqId: number }) {
                         : "не найден"}
                     </dd>
                   </dl>
+
+                  {/* Изготовитель из паспорта против компании, приславшей
+                      документ. Обе строки показываются как есть: решение
+                      принимает человек, и сравнивать ему нужно то, что
+                      написано, а не то, что осталось после нормализации. */}
+                  {verification.manufacturer_match &&
+                    verification.manufacturer_match.status !== "insufficient" && (
+                      <div
+                        className={`document-manufacturer is-${verification.manufacturer_match.status}`}
+                      >
+                        <strong>
+                          {MANUFACTURER_MATCH_LABELS[
+                            verification.manufacturer_match.status
+                          ]}
+                        </strong>
+                        <dl className="document-facts">
+                          <dt>Изготовитель в паспорте</dt>
+                          <dd>
+                            {verification.manufacturer_match.document_manufacturer ||
+                              "—"}
+                          </dd>
+                          <dt>Прислал документ</dt>
+                          <dd>
+                            {verification.manufacturer_match.supplier_company || "—"}
+                          </dd>
+                        </dl>
+                        <p className="note">
+                          {verification.manufacturer_match.reason}
+                        </p>
+                        {verification.manufacturer_match.quote && (
+                          <p className="document-quote">
+                            «{verification.manufacturer_match.quote}»
+                          </p>
+                        )}
+                        {verification.manufacturer_match.lead && (
+                          <p className="note">
+                            Наводка для нового поиска:{" "}
+                            <strong>
+                              {verification.manufacturer_match.lead}
+                            </strong>
+                            . Подтверждённым поставщиком эта компания не
+                            становится — о ней известно только имя из чужого
+                            документа.
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                   {(verification.confidence_breakdown?.length ?? 0) > 0 && (
                     <details className="trace-subdetails">

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from typing import Any
 
 from app.schemas.document_verification import DocumentVerification
@@ -62,6 +63,170 @@ def _normalize_name(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", (value or "").casefold())
     transliterated = decomposed.translate(_CYRILLIC_TRANSLITERATION)
     return re.sub(r"[^a-z0-9]+", " ", transliterated).strip()
+
+
+# Правовые формы компаний. «Hunan Huateng Pharmaceutical Co., Ltd.» в
+# паспорте и «Hunan Huateng Pharmaceutical» в карточке — одна компания, и
+# различать их по суффиксу значит объявлять несовпадением обычную разницу
+# в написании. Список закрытый: сюда идут только формы, а не слова вроде
+# «pharmaceutical» или «chemical» — они часть имени.
+_COMPANY_SUFFIXES = (
+    "co ltd", "co limited", "company limited", "cо ltd",
+    "ltd", "limited", "llc", "lltd", "inc", "incorporated", "corp",
+    "corporation", "gmbh", "ag", "sa", "srl", "bv", "nv", "plc", "pte",
+    "pvt", "private limited", "kg", "oy", "ab", "as", "spa",
+    "ooo", "oao", "zao", "pao", "ao", "ip",
+    "group", "holdings", "holding",
+)
+
+def normalize_company(value: str) -> str:
+    """Сопоставимое имя компании: без правовой формы, регистра и пунктуации.
+
+    Транслитерация здесь та же, что у названий веществ: паспорт приходит и
+    на латинице, и кириллицей, а карточка поставщика заполнена как придётся.
+    """
+    name = _normalize_name(value)
+    if not name:
+        return ""
+    # Форма снимается с краёв и по одной: «Co Ltd» в середине названия —
+    # часть имени. По-английски форма стоит в конце, по-русски впереди
+    # («ООО Хунань Хуатэн»), поэтому чистятся оба края.
+    changed = True
+    while changed:
+        changed = False
+        for suffix in _COMPANY_SUFFIXES:
+            if name.endswith(" " + suffix):
+                name = name[: -len(suffix) - 1].strip()
+                changed = True
+                break
+            if name.startswith(suffix + " "):
+                name = name[len(suffix) + 1 :].strip()
+                changed = True
+                break
+    return name
+
+
+def _company_tokens(value: str) -> frozenset[str]:
+    """Слова названия без правовой формы.
+
+    Отраслевые и географические слова намеренно не выбрасываются. Соблазн
+    считать «chemical», «trading» или «Hunan» шумом велик, но каждое из них
+    различает компании: «Huateng Pharmaceutical» и «Huateng Pharmaceutical
+    Trading» — завод и его торговый дом, а «Hunan Huateng» и «Hebei Huateng» —
+    разные предприятия в разных провинциях. Выбросив эти слова, код объявил
+    бы их одной компанией.
+    """
+    return frozenset(
+        token for token in normalize_company(value).split() if len(token) > 1
+    )
+
+
+# Насколько похожими должны быть два слова, чтобы считаться одним именем в
+# разной транслитерации. Порог подобран по живым парам: «khunan»/«hunan» —
+# 0.91, «kemikals»/«chemicals» — 0.71, а «hunan»/«hebei» — 0.5.
+_TOKEN_SIMILARITY = 0.7
+
+
+def _tokens_pair_up(left: frozenset[str], right: frozenset[str]) -> bool:
+    """У каждого слова короткого названия есть близкий двойник в длинном."""
+    if not left or not right:
+        return False
+    short, long = (left, right) if len(left) <= len(right) else (right, left)
+    return all(
+        max(SequenceMatcher(None, token, other).ratio() for other in long)
+        >= _TOKEN_SIMILARITY
+        for token in short
+    )
+
+
+def match_manufacturer(
+    document_manufacturer: str | None,
+    supplier_company: str | None,
+) -> tuple[str, str]:
+    """Сверяет изготовителя из документа с компанией, которая его прислала.
+
+    Возвращает исход и причину человеческим языком.
+
+    Зачем вообще: роль производителя на этапе поиска подтверждается цитатой
+    с сайта самого продавца, а «we are a manufacturer» пишет и завод, и
+    перекупщик. Паспорт качества относится к конкретной партии, и имя
+    изготовителя в нём ставит тот, кто партию выпустил, — это первое
+    доказательство роли, не зависящее от маркетинга продавца.
+
+    Исходы разведены намеренно. `insufficient` — не отрицательный ответ:
+    отсутствие паспорта ничего не говорит о том, завод перед нами или нет,
+    и у настоящего завода со скупым сайтом документов может не быть на
+    руках. `manual_review` — частичное совпадение: дочернее предприятие и
+    другая фирма того же холдинга выглядят одинаково, и различить их может
+    только человек.
+    """
+    document_name = (document_manufacturer or "").strip()
+    supplier_name = (supplier_company or "").strip()
+    if not document_name or not supplier_name:
+        return (
+            "insufficient",
+            "Изготовитель в документе не назван или поставщик не указан — "
+            "сверять нечего. Отсутствие паспорта не является доказательством "
+            "того, что компания не производитель.",
+        )
+
+    left = normalize_company(document_name)
+    right = normalize_company(supplier_company)
+    if not left or not right:
+        return (
+            "insufficient",
+            "После нормализации от одного из названий не осталось значимой "
+            "части — сверка ненадёжна.",
+        )
+
+    if left == right:
+        return (
+            "match",
+            f"Изготовитель в документе и поставщик — одна компания: «{document_name}».",
+        )
+
+    left_tokens = _company_tokens(document_name)
+    right_tokens = _company_tokens(supplier_company)
+    if left_tokens and right_tokens and (
+        left_tokens <= right_tokens or right_tokens <= left_tokens
+    ):
+        # Одно название целиком входит в другое. Так выглядит и дочернее
+        # предприятие, и торговый дом того же завода: «Huateng
+        # Pharmaceutical» против «Huateng Pharmaceutical Trading». Разница
+        # существенная, а различить их по названию нельзя.
+        return (
+            "manual_review",
+            f"«{document_name}» и «{supplier_company}» совпадают частично: "
+            "так выглядит дочернее предприятие или торговый дом того же "
+            "завода. Различить может только человек.",
+        )
+
+    # Транслитерация расходится с романизацией: «ООО Хунань Хуатэн» даёт
+    # «khunan khuaten», а паспорт — «Hunan Huateng».
+    #
+    # Сравнение идёт пословно, а не по строке целиком. Похожесть строк здесь
+    # не работает: «hunan huateng» и «hebei huateng» — разные заводы в разных
+    # провинциях — похожи на 0.69, а «qingdao nova chemicals» и «циндао нова
+    # кемикалс» — одна компания — только на 0.72. Порог, который поймал бы
+    # вторую пару, склеил бы первую.
+    #
+    # Пословно они разделяются: решает самое непохожее слово. Одна чужая
+    # часть названия — провинция, «Trading» — рушит совпадение целиком.
+    if _tokens_pair_up(left_tokens, right_tokens):
+        return (
+            "manual_review",
+            f"«{document_name}» и «{supplier_company}» похожи пословно — так "
+            "выглядит одно имя в разной транслитерации. Дословно они не "
+            "совпадают, поэтому подтвердить изготовителя должен человек.",
+        )
+
+    return (
+        "mismatch",
+        f"Паспорт выпущен другой компанией: «{document_name}», а документ "
+        f"прислала «{supplier_company}». Это не порок поставщика — так "
+        "выглядит торговый дом, — но роль изготовителя за ним не "
+        "подтверждена.",
+    )
 
 
 def _quote_is_verbatim(quote: str, document_text: str) -> bool:
@@ -219,6 +384,7 @@ def apply_document_verification(
     document_text: str | None,
     expected_cas: str | None,
     expected_name: str | None = None,
+    supplier_company: str | None = None,
     text_status: str | None = "extracted",
     synthetic_demo: bool = False,
     unavailable_reason: str | None = None,
@@ -246,6 +412,17 @@ def apply_document_verification(
             "cas_in_document": [],
             "expected_cas": expected_cas,
             "expected_name": expected_name,
+            "manufacturer_match": {
+                "status": "insufficient",
+                "document_manufacturer": None,
+                "supplier_company": supplier_company,
+                "quote": None,
+                "reason": (
+                    "Документ не проверен, изготовителя сверять не с чем. "
+                    "Это не довод против поставщика."
+                ),
+                "lead": None,
+            },
             "synthetic_demo": synthetic_demo,
         }
 
@@ -293,6 +470,34 @@ def apply_document_verification(
 
     accepted_types = {claim["claim_type"] for claim in accepted}
 
+    # Изготовитель берётся только из принятого утверждения: его цитата
+    # дословно найдена в документе. Пересказ модели здесь не годится —
+    # именно на нём и держалась бы ошибка, которую карточка запрещает.
+    manufacturer_claim = next(
+        (claim for claim in accepted if claim["claim_type"] == "manufacturer"),
+        None,
+    )
+    document_manufacturer = (
+        (manufacturer_claim or {}).get("claim_value") or None
+    )
+    manufacturer_status, manufacturer_reason = match_manufacturer(
+        document_manufacturer, supplier_company
+    )
+    manufacturer_match = {
+        "status": manufacturer_status,
+        # Обе исходные строки показываются человеку как есть: решение
+        # принимает он, и сравнивать ему нужно то, что написано, а не
+        # то, что осталось после нормализации.
+        "document_manufacturer": document_manufacturer,
+        "supplier_company": supplier_company,
+        "quote": (manufacturer_claim or {}).get("quote"),
+        "reason": manufacturer_reason,
+        # Найденный в паспорте чужой изготовитель — наводка для нового
+        # поиска, а не подтверждённый поставщик: о нём известно только имя
+        # из чужого документа.
+        "lead": document_manufacturer if manufacturer_status == "mismatch" else None,
+    }
+
     # CAS сверяем сами: это дешёвая детерминированная проверка, которая не
     # должна зависеть от аккуратности модели.
     document_cas = document_cas_numbers(document_text)
@@ -339,6 +544,28 @@ def apply_document_verification(
     if normalized_expected and not document_cas:
         if "CAS в документе" not in missing_fields:
             missing_fields.append("CAS в документе")
+
+    # Несовпадение изготовителя не отклоняет документ и не уничтожает
+    # кандидата: паспорт подлинный, вещество то самое, партия та самая —
+    # другой оказалась роль приславшей компании. Это меняет то, кем мы её
+    # считаем, а не то, годен ли документ, поэтому здесь отметка, а не veto.
+    if manufacturer_match["status"] == "mismatch":
+        flag(
+            "Паспорт выпущен другой компанией: "
+            f"«{manufacturer_match['document_manufacturer']}». Роль "
+            "изготовителя за поставщиком не подтверждена — похоже на "
+            "торговый дом."
+        )
+    elif manufacturer_match["status"] == "manual_review":
+        flag(
+            "Изготовителя в паспорте нужно сверить вручную: "
+            f"{manufacturer_match['reason']}"
+        )
+    elif manufacturer_match["status"] == "insufficient" and supplier_company:
+        # Отсутствие изготовителя в документе — пробел в данных, а не довод
+        # против поставщика: у настоящего завода паспорт может быть скупым.
+        if "Изготовитель в документе" not in missing_fields:
+            missing_fields.append("Изготовитель в документе")
 
     model_rejected = (
         verification.verification_status == "rejected"
@@ -428,6 +655,7 @@ def apply_document_verification(
         "expected_cas": normalized_expected or expected_cas,
         "expected_name": expected_name,
         "name_matches": name_matches,
+        "manufacturer_match": manufacturer_match,
         "identity_basis": identity_basis,
         "text_status": text_status,
         "synthetic_demo": synthetic_demo,

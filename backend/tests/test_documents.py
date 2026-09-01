@@ -675,3 +675,170 @@ def test_unavailable_ocr_reports_the_real_reason(monkeypatch):
     get_settings.cache_clear()
     assert result.status == "needs_ocr"
     assert "Tesseract" in (result.error or "")
+
+
+# --- сверка изготовителя из паспорта с приславшей компанией (MEET2-14) ---
+
+
+def _manufacturer_claim(value: str = "HEBEI CHEM MANUFACTURING CO., LTD."):
+    return {
+        "claim_type": "manufacturer",
+        "claim_value": value,
+        "quote": "HEBEI CHEM MANUFACTURING CO., LTD.",
+    }
+
+
+def _verify_with_supplier(company: str | None, claims_extra=None, **kw):
+    from app.services.document_verification import apply_document_verification
+
+    base = _verification().model_dump()
+    if claims_extra is not None:
+        base["claims"] = base["claims"] + claims_extra
+    from app.schemas.document_verification import DocumentVerification
+
+    return apply_document_verification(
+        verification=DocumentVerification.model_validate(base),
+        document_text=_DOCUMENT_TEXT,
+        expected_cas="50-78-2",
+        expected_name="Aspirin",
+        supplier_company=company,
+        **kw,
+    )
+
+
+def test_manufacturer_in_the_passport_confirms_the_supplier():
+    """Первое доказательство роли, не зависящее от сайта продавца.
+
+    На поиске роль производителя подтверждается цитатой с сайта самой
+    компании, а «we are a manufacturer» пишет и завод, и перекупщик.
+    Имя в паспорте ставит тот, кто выпустил партию.
+    """
+    result = _verify_with_supplier(
+        "Hebei Chem Manufacturing", claims_extra=[_manufacturer_claim()]
+    )
+    match = result["manufacturer_match"]
+
+    assert match["status"] == "match"
+    assert match["document_manufacturer"] == "HEBEI CHEM MANUFACTURING CO., LTD."
+    assert match["supplier_company"] == "Hebei Chem Manufacturing"
+    # Совпадение опирается на сохранённую цитату, а не на пересказ модели.
+    assert match["quote"] in _DOCUMENT_TEXT
+
+
+def test_a_different_manufacturer_marks_a_trader_without_killing_him():
+    """Несовпадение меняет роль компании, а не годность документа."""
+    result = _verify_with_supplier(
+        "Qingdao Nova Chemicals", claims_extra=[_manufacturer_claim()]
+    )
+    match = result["manufacturer_match"]
+
+    assert match["status"] == "mismatch"
+    # Документ не отклонён: вещество и партия те самые, паспорт подлинный.
+    assert result["status"] != "rejected"
+    # Но роль названа: похоже на торговый дом.
+    assert any("другой компанией" in flag for flag in result["red_flags"])
+
+
+def test_a_foreign_manufacturer_becomes_a_search_lead_not_a_supplier():
+    """В чужом паспорте стоит имя настоящего завода — того, кого искали.
+
+    Создавать по нему подтверждённого поставщика нельзя: о компании
+    известно только имя из документа, который прислал кто-то другой.
+    """
+    result = _verify_with_supplier(
+        "Qingdao Nova Chemicals", claims_extra=[_manufacturer_claim()]
+    )
+    assert result["manufacturer_match"]["lead"] == "HEBEI CHEM MANUFACTURING CO., LTD."
+
+
+def test_a_matching_manufacturer_is_not_a_lead():
+    result = _verify_with_supplier(
+        "Hebei Chem Manufacturing", claims_extra=[_manufacturer_claim()]
+    )
+    assert result["manufacturer_match"]["lead"] is None
+
+
+def test_a_missing_passport_is_not_evidence_against_the_supplier():
+    """У настоящего завода со скупым сайтом документов может не быть."""
+    result = _verify_with_supplier("Hebei Chem Manufacturing")
+    match = result["manufacturer_match"]
+
+    assert match["status"] == "insufficient"
+    assert match["lead"] is None
+    assert not any("другой компанией" in flag for flag in result["red_flags"])
+    # Это пробел в данных, и назван он именно так.
+    assert "Изготовитель в документе" in result["missing_fields"]
+
+
+def test_a_manufacturer_claim_without_a_verbatim_quote_is_not_used():
+    """Пересказ модели изготовителем не считается.
+
+    Именно на нём и держалась бы ошибка: модель может назвать компанию,
+    которой в документе нет.
+    """
+    result = _verify_with_supplier(
+        "Qingdao Nova Chemicals",
+        claims_extra=[
+            {
+                "claim_type": "manufacturer",
+                "claim_value": "Qingdao Nova Chemicals",
+                "quote": "Manufactured by Qingdao Nova Chemicals",
+            }
+        ],
+    )
+    # Такой цитаты в документе нет — утверждение отклонено, сверять нечего.
+    assert result["manufacturer_match"]["status"] == "insufficient"
+    assert result["manufacturer_match"]["document_manufacturer"] is None
+
+
+def test_the_trading_arm_of_the_same_plant_goes_to_a_human():
+    """«Huateng Pharmaceutical» и «Huateng Pharmaceutical Trading» — не одно."""
+    from app.services.document_verification import match_manufacturer
+
+    status, reason = match_manufacturer(
+        "Hunan Huateng Pharmaceutical Co., Ltd.",
+        "Hunan Huateng Pharmaceutical Trading Co Ltd",
+    )
+    assert status == "manual_review"
+    assert "торговый дом" in reason or "дочернее" in reason
+
+
+def test_legal_forms_do_not_split_one_company():
+    from app.services.document_verification import match_manufacturer
+
+    assert match_manufacturer(
+        "Hunan Huateng Pharmaceutical Co., Ltd.", "Hunan Huateng Pharmaceutical"
+    )[0] == "match"
+    assert match_manufacturer("ООО «Хунань Хуатэн»", "Хунань Хуатэн")[0] == "match"
+
+
+def test_transliteration_of_one_name_goes_to_a_human_not_to_mismatch():
+    """«Циндао Нова Кемикалс» и «Qingdao Nova Chemicals» — одна компания."""
+    from app.services.document_verification import match_manufacturer
+
+    status, _ = match_manufacturer(
+        "Qingdao Nova Chemicals Co., Ltd", "ООО «Циндао Нова Кемикалс»"
+    )
+    assert status == "manual_review"
+
+
+def test_a_different_province_is_a_different_plant():
+    """Похожесть строк здесь обманывает: решает несовпавшее слово."""
+    from app.services.document_verification import match_manufacturer
+
+    assert match_manufacturer("Hunan Huateng", "Hebei Huateng")[0] == "mismatch"
+    assert match_manufacturer("Some Chemical Co", "Other Chemical Ltd")[0] == "mismatch"
+
+
+def test_an_unverified_document_reports_insufficient_not_mismatch():
+    from app.services.document_verification import apply_document_verification
+
+    result = apply_document_verification(
+        verification=None,
+        document_text=None,
+        expected_cas="50-78-2",
+        supplier_company="Qingdao Nova Chemicals",
+        unavailable_reason="LLM недоступна",
+    )
+    assert result["manufacturer_match"]["status"] == "insufficient"
+    assert result["manufacturer_match"]["lead"] is None
