@@ -88,6 +88,7 @@ from app.services.contacts import find_contact_barrier, find_contacts, has_conta
 from app.services.homoglyphs import fix_lookalikes, has_lookalikes
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
+    find_inci_names,
     assess_supply_volume,
     build_highlights,
     find_address_facts,
@@ -121,6 +122,7 @@ from app.services.supplier_sources import (
     is_china,
     is_india,
     is_non_manufacturer_domain,
+    market_profile,
     minimum_query_count,
     source_kind,
     source_priority,
@@ -1807,6 +1809,64 @@ def _rank_results(
 _MAX_COMPANY_FOLLOW_UPS = 3
 
 
+_MAX_SUBSTANCE_FOLLOW_UPS = 2
+
+
+def _substance_name_plan_items(
+    results: list[dict],
+    *,
+    country: str | None,
+    known_names: list[str],
+    limit: int = _MAX_SUBSTANCE_FOLLOW_UPS,
+) -> list[SearchPlanItem]:
+    """Настоящее имя вещества из выдачи — в запросы о нём самом.
+
+    У торговой марки без CAS искать нечем: агент идентификации возвращает
+    само торговое название, и весь план оказывается перестановкой одних и
+    тех же слов. Так было на позиции заказчика «Dowsil 556 Cosmetic Grade
+    Fluid» в шести прогонах подряд.
+
+    При этом имя печатают сами страницы: завод пишет «INCI: Phenyl
+    Trimethicone» рядом с обещанием заменить Dow Corning 556, а номера не
+    даёт вовсе. Имя берётся дословно из выдачи и служит якорем второго
+    захода — по нему находятся заводы, которые про марку не пишут ничего.
+    """
+    profile = market_profile(country)
+    localised = profile.country_term or country
+    country_term = f" {localised}" if localised else ""
+    known = {
+        re.sub(r"\s+", "", (name or "").casefold())
+        for name in known_names
+        if name
+    }
+    names: list[str] = []
+    for item in results:
+        text = f"{item.get('title') or ''}\n{item.get('snippet') or ''}"
+        for candidate in find_inci_names(text):
+            key = re.sub(r"\s+", "", candidate.casefold())
+            if not key or key in known:
+                continue
+            known.add(key)
+            names.append(candidate)
+            if len(names) >= limit:
+                break
+        if len(names) >= limit:
+            break
+    plan: list[SearchPlanItem] = []
+    for name in names:
+        quoted = f'"{name}"' if len(name.split()) <= 3 else name
+        plan.append(
+            SearchPlanItem(
+                query=f"{quoted} {profile.role_terms}{country_term}",
+                language="en",
+                purpose="manufacturer",
+                source_type="web",
+                priority=2,
+            )
+        )
+    return plan
+
+
 def _company_site_plan_items(
     results: list[dict],
     *,
@@ -2493,6 +2553,31 @@ def execute_supplier_search(
     # покрытие обязательных источников.
     worklist = list(planned_queries)
     second_wave_done = False
+    substance_wave_done = False
+
+    def _add_substance_follow_ups() -> bool:
+        """Второй заход по настоящему имени вещества, если номера нет."""
+        nonlocal substance_wave_done
+        substance_wave_done = True
+        extra = _substance_name_plan_items(
+            raw_results,
+            country=data.country,
+            known_names=[
+                data.name,
+                data.analog_reference or "",
+                *(data.known_synonyms or []),
+                *list(identity.search_names or []),
+            ],
+        )
+        if not extra:
+            return False
+        worklist.extend(extra)
+        names = ", ".join(item.query for item in extra)
+        log_agent_event(
+            search_stage,
+            "На страницах выдачи названо само вещество — ищу по нему: " + names,
+        )
+        return True
 
     def _add_company_follow_ups() -> bool:
         nonlocal second_wave_done
@@ -2624,6 +2709,17 @@ def execute_supplier_search(
         # там, где кандидатов уже набралось, они чаще всего оказываются
         # торговыми домами, а завод стоит рядом в обзоре и остаётся
         # ненайденным.
+        # Имя вещества важнее имени компании: без него весь план был
+        # перестановкой одних и тех же слов торговой марки. Поэтому этот
+        # заход идёт первым и только там, где номера нет — с номером
+        # якорь уже есть, и подменять его названием незачем.
+        if (
+            not data.cas
+            and not substance_wave_done
+            and (coverage_reached or position >= len(worklist))
+        ):
+            if _add_substance_follow_ups():
+                continue
         if (coverage_reached or position >= len(worklist)) and not second_wave_done:
             if _add_company_follow_ups():
                 continue

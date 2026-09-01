@@ -1640,3 +1640,70 @@ def page_cas_match(text: str, cas: str | None) -> bool:
     if not cas:
         return False
     return normalize_cas(cas) in find_cas_numbers(text or "")
+
+
+# Международное название косметического ингредиента. У торговой марки без
+# CAS это единственное имя, под которым продукт знает рынок: страница
+# завода Silibase называет свой аналог «Replacement product for Dow
+# Corning®556» и тут же печатает «INCI: Phenyl Trimethicone», а номера не
+# даёт вовсе.
+#
+# «INCI» требуется отдельным словом: без границ подстрока ловится внутри
+# «prINCIpals», и такие сниппеты в сохранённой выдаче есть.
+#
+# Между двоеточием и значением на реальных страницах стоят переводы строк
+# и невидимые пробелы вроде U+200B, поэтому разделитель пропускается
+# целиком, а не одним пробелом.
+_INCI_RE = re.compile(
+    r"(?<![A-Za-z])INCI"
+    r"(?:\s*(?:name|names|名称))?"
+    r"\s*[:：]"
+    r"[\s\u200b\u200e\u200f\ufeff]*"
+    r"([A-Za-z][A-Za-z0-9\-/,'’ ]{2,80})",
+    re.IGNORECASE,
+)
+
+# Значения-заглушки: страница печатает поле, но не заполняет его.
+_INCI_PLACEHOLDERS = frozenset(
+    {"n a", "na", "none", "not available", "not applicable", "tbd", "see below"}
+)
+
+# Вездесущие составляющие рецептур. Формально это верные названия INCI, но
+# якорем поиска они быть не могут: «aqua» стоит в составе почти любого
+# косметического продукта и уведёт второй заход куда угодно.
+_INCI_TOO_COMMON = frozenset(
+    {"aqua", "water", "glycerin", "glycerine", "parfum", "fragrance", "alcohol"}
+)
+
+# Слово поля, а не значение: «INCI Detail», «INCI Number», «INCI List» —
+# это заголовки разделов справочников, попавшие в сниппет.
+_INCI_FIELD_WORDS = frozenset(
+    {"detail", "details", "number", "no", "name", "names", "list", "database"}
+)
+
+_MAX_INCI_WORDS = 6
+
+
+def find_inci_names(text: str) -> list[str]:
+    """Названия INCI, напечатанные на странице, в порядке появления.
+
+    Возвращает только то, что стоит после самого слова INCI. Догадки по
+    составу здесь не место: имя пойдёт в поисковый запрос как якорь, а
+    неверный якорь уводит весь второй заход в сторону.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _INCI_RE.finditer(text or ""):
+        value = match.group(1).strip(" \t-/,'’")
+        # Значение кончается там, где начинается следующее поле карточки.
+        value = re.split(r"\s{2,}|,\s*CAS|\bCAS\b", value)[0].strip(" \t-/,'’")
+        if not value or len(value.split()) > _MAX_INCI_WORDS:
+            continue
+        key = " ".join(value.casefold().split())
+        if key in _INCI_PLACEHOLDERS or key in _INCI_TOO_COMMON or key in seen:
+            continue
+        if "inci" in key or key.split()[0] in _INCI_FIELD_WORDS:
+            continue
+        seen.add(key)
+        found.append(value)
+    return found
