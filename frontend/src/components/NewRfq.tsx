@@ -171,17 +171,32 @@ interface Props {
   onCreated: (rfq: RFQRead) => void;
   /** Пакет создан — открыть его сводку. */
   onBatchCreated: (batchId: number) => void;
+  /** Предзаполнение при переходе с наводки: вещество из прошлого запроса. */
+  initialName?: string;
+  initialCas?: string;
+  /**
+   * Изготовитель из чужого паспорта — тот, кого стоит поискать.
+   * Подтверждённым поставщиком он не является: известно только имя из
+   * документа, который прислал кто-то другой.
+   */
+  initialManufacturer?: string;
 }
 
-export default function NewRfq({ onCreated, onBatchCreated }: Props) {
+export default function NewRfq({
+  onCreated,
+  onBatchCreated,
+  initialName = "",
+  initialCas = "",
+  initialManufacturer = "",
+}: Props) {
   // Форма открывается пустой. Демонстрационные «Ацетилсалициловая кислота»
   // и «50-78-2» стояли здесь с первых дней и читались как настоящее
   // содержимое запроса: их вычищали руками перед каждым вводом.
-  const [cas, setCas] = useState("");
+  const [cas, setCas] = useState(initialCas);
   const [specification, setSpecification] = useState("");
   const [synonyms, setSynonyms] = useState<string[]>([]);
   const [excludedNames, setExcludedNames] = useState<string[]>([]);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName);
   const [grade, setGrade] = useState("");
   const [gradeOther, setGradeOther] = useState("");
   const [purityPercent, setPurityPercent] = useState("");
@@ -221,6 +236,9 @@ export default function NewRfq({ onCreated, onBatchCreated }: Props) {
   // Названия, предложенные опознанием, но ещё не отмеченные человеком.
   // Отмечает он сам: равнозначное название и соседнее вещество различает
   // специалист, а не совпадение строк.
+  // Наводка на изготовителя. Видна и снимается: она уходит в поиск как
+  // указание агенту, и скрытое указание в письме — худший вид сюрприза.
+  const [manufacturerLead, setManufacturerLead] = useState(initialManufacturer);
   const [suggestedSynonyms, setSuggestedSynonyms] = useState<string[]>([]);
   // Названия, которые закупщик снял руками. Автозаполнение обязано их
   // помнить: иначе повторный выбор той же карточки молча вернёт снятое,
@@ -445,7 +463,11 @@ export default function NewRfq({ onCreated, onBatchCreated }: Props) {
     channels: ["email"],
     search_countries: countries,
     supplier_target: modeCompanies(searchMode),
-    additional_instructions: null,
+    additional_instructions: manufacturerLead.trim()
+      ? `Проверь в первую очередь изготовителя «${manufacturerLead.trim()}»: ` +
+        "его название стоит в паспорте качества, полученном от другого " +
+        "поставщика. Компания не подтверждена — это наводка."
+      : null,
     target_price: targetPrice.trim() ? Number(targetPrice) : null,
     currency,
     specialist_comment: specialistComment.trim() || null,
@@ -599,6 +621,28 @@ export default function NewRfq({ onCreated, onBatchCreated }: Props) {
             одну другой нельзя. Пакетное создание запросов по разобранным
             строкам — отдельная задача (MEET2-02); пока экран показывает,
             что именно система прочитала в файле. */}
+        {/* Наводка из чужого паспорта. Показана и снимается: она уходит
+            в поиск указанием агенту, а скрытое указание — худший вид
+            сюрприза. Подтверждённым поставщиком компания не является. */}
+        {manufacturerLead && (
+          <div className="manufacturer-lead">
+            <div>
+              <strong>Ищем изготовителя: {manufacturerLead}</strong>
+              <p className="note">
+                Название взято из паспорта качества, который прислал другой
+                поставщик. Компания не подтверждена — поиск получит её как
+                наводку, а не как готовый ответ.
+              </p>
+            </div>
+            <button
+              className="link-btn"
+              type="button"
+              onClick={() => setManufacturerLead("")}
+            >
+              убрать
+            </button>
+          </div>
+        )}
         <RfqImport onCreated={onBatchCreated} />
 
         <div className="row">

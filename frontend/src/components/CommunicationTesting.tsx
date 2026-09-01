@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   DocumentVerificationResult,
@@ -103,7 +104,16 @@ const DOCUMENT_VERIFICATION_LABELS: Record<string, string> = {
 const formatAttachmentSize = (bytes: number) =>
   `${Math.max(1, Math.round(bytes / 1024))} КБ`;
 
-function TestMessageAttachments({ message }: { message: CommunicationTestMessage }) {
+function TestMessageAttachments({
+  message,
+  rfq,
+}: {
+  message: CommunicationTestMessage;
+  // Нужен, чтобы новый запрос по наводке искал то же вещество, а не
+  // название завода: «что закупить» и «у кого» — разные поля.
+  rfq?: RFQRead;
+}) {
+  const navigate = useNavigate();
   const [downloadBusy, setDownloadBusy] = useState<number | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   // Свежая проверка после решения человека. Сервер остаётся источником
@@ -339,6 +349,25 @@ function TestMessageAttachments({ message }: { message: CommunicationTestMessage
                           <strong>{verification.manufacturer_match.lead}</strong>.
                           Подтверждённым поставщиком эта компания не становится —
                           о ней известно только имя из чужого документа.
+                          {" "}
+                          <button
+                            className="link-btn"
+                            type="button"
+                            onClick={() => {
+                              // Вещество берётся из текущего запроса, а имя
+                              // завода уходит указанием поиску: искать надо
+                              // то же сырьё, но у этого изготовителя.
+                              const params = new URLSearchParams({
+                                manufacturer:
+                                  verification.manufacturer_match?.lead ?? "",
+                              });
+                              if (rfq?.name) params.set("name", rfq.name);
+                              if (rfq?.cas) params.set("cas", rfq.cas);
+                              navigate(`/requests/new?${params.toString()}`);
+                            }}
+                          >
+                            Искать этот завод
+                          </button>
                         </span>
                       )}
                     </div>
@@ -695,7 +724,7 @@ function EmbeddedCommunicationTesting({
                       : message.content}
                   </div>
                 </div>
-                <TestMessageAttachments message={message} />
+                <TestMessageAttachments message={message} rfq={rfq} />
               </div>
             ))}
           </div>
@@ -1326,7 +1355,7 @@ function FullCommunicationTesting({
                           : message.content}
                       </div>
                     </div>
-                    <TestMessageAttachments message={message} />
+                    <TestMessageAttachments message={message} rfq={rfq} />
                   </div>
                 ))}
               </div>

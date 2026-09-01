@@ -2,7 +2,12 @@
 // Что показать, решает адрес: /requests, /requests/new, /requests/:rfqId[/:tab].
 
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { api, userErrorMessage } from "../api/client";
 import type { RFQRead } from "../api/types";
 import NewRfq from "./NewRfq";
@@ -13,6 +18,7 @@ import RfqDetail from "./RfqDetail";
 export default function RfqWorkspace() {
   const { rfqId, batchId } = useParams();
   const { pathname } = useLocation();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [selected, setSelected] = useState<RFQRead | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +58,12 @@ export default function RfqWorkspace() {
         <button className="secondary back-btn" onClick={backToTable}>
           ← К запросам
         </button>
+        {/* Параметры адреса заполняют форму при переходе с наводки на
+            изготовителя из паспорта качества. */}
         <NewRfq
+          initialCas={searchParams.get("cas") ?? ""}
+          initialManufacturer={searchParams.get("manufacturer") ?? ""}
+          initialName={searchParams.get("name") ?? ""}
           onCreated={(rfq) => navigate(`/requests/${rfq.id}`)}
           onBatchCreated={(id) => navigate(`/requests/batch/${id}`)}
         />

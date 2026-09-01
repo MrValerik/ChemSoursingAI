@@ -5391,3 +5391,17 @@ button.substance-list-item.active {
 .document-decision textarea { min-height: 54px; resize: vertical; }
 .document-decision-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .document-decision .link-btn { align-self: flex-start; }
+/* Наводка на изготовителя при переходе из паспорта. Видна вверху формы,
+   потому что меняет смысл запроса: поиск получит указание искать завод. */
+.manufacturer-lead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.manufacturer-lead .note { margin: 4px 0 0; }
