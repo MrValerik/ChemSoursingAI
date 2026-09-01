@@ -280,3 +280,27 @@ def test_one_company_is_not_a_registry_check(db):
 
 def test_nothing_is_asked_without_a_subject(db):
     assert _known_supplier_plan_items(db, country="Китай", subject="  ") == []
+
+
+def test_the_registry_query_is_valid_for_postgresql():
+    """Боевой прогон 319 упал на этом запросе, а SQLite его проглотил.
+
+    ``type.isnot(SupplierType.DISTRIBUTOR)`` в SQLAlchemy означает
+    ``IS NOT NULL``, а не «не равно значению». PostgreSQL отвечает на такое
+    синтаксической ошибкой. Проверка компилирует запрос под нужный диалект,
+    поэтому не требует боевой базы.
+    """
+    from sqlalchemy.dialects import postgresql
+
+    from app.api.supplier_search import _known_supplier_query
+
+    sql = str(
+        _known_supplier_query("Китай", 6).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "IS NOT %" not in sql
+    assert "IS NULL" in sql
+    assert "!=" in sql or "<>" in sql

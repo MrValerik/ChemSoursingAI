@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -1817,6 +1817,38 @@ _MAX_COMPANY_FOLLOW_UPS = 3
 _MAX_KNOWN_SUPPLIERS = 6
 
 
+def _known_supplier_query(country: str, limit: int):
+    """Запрос к реестру отдельно от плана: его надо уметь проверить.
+
+    Роль здесь не требуется, и это намеренно. Замер на боевом прогоне 318:
+    из пяти заведённых компаний страна доказана у всех пяти, а роль
+    установлена у одной — требование роли оставило бы волну без
+    участников. Вопрос звучит «делаете ли вы ещё и это», и роль будет
+    заново оценена по той странице, которую вернёт ответ. Известный
+    торговый дом исключается: его роль уже установлена, и она не та.
+
+    Условие про роль написано через IS NULL OR <> намеренно. Выражение
+    ``type.isnot(SupplierType.DISTRIBUTOR)`` в SQLAlchemy означает
+    ``IS NOT NULL``, а не «не равно значению»: SQLite такое проглатывает,
+    а PostgreSQL отвечает синтаксической ошибкой, и боевой прогон 319
+    упал именно на ней. Плюс ``<>`` сам по себе отбросил бы записи с
+    пустой ролью, а их-то и надо оставить.
+    """
+    return (
+        select(Supplier)
+        .where(
+            Supplier.country == country,
+            Supplier.country_status.in_(("claimed", "likely")),
+            or_(
+                Supplier.type.is_(None),
+                Supplier.type != SupplierType.DISTRIBUTOR,
+            ),
+        )
+        .order_by(Supplier.evidence_score.desc().nullslast(), Supplier.id)
+        .limit(limit)
+    )
+
+
 def _known_supplier_plan_items(
     db: Session,
     *,
@@ -1837,23 +1869,7 @@ def _known_supplier_plan_items(
     """
     if not subject.strip() or not country:
         return []
-    rows = db.scalars(
-        select(Supplier)
-        .where(
-            Supplier.country == country,
-            Supplier.country_status.in_(("claimed", "likely")),
-            # Роль здесь не требуется, и это намеренно. Замер на боевом
-            # прогоне 318: из пяти заведённых компаний страна доказана у
-            # всех пяти, а роль установлена у одной — требование роли
-            # оставило бы волну без участников. Вопрос к реестру звучит
-            # «делаете ли вы ещё и это», и роль будет заново оценена по
-            # той странице, которую вернёт ответ. Известный торговый дом
-            # исключается: его роль уже установлена, и она не та.
-            Supplier.type.isnot(SupplierType.DISTRIBUTOR),
-        )
-        .order_by(Supplier.evidence_score.desc().nullslast(), Supplier.id)
-        .limit(limit)
-    ).all()
+    rows = db.scalars(_known_supplier_query(country, limit)).all()
     names = [
         supplier.company.strip()
         for supplier in rows
