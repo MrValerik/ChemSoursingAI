@@ -990,6 +990,7 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
     documents: number;
     evidence_quality: number;
     volume_adjustment?: number;
+    country_adjustment?: number;
     hard_exclusion: boolean;
     shortlist_eligible: boolean;
   };

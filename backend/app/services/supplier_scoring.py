@@ -14,12 +14,30 @@ class SupplierScore:
     documents: int
     evidence_quality: int
     volume_adjustment: int
+    country_adjustment: int
     hard_exclusion: bool
     shortlist_eligible: bool
 
     def to_dict(self) -> dict:
         return asdict(self)
 
+
+# Штраф за доказанную чужую страну. Закупщик называет страну не пожеланием,
+# а условием: ему нужен поставщик именно там. До этого несовпадение просто
+# не приносило десяти баллов, и карточка оставалась почти такой же
+# привлекательной, как верная.
+#
+# Замер по 219 карточкам прогонов 280-320: у 45 страна доказанно чужая, и
+# их медиана 50 против 55 у подтверждённых, p90 — 73 против 86. Otto Chemie
+# из Индии набрала 81 балл в поиске по Китаю, Pfizer — 75, Dr. Reddy's — 75,
+# и две такие карточки дошли до короткого списка.
+#
+# Двадцать пять баллов ставят их ниже даже карточек с неизвестной страной
+# (медиана 36): «доказанно не там» хуже, чем «неизвестно где». Это штраф, а
+# не исключение: у мирового производителя завод бывает и в нужной стране
+# при штаб-квартире в другой, и прятать такую находку нельзя — её место
+# ниже, а не за пределами списка.
+COUNTRY_MISMATCH_PENALTY = -25
 
 # Признаки, которые трейдеру выдать труднее, чем заявить «мы завод».
 # Сертификат выдаёт внешний орган, CoA и TDS относятся к партии, а
@@ -93,6 +111,7 @@ def score_supplier(
             documents=0,
             evidence_quality=0,
             volume_adjustment=0,
+            country_adjustment=0,
             hard_exclusion=True,
             shortlist_eligible=False,
         )
@@ -146,6 +165,11 @@ def score_supplier(
         if volume_status == "unknown" and has_requested_volume
         else 0
     )
+    country_adjustment = (
+        COUNTRY_MISMATCH_PENALTY
+        if assessment.get("country_status") == "mismatch"
+        else 0
+    )
     total = max(
         0,
         min(
@@ -155,7 +179,8 @@ def score_supplier(
             + country
             + documents
             + evidence_quality
-            + volume_adjustment,
+            + volume_adjustment
+            + country_adjustment,
         ),
     )
     # Роль производителя почти всегда подтверждается цитатой с сайта самого
@@ -171,6 +196,10 @@ def score_supplier(
         and "manufacturer_role" in supported
         and bool(corroboration)
         and volume_status != "incompatible"
+        # Короткий список — обещание безопасности, а не подборка похожего.
+        # Компания, о которой доказано, что она в другой стране, ответом на
+        # запрос по этой стране быть не может. Две такие в него уже попали.
+        and assessment.get("country_status") != "mismatch"
         # Балл кандидату по аналогу сохраняется: он честно отражает
         # найденные доказательства. Закрыт именно короткий список —
         # решение, а не оценка.
@@ -183,6 +212,7 @@ def score_supplier(
         country=country,
         documents=documents,
         evidence_quality=evidence_quality,
+        country_adjustment=country_adjustment,
         volume_adjustment=volume_adjustment,
         hard_exclusion=False,
         shortlist_eligible=shortlist_eligible,

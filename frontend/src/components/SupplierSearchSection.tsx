@@ -388,6 +388,7 @@ const scoreExplanation = (
     `документы ${result.score_breakdown.documents}/15 +`,
     `качество доказательств ${result.score_breakdown.evidence_quality}/15.`,
     `Поправка за подтверждение объёма ${result.score_breakdown.volume_adjustment ?? 0}.`,
+    `Штраф за доказанную чужую страну ${result.score_breakdown.country_adjustment ?? 0}.`,
     "Баллы начисляются только по дословно проверенным цитатам.",
     "При противоречии по веществу или CAS итоговый балл обнуляется.",
   ].join(" ");
@@ -1244,6 +1245,12 @@ function QualificationDetail({
               <li>
                 Поправка за промышленный объём:{" "}
                 {result.score_breakdown.volume_adjustment}
+              </li>
+            )}
+            {(result.score_breakdown.country_adjustment ?? 0) !== 0 && (
+              <li>
+                Штраф за доказанную чужую страну:{" "}
+                {result.score_breakdown.country_adjustment}
               </li>
             )}
           </ul>
