@@ -1654,10 +1654,14 @@ def page_cas_match(text: str, cas: str | None) -> bool:
 # Между двоеточием и значением на реальных страницах стоят переводы строк
 # и невидимые пробелы вроде U+200B, поэтому разделитель пропускается
 # целиком, а не одним пробелом.
+# Разделителем служит либо двоеточие, либо само слово «name»: карточки
+# пишут и «INCI: Phenyl Trimethicone», и «INCI NAME Lauryl Glucoside»
+# без всякого знака. Второй случай нашёлся на боевом прогоне 323 и
+# проходил мимо разбора. Голое «INCI» без того и другого не годится:
+# так начинается любая фраза о самой номенклатуре.
 _INCI_RE = re.compile(
     r"(?<![A-Za-z])INCI"
-    r"(?:\s*(?:name|names|名称))?"
-    r"\s*[:：]"
+    r"(?:\s*(?:name|names|名称)\s*[:：]?|\s*[:：])"
     r"[\s\u200b\u200e\u200f\ufeff]*"
     r"([A-Za-z][A-Za-z0-9\-/,'’ ]{2,80})",
     re.IGNORECASE,
@@ -1696,7 +1700,15 @@ def find_inci_names(text: str) -> list[str]:
     for match in _INCI_RE.finditer(text or ""):
         value = match.group(1).strip(" \t-/,'’")
         # Значение кончается там, где начинается следующее поле карточки.
-        value = re.split(r"\s{2,}|,\s*CAS|\bCAS\b", value)[0].strip(" \t-/,'’")
+        # Значение кончается там, где начинается следующее поле карточки.
+        # Без этого «INCI NAME SOLUM DIATOMEAE CosIng Functions ABRASIVE»
+        # уезжало в якорь целиком вместе с чужими заголовками.
+        value = re.split(
+            r"\s{2,}|,\s*CAS|\bCAS\b|\bCosIng\b|\bFunctions?\b"
+            r"|\bEC\s*(?:No|Number)\b|\bOrigin\b|\bSupplier\b",
+            value,
+            flags=re.IGNORECASE,
+        )[0].strip(" \t-/,'’")
         if not value or len(value.split()) > _MAX_INCI_WORDS:
             continue
         key = " ".join(value.casefold().split())

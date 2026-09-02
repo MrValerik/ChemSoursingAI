@@ -96,3 +96,27 @@ def test_the_second_wave_stays_short():
         results, country="Китай", known_names=["Trade Name X"]
     )
     assert len(plan) == 2
+
+
+def test_the_name_is_read_without_a_colon_too():
+    """Боевой прогон 323: «INCI NAME Lauryl Glucoside» без всякого знака.
+
+    Карточка торговой марки печатает поле и так, и этак. Раньше разбор
+    требовал двоеточия и такой сниппет пропускал — а он был единственным
+    во всём прогоне, где названо настоящее имя вещества.
+    """
+    assert find_inci_names("INCI NAME Lauryl Glucoside. BASF. Function") == [
+        "Lauryl Glucoside"
+    ]
+
+
+def test_a_bare_word_inci_is_not_a_field():
+    """Иначе любая фраза о самой номенклатуре стала бы якорем поиска."""
+    assert find_inci_names("INCI is the international nomenclature used widely") == []
+
+
+def test_the_value_stops_where_the_next_field_starts():
+    """«SOLUM DIATOMEAE CosIng Functions ABRASIVE» — это поле и соседи."""
+    assert find_inci_names("INCI NAME SOLUM DIATOMEAE CosIng Functions ABRASIVE") == [
+        "SOLUM DIATOMEAE"
+    ]
