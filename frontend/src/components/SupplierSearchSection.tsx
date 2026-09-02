@@ -33,6 +33,103 @@ const TYPE_LABELS: Record<QualifiedSupplierType, string> = {
   unknown: "Не определено",
 };
 
+// Род страницы словами закупщика. Страница обзора или статьи компанию не
+// представляет вовсе, и написать про неё «роль не определена» — значит
+// сказать неправду о компании вместо правды о странице.
+const PAGE_KIND_LABELS: Record<string, string> = {
+  market_report: "Обзор рынка",
+  scientific: "Научная статья",
+  directory: "Справочник",
+  marketplace_listing: "Перечень площадки",
+  marketplace_storefront: "Витрина на площадке",
+  company_site: "Сайт компании",
+};
+
+type RoleBadge = { text: string; tone: string; hint: string };
+
+// Замер по 204 карточкам прогонов 280–320: роль названа у 89% кандидатов,
+// а «Не определено» показывалось у 66%. Из 135 таких карточек 112 — это
+// стёртый ответ, а не отсутствие ответа: ворота понижали роль до пустоты,
+// потому что заявление сайта не подтверждено проверяемой цитатой.
+//
+// Решающее поле supplier_type не трогаем: на нём держатся балл и короткий
+// список. Здесь только подпись, и она обязана говорить, что именно
+// известно и чего не хватает.
+function roleBadge(result: QualificationResult): RoleBadge {
+  const proof = result.role_proof ?? null;
+  const claimed = result.role_claimed ?? null;
+
+  if (result.supplier_type === "manufacturer") {
+    return proof === "proven"
+      ? {
+          text: "Производитель",
+          tone: "tone-ok",
+          hint: "Собственное производство подтверждено проверенной цитатой: завод, площадка или объём выпуска.",
+        }
+      : {
+          text: "Производитель — со слов сайта",
+          tone: "tone-warn",
+          hint: "Компания называет себя производителем, но проверяемой детали под этим нет. Так пишет и завод, и перекупщик.",
+        };
+  }
+  if (result.supplier_type === "distributor") {
+    return proof === "proven"
+      ? {
+          text: "Торговая компания",
+          tone: "tone-warn",
+          hint: "Компания сама описывает себя как торговую или дистрибьютора.",
+        }
+      : {
+          text: "Торговая компания — со слов сайта",
+          tone: "tone-warn",
+          hint: "Роль названа моделью по содержанию страницы, отдельной проверяемой детали под ней нет.",
+        };
+  }
+
+  switch (proof) {
+    case "claimed":
+      return {
+        text:
+          claimed === "distributor"
+            ? "Торговая компания — со слов сайта"
+            : "Производитель — со слов сайта",
+        tone: "tone-warn",
+        hint: "Роль заявлена на странице, но не подтверждена проверяемой цитатой, поэтому в короткий список кандидат не идёт.",
+      };
+    case "contradicted":
+      return {
+        text: "Скорее торговая компания",
+        tone: "tone-warn",
+        hint: "Адрес — офис в бизнес-центре, признаков собственного производства на странице нет. Решает регистрационный адрес.",
+      };
+    case "substance_mismatch":
+      return {
+        text: "Другое вещество",
+        tone: "tone-neutral",
+        hint: "Страница не о том веществе, которое ищем: роль компании здесь ни при чём.",
+      };
+    case "not_a_company_page":
+    case "marketplace_page":
+      return {
+        text: PAGE_KIND_LABELS[result.page_kind ?? ""] ?? "Не сайт компании",
+        tone: "tone-neutral",
+        hint: "Такая страница компанию не представляет: имя она называет верно, но говорит о ней с чужих слов.",
+      };
+    case "page_missing":
+      return {
+        text: "Страница не загрузилась",
+        tone: "tone-neutral",
+        hint: "Судить о роли не по чему: страница вернулась пустой или не открылась.",
+      };
+    default:
+      return {
+        text: "Не определено",
+        tone: "tone-neutral",
+        hint: "Страница не сказала о роли ничего.",
+      };
+  }
+}
+
 const CAS_LABELS: Record<CasEvidenceStatus, string> = {
   confirmed: "подтверждён",
   mentioned: "упомянут",
@@ -517,7 +614,7 @@ function QualificationTable({
         case "company":
           return result.company_name.toLocaleLowerCase();
         case "type":
-          return TYPE_LABELS[result.supplier_type];
+          return roleBadge(result).text;
         case "confidence":
           return result.confidence;
         case "cas":
@@ -626,15 +723,10 @@ function QualificationTable({
               </td>
               <td>
                 <span
-                  className={`badge ${
-                    result.supplier_type === "manufacturer"
-                      ? "tone-ok"
-                      : result.supplier_type === "distributor"
-                        ? "tone-warn"
-                        : "tone-neutral"
-                  }`}
+                  className={`badge ${roleBadge(result).tone}`}
+                  title={roleBadge(result).hint}
                 >
-                  {TYPE_LABELS[result.supplier_type]}
+                  {roleBadge(result).text}
                 </span>
               </td>
               <td>
@@ -946,15 +1038,10 @@ function QualificationDetail({
       <div className="qualification-card-header">
         <div>
           <span
-            className={`badge ${
-              result.supplier_type === "manufacturer"
-                ? "tone-ok"
-                : result.supplier_type === "distributor"
-                  ? "tone-warn"
-                  : "tone-neutral"
-            }`}
+            className={`badge ${roleBadge(result).tone}`}
+            title={roleBadge(result).hint}
           >
-            {TYPE_LABELS[result.supplier_type]}
+            {roleBadge(result).text}
           </span>
           <h4>{result.title_ru}</h4>
         </div>

@@ -895,6 +895,19 @@ export interface SearchBudgetSnapshot {
 
 export type EvidenceStatus = "claimed" | "not_found" | "contradicted";
 export type QualifiedSupplierType = "manufacturer" | "distributor" | "unknown";
+// Чем подтверждена роль. Решающее поле остаётся supplier_type — на нём
+// держатся балл и короткий список, — а это объясняет, почему там стоит
+// «не определено». Замер по 204 карточкам: роль названа у 89% кандидатов,
+// а до закупщика доходила у трети.
+export type SupplierRoleProof =
+  | "proven"
+  | "claimed"
+  | "contradicted"
+  | "substance_mismatch"
+  | "not_a_company_page"
+  | "marketplace_page"
+  | "page_missing"
+  | "unknown";
 export type CasEvidenceStatus = "confirmed" | "mentioned" | "not_found" | "mismatch";
 export type CountryEvidenceStatus = "claimed" | "likely" | "not_found" | "mismatch";
 export type SupplierVerificationStatus =
@@ -959,6 +972,9 @@ export interface QualifiedSupplierResult extends SupplierSearchResult {
   title_ru: string;
   summary_ru: string;
   supplier_type: QualifiedSupplierType;
+  role_claimed?: QualifiedSupplierType | null;
+  role_proof?: SupplierRoleProof | null;
+  page_kind?: string | null;
   cas_status: CasEvidenceStatus;
   country_status: CountryEvidenceStatus;
   gmp_status: EvidenceStatus;

@@ -1157,6 +1157,15 @@ def _apply_evidence_gates(
 ) -> dict:
     """Prevent high-confidence labels without a validated atomic source."""
     payload = qualification.model_dump(exclude={"evidence"})
+    # Ответ модели до ворот. Ворота его не стирают, а объясняют: замер по
+    # 204 карточкам прогонов 280-320 показал, что роль названа у 89%
+    # кандидатов, а до закупщика доходит «не определено» у 66%. Из 135
+    # «не определено» 112 - это стёртый ответ, а не отсутствие ответа.
+    #
+    # Решающее поле supplier_type остаётся прежним: на нём держатся балл и
+    # короткий список. Здесь пишется только то, что показать человеку.
+    payload["role_claimed"] = payload["supplier_type"]
+    payload["role_proof"] = "unknown"
     # Перечень продавцов на площадке — не компания, и роль ему приписывать
     # нечего. Замер по эталону: 18 из 21 ошибки классификации приходились
     # на «не определён», и добрая половина из них были такие страницы.
@@ -1165,6 +1174,7 @@ def _apply_evidence_gates(
     if page_url and is_intermediary(page_url, intermediary_domains or set()):
         if marketplace_page_kind(page_url) != "storefront":
             payload["supplier_type"] = "marketplace"
+            payload["role_proof"] = "marketplace_page"
             return payload
 
     # Страница не открылась или пришла пустой. Род модель всё равно
@@ -1181,6 +1191,7 @@ def _apply_evidence_gates(
     if page_missing:
         payload["page_kind"] = "other"
         payload["supplier_type"] = "unknown"
+        payload["role_proof"] = "page_missing"
         not_loaded = "Страница не загрузилась: судить о роде и роли не по чему"
         if not_loaded not in payload["red_flags"]:
             payload["red_flags"] = [*payload["red_flags"], not_loaded]
@@ -1219,6 +1230,11 @@ def _apply_evidence_gates(
     # ошибки на научной статье, обзоре рынка или сайте компании.
     if payload.get("page_kind") in NOT_A_SUPPLIER_PAGE:
         payload["supplier_type"] = "unknown"
+        # Это ответ о роде страницы, а не о роли компании. Замер: 52
+        # карточки из 135 «не определено» - обзоры рынка, научные статьи,
+        # справочники и перечни площадок. Закупщику надо прочитать именно
+        # это, а не «мы не поняли, что за компания».
+        payload["role_proof"] = "not_a_company_page"
         flag(
             "Страница не представляет компанию: "
             + _PAGE_KIND_REASONS.get(
@@ -1245,8 +1261,12 @@ def _apply_evidence_gates(
     hard_proof = {"production_capacity", "production_site"}
 
     if payload["supplier_type"] == "manufacturer":
+        # Заявление о себе — уже ответ, просто слабый. Самая частая причина
+        # «не определено»: 70 карточек из 135. Ветви ниже либо усиливают
+        # его до доказанного, либо опровергают.
+        payload["role_proof"] = "claimed"
         if hard_proof & supported:
-            pass
+            payload["role_proof"] = "proven"
         elif not (production_proof & supported):
             payload["supplier_type"] = "unknown"
             flag("Статус производителя не подтверждён проверенной цитатой")
@@ -1264,6 +1284,11 @@ def _apply_evidence_gates(
             # контактный адрес в подвале страницы бывает и торговым
             # офисом настоящего завода, решает регистрационный.
             payload["supplier_type"] = "unknown"
+            # Встречное свидетельство - это ответ, а не молчание: адрес в
+            # бизнес-центре без признаков производства говорит о торговой
+            # компании. Ролью это не объявляется - контактный адрес бывает
+            # и торговым офисом завода, - но и «неизвестно» здесь неверно.
+            payload["role_proof"] = "contradicted"
             flag(
                 "Адрес компании — офис в бизнес-центре, а признаков "
                 "собственного производства на странице нет"
@@ -1287,6 +1312,14 @@ def _apply_evidence_gates(
         and not (hard_proof & supported)
     ):
         payload["supplier_type"] = "distributor"
+        payload["role_proof"] = "proven"
+
+    # Торговая компания, названная моделью, но не подтверждённая отдельной
+    # проверяемой деталью, — это тоже «со слов сайта», а не молчание.
+    if payload["supplier_type"] == "distributor" and payload["role_proof"] == "unknown":
+        payload["role_proof"] = (
+            "proven" if "reseller_role" in supported else "claimed"
+        )
 
     if "chemical_identity" in contradicted:
         payload["cas_status"] = "mismatch"
@@ -1298,6 +1331,18 @@ def _apply_evidence_gates(
         # заметила. Ворота работают в обе стороны: проверенная цитата и
         # подтверждает статус, и снимает его.
         payload["cas_status"] = "confirmed"
+
+    # Страница о другом веществе. Роль тут ни при чём, и «не определено»
+    # вводит в заблуждение: закупщик читает это как «не поняли, что за
+    # компания», хотя компания могла быть понята прекрасно. MSN Chemical
+    # заявил CAS 61597-98-6 вместо требуемого 59259-38-0, а страница
+    # Xi'an Sequoia оказалась про рыбий коллаген.
+    if payload["cas_status"] == "mismatch" and payload["role_proof"] in {
+        "unknown",
+        "claimed",
+        "contradicted",
+    }:
+        payload["role_proof"] = "substance_mismatch"
 
     # Подтверждена другая страна, а не та, где искали. Модель это видит и
     # всё равно засчитывает: по Simson Pharma она сама записала claim
