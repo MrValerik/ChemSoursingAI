@@ -585,7 +585,25 @@ export default function SuppliersSection() {
                       </span>
                     </td>
                     <td>{supplier.type ? TYPE_LABELS[supplier.type] : "Не определён"}</td>
-                    <td>{supplier.country ?? "—"}</td>
+                    <td>
+                      {supplier.country ?? "—"}
+                      {supplier.icp_licence && (
+                        <a
+                          className="supplier-licence"
+                          href="https://beian.miit.gov.cn/"
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          title={
+                            "Номер лицензии сайта в материковом Китае: " +
+                            supplier.icp_licence +
+                            ". Сверьте его на beian.miit.gov.cn — это запись " +
+                            "министерства, а не заявление продавца о себе."
+                          }
+                        >
+                          {supplier.icp_licence}
+                        </a>
+                      )}
+                    </td>
                     <td className="col-num">{supplier.evidence_score ?? "—"}</td>
                     <td className="col-num">{supplier.request_count}</td>
                     <td>{supplier.channels.join(", ") || "Нет"}</td>

@@ -304,3 +304,48 @@ def test_the_registry_query_is_valid_for_postgresql():
     assert "IS NOT %" not in sql
     assert "IS NULL" in sql
     assert "!=" in sql or "<>" in sql
+
+
+# --- лицензия ICP как поле поставщика ---
+
+
+def test_the_licence_number_is_kept_on_the_supplier(db, owner):
+    """Закупщик сверяет его сам на beian.miit.gov.cn."""
+    run = _run(db, owner, tag="icp")
+    supplier = register_qualified_candidate(
+        db,
+        search_run=run,
+        result=_result(
+            url="https://licensed.example/p",
+            company_name="Licensed Chem",
+            icp_licence="粤ICP备14075393号-1",
+        ),
+    )
+    db.commit()
+
+    assert supplier.icp_licence == "粤ICP备14075393号-1"
+
+
+def test_a_second_page_without_a_licence_does_not_erase_it(db, owner):
+    """Лицензия у компании одна, а страниц у неё много."""
+    run = _run(db, owner, tag="icp2")
+    first = register_qualified_candidate(
+        db,
+        search_run=run,
+        result=_result(
+            url="https://kept.example/a",
+            company_name="Kept Chem",
+            icp_licence="京ICP备12345678号",
+        ),
+    )
+    db.commit()
+
+    again = register_qualified_candidate(
+        db,
+        search_run=run,
+        result=_result(url="https://kept.example/b", company_name="Kept Chem"),
+    )
+    db.commit()
+
+    assert again.id == first.id
+    assert again.icp_licence == "京ICP备12345678号"

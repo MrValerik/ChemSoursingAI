@@ -146,3 +146,45 @@ def test_the_zone_speaks_from_the_companys_own_site():
         search_country="Китай",
     )
     assert payload["country_status"] == "likely"
+
+
+# --- номер лицензии как поле поставщика ---
+
+
+def test_the_licence_number_is_read_from_the_page():
+    """Единственный проверяемый признак китайской регистрации на страницах.
+
+    Замер по 226 сохранённым страницам: лицензия нашлась на восемнадцати, а
+    единый код кредитоспособности — ни на одной.
+    """
+    from app.services.page_facts import find_icp_licence
+
+    assert find_icp_licence("版权所有 京ICP备12345678号-1 北京化工") == "京ICP备12345678号-1"
+    assert find_icp_licence("© 2026 化工AI. 粤ICP备14075393号-") == "粤ICP备14075393号"
+    # Пробелы внутри номера встречаются в вёрстке подвала.
+    assert find_icp_licence("沪 ICP 备 09008123 号") == "沪ICP备09008123号"
+    assert find_icp_licence("страница без лицензии") is None
+
+
+def test_the_licence_reaches_the_card():
+    payload = _apply_evidence_gates(
+        _qualification(),
+        [_claim("chemical_identity")],
+        page_url="https://example-chem.cn/product",
+        page_text="产品介绍 " + "x" * 400 + " 粤ICP备14075393号-1",
+        fetch_status="completed",
+        search_country="Китай",
+    )
+    assert payload["icp_licence"] == "粤ICP备14075393号-1"
+
+
+def test_a_page_without_a_licence_leaves_the_field_empty():
+    payload = _apply_evidence_gates(
+        _qualification(),
+        [_claim("chemical_identity")],
+        page_url="https://example-chem.com/product",
+        page_text="Product description " + "x" * 400,
+        fetch_status="completed",
+        search_country="Китай",
+    )
+    assert payload["icp_licence"] is None

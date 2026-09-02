@@ -407,7 +407,13 @@ export interface SupplierRead {
     email: string | null;
     whatsapp: string | null;
     offered_substances: string[] | null;
-  }[];
+    // Чем подтверждена связь со страной и на какой цитате держится.
+  country_status?: string | null;
+  country_evidence?: string | null;
+  // Регистрационный номер сайта в материковом Китае: закупщик сверяет
+  // его сам на beian.miit.gov.cn.
+  icp_licence?: string | null;
+}[];
   /**
    * Почему связи нет: адрес скрыт подменой, на сайте только форма,
    * компанию назвала площадка и своей страницы у нас нет, либо её нашли

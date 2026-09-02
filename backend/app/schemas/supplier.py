@@ -156,6 +156,13 @@ class SupplierRead(BaseModel):
     id: int
     company: str
     country: str | None
+    # Чем подтверждена связь со страной и на какой цитате она держится.
+    country_status: str | None = None
+    country_evidence: str | None = None
+    # Регистрационный идентификатор сайта в материковом Китае. Закупщик
+    # сверяет его сам на beian.miit.gov.cn — это факт о регистрации, а не
+    # заявление продавца о себе.
+    icp_licence: str | None = None
     type: SupplierType | None
     reputation: str | None
     source: str | None

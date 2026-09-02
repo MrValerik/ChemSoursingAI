@@ -91,6 +91,7 @@ from app.services.homoglyphs import fix_lookalikes, has_lookalikes
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
     find_country_markers,
+    find_icp_licence,
     find_inci_names,
     assess_supply_volume,
     build_highlights,
@@ -1215,6 +1216,10 @@ def _apply_evidence_gates(
     # короткий список. Здесь пишется только то, что показать человеку.
     payload["role_claimed"] = payload["supplier_type"]
     payload["role_proof"] = "unknown"
+    # Регистрационный идентификатор сайта в материковом Китае. Читается со
+    # страницы независимо от того, что скажут ворота ниже: это факт о
+    # регистрации, и закупщик сверяет его сам на beian.miit.gov.cn.
+    payload["icp_licence"] = find_icp_licence(page_text or "")
     # Перечень продавцов на площадке — не компания, и роль ему приписывать
     # нечего. Замер по эталону: 18 из 21 ошибки классификации приходились
     # на «не определён», и добрая половина из них были такие страницы.

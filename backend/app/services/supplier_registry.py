@@ -417,6 +417,8 @@ def register_qualified_candidate(
         else None
     )
     country_evidence = _country_quote(result)
+    raw_licence = str(result.get("icp_licence") or "").strip()
+    icp_licence = raw_licence[:64] or None
     # При mismatch страница прямо назвала другую страну. Записать сюда
     # страну поиска значило бы записать заведомо неверное.
     evidenced_country = (
@@ -430,6 +432,7 @@ def register_qualified_candidate(
             country=evidenced_country,
             country_status=country_status,
             country_evidence=country_evidence,
+            icp_licence=icp_licence,
             type=mapped_type,
             reputation=(
                 f"Автоматическая квалификация: {evidence_score}/100; "
@@ -460,6 +463,10 @@ def register_qualified_candidate(
         # «косвенно», а то — «страница не сказала ничего». Обратно статус
         # не понижается: один неудачно загруженный источник не отменяет
         # уже прочитанной цитаты.
+        # Лицензия не меняется у компании, поэтому записывается один раз
+        # и не перетирается пустотой с другой её страницы.
+        if supplier.icp_licence is None and icp_licence:
+            supplier.icp_licence = icp_licence
         if _country_rank(country_status) > _country_rank(supplier.country_status):
             supplier.country_status = country_status
             supplier.country_evidence = country_evidence

@@ -42,6 +42,10 @@ class Supplier(Base, TimestampMixin):
     country_status: Mapped[str | None] = mapped_column(String(16), index=True)
     # Дословная цитата со страницы, на которой держится статус.
     country_evidence: Mapped[str | None] = mapped_column(String(500))
+    # Номер лицензии ICP: регистрационный идентификатор сайта в материковом
+    # Китае. Проверяется закупщиком самостоятельно на beian.miit.gov.cn —
+    # это факт о регистрации, а не заявление продавца о себе.
+    icp_licence: Mapped[str | None] = mapped_column(String(64), index=True)
     type: Mapped[SupplierType | None] = mapped_column(SAEnum(SupplierType))
     reputation: Mapped[str | None] = mapped_column(String(255))
     # Источник сорсинга: сайт компании, каталог, реестр, ручное добавление.

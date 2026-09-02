@@ -1765,3 +1765,26 @@ def find_country_markers(text: str, code: str) -> str | None:
         return None
     quote = match.group(0).strip()
     return quote[:_MAX_LINE_CHARS] if len(quote) >= MIN_QUOTE_CHARS else None
+
+
+# Номер лицензии ICP — регистрационный идентификатор сайта, размещённого в
+# материковом Китае. Выдаётся министерством и печатается в подвале:
+# «粤ICP备14075393号-1». Закупщик сверяет его сам на beian.miit.gov.cn, и
+# это единственный проверяемый признак китайской регистрации, который
+# вообще встречается на страницах поставщиков.
+#
+# Замер по 226 сохранённым страницам прогонов 280-320: лицензия нашлась на
+# восемнадцати, а единый код кредитоспособности (USCC) — ни на одной.
+# Поэтому храним то, что есть.
+_ICP_NUMBER_RE = re.compile(
+    r"[\u4e00-\u9fff]{1,3}\s*ICP\s*备\s*\d{5,10}\s*号(?:\s*-\s*\d{1,3})?",
+    re.IGNORECASE,
+)
+
+
+def find_icp_licence(text: str) -> str | None:
+    """Номер лицензии ICP со страницы, приведённый к виду без пробелов."""
+    match = _ICP_NUMBER_RE.search(text or "")
+    if not match:
+        return None
+    return re.sub(r"\s+", "", match.group(0))[:64]
