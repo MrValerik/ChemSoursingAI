@@ -74,6 +74,7 @@ from app.services.supplier_search_continuation import (
 )
 from app.services.marketplace_listings import collect_sellers
 from app.services.supplier_registry import (
+    NOT_THE_COMPANYS_OWN_PAGE,
     register_marketplace_seller,
     register_qualified_candidate,
 )
@@ -1419,10 +1420,19 @@ def _apply_evidence_gates(
 
     # Доменная зона — косвенный признак, и статус «вероятно» описан именно
     # так: «по домену или региону». Баллов она не приносит: балл платится
-    # за дословную цитату со страницы, а зона — свойство адреса. Но и
-    # молчать о ней незачем. Замер по 48 карточкам, где страна осталась
-    # ненайденной: двенадцать сидят в зоне искомой страны.
-    if payload["country_status"] == "not_found" and page_url:
+    # за дословную цитату со страницы, а зона — свойство адреса.
+    #
+    # Говорить о компании зона вправе только с её собственной страницы.
+    # Замер по 48 карточкам с ненайденной страной показал цену пропуска
+    # этого условия: Bayer помечался «вероятно Китай», потому что статья о
+    # нём лежала на домене китайского университета, а рядом так же
+    # помечались научный журнал и карточка на площадке. Сайт размещён в
+    # стране — это факт о сайте, а не о названной на нём компании.
+    if (
+        payload["country_status"] == "not_found"
+        and page_url
+        and payload.get("page_kind") not in NOT_THE_COMPANYS_OWN_PAGE
+    ):
         zone = _country_zone_suffix(search_country)
         if zone and normalize_site_domain(page_url).endswith(zone):
             payload["country_status"] = "likely"

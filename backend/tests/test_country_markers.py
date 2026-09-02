@@ -120,3 +120,29 @@ def test_a_proven_country_is_not_downgraded_by_the_zone():
         search_country="Китай",
     )
     assert payload["country_status"] == "claimed"
+
+
+def test_the_zone_says_nothing_from_someone_elses_page():
+    """Bayer помечался «вероятно Китай» со страницы китайского университета.
+
+    Сайт размещён в стране — это факт о сайте, а не о названной на нём
+    компании. Рядом так же помечались научный журнал и карточка площадки.
+    """
+    for kind in ("scientific", "market_report", "directory", "marketplace_listing"):
+        payload = _apply_evidence_gates(
+            _qualification(country_status="not_found", page_kind=kind),
+            [_claim("chemical_identity")],
+            page_url="https://bddg.hznu.edu.cn/article/123",
+            search_country="Китай",
+        )
+        assert payload["country_status"] != "likely"
+
+
+def test_the_zone_speaks_from_the_companys_own_site():
+    payload = _apply_evidence_gates(
+        _qualification(country_status="not_found", page_kind="company_site"),
+        [_claim("chemical_identity")],
+        page_url="https://www.ambeed.cn/products/1",
+        search_country="Китай",
+    )
+    assert payload["country_status"] == "likely"
