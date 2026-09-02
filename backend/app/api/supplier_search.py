@@ -89,6 +89,7 @@ from app.services.contacts import find_contact_barrier, find_contacts, has_conta
 from app.services.homoglyphs import fix_lookalikes, has_lookalikes
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
+    find_country_markers,
     find_inci_names,
     assess_supply_volume,
     build_highlights,
@@ -122,6 +123,7 @@ from app.services.supplier_sources import (
     build_search_queries,
     is_china,
     is_india,
+    is_russia,
     is_non_manufacturer_domain,
     market_profile,
     minimum_query_count,
@@ -1036,10 +1038,24 @@ def _verify_batch(
     )
 
 
+def _country_code(country: str | None) -> str | None:
+    """Код рынка, для которого умеем читать признаки страны со страницы."""
+    if is_china(country):
+        return "cn"
+    if is_india(country):
+        return "in"
+    if is_russia(country):
+        return "ru"
+    return None
+
+
 def _inject_deterministic_evidence(
     qualifications: dict[int, SupplierQualification],
     *,
     cas: str | None,
+    # Без страны признак присутствия читать не по чему, и это законный
+    # вызов: часть проверок разбирает только доказательства о веществе.
+    country: str | None = None,
     source_documents: dict[int, SourceDocument],
     source_indexes: dict[int, int],
 ) -> None:
@@ -1129,6 +1145,26 @@ def _inject_deterministic_evidence(
                 )
             )
 
+        # Присутствие в искомой стране, читаемое со страницы: номер
+        # лицензии ICP или телефон с кодом страны. Признак подтверждает
+        # только запрошенную страну и никогда не опровергает её: чужой
+        # телефон на странице торговой компании — обычное дело, и вывод
+        # «компания не там» по нему делать нельзя. Опровержение остаётся
+        # за моделью, которая читает цитату в контексте.
+        country_code = _country_code(country)
+        if country_code and "country" not in present:
+            country_quote = find_country_markers(text, country_code)
+            if country_quote:
+                additions.append(
+                    QualificationEvidence(
+                        source_document_id=source.id,
+                        claim_type="country",
+                        claim_value=str(country),
+                        support_status="supports",
+                        quote=country_quote,
+                    )
+                )
+
         for claim_type, quote in find_trade_facts(text).items():
             if claim_type in present or len(quote) < MIN_QUOTE_CHARS:
                 continue
@@ -1143,6 +1179,18 @@ def _inject_deterministic_evidence(
             )
 
         qualification.evidence[:0] = additions
+
+
+# Доменные зоны рынков, по которым работает поиск.
+_COUNTRY_ZONES = (("cn", ".cn"), ("in", ".in"), ("ru", ".ru"))
+
+
+def _country_zone_suffix(country: str | None) -> str | None:
+    code = _country_code(country)
+    for zone_code, suffix in _COUNTRY_ZONES:
+        if zone_code == code:
+            return suffix
+    return None
 
 
 def _apply_evidence_gates(
@@ -1368,6 +1416,20 @@ def _apply_evidence_gates(
     elif payload["country_status"] == "claimed" and "country" not in supported:
         payload["country_status"] = "not_found"
         flag("Страна не подтверждена проверенной цитатой")
+
+    # Доменная зона — косвенный признак, и статус «вероятно» описан именно
+    # так: «по домену или региону». Баллов она не приносит: балл платится
+    # за дословную цитату со страницы, а зона — свойство адреса. Но и
+    # молчать о ней незачем. Замер по 48 карточкам, где страна осталась
+    # ненайденной: двенадцать сидят в зоне искомой страны.
+    if payload["country_status"] == "not_found" and page_url:
+        zone = _country_zone_suffix(search_country)
+        if zone and normalize_site_domain(page_url).endswith(zone):
+            payload["country_status"] = "likely"
+            flag(
+                "Страна не названа на странице; косвенный признак — "
+                f"доменная зона {zone}"
+            )
 
     for field, claim_type, label in (
         ("gmp_status", "gmp", "GMP"),
@@ -3676,6 +3738,7 @@ def execute_supplier_qualification(
     _inject_deterministic_evidence(
         qualifications,
         cas=data.cas,
+        country=data.country,
         source_documents=source_documents_by_id,
         source_indexes=source_index_by_id,
     )
