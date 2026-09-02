@@ -1862,6 +1862,44 @@ _MAX_COMPANY_FOLLOW_UPS = 3
 _MAX_KNOWN_SUPPLIERS = 6
 
 
+# Проверка «отвечает ли выдача на заданный вопрос». В поиск пока не
+# подключена, и вот почему: на прогоне 322 она сработала бы верно — там
+# все 20 находок были мимо марки, — но у веществ с чинёным именем
+# промахивается. Имя «С18-С22 fatty alcohol» приходит с кириллической «С»
+# и чинится перед запросом, а якорь строился бы из исходного, и годная
+# выдача отбрасывалась бы целиком. Замер по прогонам 280-320 говорит о том
+# же: 79 запросов вернули выдачу без единого упоминания предмета, и из неё
+# всё-таки вышли 38 карточек.
+#
+# Чтобы правило заработало, якоря надо брать из тех же имён, из которых
+# строится запрос, — после починки и подстановки синонимов.
+#
+# Короткое слово совпадает случайно: «up» из «Plantacare 1200 UP» найдётся
+# в любом тексте. Якорем считается либо номер, либо слово подлиннее.
+_MIN_ANCHOR_LENGTH = 4
+
+
+def _subject_anchors(*names: str | None) -> set[str]:
+    """Слова, по которым видно, что выдача про наш предмет поиска."""
+    anchors: set[str] = set()
+    for name in names:
+        for token in re.split(r"[^0-9A-Za-zА-Яа-яёЁ\u4e00-\u9fff-]+", name or ""):
+            if not token:
+                continue
+            # Иероглифы информативны и парой знаков, латиница — нет.
+            limit = 2 if re.search(r"[\u4e00-\u9fff]", token) else _MIN_ANCHOR_LENGTH
+            if len(token) >= limit:
+                anchors.add(token.casefold())
+    return anchors
+
+
+def _mentions_subject(result: dict, anchors: set[str]) -> bool:
+    haystack = " ".join(
+        str(result.get(field) or "") for field in ("title", "snippet", "url")
+    ).casefold()
+    return any(anchor in haystack for anchor in anchors)
+
+
 def _known_supplier_query(country: str, limit: int):
     """Запрос к реестру отдельно от плана: его надо уметь проверить.
 
@@ -2776,7 +2814,7 @@ def execute_supplier_search(
         # после получения выдачи: открывать их мы и так отказываемся, то
         # есть иначе платим за них местами в десятке. В журнал уходит
         # ровно отправленная строка — иначе трассу нельзя повторить.
-        query = with_excluded_domains(plan_item.query)
+        query = with_excluded_domains(plan_item.query, plan_item.purpose)
         attempted_queries.append(query)
         executed_items.append(plan_item)
         log_agent_event(search_stage, f"Ищу: «{query}»")
