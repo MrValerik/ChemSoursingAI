@@ -76,6 +76,9 @@ class FetchedPage:
     # адреса в сохранённый текст не попадают, а HTML к тому времени уже
     # разобран и выброшен.
     contact_links: tuple[str, ...] = ()
+    # Ссылки на раздел «о компании». Роль поставщика на товарной странице
+    # почти никогда не написана, а на странице о себе — написана.
+    profile_links: tuple[str, ...] = ()
 
 
 # Поля schema.org, которые несут смысл для карточки поставщика. Остальное
@@ -340,6 +343,66 @@ def find_contact_links(content: str, base_url: str) -> tuple[str, ...]:
     return tuple(found)
 
 
+# Адреса и подписи ссылок на раздел «о компании». Отдельно от контактных:
+# там ищут связь, здесь — кто эта компания. Пересечение намеренное, у
+# половины сайтов это один и тот же раздел.
+_PROFILE_HREF_RE = re.compile(
+    r"(about|about-us|aboutus|about_us|company|company-profile|profile"
+    r"|introduction|gongsi|jianjie|guanyu|o-kompanii|ueber-uns)",
+    re.IGNORECASE,
+)
+_PROFILE_TEXT_RE = re.compile(
+    r"(about\s*us|about\s+the\s+company|company\s+profile|who\s+we\s+are"
+    r"|our\s+company|关于我们|公司简介|企业简介|公司概况|о\s+компании)",
+    re.IGNORECASE,
+)
+# Разделы, которые лишь похожи на рассказ о компании. «about-shipping» и
+# новости о компании роли не доказывают, а загрузку тратят.
+_PROFILE_SKIP_RE = re.compile(
+    r"(mailto:|tel:|javascript:|#"
+    r"|[-/_](?:news|blog|article|product|shipping|delivery|payment|privacy"
+    r"|policy|faq|job|career|vacanc))",
+    re.IGNORECASE,
+)
+_MAX_PROFILE_LINKS = 2
+
+
+def find_profile_links(content: str, base_url: str) -> tuple[str, ...]:
+    """Ссылки на раздел «о компании», вытащенные из разметки.
+
+    Зачем. Замер по 45 сохранённым страницам прогонов 328–336: утверждения
+    о роли нет на 37 из них ни в одном месте текста. Слово manufacturer
+    стоит на 37 страницах, но это вывеска «manufacturer & supplier», и
+    доказательством она справедливо не считается. Роль пишут на странице о
+    себе: по 19 открывшимся разделам «о компании» штатные читатели фактов
+    дали производственную площадку у 4 и офисный адрес у 3.
+
+    Ссылки берутся из разметки, а не угадываются по адресу: угадывание по
+    /about, /about-us и ещё трём путям открыло раздел лишь у 19 доменов
+    из 27.
+    """
+    parser = _LinkExtractor()
+    try:
+        parser.feed(content)
+    except Exception:  # разметка бывает битой, и это не повод падать
+        pass
+    found: list[str] = []
+    for href, label in parser.links:
+        if _PROFILE_SKIP_RE.search(href):
+            continue
+        if not (_PROFILE_HREF_RE.search(href) or _PROFILE_TEXT_RE.search(label)):
+            continue
+        absolute = urljoin(base_url, href)
+        if not absolute.lower().startswith(("http://", "https://")):
+            continue
+        if absolute == base_url or absolute in found:
+            continue
+        found.append(absolute)
+        if len(found) >= _MAX_PROFILE_LINKS:
+            break
+    return tuple(found)
+
+
 class _LinkExtractor(HTMLParser):
     """Пары «адрес ссылки, её подпись»."""
 
@@ -482,6 +545,11 @@ def _fetch_once(
                     truncated=truncated,
                     contact_links=(
                         find_contact_links(content, str(response.url))
+                        if content_type != "text/plain"
+                        else ()
+                    ),
+                    profile_links=(
+                        find_profile_links(content, str(response.url))
                         if content_type != "text/plain"
                         else ()
                     ),
