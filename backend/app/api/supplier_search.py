@@ -941,6 +941,72 @@ def _fetch_contacts_from_link(
     return None, find_contact_barrier(page.text)
 
 
+def _page_proves_role(text: str) -> bool:
+    """Есть ли на странице проверяемая деталь о роли компании.
+
+    Проверяется то же, что читают ворота: мощность, собственная площадка,
+    прямое заявление о перепродаже. Заявление «мы производитель» здесь не
+    в счёт — оно и в воротах доказательством не считается.
+    """
+    return bool(find_production_facts(text) or find_trade_facts(text))
+
+
+def _fetch_company_profile(
+    url: str,
+    *,
+    budget,
+    run,
+    db: Session,
+    search_run: SearchRun,
+    fetch_run,
+) -> SourceDocument | None:
+    """Догружает раздел «о компании», когда роль на товарной странице нечем доказать.
+
+    Зачем. Замер по 45 страницам прогонов 328–336: утверждения о роли нет на
+    37 из них во всём тексте, а не только в переданной модели части. Обрезка
+    в 4000 символов тут почти ни при чём — маркер за нею лежит на пяти
+    страницах, из которых две справочники, а одна уже доказана. Роль пишут
+    не на карточке товара, а на странице о себе: по 19 таким страницам
+    штатные читатели фактов дали площадку у 4 и офисный адрес у 3.
+
+    Одна загрузка на кандидата и только там, где доказывать нечем. Отказ
+    бюджета или недоступная страница — не ошибка прогона: карточка остаётся
+    ровно такой, какой была бы без этого правила.
+    """
+    if budget.refuse_page_fetch() is not None:
+        return None
+    source = SourceDocument(
+        search_run_id=search_run.id,
+        agent_run_id=fetch_run.id,
+        url=url,
+        domain=_domain_key(url),
+        status="running",
+        retrieved_at=utc_now(),
+    )
+    db.add(source)
+    db.flush()
+    try:
+        page = fetch_web_page(url)
+    except Exception as exc:
+        source.status = "failed"
+        source.error = str(exc)
+        log_agent_event(
+            run,
+            f"Раздел «о компании» {_domain_key(url)} не открылся: {str(exc)[:90]}",
+            kind="warning",
+        )
+        return None
+    source.final_url = page.final_url
+    source.domain = page.domain
+    source.title = page.title
+    source.content_type = page.content_type
+    source.http_status = page.http_status
+    source.text_content = page.text
+    source.content_hash = page.content_hash
+    source.status = "completed"
+    return source
+
+
 def _batch_with_halving(
     llm: LLMClient,
     *,
@@ -1060,6 +1126,9 @@ def _inject_deterministic_evidence(
     country: str | None = None,
     source_documents: dict[int, SourceDocument],
     source_indexes: dict[int, int],
+    # Раздел «о компании» кандидата. Отдельным словарём, а не наравне с
+    # товарной страницей: оттуда читается только роль, и ничего больше.
+    profile_documents: dict[int, SourceDocument] | None = None,
 ) -> None:
     """Добавляет доказательства, читаемые со страницы без модели.
 
@@ -1179,6 +1248,51 @@ def _inject_deterministic_evidence(
                     quote=quote,
                 )
             )
+
+        # Роль со страницы «о компании». Читатели те же, что и выше, и
+        # цитата такая же дословная — меняется только источник. Про
+        # вещество и документы эта страница не свидетельствует: она о
+        # компании, а не о товаре, и путать их нельзя.
+        profile = (profile_documents or {}).get(result_index)
+        if profile is not None and profile.text_content:
+            profile_text = profile.text_content
+            seen = present | {item.claim_type for item in additions}
+            profile_facts: list[tuple[str, str, str]] = []
+            for claim_type, quote in find_production_facts(profile_text).items():
+                profile_facts.append(
+                    (
+                        claim_type,
+                        quote,
+                        "Мощность указана в разделе «о компании»"
+                        if claim_type == "production_capacity"
+                        else "Собственная площадка указана в разделе «о компании»",
+                    )
+                )
+            for claim_type, quote in find_trade_facts(profile_text).items():
+                profile_facts.append(
+                    (
+                        claim_type,
+                        quote,
+                        "Компания описывает себя как торговую в разделе «о компании»",
+                    )
+                )
+            for claim_type, quote in find_address_facts(profile_text).items():
+                profile_facts.append(
+                    (claim_type, quote, "Адрес компании — офис в бизнес-центре")
+                )
+            for claim_type, quote, claim_value in profile_facts:
+                if claim_type in seen or len(quote) < MIN_QUOTE_CHARS:
+                    continue
+                seen.add(claim_type)
+                additions.append(
+                    QualificationEvidence(
+                        source_document_id=profile.id,
+                        claim_type=claim_type,
+                        claim_value=claim_value,
+                        support_status="supports",
+                        quote=quote,
+                    )
+                )
 
         qualification.evidence[:0] = additions
 
@@ -3366,6 +3480,8 @@ def execute_supplier_qualification(
     fetch_summary: list[dict] = []
     source_documents_by_id: dict[int, SourceDocument] = {}
     source_index_by_id: dict[int, int] = {}
+    # Страница «о компании» кандидата, если товарная роль не доказала.
+    profile_documents_by_index: dict[int, SourceDocument] = {}
     requested_supplier_count = min(
         data.target_count or len(candidates),
         len(candidates),
@@ -3442,6 +3558,37 @@ def execute_supplier_qualification(
                 # если причина видна там, она и есть настоящая.
                 if page_barrier is not None:
                     contact_barrier = page_barrier
+            # Роль на товарной странице доказать нечем — открываем раздел
+            # «о компании». Только на собственном сайте: у площадки и
+            # справочника такой раздел рассказывает о них самих, а не о
+            # поставщике, и роли кандидата не доказывает.
+            if (
+                page.profile_links
+                and not _page_proves_role(page.text)
+                and not is_marketplace_domain(result.url)
+                and not is_intermediary(result.url, intermediary_domains)
+            ):
+                profile_source = _fetch_company_profile(
+                    page.profile_links[0],
+                    budget=budget,
+                    run=fetch_run,
+                    db=db,
+                    search_run=search_run,
+                    fetch_run=fetch_run,
+                )
+                if profile_source is not None:
+                    profile_documents_by_index[index] = profile_source
+                    # Страница принадлежит тому же кандидату: без этого
+                    # детерминированная проверка отклонит цитату с неё как
+                    # чужую. Товарная страница записана раньше и остаётся
+                    # первой там, где источник берётся по кандидату.
+                    source_documents_by_id[profile_source.id] = profile_source
+                    source_index_by_id[profile_source.id] = index
+                    log_agent_event(
+                        fetch_run,
+                        f"Раздел «о компании» {profile_source.domain} прочитан: "
+                        f"{len(profile_source.text_content or '')} символов",
+                    )
             fetched_sources.append(
                 {
                     "result_index": index,
@@ -3756,6 +3903,7 @@ def execute_supplier_qualification(
         country=data.country,
         source_documents=source_documents_by_id,
         source_indexes=source_index_by_id,
+        profile_documents=profile_documents_by_index,
     )
 
     validated_evidence: dict[int, list[dict]] = {}
