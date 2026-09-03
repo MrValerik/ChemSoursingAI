@@ -1,7 +1,7 @@
 // Вкладка «Общение»: история диалогов с поставщиками и очередь эскалаций.
 
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type {
   CommunicationAttachmentRead,
   CommunicationEscalationRead,
@@ -31,6 +31,19 @@ const MAX_CHAT_FILES = 5;
 const MAX_CHAT_FILE_BYTES = 25 * 1024 * 1024;
 const CHAT_FILE_ACCEPT =
   ".pdf,.png,.jpg,.jpeg,.tif,.tiff,.txt,.csv,.xlsx,.xls,.docx,.doc";
+
+const errorMessage = (caught: unknown) =>
+  caught instanceof Error ? caught.message : String(caught);
+
+async function retryNetworkRead<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (caught) {
+    if (!(caught instanceof ApiError) || caught.status !== 0) throw caught;
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
+    return read();
+  }
+}
 
 const TEST_STATUS_LABELS: Record<string, string> = {
   previewed: "Диалог активен",
@@ -165,6 +178,7 @@ export default function DispatchTab({
   const [testRuns, setTestRuns] = useState<CommunicationTestRun[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [testLoadError, setTestLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [escalationBusy, setEscalationBusy] = useState<number | null>(null);
@@ -197,33 +211,52 @@ export default function DispatchTab({
   ].join(":");
 
   const load = async () => {
-    try {
-      const [communicationItems, testItems] = await Promise.all([
-        api.communicationOverview(rfqId),
-        canTestCommunication
-          ? api.listCommunicationTests(100, rfqId)
-          : Promise.resolve([] as CommunicationTestRun[]),
-      ]);
-      try {
-        const [profileItems, currentProfileStatus] = await Promise.all([
-          api.listCommunicationProfiles(),
-          api.communicationProfileStatus(rfqId),
-        ]);
-        setProfiles(profileItems.filter((item) => item.is_active));
-        setProfileStatus(currentProfileStatus);
-        setProfileError(null);
-      } catch (caught) {
-        setProfileStatus(null);
-        setProfileError(
-          caught instanceof Error ? caught.message : String(caught),
-        );
-      }
-      const embeddedTests = testItems.filter(
+    const [communicationResult, testResult] = await Promise.allSettled([
+      retryNetworkRead(() => api.communicationOverview(rfqId)),
+      canTestCommunication
+        ? retryNetworkRead(() => api.listCommunicationTests(100, rfqId))
+        : Promise.resolve([] as CommunicationTestRun[]),
+    ]);
+
+    let communicationItems = overview;
+    let embeddedTests = testRuns;
+    let selectionChanged = false;
+
+    if (communicationResult.status === "fulfilled") {
+      communicationItems = communicationResult.value;
+      setOverview(communicationItems);
+      setError(null);
+      selectionChanged = true;
+    } else {
+      setError(errorMessage(communicationResult.reason));
+    }
+
+    if (testResult.status === "fulfilled") {
+      embeddedTests = testResult.value.filter(
         (item) =>
           item.simulation_mode === "buyer_ai" && item.delivery_mode === "preview",
       );
-      setOverview(communicationItems);
       setTestRuns(embeddedTests);
+      setTestLoadError(null);
+      selectionChanged = true;
+    } else {
+      setTestLoadError(errorMessage(testResult.reason));
+    }
+
+    try {
+      const [profileItems, currentProfileStatus] = await Promise.all([
+        retryNetworkRead(() => api.listCommunicationProfiles()),
+        retryNetworkRead(() => api.communicationProfileStatus(rfqId)),
+      ]);
+      setProfiles(profileItems.filter((item) => item.is_active));
+      setProfileStatus(currentProfileStatus);
+      setProfileError(null);
+    } catch (caught) {
+      setProfileStatus(null);
+      setProfileError(errorMessage(caught));
+    }
+
+    if (selectionChanged) {
       setSelectedKey((current) => {
         const focusedConversation =
           communicationItems.conversations.find(
@@ -273,9 +306,6 @@ export default function DispatchTab({
         if (embeddedTests[0]) return testConversationKey(embeddedTests[0].id);
         return canTestCommunication ? NEW_TEST_CONVERSATION_KEY : null;
       });
-      setError(null);
-    } catch (e) {
-      setError(String(e));
     }
   };
 
@@ -713,6 +743,12 @@ export default function DispatchTab({
 
         {notice && <p className="success-note">{notice}</p>}
         {error && <p className="error">{error}</p>}
+        {!error && testLoadError && (
+          <p className="note" role="status">
+            Реальные диалоги загружены. Тестовые диалоги временно недоступны:{" "}
+            {testLoadError}
+          </p>
+        )}
 
         {!compact &&
           overview.unassigned_escalations
