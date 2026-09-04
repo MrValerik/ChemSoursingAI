@@ -276,9 +276,22 @@ _THIRD_PARTY_PRODUCTION_MARKERS = (
     "партнерский завод",
     "партнёрский завод",
     "контрактный производитель",
+    # Производство под чужой маркой и на арендованной лицензии. Kavya Pharma
+    # называет себя manufacturer, а услугами торгует такими: контрактное и
+    # «третьей стороной» производство, loan licence — аренда места в чужой
+    # уже лицензированной установке. Закупщику, который ищет изготовителя
+    # вещества, это не тот ответ.
+    "third party manufactur",
+    "third-party manufactur",
+    "3rd party manufactur",
+    "contract manufactur",
+    "loan licence",
+    "loan license",
+    "on contract basis",
     "合作工厂",
     "合作生产基地",
     "代工厂",
+    "贴牌",
 )
 
 
@@ -671,11 +684,115 @@ _TRADE_RE = re.compile(
     r"|(?:import\s+and\s+export|domestic\s+trade)[^.]{0,80}"
     r"(?:supply\s+chain|domestic\s+trade|distribution)"
     r"|授权代理商|一级代理商|独家代理"
+    # Язык снабжения вместо языка производства. Обход по неопределённым
+    # сайтам 3 сентября 2026: LANCHEMIE («we specialize in supplying …
+    # organosilicon fine chemicals», склад у порта Шанхая, 8 лет
+    # экспортного опыта, оборудование только аналитическое) и Wenzhou Blue
+    # Dolphin («we specialize in supplying optical brightening agents»)
+    # прямо называют своё дело снабжением, а прежнее правило ждало оборота
+    # «we are a trading company» и обеих не видело.
+    #
+    # «Мы поставляем» само по себе сюда не входит: так пишет и завод.
+    # Нужен именно род занятий — специализация на поставке или торговле.
+    r"|specializ(?:e|es|ing)\s+in\s+(?:the\s+)?(?:supply|supplying"
+    r"|distribution|distributing|trading)"
+    r"|engaged\s+in\s+(?:the\s+)?(?:supply|supplying|distribution|trading)"
+    # Экспортный опыт сюда не входит, хотя напрашивался. Замер по 1681
+    # сохранённой странице: он срабатывал у Shandong Gnee, Zhonglu и SPR
+    # Chemical, а у последней в той же фразе стоит «with stable mass
+    # production». Завод экспортирует не меньше посредника.
+    r"|专业(?:供应|经销|贸易)|专注于(?:供应|贸易)"
     r"|我们是[^。]{0,20}(?:经销商|代理商|贸易))",
     re.IGNORECASE,
 )
 # Строка вопроса, а не утверждения.
 _TRADE_QUESTION_RE = re.compile(r"(are\s+you|\?\s*A\s*[:：]|Q\s*[:：])", re.IGNORECASE)
+
+# Роль, напечатанная полем анкеты, а не рассказанная прозой. Площадки и
+# часть сайтов дают её готовым значением из списка: «Business Type: Trading
+# Company», «Business Type: Manufacturer Representative / Trading Company».
+# Замер по 1681 сохранённой странице: такое поле есть у 62.
+_BUSINESS_TYPE_LABEL_RE = re.compile(
+    r"^\s*(?:business\s+type|company\s+type|type\s+of\s+business"
+    r"|企业类型|公司类型|经营模式)\s*[:：]?\s*(.*)$",
+    re.IGNORECASE,
+)
+_BUSINESS_TYPE_TRADE = (
+    "trading company",
+    "trading & service",
+    "trading and service",
+    "trade company",
+    "distributor",
+    "manufacturer representative",
+    "sales agent",
+    "贸易",
+    "经销",
+    "代理",
+)
+_BUSINESS_TYPE_MAKER = ("manufacturer", "factory", "生产", "制造", "工厂")
+# Длинное значение — это уже не поле анкеты, а абзац рядом с подписью.
+_MAX_BUSINESS_TYPE_VALUE = 90
+
+
+def _is_business_type_value(line: str) -> bool:
+    low = (line or "").casefold()
+    if not low or len(line) > _MAX_BUSINESS_TYPE_VALUE:
+        return False
+    return any(
+        marker in low
+        for marker in (*_BUSINESS_TYPE_TRADE, *_BUSINESS_TYPE_MAKER)
+    )
+
+
+def find_business_type(text: str) -> tuple[str, str] | None:
+    """Род занятий компании, напечатанный полем анкеты.
+
+    Возвращает («reseller» либо «manufacturer», дословная строка страницы)
+    или None. Значение поля — не проза, а выбор из готового списка, и
+    именно поэтому оно годится в доказательства: это проверяемая деталь,
+    а не самохарактеристика.
+
+    Обход по неопределённым сайтам 3 сентября 2026: у Shenghe поле прямо
+    говорит «Manufacturer Representative / Trading Company», а карточка
+    показывала закупщику «роль со слов сайта».
+
+    Смешанное значение читается как торговля. Так велит общее правило
+    проекта: компания, назвавшая себя и заводом, и торговым домом,
+    остаётся заводом только там, где производство доказано отдельно, — а
+    это решают ворота, а не здесь.
+
+    Выпадающий список на форме обратной связи под правило не подпадает: у
+    него следом идёт ещё одно значение того же словаря, а у заполненного
+    поля — другая подпись.
+    """
+    lines = [" ".join(raw.split()) for raw in (text or "").splitlines()]
+    for index, line in enumerate(lines):
+        match = _BUSINESS_TYPE_LABEL_RE.match(line)
+        if match is None:
+            continue
+        value = match.group(1).strip(" :：")
+        quote = line
+        if not value:
+            value = lines[index + 1].strip() if index + 1 < len(lines) else ""
+            if not value:
+                continue
+            quote = f"{line} {value}"
+            following = lines[index + 2] if index + 2 < len(lines) else ""
+            if _is_business_type_value(following):
+                continue
+        if len(value) > _MAX_BUSINESS_TYPE_VALUE:
+            continue
+        if _TRADE_QUESTION_RE.search(quote) or len(quote) < MIN_QUOTE_CHARS:
+            continue
+        low = value.casefold()
+        if any(marker in low for marker in _BUSINESS_TYPE_TRADE):
+            return "reseller", quote
+        # «Manufacturer Representative» — это торговля, и слово завода в
+        # нём считать нельзя.
+        without_representative = low.replace("manufacturer representative", " ")
+        if any(marker in without_representative for marker in _BUSINESS_TYPE_MAKER):
+            return "manufacturer", quote
+    return None
 
 
 # Обороты отраслевого обзора. Одного слова «market» мало: оно стоит и на
@@ -730,15 +847,49 @@ def find_trade_facts(text: str) -> dict[str, str]:
     Shandong Aojin, — поэтому вывод из факта делается только там, где
     производство не доказано.
     """
+    # Поле анкеты сильнее прозы: это выбор из готового списка, а не
+    # рассказ о себе, — поэтому оно проверяется первым.
+    field = find_business_type(text)
+    if field is not None and field[0] == "reseller":
+        return {"reseller_role": field[1]}
     for raw in (text or "").splitlines():
         line = raw.strip()
-        if not (MIN_QUOTE_CHARS <= len(line) <= _MAX_LINE_CHARS):
+        if not (MIN_QUOTE_CHARS <= len(line) <= _MAX_PARAGRAPH_CHARS):
             continue
         if _TRADE_QUESTION_RE.search(line):
             continue
-        if _TRADE_RE.search(line):
-            return {"reseller_role": line}
+        match = _TRADE_RE.search(line)
+        if match is None:
+            continue
+        # Цитатой служит оборот, а не весь абзац. Иначе признак терялся
+        # из-за одной вёрстки: у LANCHEMIE «we specialize in supplying …»
+        # стоит в абзаце на 330 символов, длиннее допустимой цитаты.
+        quote = _clause_around(line, match.start(), match.end())
+        if MIN_QUOTE_CHARS <= len(quote) <= _MAX_LINE_CHARS:
+            return {"reseller_role": quote}
     return {}
+
+
+# Абзац, длиннее которого строка уже не текст, а слипшаяся вёрстка целой
+# страницы: искать в ней оборот бессмысленно.
+_MAX_PARAGRAPH_CHARS = 5000
+# Границы оборота внутри предложения.
+_CLAUSE_BOUNDARIES = ",;:.!?，；：。！？"
+
+
+def _clause_around(line: str, start: int, end: int) -> str:
+    """Оборот вокруг найденного места — дословный кусок той же строки."""
+    left = max(
+        (line.rfind(char, 0, start) for char in _CLAUSE_BOUNDARIES),
+        default=-1,
+    )
+    rights = [
+        position
+        for position in (line.find(char, end) for char in _CLAUSE_BOUNDARIES)
+        if position != -1
+    ]
+    right = min(rights) if rights else len(line)
+    return line[left + 1 : right].strip()
 
 
 # Адрес в промышленной зоне. Завод стоит в промзоне или отдельным

@@ -90,6 +90,7 @@ from app.services.contacts import find_contact_barrier, find_contacts, has_conta
 from app.services.homoglyphs import fix_lookalikes, has_lookalikes
 from app.services.page_facts import (
     MIN_QUOTE_CHARS,
+    find_business_type,
     find_country_markers,
     find_icp_licence,
     find_inci_names,
@@ -1576,6 +1577,20 @@ def _apply_evidence_gates(
             # Статус именно «заявлено»: страница продавца сертификат не
             # подтверждает, она о нём только сообщает.
             payload[field] = "claimed"
+
+    # Анкета площадки говорит «торговая компания», а роль всё равно вышла
+    # производителем. Так бывает: продавец сам заполняет и поле типа, и
+    # поля про мощность и площадь. Роль здесь не переворачивается — оба
+    # свидетельства от одного и того же продавца, — но противоречие
+    # закупщик должен видеть. Chuanghai: «Business Type Trading Company»
+    # рядом с «500000ton /Year» и «Plant Area».
+    if payload["supplier_type"] == "manufacturer":
+        business_type = find_business_type(page_text or "")
+        if business_type is not None and business_type[0] == "reseller":
+            flag(
+                "Анкета площадки называет компанию торговой, "
+                "хотя роль определена как производитель"
+            )
 
     payload["red_flags"] = red_flags
     return payload
