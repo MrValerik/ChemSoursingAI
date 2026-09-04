@@ -1024,6 +1024,7 @@ def _batch_with_halving(
     schema_name: str,
     json_schema: dict,
     on_split=None,
+    on_missing=None,
 ) -> dict:
     """Спрашивает модель про пакет, дробя его, если ответ не поместился.
 
@@ -1034,15 +1035,39 @@ def _batch_with_halving(
     Замер на облачной Qwen3.6: пакет с 9789 символами входа обрывался, а
     его половины по 5000 проходили. Соседние пакеты того же прогона на
     5626 и 5093 символах проходили сразу.
+
+    Ответ бывает короче не только обрывом. Модель возвращает безупречный
+    JSON, в котором просто меньше оценок, чем источников в пакете, и такой
+    ответ раньше принимался за полный: закупчик получал карточку с
+    пометкой «автоматическая оценка не получена» и нулём баллов.
+
+    Замер 3 сентября 2026. Тот же пакет из двух страниц, отправленный трижды
+    подряд: из прогона 333 модель вернула одну оценку и дважды оборвалась,
+    из прогона 342 — по две все три раза. То есть ответ у самого потолка
+    вывода в 1536 токенов, и один и тот же дефицит выходит то обрывом (его
+    ловит ветка ниже), то молчаливой недостачей. Недостающие спрашиваются
+    поштучно: короткий вопрос в потолок уже помещается.
     """
     items = batch_payload.get(items_key) or []
     try:
-        return llm.generate_json(
+        answer = llm.generate_json(
             system_prompt=system_prompt,
             user_text=json.dumps(batch_payload, ensure_ascii=False),
             schema_name=schema_name,
             json_schema=json_schema,
             max_tokens=get_settings().llm_max_output_tokens,
+        )
+        return _ask_again_for_missing(
+            llm,
+            answer=answer,
+            system_prompt=system_prompt,
+            batch_payload=batch_payload,
+            items=items,
+            items_key=items_key,
+            schema_name=schema_name,
+            json_schema=json_schema,
+            on_split=on_split,
+            on_missing=on_missing,
         )
     except LLMOutputTruncatedError:
         if len(items) < 2:
@@ -1063,11 +1088,86 @@ def _batch_with_halving(
                 schema_name=schema_name,
                 json_schema=json_schema,
                 on_split=on_split,
+                on_missing=on_missing,
             )
             results = answer.get("results") if isinstance(answer, dict) else None
             if isinstance(results, list):
                 merged.extend(results)
         return {"results": merged}
+
+
+# Номер кандидата в пакете. Один и тот же у оценки и у самостоятельной
+# проверки: обе отвечают «по одной записи на источник с тем же result_index».
+_BATCH_INDEX_KEY = "result_index"
+
+
+def _ask_again_for_missing(
+    llm: LLMClient,
+    *,
+    answer: dict,
+    system_prompt: str,
+    batch_payload: dict,
+    items: list,
+    items_key: str,
+    schema_name: str,
+    json_schema: dict,
+    on_split=None,
+    on_missing=None,
+) -> dict:
+    """Дозапрашивает записи, о которых модель промолчала.
+
+    Спрашиваются поштучно и ровно один раз: вопрос об одном источнике сюда
+    же не возвращается, потому что дробить один элемент нечего. Значит на
+    пакет из двух приходится максимум один лишний вызов модели.
+
+    Отказ на дозапросе — не отказ этапа: карточка останется такой же, какой
+    была бы без этого правила.
+    """
+    results = answer.get("results") if isinstance(answer, dict) else None
+    if not isinstance(results, list) or len(items) < 2:
+        return answer
+    answered = {
+        item.get(_BATCH_INDEX_KEY)
+        for item in results
+        if isinstance(item, dict)
+    }
+    missing = [
+        item
+        for item in items
+        if isinstance(item, dict)
+        and item.get(_BATCH_INDEX_KEY) is not None
+        and item.get(_BATCH_INDEX_KEY) not in answered
+    ]
+    if not missing:
+        return answer
+    if on_missing is not None:
+        on_missing([item.get(_BATCH_INDEX_KEY) for item in missing])
+    recovered = list(results)
+    for item in missing:
+        part = dict(batch_payload)
+        part[items_key] = [item]
+        try:
+            extra = _batch_with_halving(
+                llm,
+                system_prompt=system_prompt,
+                batch_payload=part,
+                items_key=items_key,
+                schema_name=schema_name,
+                json_schema=json_schema,
+                on_split=on_split,
+                on_missing=on_missing,
+            )
+        except Exception:
+            continue
+        more = extra.get("results") if isinstance(extra, dict) else None
+        if isinstance(more, list):
+            recovered.extend(
+                one
+                for one in more
+                if isinstance(one, dict)
+                and one.get(_BATCH_INDEX_KEY) not in answered
+            )
+    return {**answer, "results": recovered}
 
 
 def _qualify_batch(
@@ -1076,6 +1176,7 @@ def _qualify_batch(
     system_prompt: str,
     batch_payload: dict,
     on_split=None,
+    on_missing=None,
 ) -> dict:
     """Оценивает пакет источников, дробя его при обрыве ответа."""
     return _batch_with_halving(
@@ -1086,6 +1187,7 @@ def _qualify_batch(
         schema_name="supplier_qualification",
         json_schema=_QUALIFICATION_SCHEMA,
         on_split=on_split,
+        on_missing=on_missing,
     )
 
 
@@ -1095,6 +1197,7 @@ def _verify_batch(
     system_prompt: str,
     batch_payload: dict,
     on_split=None,
+    on_missing=None,
 ) -> dict:
     """Перепроверяет пакет кандидатов, дробя его при обрыве ответа.
 
@@ -1111,6 +1214,7 @@ def _verify_batch(
         schema_name="supplier_verification",
         json_schema=SUPPLIER_VERIFICATION_JSON_SCHEMA,
         on_split=on_split,
+        on_missing=on_missing,
     )
 
 
@@ -3844,6 +3948,13 @@ def execute_supplier_qualification(
                     f"Ответ не поместился в лимит: дроблю пакет на {size}",
                     kind="warning",
                 ),
+                on_missing=lambda indexes: log_agent_event(
+                    qualification_run,
+                    "Модель промолчала о части источников пакета "
+                    f"({', '.join(str(i) for i in indexes)}) — спрашиваю о них "
+                    "по одному",
+                    kind="warning",
+                ),
             )
             _raise_if_cancelled(db, search_run)
             raw_batches.append(raw_batch)
@@ -4330,6 +4441,13 @@ def execute_supplier_qualification(
                         verification_run,
                         "Ответ не поместился в лимит выхода; "
                         f"делю пакет и перепроверяю по {size}",
+                        kind="warning",
+                    ),
+                    on_missing=lambda indexes: log_agent_event(
+                        verification_run,
+                        "Аудитор промолчал о части кандидатов "
+                        f"({', '.join(str(i) for i in indexes)}) — "
+                        "спрашиваю о них по одному",
                         kind="warning",
                     ),
                 )

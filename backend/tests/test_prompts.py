@@ -1515,7 +1515,11 @@ def test_supplier_qualification_batches_five_candidates(client, monkeypatch):
     )
 
     assert response.status_code == 200
-    assert batches == [[0, 1], [2, 3], [4]]
+    # Модель здесь не отвечает ничего, поэтому о каждом источнике её
+    # переспрашивают ещё раз поштучно: короткий ответ считается неполным,
+    # а не готовым. Разбиение на пакеты по двое от этого не меняется.
+    assert [batch for batch in batches if len(batch) > 1] == [[0, 1], [2, 3]]
+    assert batches == [[0, 1], [0], [1], [2, 3], [2], [3], [4]]
     assert len(response.json()["results"]) == 5
     trace = client.get(
         f"/search-runs/{response.json()['search_run_id']}", headers=buyer
