@@ -72,6 +72,12 @@ services:
       SERPER_LANGUAGE: ${SERPER_LANGUAGE:-en}
       SEARCH_MAX_QUERIES: ${SEARCH_MAX_QUERIES:-12}
       SEARCH_MAX_PAGE_FETCHES: ${SEARCH_MAX_PAGE_FETCHES:-30}
+      # Отрисовка страниц браузером. Пустое значение выключает её
+      # целиком: поиск работает как раньше, просто не читает сайты,
+      # которые присылают программу вместо страницы.
+      PAGE_RENDER_URL: ${PAGE_RENDER_URL:-http://renderer:8080}
+      PAGE_RENDER_TIMEOUT_S: ${PAGE_RENDER_TIMEOUT_S:-30}
+      PAGE_RENDER_MIN_CHARS: ${PAGE_RENDER_MIN_CHARS:-400}
       SEARCH_MAX_LLM_CALLS: ${SEARCH_MAX_LLM_CALLS:-40}
       SEARCH_MAX_RUNTIME_S: ${SEARCH_MAX_RUNTIME_S:-2700}
       SUPPLIER_INDUSTRIAL_PACKAGE_MIN_MASS_KG: ${SUPPLIER_INDUSTRIAL_PACKAGE_MIN_MASS_KG:-20}
@@ -167,6 +173,12 @@ services:
       SERPER_LANGUAGE: ${SERPER_LANGUAGE:-en}
       SEARCH_MAX_QUERIES: ${SEARCH_MAX_QUERIES:-12}
       SEARCH_MAX_PAGE_FETCHES: ${SEARCH_MAX_PAGE_FETCHES:-30}
+      # Отрисовка страниц браузером. Пустое значение выключает её
+      # целиком: поиск работает как раньше, просто не читает сайты,
+      # которые присылают программу вместо страницы.
+      PAGE_RENDER_URL: ${PAGE_RENDER_URL:-http://renderer:8080}
+      PAGE_RENDER_TIMEOUT_S: ${PAGE_RENDER_TIMEOUT_S:-30}
+      PAGE_RENDER_MIN_CHARS: ${PAGE_RENDER_MIN_CHARS:-400}
       SEARCH_MAX_LLM_CALLS: ${SEARCH_MAX_LLM_CALLS:-40}
       SEARCH_MAX_RUNTIME_S: ${SEARCH_MAX_RUNTIME_S:-2700}
       SUPPLIER_INDUSTRIAL_PACKAGE_MIN_MASS_KG: ${SUPPLIER_INDUSTRIAL_PACKAGE_MIN_MASS_KG:-20}
@@ -185,6 +197,24 @@ services:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  renderer:
+    # Отрисовка страниц браузером для поиска поставщиков. Отдельная служба:
+    # здесь исполняется чужой JavaScript с сайтов поставщиков, и в контейнере
+    # с базой и почтой ему не место. Четыре поисковых воркера делят один
+    # браузер вместо четырёх.
+    build: ./renderer
+    restart: unless-stopped
+    environment:
+      RENDER_TIMEOUT_MS: ${PAGE_RENDER_TIMEOUT_MS:-20000}
+    # Chromium падает на разделяемой памяти по умолчанию в 64 МБ.
+    shm_size: "512mb"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=10).status == 200 else 1)\""]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 40s
 
   email-worker:
     build: ./backend

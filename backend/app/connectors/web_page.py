@@ -577,10 +577,90 @@ def fetch_web_page(
             raise PageFetchError("Robots.txt сайта запрещает загрузку страницы")
         wait_for_domain_slot(url, crawl_delay)
     try:
-        return _fetch_once(
-            url, max_bytes=max_bytes, resolver=resolver, transport=transport
+        try:
+            page = _fetch_once(
+                url, max_bytes=max_bytes, resolver=resolver, transport=transport
+            )
+        except _RETRIABLE_ERRORS:
+            page = _fetch_once(
+                url, max_bytes=max_bytes, resolver=resolver, transport=transport
+            )
+    except PageFetchError:
+        # Текста нет вовсе — единственный случай, ради которого стоит
+        # поднимать браузер. Прочие отказы (403, PDF, запрет robots.txt)
+        # им не лечатся, и пробовать их незачем.
+        rendered = _render_fallback(url, transport=transport)
+        if rendered is not None:
+            return rendered
+        raise
+    if len(page.text or "") >= _render_min_chars():
+        return page
+    # Текст есть, но его столько же, сколько в шапке меню. Отрисовка либо
+    # даст содержимое, либо вернёт то же самое — тогда остаётся исходное.
+    rendered = _render_fallback(url, transport=transport)
+    if rendered is not None and len(rendered.text or "") > len(page.text or ""):
+        return rendered
+    return page
+
+
+def _render_min_chars() -> int:
+    from app.core.config import get_settings
+
+    return get_settings().page_render_min_chars
+
+
+def _render_fallback(
+    url: str, *, transport: httpx.BaseTransport | None = None
+) -> FetchedPage | None:
+    """Открывает страницу браузером через службу renderer.
+
+    Зачем. Часть сайтов присылает не страницу, а программу: замер
+    3 сентября 2026 по пяти адресам с ошибкой «на странице не найден текст»
+    дал ответы 200 длиной 151–985 байт из одного упакованного скрипта, без
+    единой картинки. HTTP-клиент такую страницу прочитать не может: текста
+    в ответе нет, он появляется только после исполнения скрипта.
+
+    Отрисовка необязательна. Пустая настройка, недоступная служба или её
+    ошибка — не отказ загрузки: карточка остаётся такой же, какой была бы
+    без этого пути. Проверку robots.txt делает вызывающая сторона выше, и
+    сюда управление доходит только после разрешения.
+
+    В тестах с подставленным транспортом отрисовка не вызывается: они
+    описывают разбор ответа, а не поход в чужую службу.
+    """
+    if transport is not None:
+        return None
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    service = (settings.page_render_url or "").strip().rstrip("/")
+    if not service:
+        return None
+    try:
+        response = httpx.post(
+            f"{service}/render",
+            json={"url": url, "timeout_ms": settings.page_render_timeout_s * 1000},
+            timeout=settings.page_render_timeout_s + 5,
         )
-    except _RETRIABLE_ERRORS:
-        return _fetch_once(
-            url, max_bytes=max_bytes, resolver=resolver, transport=transport
-        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        return None
+    text = _without_nul(" \n".join((data.get("text") or "").split("\n")))
+    text = text[:MAX_PAGE_TEXT]
+    if not text.strip():
+        return None
+    final_url = str(data.get("final_url") or url)
+    return FetchedPage(
+        url=url,
+        final_url=final_url,
+        domain=urlparse(final_url).netloc.casefold(),
+        title=(data.get("title") or None),
+        content_type="text/html",
+        http_status=data.get("http_status"),
+        text=text,
+        content_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        # Ссылки на разделы вытаскиваются из разметки, а её здесь нет:
+        # служба отдаёт готовый текст. Раздел «о компании» по такой
+        # странице просто не догружается.
+    )
