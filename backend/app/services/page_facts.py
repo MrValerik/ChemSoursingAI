@@ -411,6 +411,102 @@ def looks_like_third_party_production_claim(quote: str) -> bool:
     return any(marker in lowered for marker in _THIRD_PARTY_PRODUCTION_MARKERS)
 
 
+# Готовая лекарственная форма вместо вещества. Roma Pharma доказывала себя
+# цитатой «leading pioglitazone hydrochloride 15mg tablet manufacturer»:
+# вещество названо верно, но изготовитель таблетки не отвечает на запрос о
+# субстанции, а карточка выходила производителем пиоглитазона.
+_DOSAGE_FORM_RE = re.compile(
+    r"(\d+\s*(?:mg|mcg|µg|g|ml)\s*(?:/\s*\w+\s*)?"
+    r"(?:tablet|capsule|syrup|injection|suspension|sachet|softgel)"
+    r"|(?:tablets?|capsules?|syrups?)\s*(?:,|and)\s*(?:capsules?|syrups?|injections?)"
+    r"|finished\s+(?:dosage|formulation)"
+    r"|片剂|胶囊剂|口服液)",
+    re.IGNORECASE,
+)
+
+
+def looks_like_dosage_form_claim(quote: str) -> bool:
+    """Цитата о готовой форме, а не о веществе.
+
+    Закупщик спрашивает субстанцию. Изготовитель таблетки её покупает, а не
+    производит, и ставить его в один ряд с заводом субстанции нельзя.
+    """
+    return bool(_DOSAGE_FORM_RE.search(quote or ""))
+
+
+# Компания называет своим делом снабжение, посредничество или экспорт. Это
+# слабее, чем «мы торговая компания», и само по себе роли не доказывает:
+# здесь оно служит встречным свидетельством против заявления о заводе.
+#
+# Ручной обход 3 сентября 2026: Dalian Handom на той же странице, где
+# написано «our factory covers an area of 30 000 square meters», называет
+# себя «a 10-year-experienced supplier of Organic Chemicals» и рассказывает,
+# как основана в 2013 году ради экспорта витаминов.
+_TRADING_IDENTITY_RE = re.compile(
+    r"(is\s+a\s+(?:[\w-]+\s+){0,3}(?:experienced\s+)?supplier\s+of"
+    r"|is\s+a\s+(?:[\w-]+\s+){0,3}(?:exporter|trading\s+house|import\s+and\s+export)"
+    r"|deal(?:s|ing)?\s+in\s+the\s+(?:export|import)"
+    r"|是[^。]{0,15}(?:供应商|贸易商))",
+    re.IGNORECASE,
+)
+# Закупочная сеть вместо собственного производства. LeapChem: «Strategic
+# Sourcing. Our network consists of 6 500 suppliers». Такое свидетельство
+# сильнее любой цифры о мощности на той же странице: компания сама
+# объясняет, откуда берёт товар.
+_SOURCING_NETWORK_RE = re.compile(
+    r"(strategic\s+sourcing"
+    r"|network\s+(?:of|consists\s+of)\s+[\d,\s]{2,9}\s*suppliers"
+    r"|[\d,]{3,9}\s+suppliers\b"
+    r"|sourcing\s+(?:agent|agency|company|partner|platform))",
+    re.IGNORECASE,
+)
+
+
+# Производство под чужой маркой как род занятий, а не как одна из услуг.
+# Asterisk Healthcare называет себя «Top Third Party Pharma Manufacturing
+# Company in Chandigarh» и выпускает таблетки, капсулы и сиропы — карточка
+# при этом выходила производителем пиоглитазона.
+#
+# Обычное «contract manufacturing» сюда не входит: контрактные заказы берёт
+# и настоящий завод, и по этому слову его терять нельзя.
+_CONTRACT_IDENTITY_RE = re.compile(
+    r"(third[\s-]*party\s+(?:pharma\s+)?manufactur"
+    r"|3rd\s+party\s+manufactur"
+    r"|loan\s+licen[cs]"
+    r"|贴牌生产|代工生产)",
+    re.IGNORECASE,
+)
+
+
+def find_trading_identity(text: str) -> str:
+    """Дословная строка, где компания называет своим делом снабжение."""
+    return _first_matching_line(text, _TRADING_IDENTITY_RE)
+
+
+def find_contract_identity(text: str) -> str:
+    """Дословная строка о производстве под чужой маркой как роде занятий."""
+    return _first_matching_line(text, _CONTRACT_IDENTITY_RE)
+
+
+def find_sourcing_network(text: str) -> str:
+    """Дословная строка о закупочной сети вместо собственного производства."""
+    return _first_matching_line(text, _SOURCING_NETWORK_RE)
+
+
+def _first_matching_line(text: str, pattern: re.Pattern) -> str:
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not (MIN_QUOTE_CHARS <= len(line) <= _MAX_PARAGRAPH_CHARS):
+            continue
+        match = pattern.search(line)
+        if match is None:
+            continue
+        quote = _clause_around(line, match.start(), match.end())
+        if MIN_QUOTE_CHARS <= len(quote) <= _MAX_LINE_CHARS:
+            return quote
+    return ""
+
+
 def _collapsed(value: str) -> str:
     """Название без разделителей: пробелов, дефисов, скобок и запятых.
 
@@ -952,20 +1048,67 @@ def find_production_facts(text: str) -> dict[str, str]:
     доказательства идентичности и роли, а мощность говорит о компании.
     """
     facts: dict[str, str] = {}
+    lines = [raw.strip() for raw in (text or "").splitlines()]
     for claim, pattern in (
         ("production_capacity", _CAPACITY_RE),
         ("production_site", _PLANT_RE),
     ):
-        for raw in (text or "").splitlines():
-            line = raw.strip()
+        for index, line in enumerate(lines):
             if not line or len(line) > _MAX_LINE_CHARS:
                 continue
             if len(line) < MIN_QUOTE_CHARS:
                 continue
             if pattern.search(line):
-                facts[claim] = line
+                facts[claim] = _with_field_value(lines, index)
                 break
+    # Разрешение на производство сильнее любой прозы о заводе: торговая
+    # компания его физически не держит. Оно и становится цитатой.
+    permit = find_production_permits(text)
+    if permit:
+        facts["production_site"] = permit
     return facts
+
+
+def _with_field_value(lines: list[str], index: int) -> str:
+    """Подпись поля вместе со значением, если значение стоит ниже.
+
+    Цитата «Factory Address:» ничего не доказывает читателю, а именно её
+    сохраняла карточка Hefei TNJ на площадке: адрес завода стоял
+    следующей строкой.
+    """
+    line = lines[index]
+    if not line.endswith((":", "：")) or len(line) > 60:
+        return line
+    value = lines[index + 1] if index + 1 < len(lines) else ""
+    if not value or len(value) > _MAX_LINE_CHARS:
+        return line
+    return f"{line} {value}"
+
+
+# Разрешительные документы, которые выдают именно производству. Найдены
+# при ручном обходе 3 сентября 2026: у Suzhou Springchem на странице
+# «о компании» перечислены лицензия на производство, разрешение на выбросы
+# провинции Чжэцзян и заключение экологической экспертизы. Признак редкий —
+# 6 страниц из 1707 сохранённых, — но подделать его нечем: у посредника
+# такого документа нет и быть не может.
+_PRODUCTION_PERMIT_RE = re.compile(
+    r"(safety\s+production\s+licen[cs]e"
+    r"|pollution[\s-]*discharge\s+permit"
+    r"|discharge\s+permit\s+of"
+    r"|安全生产许可证|排污许可证|生产许可证)",
+    re.IGNORECASE,
+)
+
+
+def find_production_permits(text: str) -> str:
+    """Дословная строка с разрешительным документом производства."""
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not (MIN_QUOTE_CHARS <= len(line) <= _MAX_LINE_CHARS):
+            continue
+        if _PRODUCTION_PERMIT_RE.search(line):
+            return line
+    return ""
 
 
 # Фасовка и минимальный заказ читаются только рядом с явным словом-маркером.
