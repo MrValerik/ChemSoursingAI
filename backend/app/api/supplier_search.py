@@ -99,7 +99,12 @@ from app.services.page_facts import (
     find_address_facts,
     find_company_names,
     find_production_facts,
+    find_production_permits,
+    find_contract_identity,
+    find_sourcing_network,
     find_trade_facts,
+    find_trading_identity,
+    looks_like_dosage_form_claim,
     cas_quote,
     find_cas_numbers,
     find_document_mentions,
@@ -900,6 +905,8 @@ def _evidence_rejection_reason(
             return "приглашение купить, а не утверждение о производстве"
         if looks_like_third_party_production_claim(evidence.quote):
             return "цитата описывает партнёрское или контрактное производство"
+        if looks_like_dosage_form_claim(evidence.quote):
+            return "цитата о готовой форме, а не о веществе"
         if not mentions_substance(evidence.quote, cas=cas, names=names or []):
             return "цитата о компании вообще, а не об искомом веществе"
     return None
@@ -1316,6 +1323,10 @@ def _apply_evidence_gates(
     *,
     page_url: str = "",
     page_text: str | None = None,
+    # Раздел «о компании» того же кандидата. Отдельным доводом, а не
+    # приклеенным к товарной странице: длина page_text решает, считать ли
+    # страницу загруженной, и разбавлять её нельзя.
+    profile_text: str = "",
     fetch_status: str | None = None,
     intermediary_domains: set[str] | None = None,
     search_country: str = "",
@@ -1436,6 +1447,35 @@ def _apply_evidence_gates(
         payload["role_proof"] = "claimed"
         if hard_proof & supported:
             payload["role_proof"] = "proven"
+            # Страница спорит сама с собой. Ручная проверка восьми
+            # «доказанных производителей» 3 сентября 2026: у Dalian Handom
+            # на той же странице, где «our factory covers an area of 30 000
+            # square meters», написано «is a 10-year-experienced supplier of
+            # Organic Chemicals», а компания основана в 2013 году ради
+            # экспорта витаминов. У LeapChem рядом с мощностью стоит
+            # «Strategic Sourcing. Our network consists of 6 500 suppliers».
+            #
+            # Разрешение на производство спор снимает: торговая компания
+            # лицензии на производство и разрешения на выбросы не держит.
+            page = (page_text or "") + "\n" + profile_text
+            if not find_production_permits(page):
+                sourcing = find_sourcing_network(page) or find_contract_identity(page)
+                # Закупочная сеть спорит и с цифрой мощности: компания сама
+                # объясняет, откуда берёт товар. Общее «поставщик такого-то»
+                # спорит только со ссылкой на площадку без единой цифры.
+                identity = (
+                    find_trading_identity(page)
+                    if "production_capacity" not in supported
+                    else ""
+                )
+                if sourcing or identity:
+                    payload["supplier_type"] = "unknown"
+                    payload["role_proof"] = "contradicted"
+                    flag(
+                        "Страница называет компанию поставщиком и одновременно "
+                        "заявляет собственное производство: "
+                        + (sourcing or identity)[:160]
+                    )
         elif not (production_proof & supported):
             payload["supplier_type"] = "unknown"
             flag("Статус производителя не подтверждён проверенной цитатой")
@@ -1585,7 +1625,7 @@ def _apply_evidence_gates(
     # закупщик должен видеть. Chuanghai: «Business Type Trading Company»
     # рядом с «500000ton /Year» и «Plant Area».
     if payload["supplier_type"] == "manufacturer":
-        business_type = find_business_type(page_text or "")
+        business_type = find_business_type((page_text or "") + "\n" + profile_text)
         if business_type is not None and business_type[0] == "reseller":
             flag(
                 "Анкета площадки называет компанию торговой, "
@@ -4058,6 +4098,10 @@ def execute_supplier_qualification(
                 candidates[index].url if index < len(candidates) else ""
             ),
             page_text=page_by_index.get(index, ("", ""))[0],
+            profile_text=str(
+                getattr(profile_documents_by_index.get(index), "text_content", "")
+                or ""
+            ),
             fetch_status=page_by_index.get(index, ("", ""))[1],
             intermediary_domains=intermediary_domains,
             search_country=search_country,
