@@ -922,3 +922,41 @@ def test_spacing_inside_the_name_is_not_a_different_company():
     )[0] == "match"
     # Разные заводы от этого одинаковыми не становятся.
     assert match_manufacturer("Hunan Huateng", "Hebei Huateng")[0] == "mismatch"
+
+
+def test_a_one_word_name_is_not_matched_fuzzily():
+    """Одного слова слишком мало, чтобы считать названия одним именем.
+
+    Найдено замером на сохранённых выдачах: «Aurochemicals» совпадала сразу
+    с тремя разными китайскими компаниями — «biochemical» и «chemical»
+    похожи на неё общим куском. Из 15 компаний выборки четыре получали
+    ложное «нужна ручная проверка».
+    """
+    from app.services.document_verification import match_manufacturer
+
+    for other in (
+        "Shandong zhishang chemical Co.,Ltd",
+        "SHANDONG LOOK CHEMICAL CO.,LTD",
+        "LEADER BIOCHEMICAL GROUP",
+    ):
+        assert match_manufacturer(other, "Aurochemicals")[0] == "mismatch", other
+    assert match_manufacturer("Belle Chemical LLC", "Elé Corporation")[0] == "mismatch"
+
+    # Настоящие совпадения от этого не страдают: там слов хватает.
+    # Кириллица против латиницы — путь транслитерации, решает человек.
+    assert (
+        match_manufacturer("ООО «Хунань Хуатэн»", "Hunan Huateng")[0]
+        == "manual_review"
+    )
+    assert (
+        match_manufacturer(
+            "HANGZHOU KEYINGCHEM CO., LTD", "Hangzhou Keying Chem Co., Ltd."
+        )[0]
+        == "match"
+    )
+    assert (
+        match_manufacturer(
+            "Qingdao Nova Chemicals Co., Ltd", "ООО «Циндао Нова Кемикалс»"
+        )[0]
+        == "manual_review"
+    )

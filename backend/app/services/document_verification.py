@@ -128,8 +128,15 @@ _TOKEN_SIMILARITY = 0.7
 
 
 def _tokens_pair_up(left: frozenset[str], right: frozenset[str]) -> bool:
-    """У каждого слова короткого названия есть близкий двойник в длинном."""
-    if not left or not right:
+    """У каждого слова короткого названия есть близкий двойник в длинном.
+
+    Название из одного слова этим путём не идёт. Одного слова слишком мало:
+    «Aurochemicals» так совпала сразу с тремя разными китайскими компаниями —
+    «biochemical» и «chemical» похожи на неё общим куском, и правило считало
+    это одним именем в разной транслитерации. Замер по 15 компаниям из
+    выдачи площадки дал четыре таких ложных «нужна ручная проверка».
+    """
+    if len(left) < 2 or len(right) < 2:
         return False
     short, long = (left, right) if len(left) <= len(right) else (right, left)
     return all(
