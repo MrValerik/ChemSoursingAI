@@ -200,7 +200,7 @@ async function requestUpload<T>(path: string, file: File): Promise<T> {
   return requestForm<T>(path, body);
 }
 
-async function requestFile(path: string): Promise<Blob> {
+async function requestFile(path: string, failText?: string): Promise<Blob> {
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -223,7 +223,7 @@ async function requestFile(path: string): Promise<Blob> {
       response.status,
       response.status === 410
         ? "Файл больше недоступен в хранилище."
-        : "Не удалось скачать вложение.",
+        : (failText ?? "Не удалось скачать вложение."),
     );
   }
   return response.blob();
@@ -274,6 +274,9 @@ export const api = {
   createRfqBatch: (payload: {
     idempotency_key: string;
     source_name?: string | null;
+    /** Условия, общие для всего списка: действуют там, где в строке
+     *  файла своих нет. Указанное в строке сильнее. */
+    defaults?: { incoterms: string[]; search_countries: string[] };
     items: { row: number; values: Record<string, unknown> }[];
   }) =>
     request<RfqBatchCreateResult>("/rfq/batch", {
@@ -284,6 +287,14 @@ export const api = {
     request<RfqBatchSummary>(`/rfq/batch/${batchId}`),
   previewRfqImport: (file: File) =>
     requestUpload<RfqImportPreview>("/rfq/import/preview", file),
+  // Образец файла: закупщик, открывший экран впервые, не знает, в каком
+  // виде нужен список. Собирается на сервере — там же, где живут правила
+  // разбора, поэтому образец не может разойтись с тем, что читается.
+  rfqImportTemplate: (format: "xlsx" | "csv") =>
+    requestFile(
+      `/rfq/import/template?fmt=${format}`,
+      "Не удалось скачать образец файла.",
+    ),
   recheckRfqImportRow: (row: number, raw: Record<string, string>) =>
     request<RfqImportRow>("/rfq/import/row", {
       method: "POST",

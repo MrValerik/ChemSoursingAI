@@ -22,6 +22,7 @@ import type {
   RfqImportRow,
 } from "../api/types";
 
+import IncotermPicker from "./IncotermPicker";
 import { HelpTip, Icon } from "./ui";
 // Строка предпросмотра плюс признак «правится прямо сейчас». Признак живёт
 // только на экране: сервер о черновике правки ничего не знает, он получает
@@ -43,7 +44,6 @@ const newKey = (): string => {
 // «Incoterms» и «Страны» обычно нет, а без них запрос не создаётся. Показаны
 // явно: молча подставить базис поставки на весь список нельзя — от него
 // зависит, кто платит за перевозку.
-const BATCH_INCOTERMS = ["EXW", "FCA", "FOB", "CIP", "DAP"];
 const BATCH_COUNTRIES = ["Россия", "Китай", "Индия"];
 
 const EDITABLE: { key: string; label: string; width?: string }[] = [
@@ -67,6 +67,8 @@ export default function RfqImport({ onCreated }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  // Какой образец сейчас качается: «xlsx», «csv» или ничего.
+  const [template, setTemplate] = useState<"xlsx" | "csv" | null>(null);
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
   const [result, setResult] = useState<RfqBatchCreateResult | null>(null);
@@ -77,6 +79,28 @@ export default function RfqImport({ onCreated }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isExcluded = (row: number) => excluded.includes(row);
+
+  // Образец собирается на сервере: правила разбора живут там, и образец,
+  // собранный здесь, разошёлся бы с ними при первой же правке разбора.
+  const downloadTemplate = async (format: "xlsx" | "csv") => {
+    setTemplate(format);
+    setError(null);
+    try {
+      const blob = await api.rfqImportTemplate(format);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Список позиций — образец.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : String(caught));
+    } finally {
+      setTemplate(null);
+    }
+  };
 
   const upload = async (file: File) => {
     setBusy(true);
@@ -190,6 +214,34 @@ export default function RfqImport({ onCreated }: Props) {
           <span className="rfq-import-file">{fileName}</span>
         )}
       </div>
+
+      {/* Перечисление колонок в подсказке не отвечает на вопрос «а как
+          записать?»: два базиса поставки в одной ячейке, чистота
+          процентом, объём с единицей. Заполненный образец показывает это
+          строками, а в XLSX — ещё и примечанием на каждом заголовке. */}
+      <p className="rfq-import-template">
+        Не знаете, в каком виде нужен файл — скачайте образец:{" "}
+        <button
+          type="button"
+          className="link-btn"
+          disabled={template !== null}
+          onClick={() => void downloadTemplate("xlsx")}
+        >
+          {template === "xlsx" ? "готовлю XLSX…" : "XLSX"}
+        </button>
+        {" · "}
+        <button
+          type="button"
+          className="link-btn"
+          disabled={template !== null}
+          onClick={() => void downloadTemplate("csv")}
+        >
+          {template === "csv" ? "готовлю CSV…" : "CSV"}
+        </button>
+        . В нём заполнены три строки: с номером CAS, без номера — по
+        спецификации — и по минимуму. Лишние колонки можно удалить,
+        обязательна только «Название».
+      </p>
 
       {error && <p className="error">{error}</p>}
 
@@ -350,24 +402,11 @@ export default function RfqImport({ onCreated }: Props) {
                     <label>Условия поставки для всего списка</label>
                     <HelpTip text="Применяются к позициям, у которых в файле нет колонки Incoterms. Если базис указан в самой строке, действует он." />
                   </div>
-                  <div className="checks">
-                    {BATCH_INCOTERMS.map((code) => (
-                      <label key={code}>
-                        <input
-                          type="checkbox"
-                          checked={incoterms.includes(code)}
-                          onChange={() =>
-                            setIncoterms((current) =>
-                              current.includes(code)
-                                ? current.filter((item) => item !== code)
-                                : [...current, code],
-                            )
-                          }
-                        />
-                        {code}
-                      </label>
-                    ))}
-                  </div>
+                  <IncotermPicker
+                    label="Условия поставки для всего списка"
+                    values={incoterms}
+                    onChange={setIncoterms}
+                  />
                 </div>
                 <div className="field">
                   <div className="heading-with-help">

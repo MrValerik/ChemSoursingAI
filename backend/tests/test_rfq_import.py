@@ -356,12 +356,15 @@ def test_unsupported_incoterm_and_country_are_skipped_with_a_warning():
     payload = _csv(
         [
             ["Название", "Incoterms", "Страны"],
-            ["Бетаин", "FOB;DDP", "Китай;Бразилия"],
+            ["Бетаин", "FOB;DDU", "Китай;Бразилия"],
         ]
     )
     preview = parse_import_file("list.csv", payload)
     row = _row(preview, 2)
     assert row.importable, "неподдержанный базис не делает строку негодной"
+    # В файле базис принимается только из справочника: «DDU» здесь — это
+    # опечатка или устаревшая редакция, и подставить её молча нельзя.
+    # Свой базис закупщик называет руками в форме, где видит, что вводит.
     assert row.values["incoterms"] == ["FOB"]
     assert row.values["search_countries"] == ["Китай"]
     assert len(row.warnings) == 2
@@ -404,3 +407,64 @@ def test_row_without_cas_is_identified_by_specification():
     assert row.importable
     assert row.values["identification_method"] == "spec"
     assert row.values["specification"] == "Вязкость 4000-6000 сП"
+
+
+# --- образец файла ---
+
+
+def test_template_headers_are_the_ones_the_parser_knows():
+    """Заголовок образца обязан узнаваться разбором.
+
+    Образец и словарь синонимов колонок живут в одном модуле, но ничто не
+    мешает переименовать колонку в образце и забыть про разбор. Тогда
+    скачанный образец загружался бы с «колонка не распознана».
+    """
+    from app.services.rfq_import import _ALIAS_TO_FIELD, TEMPLATE_COLUMNS
+
+    for field_name, title, hint in TEMPLATE_COLUMNS:
+        assert _ALIAS_TO_FIELD.get(title.casefold()) == field_name
+        assert hint.strip()
+
+
+@pytest.mark.parametrize("fmt", ["csv", "xlsx"])
+def test_template_is_read_back_without_a_single_complaint(fmt):
+    """Скачанный образец, залитый обратно, обязан пройти разбор целиком.
+
+    Это единственная проверка, которая ловит расхождение образца с
+    разбором целиком: неверный CAS в примере, единицу, которой нет в
+    списке, страну не из набора.
+    """
+    from app.services.rfq_import import (
+        TEMPLATE_ROWS,
+        build_template_csv,
+        build_template_xlsx,
+    )
+
+    payload = build_template_csv() if fmt == "csv" else build_template_xlsx()
+    preview = parse_import_file(f"template.{fmt}", payload)
+
+    assert preview.file_warnings == []
+    assert preview.ignored_columns == []
+    assert len(preview.rows) == len(TEMPLATE_ROWS)
+    for row in preview.rows:
+        assert row.importable, [item.message for item in row.errors]
+        assert row.warnings == []
+
+
+def test_template_shows_both_ways_to_identify_a_substance():
+    """Образец обязан показывать позицию без CAS.
+
+    Половина списка заказчика — торговые марки и смеси без номера. Если в
+    образце все строки с CAS, закупщик решит, что позиции без номера
+    системе не годятся, и не загрузит половину списка.
+    """
+    from app.services.rfq_import import build_template_xlsx
+
+    preview = parse_import_file("template.xlsx", build_template_xlsx())
+    methods = {row.values["identification_method"] for row in preview.rows}
+    assert methods == {"cas", "spec"}
+
+    by_spec = next(
+        row for row in preview.rows if row.values["identification_method"] == "spec"
+    )
+    assert by_spec.values["specification"]

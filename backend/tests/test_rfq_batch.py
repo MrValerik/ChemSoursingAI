@@ -173,8 +173,10 @@ def test_one_bad_row_does_not_cancel_the_good_ones(client):
     headers = _headers(client)
     rows = [
         _values("Бетаин"),
-        # Базис вне справочника: строка негодна, остальные — нет.
-        _values("Глицин", incoterms=["DDP"]),
+        # Базис, который не читается как базис: строка негодна, остальные —
+        # нет. Условие вне редакции 2020 негодным больше не считается —
+        # закупщик вправе назвать своё, — а строка из одних знаков не базис.
+        _values("Глицин", incoterms=["!!!"]),
         _values("Мочевина"),
     ]
     response = _post(client, headers, "batch-partial-001", rows, start_search="false")
@@ -190,7 +192,7 @@ def test_one_bad_row_does_not_cancel_the_good_ones(client):
     # Итог по каждой строке: номер строки и причина, а не общий отказ.
     assert failed[0]["row"] == 3
     assert failed[0]["name"] == "Глицин"
-    assert "DDP" in failed[0]["error"]
+    assert "!!!" in failed[0]["error"]
     assert failed[0]["rfq_id"] is None
 
     with SessionLocal() as db:

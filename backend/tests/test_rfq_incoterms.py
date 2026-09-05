@@ -49,11 +49,55 @@ def test_case_and_spaces_are_forgiven():
 
 
 def test_unknown_basis_is_refused_not_guessed():
-    """Похожий базис подставлять нельзя: он определяет, кто платит."""
+    """Похожий базис подставлять нельзя: он определяет, кто платит.
+
+    По умолчанию приведение строгое — так работает разбор файла со
+    списком позиций, где опечатку никто не смотрит глазами.
+    """
     with pytest.raises(UnsupportedIncotermError):
-        normalize_incoterm("DDP")
+        normalize_incoterm("DDU")
     with pytest.raises(UnsupportedIncotermError):
         normalize_incoterm("")
+
+
+# --- свой базис закупщика ---
+
+
+def test_custom_basis_is_kept_as_typed():
+    """Своё условие закупщик вписывает руками и отвечает за смысл."""
+    assert normalize_incoterm("ddu", allow_custom=True) == "DDU"
+    assert normalize_incoterm(" самовывоз ", allow_custom=True) == "САМОВЫВОЗ"
+    assert normalize_incoterms(["CIP", "DDU"], allow_custom=True) == ["CIP", "DDU"]
+
+
+def test_custom_basis_must_still_look_like_a_basis():
+    """Разрешено своё условие, а не произвольный текст в письмо.
+
+    Базис уходит в письмо поставщику отдельной строкой. Абзац, перенос
+    строки и строка из одних знаков базисом не являются.
+    """
+    for bad in ("!!!", "-", "", "У" * 25, "Везём как договоримся, детали письмом"):
+        with pytest.raises(UnsupportedIncotermError):
+            normalize_incoterm(bad, allow_custom=True)
+
+
+def test_custom_basis_never_carries_a_line_break():
+    """Перенос строки разорвал бы перечень базисов в письме."""
+    code = normalize_incoterm("самовывоз\nсо склада", allow_custom=True)
+    assert code == "САМОВЫВОЗ СО СКЛАДА"
+
+
+def test_file_import_does_not_get_custom_bases():
+    """Разбор файла остаётся строгим.
+
+    В форме закупщик видит, что вводит. В файле на 50 строк опечатку
+    «CPI» никто не заметит, и она стала бы базисом молча.
+    """
+    from app.services.rfq_import import parse_import_row
+
+    row = parse_import_row(2, {"name": "Бетаин", "incoterms": "CPI"})
+    assert "incoterms" not in row.values
+    assert row.warnings and "CPI" in row.warnings[0].message
 
 
 def test_empty_list_is_refused():
@@ -83,13 +127,19 @@ def test_fob_and_dap_are_accepted_together():
 def test_unsupported_basis_rejected_at_the_door():
     """Отказ приходит при разборе запроса, а не при сборке письма."""
     with pytest.raises(ValidationError) as exc:
-        RFQCreate(**_create(incoterms=["DDP"]))
-    assert "DDP" in str(exc.value)
+        RFQCreate(**_create(incoterms=["!!!"]))
+    assert "!!!" in str(exc.value)
+
+
+def test_custom_basis_survives_the_form():
+    """Условие вне редакции 2020 — не ошибка: закупщик так работает."""
+    data = RFQCreate(**_create(incoterms=["CIP", "DDU"]))
+    assert data.incoterms == ["CIP", "DDU"]
 
 
 def test_rejection_names_the_supported_set():
     with pytest.raises(ValidationError) as exc:
-        RFQCreate(**_create(incoterms=["DDP"]))
+        RFQCreate(**_create(incoterms=["!!!"]))
     message = str(exc.value)
     for code in SUPPORTED_INCOTERMS:
         assert code in message
@@ -116,15 +166,15 @@ def test_stored_value_outside_the_reference_still_renders():
         name="Betaine",
         identification_method="spec",
         specification="test",
-        incoterms=["DDP", "cfr"],
+        incoterms=["DDU", "самовывоз"],
     )
     subject, body = render_rfq_text(stored)
 
     assert "Betaine" in subject
     # Базис показан ровно тот, что сохранён, — и без выдуманного места:
     # место определяет, где переходят риск и расходы.
-    assert "  - DDP — DDP" in body
-    assert "  - CFR — CFR" in body
+    assert "  - DDU — named place to be confirmed with the buyer" in body
+    assert "  - САМОВЫВОЗ — named place to be confirmed with the buyer" in body
 
 
 def test_stored_value_inside_the_reference_keeps_its_place():
@@ -139,9 +189,9 @@ def test_stored_value_inside_the_reference_keeps_its_place():
     assert "  - FOB — FOB Shanghai port, China" in body
 
 
-def test_new_request_still_refuses_unknown_basis():
+def test_new_request_still_refuses_an_unreadable_basis():
     """Снисходительность — только для чтения; отправить такое нельзя."""
     with pytest.raises(UnsupportedIncotermError):
         build_rfq(
-            RFQInput(name="Betaine", incoterms=["DDP"]),
+            RFQInput(name="Betaine", incoterms=["!!!"]),
         )

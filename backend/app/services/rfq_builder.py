@@ -66,7 +66,9 @@ class RFQInput:
 def _validate_incoterms(incoterms: list[str], *, strict: bool = True) -> list[str]:
     # Набор и правила приведения — в app.services.incoterms: тем же кодом
     # проверяется входящий RFQCreate, чтобы форма и письмо не разошлись.
-    return normalize_incoterms(incoterms, strict=strict)
+    # Свой базис закупщика проходит: иначе запрос с ним создавался бы, а
+    # письмо по нему не собиралось.
+    return normalize_incoterms(incoterms, strict=strict, allow_custom=True)
 
 
 def build_rfq(data: RFQInput, *, strict: bool = True) -> dict:
@@ -156,7 +158,14 @@ def _build_body(data: RFQInput, incoterms: list[str]) -> str:
 
     lines.append("Please quote on the following delivery basis (Incoterms 2020):")
     for code in incoterms:
-        lines.append(f"  - {code} — {describe_incoterm(code)}")
+        # У своего базиса места нет, и выдумывать его нельзя. Повторять
+        # код сам собой («DDU — DDU») тоже незачем: поставщику нужен не
+        # повтор, а просьба назвать место, от которого он считает цену.
+        place = describe_incoterm(code)
+        if place == code:
+            lines.append(f"  - {code} — named place to be confirmed with the buyer")
+        else:
+            lines.append(f"  - {code} — {place}")
     lines.append("")
 
     lines.append("Please include in your offer:")

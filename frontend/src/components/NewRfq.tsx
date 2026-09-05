@@ -8,6 +8,7 @@ import type {
   RFQRead,
   SubstanceResolution,
 } from "../api/types";
+import IncotermPicker from "./IncotermPicker";
 import NameCandidates from "./NameCandidates";
 import RfqImport from "./RfqImport";
 import { isValidCas, normalizeCas, suggestCheckDigit } from "./cas";
@@ -28,21 +29,6 @@ import {
   Textarea,
   type SelectOption,
 } from "./ui";
-
-// Базисы поставки. Набор и порядок обязаны совпадать с SUPPORTED_INCOTERMS
-// в backend/app/services/incoterms.py — там же стоит тест, который ломается
-// при расхождении. Здесь к коду добавлено русское пояснение: «FCA» и «DAP»
-// сами по себе не говорят закупщику, до какого места довезёт поставщик.
-//
-// Пояснение описывает, кто что делает, и намеренно не обещает расчёт
-// стоимости доставки: программа её не считает и считать не собирается.
-const INCOTERM_OPTIONS: { code: string; hint: string }[] = [
-  { code: "EXW", hint: "Забираем со склада продавца. Вывоз, экспорт и перевозка — на нас." },
-  { code: "FCA", hint: "Продавец передаёт груз перевозчику и оформляет экспорт. Перевозка — на нас." },
-  { code: "FOB", hint: "Продавец грузит на судно в своём порту. Фрахт и страховка — на нас." },
-  { code: "CIP", hint: "Продавец везёт до названного места и страхует груз." },
-  { code: "DAP", hint: "Продавец довозит до названного места. Ввозная растаможка — на нас." },
-];
 
 const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
 
@@ -475,13 +461,6 @@ export default function NewRfq({
     // при подтверждении идентичности в самом поиске.
     substance_id: null,
   });
-
-  const toggleIncoterm = (code: string) =>
-    setIncoterms((current) =>
-      current.includes(code)
-        ? current.filter((item) => item !== code)
-        : [...current, code],
-    );
 
   const toggleAnalogVariation = (variation: AnalogVariation) =>
     setAnalogVariations((current) =>
@@ -1079,26 +1058,9 @@ export default function NewRfq({
         <div className="field">
           <div className="heading-with-help">
             <label>Условия поставки</label>
-            <HelpTip text="Базис поставки говорит, до какого места везёт поставщик и с какого места расходы и риск переходят к покупателю. Отмеченные базисы уходят в письмо, и поставщик называет цену по каждому. Стоимость доставки программа не рассчитывает — её называет поставщик." />
+            <HelpTip text="Базис поставки говорит, до какого места везёт поставщик и с какого места расходы и риск переходят к покупателю. Наведите на код в списке — увидите, кто что делает. Выбранные базисы уходят в письмо, и поставщик называет цену по каждому. Условие, которого нет в списке, впишите прямо в поле: оно уйдёт как есть, а место поставки поставщик подтвердит в ответе. Стоимость доставки программа не рассчитывает — её называет поставщик." />
           </div>
-          <div className="incoterms">
-            {INCOTERM_OPTIONS.map(({ code, hint }) => (
-              <label
-                key={code}
-                className={`incoterm${incoterms.includes(code) ? " active" : ""}`}
-              >
-                <span className="incoterm-head">
-                  <input
-                    type="checkbox"
-                    checked={incoterms.includes(code)}
-                    onChange={() => toggleIncoterm(code)}
-                  />
-                  <span className="incoterm-code">{code}</span>
-                </span>
-                <span className="incoterm-hint">{hint}</span>
-              </label>
-            ))}
-          </div>
+          <IncotermPicker values={incoterms} onChange={setIncoterms} />
         </div>
 
         <div className="actions">

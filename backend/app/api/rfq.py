@@ -38,7 +38,11 @@ from app.services.rfq_batch_service import (
 )
 from app.services.rfq_import import (
     MAX_FILE_BYTES,
+    TEMPLATE_FORMATS,
+    TEMPLATE_MEDIA_TYPES,
     RfqImportError,
+    build_template_csv,
+    build_template_xlsx,
     parse_import_file,
     parse_import_row,
 )
@@ -100,6 +104,37 @@ class RFQGenerateRequest(BaseModel):
     volume: str | None = None
     target_price: float | None = None
     currency: str = "USD"
+
+
+@router.get("/import/template")
+def import_template(
+    fmt: str = Query(default="xlsx", pattern="^(xlsx|csv)$"),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Отдаёт образец файла со списком позиций.
+
+    Перечислить колонки в подсказке мало: закупщик видит названия, но не
+    видит, как записать два базиса поставки в одной ячейке и что писать
+    в «Чистота». Заполненный образец показывает это строками.
+
+    Данные в образце демонстрационные и одинаковые для всех: ничего из
+    списка закупщика сюда не попадает.
+    """
+    if fmt not in TEMPLATE_FORMATS:  # pragma: no cover - отсечено pattern
+        raise HTTPException(status_code=422, detail="Формат: xlsx или csv.")
+    payload = build_template_xlsx() if fmt == "xlsx" else build_template_csv()
+    return Response(
+        content=payload,
+        media_type=TEMPLATE_MEDIA_TYPES[fmt],
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="chemsource-rfq-template.{fmt}"'
+            ),
+            # Образец меняется вместе с правилами разбора: старая копия
+            # из кеша браузера разошлась бы с тем, что читает загрузка.
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("/import/preview")

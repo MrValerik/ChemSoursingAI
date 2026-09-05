@@ -742,3 +742,237 @@ def parse_import_file(filename: str, payload: bytes) -> ImportPreview:
     if not preview.rows:
         raise RfqImportError("В файле нет строк с данными — только заголовок.")
     return preview
+
+
+# --- Образец файла ---
+#
+# Закупщик, открывший экран впервые, не знает, в каком виде нужен файл.
+# Перечисление колонок в подсказке этого не решает: «Объём» и «Единица»
+# как заголовки понятны, а вот что писать в «Чистота» и как перечислить
+# два базиса поставки — уже нет. Заполненный образец отвечает на это
+# показом, а не описанием.
+#
+# Заголовки образца обязаны читаться тем же разбором, что и чужой файл:
+# скачанный образец, залитый обратно без правок, должен дать готовые
+# строки. За этим следит тест — он гоняет образец через parse_import_file.
+
+TEMPLATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    (
+        "name",
+        "Название",
+        "Обязательна. Название, марка или торговое наименование — так, "
+        "как его пишут поставщики. По нему идёт поиск.",
+    ),
+    (
+        "cas",
+        "CAS",
+        "Если номер известен. Проверяется контрольная сумма: неверный "
+        "номер строку не пропустит. Для смесей и марок номера нет — "
+        "оставьте пусто и заполните «Спецификация».",
+    ),
+    (
+        "synonyms",
+        "Синонимы",
+        "Равнозначные названия через запятую или точку с запятой. "
+        "Например: Ascorbic acid; Витамин C.",
+    ),
+    (
+        "specification",
+        "Спецификация",
+        "Требования, по которым вещество опознаётся без номера: "
+        "показатели, диапазоны, назначение.",
+    ),
+    (
+        "purity",
+        "Чистота",
+        "Процент: 99, 99% или 98,5%. Непроцентное значение перенесётся "
+        "в требования как есть.",
+    ),
+    ("grade", "Грейд", "Марка или стандарт: USP, BP, food grade, tech."),
+    (
+        "volume",
+        "Объём",
+        "Число. Единица — в соседней колонке; «500 кг» одной ячейкой "
+        "тоже читается.",
+    ),
+    (
+        "unit",
+        "Единица",
+        f"Одна из: {', '.join(RFQ_UNITS)} или их русские написания "
+        "(г, кг, т, л, мл). mg, lb, oz, m3 пересчитываются с оговоркой.",
+    ),
+    (
+        "target_price",
+        "Целевая цена",
+        "Ориентир за единицу. Поставщику не показывается — нужен для "
+        "сравнения предложений.",
+    ),
+    ("currency", "Валюта", f"Одна из: {', '.join(CURRENCIES)}. Пусто — USD."),
+    (
+        "incoterms",
+        "Incoterms",
+        f"Базисы поставки через запятую: {', '.join(SUPPORTED_INCOTERMS)}. "
+        "Пусто — возьмётся общий набор, отмеченный на экране под таблицей.",
+    ),
+    (
+        "countries",
+        "Страны",
+        f"Страны поиска через запятую: {', '.join(SEARCH_COUNTRIES)}. "
+        "Пусто — возьмутся общие, отмеченные на экране под таблицей.",
+    ),
+    (
+        "comment",
+        "Комментарий",
+        "Внутренняя заметка закупщика. В письмо поставщику не уходит.",
+    ),
+)
+
+# Строки образца. Три случая, которые закрывают почти весь список:
+# позиция с номером, позиция без номера (её опознают по спецификации) и
+# позиция, заполненная по минимуму. Данные демонстрационные.
+TEMPLATE_ROWS: tuple[dict[str, str], ...] = (
+    {
+        "name": "Аскорбиновая кислота",
+        "cas": "50-81-7",
+        "synonyms": "Ascorbic acid; Витамин C",
+        "purity": "99%",
+        "grade": "USP",
+        "volume": "500",
+        "unit": "кг",
+        "target_price": "6.5",
+        "currency": "USD",
+        "incoterms": "CIP, FCA",
+        "countries": "Китай, Индия",
+        "comment": "Нужен паспорт качества на партию.",
+    },
+    {
+        "name": "Полиэфирполиол для жёсткого пенополиуретана",
+        "synonyms": "Polyether polyol",
+        "specification": (
+            "Гидроксильное число 440-460 мг KOH/г, вязкость "
+            "8000-12000 мПа·с при 25 °C, функциональность 4,3"
+        ),
+        "volume": "20",
+        "unit": "т",
+        "incoterms": "FCA",
+        "countries": "Китай",
+        "comment": "Номера CAS нет — искать по спецификации.",
+    },
+    {
+        "name": "Глицин",
+        "cas": "56-40-6",
+        "volume": "2",
+        "unit": "т",
+    },
+)
+
+# Выбор единицы в Excel. Русские написания идут первыми: закупщик пишет
+# «кг», и список, где их нет, выглядел бы запретом на привычную запись —
+# хотя разбор её понимает.
+TEMPLATE_UNIT_CHOICES = ("кг", "т", "г", "л", "мл", *RFQ_UNITS)
+
+TEMPLATE_FORMATS = ("xlsx", "csv")
+
+TEMPLATE_MEDIA_TYPES = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv; charset=utf-8",
+}
+
+
+def _template_table() -> list[list[str]]:
+    header = [title for _, title, _ in TEMPLATE_COLUMNS]
+    body = [
+        [row.get(field_name, "") for field_name, _, _ in TEMPLATE_COLUMNS]
+        for row in TEMPLATE_ROWS
+    ]
+    return [header, *body]
+
+
+def build_template_csv() -> bytes:
+    """Образец в CSV.
+
+    Разделитель — точка с запятой, кодировка — UTF-8 с BOM: Excel на
+    русской Windows открывает такой файл разложенным по столбцам, а файл
+    с запятой — одной склеенной колонкой. Наш разбор понимает оба.
+    """
+    buffer = io.StringIO()
+    csv.writer(buffer, delimiter=";", lineterminator="\r\n").writerows(
+        _template_table()
+    )
+    return buffer.getvalue().encode("utf-8-sig")
+
+
+def build_template_xlsx() -> bytes:
+    """Образец в XLSX: заголовки с пояснениями и три заполненные строки.
+
+    Пояснение к каждой колонке живёт примечанием на её заголовке, а не
+    отдельным листом: лист с инструкцией разбор бы не прочитал и честно
+    предупредил бы, что взял только первый, — а закупщик увидел бы это
+    как ошибку.
+    """
+    from openpyxl import Workbook
+    from openpyxl.comments import Comment
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    table = _template_table()
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Позиции"
+    for line in table:
+        sheet.append(line)
+
+    header_font = Font(bold=True)
+    header_fill = PatternFill("solid", fgColor="EEF2F7")
+    # Ширины по смыслу колонки: спецификация и комментарий длинные, номер
+    # и единица короткие. Без этого образец открывается частоколом «###».
+    widths = {
+        "name": 34,
+        "cas": 13,
+        "synonyms": 26,
+        "specification": 46,
+        "purity": 11,
+        "grade": 12,
+        "volume": 9,
+        "unit": 10,
+        "target_price": 13,
+        "currency": 9,
+        "incoterms": 16,
+        "countries": 16,
+        "comment": 34,
+    }
+    for index, (field_name, title, hint) in enumerate(TEMPLATE_COLUMNS, start=1):
+        cell = sheet.cell(row=1, column=index)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(vertical="center")
+        cell.comment = Comment(
+            f"{title}\n{hint}", "ChemSource AI", height=150, width=340
+        )
+        sheet.column_dimensions[cell.column_letter].width = widths[field_name]
+
+    sheet.freeze_panes = "A2"
+
+    # Списки выбора там, где значение одно и набор закрытый. Для базисов
+    # и стран списка нет намеренно: там перечисление через запятую, и
+    # проверка Excel отвергала бы верное «CIP, FCA».
+    last_row = len(table) + 40
+    choices = (("unit", TEMPLATE_UNIT_CHOICES), ("currency", CURRENCIES))
+    for field_name, allowed in choices:
+        index = next(
+            position
+            for position, (name, _, _) in enumerate(TEMPLATE_COLUMNS, start=1)
+            if name == field_name
+        )
+        letter = sheet.cell(row=1, column=index).column_letter
+        rule = DataValidation(
+            type="list",
+            formula1='"' + ",".join(allowed) + '"',
+            allow_blank=True,
+        )
+        sheet.add_data_validation(rule)
+        rule.add(f"{letter}2:{letter}{last_row}")
+
+    stream = io.BytesIO()
+    book.save(stream)
+    return stream.getvalue()

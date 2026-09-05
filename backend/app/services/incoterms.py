@@ -5,26 +5,43 @@
 берут набор отсюда. Раньше набор лежал в двух местах — списком строк во
 фронте и словарём в генераторе письма, — и они разъезжались молча.
 
+Набор — все одиннадцать базисов редакции 2020. Раньше их было пять, и
+закупщик, работающий по CIF или DDP, не мог выбрать своё условие вовсе.
+
 Место поставки названо в каждом базисе: Incoterms без названного места
 не определяют, где переходят риск и расходы, и поставщик отвечает ценой
-не на тот вопрос. Места целевые для MVP (закупка из КНР в Москву) и
-менять их без продуктового решения нельзя.
+не на тот вопрос. Места целевые для MVP — закупка из КНР в Москву, — и
+менять их без продуктового решения нельзя. Для морских базисов (FAS,
+FOB, CFR, CIF) место назначения — порт, а Москва портом не является:
+взят Владивосток как основной морской вход из КНР. Это допущение, а не
+требование заказчика: меняется здесь одной строкой.
 
 Порядок набора — по возрастанию ответственности продавца: от EXW, где
-покупатель забирает товар со склада, до DAP, где продавец довозит до
-названного места. В этом же порядке базисы показываются в форме и
-перечисляются в письме.
+покупатель забирает товар со склада, до DDP, где продавец довозит до
+названного места с уплатой пошлин. В этом же порядке базисы
+показываются в форме и перечисляются в письме.
+
+Сверх справочника закупщик может назвать свой базис — см.
+`normalize_incoterm`. Программа не выдумывает ему место поставки.
 """
 
 from __future__ import annotations
+
+import re
 
 # Человекочитаемые места поставки под каждый базис (целевые для MVP).
 INCOTERM_PLACES: dict[str, str] = {
     "EXW": "EXW (seller's works)",
     "FCA": "FCA Shanghai, China",
+    "FAS": "FAS Shanghai port, China",
     "FOB": "FOB Shanghai port, China",
+    "CFR": "CFR Vladivostok port, Russia",
+    "CIF": "CIF Vladivostok port, Russia",
+    "CPT": "CPT Moscow, Russia",
     "CIP": "CIP Moscow, Russia",
     "DAP": "DAP Moscow, Russia",
+    "DPU": "DPU Moscow, Russia",
+    "DDP": "DDP Moscow, Russia",
 }
 
 # Кортеж, а не ключи словаря: набор нужен для сообщений об ошибке и для
@@ -32,29 +49,65 @@ INCOTERM_PLACES: dict[str, str] = {
 SUPPORTED_INCOTERMS: tuple[str, ...] = tuple(INCOTERM_PLACES)
 
 
+# Свой базис закупщика: то, чего в редакции 2020 нет. Встречается
+# постоянно — DDU из редакции 2000, «самовывоз со склада», внутренние
+# формулировки конкретного договора. Запрет означал бы, что закупщик
+# пишет своё условие в свободный комментарий, где поставщик отвечает на
+# него как захочет, а сравнить предложения на одном базисе уже нельзя.
+#
+# Проверяется только форма записи: короткая строка без переносов, из
+# букв, цифр и разделителей. Смысл своего базиса знает закупщик; место
+# поставки программа ему не выдумывает и в письме просит согласовать.
+CUSTOM_INCOTERM_MAX_LENGTH = 24
+_CUSTOM_INCOTERM_RE = re.compile(
+    r"^[A-ZА-ЯЁ][A-ZА-ЯЁ0-9 ./-]{1,%d}$" % (CUSTOM_INCOTERM_MAX_LENGTH - 1)
+)
+
+
 class UnsupportedIncotermError(ValueError):
     """Передан базис вне поддерживаемого набора."""
 
 
-def normalize_incoterm(value: str) -> str:
+def is_reference_incoterm(code: str) -> bool:
+    """Базис из справочника, а не свой. Своему место не назначается."""
+    return code in INCOTERM_PLACES
+
+
+def normalize_incoterm(value: str, *, allow_custom: bool = False) -> str:
     """Канонический код базиса или отказ.
 
     Регистр и пробелы приводятся молча: «cip» и « EXW » закупщик пишет
     так же часто, как канонический код, и отказывать здесь не за что.
     Незнакомый код — отказ с перечислением набора: подставлять вместо
     него похожий нельзя, базис определяет, кто платит за перевозку.
+
+    `allow_custom=True` — базис, названный закупщиком руками в форме: он
+    видит, что вводит, и отвечает за смысл. Разбор файла со списком
+    позиций так не работает и остаётся строгим: там опечатка «CPI» стала
+    бы базисом молча, без человека, который это заметит.
     """
-    code = value.strip().upper()
-    if code not in INCOTERM_PLACES:
-        allowed = ", ".join(SUPPORTED_INCOTERMS)
-        raise UnsupportedIncotermError(
-            f"Базис поставки «{value.strip()}» не поддерживается. "
-            f"Доступные базисы: {allowed}"
-        )
-    return code
+    code = " ".join(value.split()).upper()
+    if code in INCOTERM_PLACES:
+        return code
+    if allow_custom and _CUSTOM_INCOTERM_RE.match(code):
+        return code
+    allowed = ", ".join(SUPPORTED_INCOTERMS)
+    shown = " ".join(value.split())[:CUSTOM_INCOTERM_MAX_LENGTH]
+    tail = (
+        " Свой базис записывается латиницей или кириллицей, "
+        f"не длиннее {CUSTOM_INCOTERM_MAX_LENGTH} знаков."
+        if allow_custom
+        else ""
+    )
+    raise UnsupportedIncotermError(
+        f"Базис поставки «{shown}» не поддерживается. "
+        f"Доступные базисы: {allowed}.{tail}"
+    )
 
 
-def normalize_incoterms(values: list[str], *, strict: bool = True) -> list[str]:
+def normalize_incoterms(
+    values: list[str], *, strict: bool = True, allow_custom: bool = False
+) -> list[str]:
     """Список базисов без дубликатов, в порядке, который выбрал закупщик.
 
     Порядок сохраняется пользовательский, а не канонический: закупщик
@@ -72,7 +125,7 @@ def normalize_incoterms(values: list[str], *, strict: bool = True) -> list[str]:
     codes: list[str] = []
     for value in values:
         if strict:
-            code = normalize_incoterm(value)
+            code = normalize_incoterm(value, allow_custom=allow_custom)
         else:
             code = value.strip().upper()
             if not code:
