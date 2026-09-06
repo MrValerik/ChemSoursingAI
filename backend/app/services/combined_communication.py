@@ -13,7 +13,7 @@ from app.connectors.whatsapp import (
     WhatsAppConnector,
     WhatsAppDeliveryError,
 )
-from app.models import Communication, Manager, RFQ, RfqRecipient, Supplier
+from app.models import Communication, Manager, PurchaseDecision, RFQ, RfqRecipient, Supplier
 from app.models.enums import Channel, CommDirection, DispatchStatus, RFQStatus
 from app.services.communication_links import link_communication_to_rfqs
 from app.services.integration_settings import effective_email_settings, effective_whatsapp_settings
@@ -148,6 +148,17 @@ def prepare_combined_message(
     )
     if {rfq.id for rfq in rfqs} != set(normalized_ids):
         raise ValueError("Все выбранные RFQ должны принадлежать этому пакету")
+    decided_ids = set(
+        db.scalars(
+            select(PurchaseDecision.rfq_id).where(
+                PurchaseDecision.rfq_id.in_(normalized_ids)
+            )
+        ).all()
+    )
+    if decided_ids:
+        raise ValueError(
+            "Общая первичная отправка недоступна после сохранения итога закупки"
+        )
     supplier = db.get(Supplier, supplier_id)
     if supplier is None:
         raise ValueError("Поставщик не найден")

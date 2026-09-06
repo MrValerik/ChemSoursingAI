@@ -391,9 +391,12 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const shown = onlyComplete ? rows.filter((row) => row.is_complete) : rows;
   const selectedRow =
     rows.find((row) => containsQuotation(row, selectedQuotationId)) ?? null;
+  const savedDecisionRow =
+    rows.find((row) => containsQuotation(row, decision?.quotation_id ?? null)) ??
+    null;
   const editingRow =
     rows.find((row) => row.quotation_id === editingQuotationId) ?? null;
-  const dialogueRow = selectedRow;
+  const dialogueRow = savedDecisionRow ?? selectedRow;
   const visibleWebsiteColumns = useMemo(
     () => SUMMARY_COLUMNS.filter(({ key }) => websiteColumns.includes(key)),
     [websiteColumns],
@@ -430,7 +433,11 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
       });
       setDecision(saved);
       setDecisionNote(saved.note ?? "");
-      setNotice("Итог закупки добавлен в историю.");
+      setNotice(
+        saved.cancelled_draft_count > 0
+          ? `Итог сохранён. Черновики других поставщиков отменены: ${saved.cancelled_draft_count}.`
+          : "Итог сохранён. Общение переведено в ручной режим с выбранным поставщиком.",
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -977,6 +984,11 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
                           containsQuotation(row, selectedQuotationId)
                             ? "summary-selected-row"
                             : ""
+                        } ${
+                          decision &&
+                          !containsQuotation(row, decision.quotation_id)
+                            ? "summary-unselected-after-decision"
+                            : ""
                         }`}
                         key={row.quotation_id}
                       >
@@ -1038,6 +1050,13 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
           {decision && <span className="badge tone-ok">выбор сохранён</span>}
         </div>
 
+        {decision?.communication_mode === "manual_selected_supplier" && (
+          <p className="success-note">
+            Автоматические дозапросы остановлены. Дальнейшее общение ведётся
+            вручную только с выбранным поставщиком; заказ системой не создаётся.
+          </p>
+        )}
+
         {!selectedRow ? (
           <p className="note">
             Выберите предложение в таблице выше, чтобы сформировать итог закупки.
@@ -1081,25 +1100,32 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
       </section>
 
       {dialogueRow && (
-        <DispatchTab
-          compact
-          focusedChannel={dialogueRow.conversation_channel}
-          focusedManagerId={dialogueRow.manager_id}
-          focusedSupplierId={dialogueRow.supplier_id}
-          focusedTestRunId={dialogueRow.test_run_id}
-          key={`summary-dialogue-${dialogueRow.quotation_id}`}
-          rfq={rfq}
-          onStatusChanged={() => {
-            void api
-              .getSummary(rfq.id)
-              .then(setRows)
-              .catch((caught) => {
-                setError(
-                  caught instanceof Error ? caught.message : String(caught),
-                );
-              });
-          }}
-        />
+        <>
+          {decision && (
+            <p className="note summary-dialogue-mode">
+              Диалог выбранного поставщика · ручной режим после решения
+            </p>
+          )}
+          <DispatchTab
+            compact
+            focusedChannel={dialogueRow.conversation_channel}
+            focusedManagerId={dialogueRow.manager_id}
+            focusedSupplierId={dialogueRow.supplier_id}
+            focusedTestRunId={dialogueRow.test_run_id}
+            key={`summary-dialogue-${dialogueRow.quotation_id}`}
+            rfq={rfq}
+            onStatusChanged={() => {
+              void api
+                .getSummary(rfq.id)
+                .then(setRows)
+                .catch((caught) => {
+                  setError(
+                    caught instanceof Error ? caught.message : String(caught),
+                  );
+                });
+            }}
+          />
+        </>
       )}
 
       {columnSettingsOpen && (

@@ -19,7 +19,7 @@ from app.connectors.whatsapp import (
     WhatsAppConnector,
     WhatsAppDeliveryError,
 )
-from app.models import Communication, Manager, RFQ
+from app.models import Communication, Manager, PurchaseDecision, Quotation, RFQ
 from app.models.enums import Channel, CommDirection
 from app.services.integration_settings import (
     effective_email_settings,
@@ -188,6 +188,26 @@ def send_conversation_message(
             "Эта попытка уже зафиксирована и не будет повторена автоматически, "
             "чтобы не отправить сообщение дважды. Обновите диалог."
         )
+
+    decision = db.scalar(
+        select(PurchaseDecision).where(PurchaseDecision.rfq_id == rfq.id)
+    )
+    if decision is not None:
+        selected_quote = db.get(Quotation, decision.quotation_id)
+        selected_manager = (
+            db.get(Manager, selected_quote.manager_id)
+            if selected_quote is not None and selected_quote.manager_id is not None
+            else None
+        )
+        requested_manager = db.get(Manager, manager_id)
+        if (
+            selected_manager is None
+            or requested_manager is None
+            or selected_manager.supplier_id != requested_manager.supplier_id
+        ):
+            raise ValueError(
+                "После сохранения итога писать можно только выбранному поставщику"
+            )
 
     manager = db.get(Manager, manager_id)
     if manager is None:
@@ -363,6 +383,33 @@ def send_email_draft(
         return communication
     if communication.status != "draft":
         raise ValueError("Отправить можно только исходящий Email-черновик")
+    if communication.rfq_id is not None:
+        decision = db.scalar(
+            select(PurchaseDecision).where(
+                PurchaseDecision.rfq_id == communication.rfq_id
+            )
+        )
+        if decision is not None:
+            selected_quote = db.get(Quotation, decision.quotation_id)
+            selected_manager = (
+                db.get(Manager, selected_quote.manager_id)
+                if selected_quote is not None
+                and selected_quote.manager_id is not None
+                else None
+            )
+            draft_manager = (
+                db.get(Manager, communication.manager_id)
+                if communication.manager_id is not None
+                else None
+            )
+            if (
+                selected_manager is None
+                or draft_manager is None
+                or selected_manager.supplier_id != draft_manager.supplier_id
+            ):
+                raise ValueError(
+                    "После сохранения итога черновик другого поставщика недоступен"
+                )
     if not communication.to_address:
         raise ValueError("У черновика отсутствует адрес получателя")
 

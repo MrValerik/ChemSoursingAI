@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, JSON, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -27,6 +27,10 @@ class PurchaseDecision(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), default=None
     )
     note: Mapped[str | None] = mapped_column(Text, default=None)
+    communication_mode: Mapped[str] = mapped_column(
+        String(32), default="manual_selected_supplier"
+    )
+    cancelled_draft_count: Mapped[int] = mapped_column(Integer, default=0)
 
     quotation = relationship("Quotation")
     selected_by = relationship("User")

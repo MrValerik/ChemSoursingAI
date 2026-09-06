@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.communication import Communication
 from app.models.escalation import Escalation
 from app.models.integration import CommunicationTestRun
 from app.models.intermediary import Intermediary
-from app.models.enums import EscalationStatus, RFQStatus, SupplierType
+from app.models.enums import CommDirection, EscalationStatus, RFQStatus, SupplierType
 from app.models.purchase_decision import PurchaseDecision, PurchaseHistoryEntry
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
@@ -314,8 +314,61 @@ def save_purchase_decision(
     decision.quotation_id = quotation.id
     decision.selected_by_id = actor.id
     decision.note = note
+    decision.communication_mode = "manual_selected_supplier"
     supplier = quotation.manager.supplier if quotation.manager else None
     intermediary = _purchase_intermediary(db, supplier)
+    cancelled_draft_ids: list[int] = []
+    skipped_shared_draft_ids: list[int] = []
+    skipped_unresolved_supplier_draft_ids: list[int] = []
+    selected_supplier_id = supplier.id if supplier else None
+    drafts = list(
+        db.scalars(
+            select(Communication)
+            .options(
+                joinedload(Communication.manager),
+                joinedload(Communication.rfq_links),
+            )
+            .where(
+                communication_linked_to_rfq(rfq.id),
+                Communication.direction == CommDirection.OUTBOUND,
+                Communication.status == "draft",
+            )
+        ).unique()
+    )
+    for draft in drafts:
+        linked_ids = {
+            *[link.rfq_id for link in draft.rfq_links],
+            *([draft.rfq_id] if draft.rfq_id is not None else []),
+        }
+        if len(linked_ids) > 1:
+            skipped_shared_draft_ids.append(draft.id)
+            continue
+        if selected_supplier_id is None:
+            skipped_unresolved_supplier_draft_ids.append(draft.id)
+            continue
+        draft_supplier_id = (
+            draft.manager.supplier_id if draft.manager is not None else None
+        )
+        if draft_supplier_id != selected_supplier_id:
+            draft.status = "cancelled"
+            cancelled_draft_ids.append(draft.id)
+    decision.cancelled_draft_count = len(cancelled_draft_ids)
+    snapshot = _purchase_snapshot(
+        rfq=rfq,
+        quotation=quotation,
+        supplier=supplier,
+        intermediary=intermediary,
+    )
+    snapshot.update(
+        {
+            "communication_mode": decision.communication_mode,
+            "cancelled_draft_ids": cancelled_draft_ids,
+            "skipped_shared_draft_ids": skipped_shared_draft_ids,
+            "skipped_unresolved_supplier_draft_ids": (
+                skipped_unresolved_supplier_draft_ids
+            ),
+        }
+    )
     db.add(
         PurchaseHistoryEntry(
             rfq_id=rfq.id,
@@ -325,12 +378,7 @@ def save_purchase_decision(
             intermediary_id=intermediary.id if intermediary else None,
             actor_id=actor.id,
             note=note,
-            snapshot=_purchase_snapshot(
-                rfq=rfq,
-                quotation=quotation,
-                supplier=supplier,
-                intermediary=intermediary,
-            ),
+            snapshot=snapshot,
         )
     )
     db.commit()

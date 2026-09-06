@@ -302,6 +302,8 @@ export interface PurchaseDecisionRead {
   selected_by_id: number | null;
   selected_by_name: string | null;
   note: string | null;
+  communication_mode: "manual_selected_supplier";
+  cancelled_draft_count: number;
   created_at: string;
   updated_at: string;
 }

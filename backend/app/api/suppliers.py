@@ -24,6 +24,7 @@ from app.connectors.whatsapp import (
 from app.core.db import get_db
 from app.models import (
     Communication,
+    PurchaseDecision,
     PurchaseHistoryEntry,
     Quotation,
     RFQ,
@@ -719,6 +720,16 @@ def dispatch(
     if user.role == UserRole.AUDITOR:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
     rfq = _get_rfq(db, rfq_id)
+    if db.scalar(
+        select(PurchaseDecision.id).where(PurchaseDecision.rfq_id == rfq_id)
+    ) is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "После сохранения итога общение ведётся вручную только с "
+                "выбранным поставщиком"
+            ),
+        )
     queued = db.scalars(
         select(RfqRecipient).where(
             RfqRecipient.rfq_id == rfq_id,

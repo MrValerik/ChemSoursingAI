@@ -923,6 +923,18 @@ table.summary-detailed-table tr.summary-selected-row:hover {
   box-shadow: inset 3px 0 0 var(--brand);
 }
 
+table.summary-detailed-table tr.summary-unselected-after-decision {
+  opacity: 0.48;
+}
+
+table.summary-detailed-table tr.summary-unselected-after-decision:hover {
+  opacity: 0.72;
+}
+
+.summary-dialogue-mode {
+  margin: 0 0 -8px;
+}
+
 .summary-supplier-button {
   display: grid;
   gap: 3px;

@@ -187,6 +187,8 @@ class PurchaseDecisionRead(BaseModel):
     selected_by_id: int | None
     selected_by_name: str | None = None
     note: str | None
+    communication_mode: str
+    cancelled_draft_count: int
     created_at: datetime
     updated_at: datetime
 

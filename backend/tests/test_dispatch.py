@@ -351,6 +351,37 @@ def test_purchase_decision_is_detailed_persisted_and_role_protected(client):
         },
         headers=headers,
     ).json()
+    other_supplier = client.post(
+        f"/suppliers?rfq_id={rfq['id']}",
+        json={
+            "company": "Unselected quotation supplier",
+            "email": "other@purchase-decision.example",
+        },
+        headers=headers,
+    ).json()
+    with SessionLocal() as db:
+        selected_draft = Communication(
+            rfq_id=rfq["id"],
+            manager_id=supplier["contacts"][0]["id"],
+            direction=CommDirection.OUTBOUND,
+            channel=Channel.EMAIL,
+            subject="Selected supplier draft",
+            body="Manual follow-up may remain.",
+            status="draft",
+        )
+        unselected_draft = Communication(
+            rfq_id=rfq["id"],
+            manager_id=other_supplier["contacts"][0]["id"],
+            direction=CommDirection.OUTBOUND,
+            channel=Channel.EMAIL,
+            subject="Unselected supplier draft",
+            body="This must be cancelled after the decision.",
+            status="draft",
+        )
+        db.add_all([selected_draft, unselected_draft])
+        db.commit()
+        selected_draft_id = selected_draft.id
+        unselected_draft_id = unselected_draft.id
 
     summary = client.get(f"/rfq/{rfq['id']}/summary", headers=headers)
     assert summary.status_code == 200
@@ -378,6 +409,25 @@ def test_purchase_decision_is_detailed_persisted_and_role_protected(client):
     assert saved.json()["quotation_id"] == quotation["id"]
     assert saved.json()["note"] == "Выбрано после технической проверки."
     assert saved.json()["selected_by_name"] == "Иван Иванов"
+    assert saved.json()["communication_mode"] == "manual_selected_supplier"
+    assert saved.json()["cancelled_draft_count"] == 1
+    with SessionLocal() as db:
+        assert db.get(Communication, selected_draft_id).status == "draft"
+        assert db.get(Communication, unselected_draft_id).status == "cancelled"
+    blocked_other_supplier = client.post(
+        f"/rfq/{rfq['id']}/communications/send",
+        headers=headers,
+        json={
+            "manager_id": other_supplier["contacts"][0]["id"],
+            "channel": "email",
+            "subject": "Should not be sent",
+            "body": "A post-purchase message to an unselected supplier.",
+            "idempotency_key": "2f659e52-50ba-47a4-8067-1be26f79beb8",
+            "confirm_external_send": True,
+        },
+    )
+    assert blocked_other_supplier.status_code == 422
+    assert "только выбранному поставщику" in blocked_other_supplier.json()["detail"]
 
     saved_again = client.put(
         f"/rfq/{rfq['id']}/purchase-decision",
@@ -410,6 +460,12 @@ def test_purchase_decision_is_detailed_persisted_and_role_protected(client):
             "History Market seller"
         )
         assert purchase_history[0]["actor_name"] == "Иван Иванов"
+        assert purchase_history[0]["snapshot"]["communication_mode"] == (
+            "manual_selected_supplier"
+        )
+        assert purchase_history[1]["snapshot"]["cancelled_draft_ids"] == [
+            unselected_draft_id
+        ]
 
     persisted = client.get(
         f"/rfq/{rfq['id']}/purchase-decision", headers=headers

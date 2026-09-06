@@ -30,6 +30,7 @@ from app.models.enums import (
 from app.models.escalation import Escalation
 from app.models.manager import Manager
 from app.models.quotation import Quotation
+from app.models.purchase_decision import PurchaseDecision
 from app.models.rfq import RFQ
 from app.models.document import SupplierDocument
 from app.schemas.quotation import QuotationCreate
@@ -339,6 +340,13 @@ def _create_followup(
     profile_instructions: str = "",
     body_override: str | None = None,
 ) -> str | None:
+    if db.scalar(
+        select(PurchaseDecision.id).where(PurchaseDecision.rfq_id == rfq.id)
+    ) is not None:
+        # После решения система сохраняет входящие факты, но не продолжает
+        # коммерческий диалог автоматически. Ответ пишет человек выбранному
+        # поставщику из итоговой карточки.
+        return None
     runtime = getattr(connector, "settings", None) or effective_email_settings(db)[0]
     mode = runtime.auto_followup_mode.strip().lower()
     if mode == "off" or (not missing and body_override is None):
