@@ -453,6 +453,11 @@ export interface CommunicationMessageRead {
   from_address: string | null;
   to_address: string | null;
   attachments: CommunicationAttachmentRead[] | null;
+  linked_rfqs: {
+    rfq_id: number;
+    name: string;
+    cas: string | null;
+  }[];
   created_at: string;
 }
 

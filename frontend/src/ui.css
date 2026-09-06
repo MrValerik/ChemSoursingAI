@@ -467,3 +467,15 @@ button.multi-select-clear:hover {
   line-height: 1.5;
   white-space: pre-wrap;
 }
+
+.conversation-linked-rfqs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.conversation-linked-rfqs a.badge {
+  text-decoration: none;
+}

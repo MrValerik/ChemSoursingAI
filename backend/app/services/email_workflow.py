@@ -35,6 +35,7 @@ from app.models.document import SupplierDocument
 from app.schemas.quotation import QuotationCreate
 from app.services.completeness import accumulate_quotations
 from app.services.communication_policy import classify_supplier_message
+from app.services.communication_links import link_communication_to_rfqs
 from app.services.communication_llm import communication_llm_client
 from app.services.communication_profiles import (
     budget_escalation_note,
@@ -58,7 +59,7 @@ from app.services.prompt_service import get_rfq_prompt_context
 from app.services.quotation_service import create_quotation
 from app.services.rfq_service import external_rfq_name
 
-_RFQ_MARKER = re.compile(r"\[RFQ-(\d+)]", re.IGNORECASE)
+_RFQ_MARKER = re.compile(r"\bRFQ-(\d+)\b", re.IGNORECASE)
 logger = logging.getLogger(__name__)
 _MISSING_LABELS = {
     "price": "unit price and currency",
@@ -101,22 +102,53 @@ class EmailSyncSummary:
         }
 
 
-def _find_rfq(db: Session, message: IncomingEmail) -> RFQ | None:
-    match = _RFQ_MARKER.search(message.subject)
-    if match:
-        rfq = db.get(RFQ, int(match.group(1)))
-        if rfq is not None and rfq.deleted_at is None:
-            return rfq
+def _find_rfqs(db: Session, message: IncomingEmail) -> list[RFQ]:
+    """Находит все RFQ только по явным маркерам и сохранённым reply-связям."""
+
+    rfq_ids = [int(match.group(1)) for match in _RFQ_MARKER.finditer(message.subject)]
     for reference in [message.in_reply_to, *message.references]:
         if not reference:
             continue
         communication = db.scalar(
             select(Communication).where(Communication.external_id == reference)
         )
-        if communication and communication.rfq_id:
-            rfq = db.get(RFQ, communication.rfq_id)
-            return rfq if rfq is not None and rfq.deleted_at is None else None
-    return None
+        if communication is None:
+            continue
+        rfq_ids.extend(link.rfq_id for link in communication.rfq_links)
+        if communication.rfq_id is not None:
+            rfq_ids.append(communication.rfq_id)
+    result: list[RFQ] = []
+    for rfq_id in dict.fromkeys(rfq_ids):
+        rfq = db.get(RFQ, rfq_id)
+        if rfq is not None and rfq.deleted_at is None:
+            result.append(rfq)
+    return sorted(result, key=lambda item: item.id)
+
+
+def _split_multi_rfq_sections(
+    text: str,
+    rfq_ids: set[int],
+) -> tuple[dict[int, str], set[int]]:
+    """Делит ответ только по явным RFQ-маркерам; общий текст не наследуется."""
+
+    source = latest_reply_text(text)
+    matches = [
+        match
+        for match in _RFQ_MARKER.finditer(source)
+        if int(match.group(1)) in rfq_ids
+    ]
+    sections: dict[int, str] = {}
+    duplicates: set[int] = set()
+    for index, match in enumerate(matches):
+        rfq_id = int(match.group(1))
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+        section = source[match.end():end].lstrip(" ]:-–—\r\n\t").strip()
+        if rfq_id in sections:
+            duplicates.add(rfq_id)
+            continue
+        if section:
+            sections[rfq_id] = section
+    return sections, duplicates
 
 
 def _supplier_manager_ids(db: Session, manager: Manager | None) -> list[int]:
@@ -388,6 +420,204 @@ def _unresolved_sender_note(resolution: SenderResolution) -> str:
     )
 
 
+def _multi_position_quote(
+    db: Session,
+    *,
+    rfq: RFQ,
+    manager: Manager,
+    inbound: Communication,
+    section: str,
+    client: LLMClient,
+) -> list[Quotation]:
+    """Извлекает факты только из секции одной явно помеченной позиции."""
+
+    system_prompt, instructions = get_rfq_prompt_context(
+        db, rfq.id, kind="extraction"
+    )
+    quote = extract_quote(
+        section,
+        use_llm=True,
+        llm=client,
+        system_prompt=system_prompt,
+        additional_instructions=instructions,
+    )
+    explicit_offers = parse_explicit_price_offers(section)
+    offer_overrides = explicit_offers if len(explicit_offers) > 1 else [{}]
+    created: list[Quotation] = []
+    for offer in offer_overrides:
+        confidence = dict(quote.field_confidence or {})
+        for field_name in (
+            "price",
+            "currency",
+            "incoterm",
+            "price_unit",
+            "quoted_quantity",
+        ):
+            if offer.get(field_name) is not None:
+                confidence[field_name] = 0.95
+        created.append(
+            create_quotation(
+                db,
+                QuotationCreate(
+                    rfq_id=rfq.id,
+                    manager_id=manager.id,
+                    price=offer.get("price", quote.price),
+                    currency=offer.get("currency", quote.currency),
+                    incoterm=offer.get("incoterm", quote.incoterm),
+                    moq=quote.moq,
+                    grade=quote.grade,
+                    payment_terms=quote.payment_terms,
+                    lead_time=quote.lead_time,
+                    manufacturer=quote.manufacturer,
+                    origin_country=quote.origin_country,
+                    packaging=quote.packaging,
+                    price_unit=offer.get("price_unit", quote.price_unit),
+                    quoted_quantity=offer.get(
+                        "quoted_quantity", quote.quoted_quantity
+                    ),
+                    total_price=quote.total_price,
+                    delivery_cost=quote.delivery_cost,
+                    duty_cost=quote.duty_cost,
+                    vat_cost=quote.vat_cost,
+                    landed_cost=quote.landed_cost,
+                    cost_currency=quote.cost_currency,
+                    is_hazmat=quote.is_hazmat,
+                    # Вложение общего письма нельзя автоматически приписать
+                    # всем веществам. Учитываются только факты в этой секции.
+                    has_coa=quote.has_coa,
+                    has_tds=quote.has_tds,
+                    field_confidence=confidence,
+                    source_text=section,
+                ),
+                source_communication_id=inbound.id,
+            )
+        )
+    return created
+
+
+def _process_multi_rfq_reply(
+    db: Session,
+    *,
+    message: IncomingEmail,
+    inbound: Communication,
+    rfqs: list[RFQ],
+    initial_resolution: SenderResolution,
+    summary: EmailSyncSummary,
+) -> None:
+    """Обрабатывает общий ответ независимо по каждой явно размеченной позиции."""
+
+    client = communication_llm_client()
+    resolution = initial_resolution
+    manager = resolution.manager
+    if manager is None:
+        resolution = resolve_sender_manager(
+            db,
+            rfq=rfqs[0],
+            message=message,
+            llm=client,
+            allow_ai=True,
+        )
+        manager = resolution.manager
+    if manager is not None:
+        inbound.manager_id = manager.id
+        if initial_resolution.manager is None:
+            link_address_history(
+                db,
+                rfq_id=rfqs[0].id,
+                address=message.from_address,
+                resolution=resolution,
+            )
+            summary.contacts_linked += 1
+
+    sections, duplicate_markers = _split_multi_rfq_sections(
+        message.text,
+        {rfq.id for rfq in rfqs},
+    )
+    for rfq in rfqs:
+        section = sections.get(rfq.id)
+        audit_start = start_audit(
+            db,
+            event_key=f"email:{message.message_id}:rfq:{rfq.id}",
+            text=section or message.text,
+            rfq_id=rfq.id,
+            manager_id=manager.id if manager else None,
+            communication_id=inbound.id,
+            actor_id=rfq.owner_id,
+            prompt_kind="extraction",
+        )
+        _record_sender_resolution(audit_start.audit, resolution, message=message)
+        escalation_note: str | None = None
+        if not audit_start.budget.allowed:
+            escalation_note = budget_escalation_note(audit_start.audit)
+        elif manager is None:
+            audit_start.audit.policy_route = "escalate"
+            audit_start.audit.policy_category = "sender_identity_unknown"
+            audit_start.audit.policy_explanation = resolution.explanation
+            audit_start.audit.policy_method = resolution.method
+            escalation_note = _unresolved_sender_note(resolution)
+        elif rfq.id in duplicate_markers:
+            audit_start.audit.policy_route = "escalate"
+            audit_start.audit.policy_category = "ambiguous_position_sections"
+            audit_start.audit.policy_explanation = (
+                "Метка позиции повторяется; факты не распределены автоматически."
+            )
+            audit_start.audit.policy_method = "deterministic_rfq_marker"
+            escalation_note = (
+                f"В общем ответе метка RFQ-{rfq.id} повторяется. "
+                "Проверьте секции вручную, чтобы не смешать вещества."
+            )
+        elif not section:
+            audit_start.audit.policy_route = "escalate"
+            audit_start.audit.policy_category = "missing_position_section"
+            audit_start.audit.policy_explanation = (
+                "Для позиции нет отдельной секции с её RFQ-номером."
+            )
+            audit_start.audit.policy_method = "deterministic_rfq_marker"
+            escalation_note = (
+                f"В общем ответе нет отдельной секции RFQ-{rfq.id}. "
+                "Данные других позиций не были перенесены в эту карточку."
+            )
+        else:
+            policy = classify_supplier_message(
+                section,
+                rfq_name=rfq.name,
+                rfq_cas=rfq.cas,
+                llm=client,
+            )
+            record_policy(audit_start.audit, policy)
+            if not policy.auto_reply_allowed:
+                escalation_note = (
+                    "Авторазбор позиции остановлен: "
+                    f"{policy.explanation} Категория: {policy.category}."
+                )
+            else:
+                created = _multi_position_quote(
+                    db,
+                    rfq=rfq,
+                    manager=manager,
+                    inbound=inbound,
+                    section=section,
+                    client=client,
+                )
+                summary.quotations_created += len(created)
+                rfq.status = RFQStatus.PARSED
+        if escalation_note is not None:
+            db.add(
+                Escalation(
+                    rfq_id=rfq.id,
+                    communication_id=inbound.id,
+                    manager_id=manager.id if manager else None,
+                    reason=EscalationReason.OTHER,
+                    status=EscalationStatus.OPEN,
+                    note=escalation_note,
+                )
+            )
+            rfq.status = RFQStatus.ESCALATED
+            summary.escalations_created += 1
+        finalize_usage(audit_start.audit, client, reply_generated=False)
+    db.commit()
+
+
 def sync_inbox(
     db: Session,
     connector: EmailConnector | None = None,
@@ -421,8 +651,8 @@ def sync_inbox(
                 summary.duplicates += 1
                 seen_uids.append(message.uid)
                 continue
-            rfq = _find_rfq(db, message)
-            if rfq is None:
+            rfqs = _find_rfqs(db, message)
+            if not rfqs:
                 inbound = Communication(
                     rfq_id=None,
                     manager_id=None,
@@ -455,6 +685,7 @@ def sync_inbox(
                 summary.processed += 1
                 seen_uids.append(message.uid)
                 continue
+            rfq = rfqs[0]
             resolution = resolve_sender_manager(
                 db,
                 rfq=rfq,
@@ -478,8 +709,15 @@ def sync_inbox(
                 attachments=None,
             )
             db.add(inbound)
-            rfq.status = RFQStatus.COLLECTING
+            for linked_rfq in rfqs:
+                linked_rfq.status = RFQStatus.COLLECTING
             db.flush()
+            if len(rfqs) > 1:
+                link_communication_to_rfqs(
+                    db,
+                    communication=inbound,
+                    rfq_ids=[linked_rfq.id for linked_rfq in rfqs],
+                )
             stored_attachments = store_incoming_attachments(
                 db,
                 rfq_id=rfq.id,
@@ -488,6 +726,19 @@ def sync_inbox(
                 attachments=message.attachments,
             )
             inbound.attachments = stored_attachments or None
+
+            if len(rfqs) > 1:
+                _process_multi_rfq_reply(
+                    db,
+                    message=message,
+                    inbound=inbound,
+                    rfqs=rfqs,
+                    initial_resolution=resolution,
+                    summary=summary,
+                )
+                summary.processed += 1
+                seen_uids.append(message.uid)
+                continue
 
             audit_start = start_audit(
                 db,

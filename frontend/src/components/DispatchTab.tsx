@@ -994,6 +994,28 @@ export default function DispatchTab({
                               ? dialogueTranslations[message.id]
                               : message.body || "—"}
                           </p>
+                          {message.linked_rfqs.length > 1 && (
+                            <div
+                              className="conversation-linked-rfqs"
+                              aria-label="Связанные позиции RFQ"
+                            >
+                              <span className="note">Общий диалог:</span>
+                              {message.linked_rfqs.map((linked) => (
+                                <a
+                                  className={
+                                    linked.rfq_id === rfqId
+                                      ? "badge tone-info"
+                                      : "badge tone-neutral"
+                                  }
+                                  href={`/requests/${linked.rfq_id}/dispatch`}
+                                  key={linked.rfq_id}
+                                  title={linked.cas ? `CAS ${linked.cas}` : linked.name}
+                                >
+                                  RFQ-{linked.rfq_id} · {linked.name}
+                                </a>
+                              ))}
+                            </div>
+                          )}
                           {message.attachments &&
                             message.attachments.length > 0 && (
                               <div

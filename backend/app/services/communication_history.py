@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Communication, Escalation, Quotation, RfqRecipient, Supplier
+from app.models import Communication, Escalation, Quotation, RFQ, RfqRecipient, Supplier
 from app.models.enums import Channel, CommDirection, DispatchStatus, EscalationStatus
 from app.models.manager import Manager
 from app.schemas.communication import (
@@ -80,7 +80,8 @@ def list_communication_overview(
         db.scalars(
             select(Communication)
             .options(
-                joinedload(Communication.manager).joinedload(Manager.supplier)
+                joinedload(Communication.manager).joinedload(Manager.supplier),
+                joinedload(Communication.rfq_links),
             )
             .where(communication_linked_to_rfq(rfq_id))
             .order_by(Communication.created_at, Communication.id)
@@ -109,6 +110,20 @@ def list_communication_overview(
             .order_by(Quotation.created_at, Quotation.id)
         ).unique()
     )
+    linked_rfq_ids = {
+        linked_id
+        for message in messages
+        for linked_id in {
+            *[link.rfq_id for link in message.rfq_links],
+            *([message.rfq_id] if message.rfq_id is not None else []),
+        }
+    }
+    linked_rfq_by_id = {
+        rfq.id: rfq
+        for rfq in db.scalars(
+            select(RFQ).where(RFQ.id.in_(linked_rfq_ids))
+        ).all()
+    }
 
     conversations: dict[tuple[str, str, str], SupplierConversationRead] = {}
     contacts: dict[tuple[Channel, str], tuple[Supplier, Manager]] = {}
@@ -187,6 +202,24 @@ def list_communication_overview(
                 from_address=message.from_address,
                 to_address=message.to_address,
                 attachments=message.attachments,
+                linked_rfqs=[
+                    {
+                        "rfq_id": linked_id,
+                        "name": linked_rfq_by_id[linked_id].name,
+                        "cas": linked_rfq_by_id[linked_id].cas,
+                    }
+                    for linked_id in sorted(
+                        {
+                            *[link.rfq_id for link in message.rfq_links],
+                            *(
+                                [message.rfq_id]
+                                if message.rfq_id is not None
+                                else []
+                            ),
+                        }
+                    )
+                    if linked_id in linked_rfq_by_id
+                ],
                 created_at=message.created_at,
             )
         )

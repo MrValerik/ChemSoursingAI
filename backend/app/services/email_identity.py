@@ -35,6 +35,7 @@ from app.models import (
 from app.models.enums import Channel, CommDirection
 from app.services.communication_profiles import finalize_usage, start_audit
 from app.services.communication_llm import communication_llm_client
+from app.services.communication_links import communication_linked_to_rfq
 
 _PRIOR_OUTBOUND_STATUSES = {"sent", "demo"}
 _IDENTITY_CHECK_VERSION = 3
@@ -144,7 +145,7 @@ def _rfq_candidates(db: Session, rfq_id: int) -> list[SupplierCandidate]:
         .join(Manager, Manager.supplier_id == Supplier.id)
         .join(Communication, Communication.manager_id == Manager.id)
         .where(
-            Communication.rfq_id == rfq_id,
+            communication_linked_to_rfq(rfq_id),
             Communication.channel == Channel.EMAIL,
             Communication.direction == CommDirection.OUTBOUND,
             Communication.status.in_(_PRIOR_OUTBOUND_STATUSES),
@@ -485,7 +486,7 @@ def link_address_history(
     messages = list(
         db.scalars(
             select(Communication).where(
-                Communication.rfq_id == rfq_id,
+                communication_linked_to_rfq(rfq_id),
                 Communication.channel == Channel.EMAIL,
                 Communication.manager_id.is_(None),
                 or_(

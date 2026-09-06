@@ -84,6 +84,11 @@ def combined_options(
     ).all()
     grouped: dict[tuple[int, Channel], list[RfqRecipient]] = {}
     for recipient in recipients:
+        if recipient.channel != Channel.EMAIL:
+            # Групповой входящий разбор пока опирается на Email References.
+            # Не предлагаем WhatsApp раньше появления равноценной безопасной
+            # маршрутизации provider reply-id ко всем связанным позициям.
+            continue
         grouped.setdefault((recipient.supplier_id, recipient.channel), []).append(recipient)
     result: list[dict] = []
     for (supplier_id, channel), items in grouped.items():
@@ -126,6 +131,10 @@ def prepare_combined_message(
     normalized_ids = list(dict.fromkeys(rfq_ids))
     if len(normalized_ids) < 2:
         raise ValueError("Явно выберите не менее двух RFQ")
+    if channel != Channel.EMAIL:
+        raise ValueError(
+            "Общее RFQ для нескольких позиций пока поддерживается только по Email"
+        )
     rfqs = list(
         db.scalars(
             select(RFQ)

@@ -23,6 +23,12 @@ class CommunicationAttachmentRead(BaseModel):
     error: str | None = None
 
 
+class CommunicationRfqReferenceRead(BaseModel):
+    rfq_id: int
+    name: str
+    cas: str | None = None
+
+
 class CommunicationMessageRead(BaseModel):
     id: int
     direction: CommDirection
@@ -33,6 +39,7 @@ class CommunicationMessageRead(BaseModel):
     from_address: str | None
     to_address: str | None
     attachments: list[CommunicationAttachmentRead] | None
+    linked_rfqs: list[CommunicationRfqReferenceRead] = Field(default_factory=list)
     created_at: datetime
 
 
