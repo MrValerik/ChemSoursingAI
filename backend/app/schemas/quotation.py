@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -68,6 +69,7 @@ class QuotationRead(BaseModel):
     has_tds: bool
     is_complete: bool
     field_confidence: dict | None
+    field_provenance: dict | None
     created_at: datetime
     updated_at: datetime
 
@@ -143,6 +145,8 @@ class SummaryRow(BaseModel):
     manager: str | None = None
     price: float | None = None
     currency: str | None = None
+    price_provenance: Literal["supplier_reply", "manual", "test"] = "manual"
+    price_source_communication_id: int | None = None
     incoterm: str | None = None
     moq: str | None = None
     grade: str | None = None
@@ -164,6 +168,33 @@ class SummaryRow(BaseModel):
     has_tds: bool = False
     is_complete: bool = False
     field_confidence: dict[str, float] | None = None
+    field_provenance: dict[str, str] | None = None
+    target_price: float | None = None
+    target_currency: str | None = None
+    target_price_unit: str | None = None
+    target_price_incoterm: str | None = None
+    target_comparison_status: Literal[
+        "comparable", "not_comparable", "no_target"
+    ] = "no_target"
+    target_comparison_reason: str = "Ориентир цены не задан."
+    target_price_deviation_percent: float | None = None
+    target_price_deviation: float | None = None
+    historical_price: float | None = None
+    historical_currency: str | None = None
+    historical_price_unit: str | None = None
+    historical_incoterm: str | None = None
+    historical_purchase_history_id: int | None = None
+    historical_quotation_ids: list[int] = Field(default_factory=list)
+    historical_min_price: float | None = None
+    historical_max_price: float | None = None
+    historical_sample_size: int = 0
+    historical_period_days: int = 365
+    historical_comparison_status: Literal[
+        "comparable", "not_comparable", "not_found"
+    ] = "not_found"
+    historical_comparison_reason: str = "История закупок не найдена."
+    historical_price_deviation_percent: float | None = None
+    historical_price_deviation: float | None = None
     created_at: datetime
 
 

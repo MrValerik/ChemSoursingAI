@@ -1,7 +1,9 @@
 """Эндпоинты котировок и сводной таблицы по RFQ."""
+from typing import Literal
+
 from app.api.deps import get_current_user
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -22,6 +24,7 @@ from app.schemas.quotation import (
 )
 from app.services.quotation_service import (
     build_summary,
+    build_summary_csv,
     create_quotation,
     purchase_history_read,
     save_purchase_decision,
@@ -56,30 +59,82 @@ def _decision_read(decision: PurchaseDecision) -> PurchaseDecisionRead:
 
 
 @router.post("/quotations", response_model=QuotationRead, status_code=201)
-def create(data: QuotationCreate, db: Session = Depends(get_db)) -> Quotation:
+def create(
+    data: QuotationCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Quotation:
     """Создаёт котировку: контроль полноты + авто-эскалация нестандартных кейсов."""
-    rfq = db.get(RFQ, data.rfq_id)
-    if rfq is None or rfq.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Запрос не найден")
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    _load_visible_rfq(db, data.rfq_id, user)
     return create_quotation(db, data)
 
 
 @router.get("/rfq/{rfq_id}/quotations", response_model=list[QuotationRead])
-def list_for_rfq(rfq_id: int, db: Session = Depends(get_db)) -> list[Quotation]:
-    rfq = db.get(RFQ, rfq_id)
-    if rfq is None or rfq.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Запрос не найден")
+def list_for_rfq(
+    rfq_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[Quotation]:
+    _load_visible_rfq(db, rfq_id, user)
     stmt = select(Quotation).where(Quotation.rfq_id == rfq_id)
     return list(db.scalars(stmt).all())
 
 
 @router.get("/rfq/{rfq_id}/summary", response_model=list[SummaryRow])
-def summary(rfq_id: int, db: Session = Depends(get_db)) -> list[SummaryRow]:
+def summary(
+    rfq_id: int,
+    history_days: int = Query(default=365, ge=30, le=3650),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[SummaryRow]:
     """Сводная сравнительная таблица по RFQ (полные котировки — выше)."""
-    rfq = db.get(RFQ, rfq_id)
-    if rfq is None or rfq.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Запрос не найден")
-    return build_summary(db, rfq_id)
+    _load_visible_rfq(db, rfq_id, user)
+    return build_summary(
+        db,
+        rfq_id,
+        history_days=history_days,
+        history_owner_id=None if user.role in _SEE_ALL_ROLES else user.id,
+    )
+
+
+@router.get("/rfq/{rfq_id}/summary/export")
+def export_summary(
+    rfq_id: int,
+    mode: Literal["detailed", "compact"] = "detailed",
+    history_days: int = Query(default=365, ge=30, le=3650),
+    columns: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """Выгружает CSV из серверной сводки без повторения расчётов в UI."""
+    rfq = _load_visible_rfq(db, rfq_id, user)
+    selected_columns = (
+        [item.strip() for item in columns.split(",") if item.strip()]
+        if columns is not None
+        else None
+    )
+    try:
+        content, filename = build_summary_csv(
+            db,
+            rfq,
+            mode=mode,
+            history_days=history_days,
+            history_owner_id=None if user.role in _SEE_ALL_ROLES else user.id,
+            columns=selected_columns,
+        )
+    except ValueError as exc:
+        status = 409 if mode == "compact" else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.patch(
@@ -101,7 +156,7 @@ def edit_quotation(
     if quotation is None or quotation.rfq_id != rfq_id:
         raise HTTPException(status_code=404, detail="Котировка не найдена")
     try:
-        return update_quotation(db, quotation=quotation, data=payload)
+        return update_quotation(db, quotation=quotation, data=payload, actor=user)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

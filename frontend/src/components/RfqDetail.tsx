@@ -415,8 +415,8 @@ export default function RfqDetail({
                 </dt>
                 <dd className="param-value">
                   <Term
-                    label={`${rfq.target_price} ${rfq.currency}`}
-                    help={`Ценовой ориентир запроса: ${rfq.target_price} ${rfq.currency}. Для сравнения нужно учитывать единицу цены и базис поставки.`}
+                    label={`${rfq.target_price} ${rfq.currency}${rfq.target_price_unit ? `/${rfq.target_price_unit}` : ""}${rfq.target_price_incoterm ? ` · ${rfq.target_price_incoterm}` : ""}`}
+                    help={`Ценовой ориентир запроса: ${rfq.target_price} ${rfq.currency}${rfq.target_price_unit ? ` за ${rfq.target_price_unit}` : ""}${rfq.target_price_incoterm ? `, ${rfq.target_price_incoterm}` : ""}. Отклонение считается только при точном совпадении полного базиса.`}
                   />
                 </dd>
               </>

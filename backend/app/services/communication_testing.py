@@ -478,6 +478,11 @@ def _sync_test_quotation(db: Session, run: CommunicationTestRun) -> None:
     quotation.has_tds = bool(progress.quote["has_tds"])
     quotation.is_complete = progress.completeness.is_complete
     quotation.field_confidence = progress.field_confidence or None
+    quotation.field_provenance = {
+        field: "test"
+        for field, value in progress.quote.items()
+        if value is not None and (not isinstance(value, str) or value.strip())
+    }
     db.commit()
 
 

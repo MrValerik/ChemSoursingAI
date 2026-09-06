@@ -16,10 +16,18 @@ from app.connectors.whatsapp import WhatsAppDeliveryError
 from app.core.db import SessionLocal
 from app.extraction.llm_client import LLMUnavailableError
 from app.extraction.schema import ExtractedQuote
-from app.models import CommunicationPolicyAudit, Manager, Quotation, SupplierDocument
+from app.models import (
+    CommunicationPolicyAudit,
+    Manager,
+    Quotation,
+    QuotationFieldAudit,
+    SupplierDocument,
+    User,
+)
 from app.models.communication import Communication
 from app.models.escalation import Escalation
-from app.models.enums import Channel, CommDirection
+from app.models.enums import Channel, CommDirection, UserRole
+from app.core.security import hash_password
 from app.services.communication_policy import CommunicationPolicyDecision
 from app.services.email_workflow import (
     _fallback_followup,
@@ -559,6 +567,18 @@ def test_summary_quotation_can_be_edited_manually(client):
     assert payload["is_complete"] is True
     assert payload["field_confidence"]["price"] == 1.0
     assert payload["field_confidence"]["incoterm"] == 1.0
+    assert payload["field_provenance"]["price"] == "human"
+    with SessionLocal() as db:
+        price_audit = db.scalar(
+            select(QuotationFieldAudit).where(
+                QuotationFieldAudit.quotation_id == quotation["id"],
+                QuotationFieldAudit.field_name == "price",
+            )
+        )
+        assert price_audit is not None
+        assert price_audit.old_value == 12.5
+        assert price_audit.new_value == 11.75
+        assert price_audit.actor_id is not None
 
     summary = client.get(f"/rfq/{rfq['id']}/summary", headers=headers).json()
     row = next(item for item in summary if item["quotation_id"] == quotation["id"])
@@ -588,6 +608,216 @@ def test_summary_quotation_can_be_edited_manually(client):
         headers=auditor,
     )
     assert forbidden.status_code == 403
+
+
+def test_summary_compares_only_exact_price_basis_and_shows_provenance(client):
+    headers = _login(client)
+    previous_rfq = client.post(
+        "/rfq?verify=false",
+        json={
+            "cas": "64-17-5",
+            "name": "Ethanol historical basis",
+            "incoterms": ["CIP"],
+            "volume": "500 kg",
+        },
+        headers=headers,
+    ).json()
+    previous_quote = client.post(
+        "/quotations",
+        json={
+            "rfq_id": previous_rfq["id"],
+            "price": 10,
+            "currency": "USD",
+            "price_unit": "kg",
+            "incoterm": "CIP",
+            "grade": "MEET2 comparison grade",
+            "quoted_quantity": "500 kg",
+        },
+        headers=headers,
+    ).json()
+    saved = client.put(
+        f"/rfq/{previous_rfq['id']}/purchase-decision",
+        json={"quotation_id": previous_quote["id"]},
+        headers=headers,
+    )
+    assert saved.status_code == 200
+
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={
+            "cas": "64-17-5",
+            "name": "Ethanol exact-basis comparison",
+            "incoterms": ["CIP"],
+            "target_price": 12,
+            "currency": "USD",
+            "target_price_unit": "kg",
+            "target_price_incoterm": "CIP",
+            "volume": "500 kg",
+        },
+        headers=headers,
+    ).json()
+    assert rfq["target_price_unit"] == "kg"
+    assert rfq["target_price_incoterm"] == "CIP"
+
+    exact = client.post(
+        "/quotations",
+        json={
+            "rfq_id": rfq["id"],
+            "price": 13.2,
+            "currency": "USD",
+            "price_unit": "kg",
+            "incoterm": "CIP",
+            "grade": "MEET2 comparison grade",
+            "quoted_quantity": "500KG",
+        },
+        headers=headers,
+    ).json()
+    different_currency = client.post(
+        "/quotations",
+        json={
+            "rfq_id": rfq["id"],
+            "price": 1,
+            "currency": "CNY",
+            "price_unit": "kg",
+            "incoterm": "CIP",
+            "grade": "MEET2 comparison grade",
+            "quoted_quantity": "500 kg",
+        },
+        headers=headers,
+    ).json()
+    with SessionLocal() as db:
+        inbound = Communication(
+            rfq_id=rfq["id"],
+            direction=CommDirection.INBOUND,
+            channel=Channel.EMAIL,
+            subject=f"Re: [RFQ-{rfq['id']}] Ethanol",
+            body="USD 11/kg CIP.",
+            from_address="supplier@example.com",
+            to_address="buyer@example.com",
+            status="received",
+        )
+        db.add(inbound)
+        db.flush()
+        supplier_reply = Quotation(
+            rfq_id=rfq["id"],
+            source_communication_id=inbound.id,
+            price=11,
+            currency="USD",
+            price_unit="kg",
+            incoterm="CIP",
+            grade="MEET2 comparison grade",
+            quoted_quantity="500 kg",
+            is_complete=False,
+        )
+        db.add(supplier_reply)
+        db.commit()
+        supplier_reply_id = supplier_reply.id
+
+    summary = client.get(f"/rfq/{rfq['id']}/summary", headers=headers).json()
+    # Голая цена в другой валюте не поднимает строку наверх.
+    assert [row["quotation_id"] for row in summary] == [
+        exact["id"],
+        different_currency["id"],
+        supplier_reply_id,
+    ]
+    exact_row = summary[0]
+    assert exact_row["price_provenance"] == "manual"
+    assert exact_row["target_comparison_status"] == "comparable"
+    assert exact_row["target_price_deviation_percent"] == 10.0
+    assert exact_row["target_price_deviation"] == 1.2
+    assert exact_row["historical_comparison_status"] == "comparable"
+    assert exact_row["historical_price"] == 10.0
+    assert exact_row["historical_min_price"] == 10.0
+    assert exact_row["historical_max_price"] == 10.0
+    assert exact_row["historical_sample_size"] == 1
+    assert exact_row["historical_price_deviation_percent"] == 32.0
+    assert exact_row["historical_price_deviation"] == 3.2
+
+    mismatch_row = summary[1]
+    assert mismatch_row["target_comparison_status"] == "not_comparable"
+    assert mismatch_row["target_price_deviation_percent"] is None
+    assert mismatch_row["historical_comparison_status"] == "not_comparable"
+    assert mismatch_row["historical_price_deviation_percent"] is None
+
+    reply_row = summary[2]
+    assert reply_row["price_provenance"] == "supplier_reply"
+    assert reply_row["price_source_communication_id"] is not None
+
+
+def test_summary_export_respects_rfq_visibility_and_compact_decision(client):
+    owner_headers = _login(client)
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "71-43-2", "name": "Benzene export", "incoterms": ["CIP"]},
+        headers=owner_headers,
+    ).json()
+    with SessionLocal() as db:
+        stranger = db.scalar(select(User).where(User.username == "export-stranger"))
+        if stranger is None:
+            db.add(
+                User(
+                    username="export-stranger",
+                    full_name="Чужой закупщик",
+                    password_hash=hash_password("demo123"),
+                    role=UserRole.BUYER,
+                )
+            )
+            db.commit()
+
+    stranger_headers = _login(client, "export-stranger")
+    stranger_rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "71-43-2", "name": "Private benzene", "incoterms": ["CIP"]},
+        headers=stranger_headers,
+    ).json()
+    client.post(
+        "/quotations",
+        json={
+            "rfq_id": stranger_rfq["id"],
+            "price": 1,
+            "currency": "USD",
+            "price_unit": "kg",
+            "incoterm": "CIP",
+        },
+        headers=stranger_headers,
+    )
+    forbidden = client.get(
+        f"/rfq/{rfq['id']}/summary/export?mode=detailed",
+        headers=stranger_headers,
+    )
+    assert forbidden.status_code == 404
+
+    client.post(
+        "/quotations",
+        json={
+            "rfq_id": rfq["id"],
+            "price": 2,
+            "currency": "USD",
+            "price_unit": "kg",
+            "incoterm": "CIP",
+        },
+        headers=owner_headers,
+    )
+    owner_summary = client.get(
+        f"/rfq/{rfq['id']}/summary",
+        headers=owner_headers,
+    ).json()
+    assert owner_summary[0]["historical_comparison_status"] == "not_found"
+
+    auditor = _login(client, "auditor")
+    allowed = client.get(
+        f"/rfq/{rfq['id']}/summary/export?mode=detailed",
+        headers=auditor,
+    )
+    assert allowed.status_code == 200
+    assert allowed.content.startswith(b"\xef\xbb\xbf")
+
+    compact = client.get(
+        f"/rfq/{rfq['id']}/summary/export?mode=compact",
+        headers=owner_headers,
+    )
+    assert compact.status_code == 409
+    assert "ручного сохранения" in compact.json()["detail"]
 
 
 def test_saved_rfq_preview_can_be_translated_without_changing_it(client, monkeypatch):

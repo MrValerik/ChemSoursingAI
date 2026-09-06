@@ -50,7 +50,22 @@ class RFQCreate(BaseModel):
     volume: str | None = None
     target_price: float | None = None
     currency: str = "USD"
+    target_price_unit: str | None = Field(default=None, max_length=32)
+    target_price_incoterm: str | None = Field(default=None, max_length=24)
     specialist_comment: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("target_price_unit", "target_price_incoterm", mode="before")
+    @classmethod
+    def clean_target_basis(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def normalize_currency(cls, value: object) -> str:
+        return str(value or "USD").strip().upper()
 
     @field_validator("incoterms")
     @classmethod
@@ -135,6 +150,8 @@ class RFQRead(BaseModel):
     volume: str | None
     target_price: float | None
     currency: str | None
+    target_price_unit: str | None = None
+    target_price_incoterm: str | None = None
     specialist_comment: str | None = None
     incoterms: list[str] | None
     channels: list[str] | None

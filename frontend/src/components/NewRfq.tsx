@@ -189,6 +189,8 @@ export default function NewRfq({
   const [application, setApplication] = useState("");
   const [targetPrice, setTargetPrice] = useState("");
   const [currency, setCurrency] = useState("USD");
+  const [targetPriceUnit, setTargetPriceUnit] = useState("kg");
+  const [targetPriceIncoterm, setTargetPriceIncoterm] = useState("CIP");
   const [specialistComment, setSpecialistComment] = useState("");
   const [volumeAmount, setVolumeAmount] = useState("");
   const [volumeUnit, setVolumeUnit] = useState("kg");
@@ -456,6 +458,8 @@ export default function NewRfq({
       : null,
     target_price: targetPrice.trim() ? Number(targetPrice) : null,
     currency,
+    target_price_unit: targetPrice.trim() ? targetPriceUnit : null,
+    target_price_incoterm: targetPrice.trim() ? targetPriceIncoterm : null,
     specialist_comment: specialistComment.trim() || null,
     // Карточку справочника форма больше не привязывает: связь ставится
     // при подтверждении идентичности в самом поиске.
@@ -539,6 +543,10 @@ export default function NewRfq({
       setApplication(source.application || "");
       setTargetPrice(source.target_price != null ? String(source.target_price) : "");
       setCurrency(source.currency || "USD");
+      setTargetPriceUnit(source.target_price_unit || "kg");
+      setTargetPriceIncoterm(
+        source.target_price_incoterm || source.incoterms?.[0] || "CIP",
+      );
       setSpecialistComment(source.specialist_comment || "");
       const [sourceAmount, sourceUnit] = parseVolume(source.volume);
       setVolumeAmount(sourceAmount);
@@ -979,6 +987,27 @@ export default function NewRfq({
               value={currency}
               options={CURRENCIES}
               onChange={setCurrency}
+            />
+          </Field>
+          <Field className="field-unit" label="За единицу">
+            <Select
+              value={targetPriceUnit}
+              options={VOLUME_UNITS}
+              onChange={setTargetPriceUnit}
+            />
+          </Field>
+          <Field
+            className="field-narrow"
+            label="Базис ориентира"
+            hint="Отклонение считается только при точном совпадении валюты, единицы и Incoterm."
+          >
+            <Input
+              maxLength={24}
+              placeholder="CIP"
+              value={targetPriceIncoterm}
+              onChange={(event) =>
+                setTargetPriceIncoterm(event.target.value.toUpperCase())
+              }
             />
           </Field>
         </div>

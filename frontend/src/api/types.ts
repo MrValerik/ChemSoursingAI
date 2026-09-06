@@ -137,6 +137,8 @@ export interface RFQRead {
   volume: string | null;
   target_price: number | null;
   currency: string | null;
+  target_price_unit: string | null;
+  target_price_incoterm: string | null;
   specialist_comment: string | null;
   incoterms: string[] | null;
   channels: string[] | null;
@@ -230,6 +232,7 @@ export interface QuotationRead {
   has_tds: boolean;
   is_complete: boolean;
   field_confidence: Record<string, number> | null;
+  field_provenance: Record<string, string> | null;
   created_at: string;
   updated_at: string;
 }
@@ -271,6 +274,8 @@ export interface SummaryRow {
   manager: string | null;
   price: number | null;
   currency: string | null;
+  price_provenance: "supplier_reply" | "manual" | "test";
+  price_source_communication_id: number | null;
   incoterm: string | null;
   moq: string | null;
   grade: string | null;
@@ -292,6 +297,29 @@ export interface SummaryRow {
   has_tds: boolean;
   is_complete: boolean;
   field_confidence: Record<string, number> | null;
+  field_provenance: Record<string, string> | null;
+  target_price: number | null;
+  target_currency: string | null;
+  target_price_unit: string | null;
+  target_price_incoterm: string | null;
+  target_comparison_status: "comparable" | "not_comparable" | "no_target";
+  target_comparison_reason: string;
+  target_price_deviation_percent: number | null;
+  target_price_deviation: number | null;
+  historical_price: number | null;
+  historical_currency: string | null;
+  historical_price_unit: string | null;
+  historical_incoterm: string | null;
+  historical_purchase_history_id: number | null;
+  historical_quotation_ids: number[];
+  historical_min_price: number | null;
+  historical_max_price: number | null;
+  historical_sample_size: number;
+  historical_period_days: number;
+  historical_comparison_status: "comparable" | "not_comparable" | "not_found";
+  historical_comparison_reason: string;
+  historical_price_deviation_percent: number | null;
+  historical_price_deviation: number | null;
   created_at: string;
 }
 

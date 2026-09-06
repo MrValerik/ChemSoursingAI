@@ -222,11 +222,19 @@ async function requestFile(path: string, failText?: string): Promise<Blob> {
   }
   if (!response.ok) {
     if (response.status === 401) onUnauthorized?.();
+    let detail: unknown = null;
+    try {
+      detail = ((await response.json()) as { detail?: unknown }).detail;
+    } catch {
+      detail = null;
+    }
     throw new ApiError(
       response.status,
       response.status === 410
         ? "Файл больше недоступен в хранилище."
-        : (failText ?? "Не удалось скачать вложение."),
+        : detail
+          ? apiResponseErrorMessage(response.status, detail, path)
+          : (failText ?? "Не удалось скачать вложение."),
     );
   }
   return response.blob();
@@ -254,6 +262,8 @@ export interface RFQCreatePayload {
   volume?: string | null;
   target_price?: number | null;
   currency?: string;
+  target_price_unit?: string | null;
+  target_price_incoterm?: string | null;
   /** Внутренняя заметка закупщика: в письмо поставщику не уходит. */
   specialist_comment?: string | null;
 }
@@ -452,8 +462,27 @@ export const api = {
   listQuotations: (rfqId: number) =>
     request<QuotationRead[]>(`/rfq/${rfqId}/quotations`),
 
-  getSummary: (rfqId: number) =>
-    request<SummaryRow[]>(`/rfq/${rfqId}/summary`),
+  getSummary: (rfqId: number, historyDays = 365) =>
+    request<SummaryRow[]>(
+      `/rfq/${rfqId}/summary?history_days=${historyDays}`,
+    ),
+
+  exportSummary: (
+    rfqId: number,
+    mode: "detailed" | "compact",
+    historyDays = 365,
+    columns?: string[],
+  ) => {
+    const params = new URLSearchParams({
+      mode,
+      history_days: String(historyDays),
+    });
+    if (columns) params.set("columns", columns.join(","));
+    return requestFile(
+      `/rfq/${rfqId}/summary/export?${params.toString()}`,
+      "Не удалось выгрузить сводную таблицу.",
+    );
+  },
 
   updateQuotation: (
     rfqId: number,

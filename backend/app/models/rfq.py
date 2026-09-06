@@ -65,6 +65,13 @@ class RFQ(Base, TimestampMixin):
     volume: Mapped[str | None] = mapped_column(String(64))
     target_price: Mapped[float | None] = mapped_column(Numeric(14, 4))
     currency: Mapped[str | None] = mapped_column(String(3), default="USD")
+    # Цена становится сравнимой только вместе с единицей и базисом поставки.
+    # Поля необязательны для совместимости со старыми RFQ: такие ориентиры UI
+    # честно помечает как несопоставимые, а не достраивает догадкой.
+    target_price_unit: Mapped[str | None] = mapped_column(String(32), default=None)
+    target_price_incoterm: Mapped[str | None] = mapped_column(
+        String(24), default=None
+    )
 
     # Комментарий закупщика к позиции (ТЗ, функция 1). Внутренняя заметка:
     # в письмо поставщику не попадает.

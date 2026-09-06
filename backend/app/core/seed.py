@@ -1087,6 +1087,8 @@ def seed_demo_workspace(db: Session) -> None:
         application="pharmaceutical production",
         volume="500 kg",
         target_price=12.00,
+        target_price_unit="kg",
+        target_price_incoterm="CIP",
         currency="USD",
         incoterms=["CIP", "FCA", "EXW"],
         channels=["email"],

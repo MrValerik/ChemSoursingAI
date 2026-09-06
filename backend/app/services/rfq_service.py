@@ -92,6 +92,12 @@ def create_rfq(
         volume=data.volume,
         target_price=data.target_price,
         currency=data.currency,
+        target_price_unit=data.target_price_unit,
+        target_price_incoterm=(
+            data.target_price_incoterm.upper()
+            if data.target_price_incoterm
+            else None
+        ),
         specialist_comment=data.specialist_comment,
         incoterms=[i.strip().upper() for i in data.incoterms],
         channels=data.channels or [],

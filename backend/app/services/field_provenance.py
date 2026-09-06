@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Literal
 
 FieldSource = Literal["pubchem", "ai_agent", "human", "catalog"]
+QuotationFieldSource = Literal["supplier_reply", "manual", "test", "human"]
 
 # Подписи для интерфейса: одно слово, потому что тег стоит в узкой колонке
 # рядом со значением. «ИИ-агент» — не «со слов модели»: агент действительно
@@ -58,3 +59,14 @@ def merge_sources(
         else:
             merged[field] = source
     return merged
+
+
+def quotation_sources(
+    values: dict[str, object], source: QuotationFieldSource
+) -> dict[str, str]:
+    """Фиксирует источник только для реально присутствующих фактов котировки."""
+    return {
+        field: source
+        for field, value in values.items()
+        if value is not None and (not isinstance(value, str) or value.strip())
+    }
