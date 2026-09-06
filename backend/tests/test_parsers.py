@@ -71,6 +71,17 @@ def test_documents():
     assert requested_tds.value is False
 
 
+def test_documents_accept_russian_attachment_confirmation():
+    coa, tds = parse_documents("CoA, SDS и TDS приложены к сообщению.")
+
+    assert coa.value is True
+    assert tds.value is True
+
+    missing_coa, missing_tds = parse_documents("CoA и TDS не приложены.")
+    assert missing_coa.value is False
+    assert missing_tds.value is False
+
+
 def test_multiple_explicit_delivery_offers_are_kept_separate():
     offers = parse_explicit_price_offers(
         "Price: USD 6.8/KG by sea FOB Shanghai for 500KG\n"
@@ -96,7 +107,16 @@ def test_multiple_explicit_delivery_offers_are_kept_separate():
 
 def test_lead_time():
     assert parse_lead_time("Lead time: 15 days").value == "15 days"
+    assert parse_lead_time("Lead time is 14 days").value == "14 days"
     assert parse_lead_time("delivery within 2 weeks").value == "2 weeks"
+    assert (
+        parse_lead_time("Dispatch within 9 working days after payment.").value
+        == "9 working days"
+    )
+    assert (
+        parse_lead_time("Срок подготовки отгрузки 9 рабочих дней.").value
+        == "9 рабочих дней"
+    )
 
 
 def test_payment_terms():
@@ -106,7 +126,14 @@ def test_payment_terms():
 
 def test_grade():
     assert parse_grade("USP grade material").value.lower().startswith("usp")
+    assert parse_grade("Caffeine CAS 58-08-2, USP.").value == "USP"
+    assert parse_grade("Кофеин USP, CAS 58-08-2.").value == "USP"
+    assert parse_grade("This material does not meet USP.").value is None
     assert "99.5" in parse_grade("purity 99.5% min").value
+
+
+def test_moq_accepts_russian_quantity_unit():
+    assert parse_moq("MOQ 20 кг.").value == "20 кг"
 
 
 def test_commercial_breakdown_fields_require_explicit_labels():

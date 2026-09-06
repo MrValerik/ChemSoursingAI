@@ -84,10 +84,17 @@ def parse_incoterm(text: str) -> Parsed[str]:
 
 def parse_moq(text: str) -> Parsed[str]:
     """Извлекает минимальный заказ (MOQ): 'MOQ 25 kg', 'min order 1 ton'."""
+    units = (
+        r"(?:kgs?|kg|tonnes?|tons?|drums?|bags?|mt|lb|g|t|l|"
+        r"килограмм(?:а|ов)?|тонн(?:а|ы|у)?|литр(?:а|ов)?|"
+        r"меш(?:ок|ка|ков)|боч(?:ка|ки|ек)|кг|мт|г|т|л)"
+    )
     patterns = [
         rf"MOQ(?:\s+is)?(?:\s+in)?[:\s]*"
-        rf"({_NUMBER}\s*(?:kg|g|mt|ton|tonne|l|lb|drum|bag)s?)",
-        rf"min(?:imum)?\.?\s*order(?:\s*quantity)?[:\s]*({_NUMBER}\s*(?:kg|g|mt|ton|tonne|l|lb|drum|bag)s?)",
+        rf"({_NUMBER}\s*{units})\b",
+        rf"min(?:imum)?\.?\s*order(?:\s*quantity)?[:\s]*({_NUMBER}\s*{units})\b",
+        rf"минимальн(?:ый|ая|ое)\s+(?:заказ|партия)(?:\s+составляет)?[:\s]*"
+        rf"({_NUMBER}\s*{units})\b",
     ]
     for pat in patterns:
         m = re.search(pat, text, flags=re.IGNORECASE)
@@ -106,10 +113,27 @@ def parse_documents(text: str) -> tuple[Parsed[bool], Parsed[bool]]:
     positive = (
         r"(?:attached|enclosed|included|available|provided|"
         r"can\s+be\s+provided|can\s+provide|will\s+provide|"
-        r"(?:we|i)\s+(?:have|provide)|yes)"
+        r"(?:we|i)\s+(?:have|provide)|yes|"
+        r"приложен(?:а|о|ы)?|прикрепл(?:ен|ена|ено|ены)|"
+        r"предоставлен(?:а|о|ы)?|доступн(?:а|о|ы)?|"
+        r"(?:можем|готовы)\s+предоставить)"
     )
     coa = r"(?:\bcoa\b|certificate\s+of\s+analysis)"
     tds = r"(?:\btds\b|technical\s+data\s+sheet|spec(?:ification)?\s+sheet)"
+    negative = (
+        r"(?:not|isn['’]?t|aren['’]?t)\s+(?:currently\s+)?"
+        r"(?:attached|enclosed|included|available|provided)"
+        r"|не\s+(?:приложен(?:а|о|ы)?|прикрепл(?:ен|ена|ено|ены)|"
+        r"предоставлен(?:а|о|ы)?|доступн(?:а|о|ы)?)"
+    )
+
+    def negated(document: str) -> bool:
+        return bool(
+            re.search(rf"{document}[^\n.]{{0,50}}{negative}", low)
+            or re.search(rf"{negative}[^\n.]{{0,50}}{document}", low)
+            or re.search(rf"\bno\s+{document}", low)
+        )
+
     shared_positive = bool(
         re.search(rf"{positive}[^\n.]{{0,80}}{coa}[^\n.]{{0,50}}{tds}", low)
         or re.search(rf"{positive}[^\n.]{{0,80}}{tds}[^\n.]{{0,50}}{coa}", low)
@@ -126,6 +150,8 @@ def parse_documents(text: str) -> tuple[Parsed[bool], Parsed[bool]]:
         or re.search(rf"{positive}\s+(?:the\s+)?{tds}", low)
         or shared_positive
     )
+    has_coa = has_coa and not negated(coa)
+    has_tds = has_tds and not negated(tds)
     return (
         Parsed(has_coa, 0.9 if has_coa else 0.5),
         Parsed(has_tds, 0.9 if has_tds else 0.5),
@@ -134,9 +160,19 @@ def parse_documents(text: str) -> tuple[Parsed[bool], Parsed[bool]]:
 
 def parse_lead_time(text: str) -> Parsed[str]:
     """Срок поставки: 'lead time 15 days', 'delivery in 2 weeks'."""
+    duration = (
+        rf"{_NUMBER}\s*(?:(?:working|business)\s+)?(?:day|week|month)s?"
+    )
+    russian_duration = (
+        rf"{_NUMBER}\s*(?:рабоч(?:ий|их|ие)\s+)?"
+        r"(?:день|дня|дней|неделя|недели|недель|месяц|месяца|месяцев)"
+    )
     patterns = [
-        rf"lead\s*time[:\s]*({_NUMBER}\s*(?:day|week|month)s?)",
-        rf"deliver(?:y|ed)?\s*(?:in|within)?[:\s]*({_NUMBER}\s*(?:day|week|month)s?)",
+        rf"lead\s*time\s*(?::|is|of)?\s*({duration})",
+        rf"deliver(?:y|ed)?\s*(?:is\s+)?(?:in|within)?[:\s]*({duration})",
+        rf"(?:dispatch|shipment)\s*(?:is\s+)?(?:in|within|takes?)?[:\s]*({duration})",
+        rf"срок[^\d\n]{{0,60}}({russian_duration})",
+        rf"отгруз\w*\s*(?:через|в\s+течение)?[:\s]*({russian_duration})",
     ]
     for pat in patterns:
         m = re.search(pat, text, flags=re.IGNORECASE)
@@ -162,14 +198,53 @@ def parse_payment_terms(text: str) -> Parsed[str]:
 
 def parse_grade(text: str) -> Parsed[str]:
     """Грейд/чистота: 'USP grade', '99.5% purity', 'industrial grade'."""
+    def affirmed(match: re.Match[str]) -> bool:
+        before = text[max(0, match.start() - 60):match.start()]
+        after = text[match.end():match.end() + 35]
+        return not (
+            re.search(
+                r"(?:\bnot\b|cannot|can['’]?t|does\s+not|do\s+not|"
+                r"unable\s+to|не)\s+(?:(?:meet|supply|offer|provide|"
+                r"соответств\w*|постав\w*|предлаг\w*)\s+)?(?:the\s+)?$",
+                before,
+                flags=re.IGNORECASE,
+            )
+            or re.match(
+                r"\s*(?:is\s+)?(?:not\s+available|unavailable|не\s+доступ)",
+                after,
+                flags=re.IGNORECASE,
+            )
+        )
+
     m = re.search(
-        r"\b(USP|BP|EP|ACS|HPLC|food|pharma(?:ceutical)?|industrial|"
+        r"\b(USP|BP|EP|FCC|ACS|HPLC|food|pharma(?:ceutical)?|industrial|"
         r"technical|reagent)\s*grade\b",
         text,
         flags=re.IGNORECASE,
     )
-    if m:
+    if m and affirmed(m):
         return Parsed(m.group(0).strip(), 0.85)
+    m = re.search(
+        r"\bgrade\s*(?::|is)?\s*(USP|BP|EP|FCC|ACS|HPLC)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if m and affirmed(m):
+        return Parsed(m.group(1).upper(), 0.85)
+    # В коротких котировках стандарт часто записан после вещества без слова
+    # ``grade``: ``Caffeine, USP.`` Это всё равно буквальное подтверждение, а
+    # не вывод модели, поэтому код фармакопеи можно принять детерминированно.
+    m = re.search(r"\b(USP|BP|EP|FCC|ACS|HPLC)\b", text, flags=re.IGNORECASE)
+    if m and affirmed(m):
+        return Parsed(m.group(1).upper(), 0.8)
+    m = re.search(
+        r"\b(?:фармацевтическ|пищев|техническ|реактивн)\w*\s+"
+        r"(?:грейд|класс|качество)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        return Parsed(m.group(0).strip(), 0.8)
     m = re.search(rf"({_NUMBER}\s*%)\s*(?:purity|min|assay)", text, flags=re.IGNORECASE)
     if m:
         return Parsed(m.group(1).strip(), 0.75)

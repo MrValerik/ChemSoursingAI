@@ -638,8 +638,9 @@ def test_communication_testing_marks_complete_quote_without_followup(
         f"/communication-testing/{started.json()['id']}/messages",
         json={
             "supplier_message": (
-                "USD 720/MT, MOQ: 100 kg, CIP Moscow. USP grade material. "
-                "Payment: T/T in advance. Lead time: 15 days. CoA attached."
+                "Ammonia, USP. USD 720/MT, MOQ: 100 kg, CIP Moscow. "
+                "Payment: T/T in advance. Dispatch within 9 working days "
+                "after payment. CoA attached."
             )
         },
         headers=admin,
@@ -660,9 +661,9 @@ def test_communication_testing_marks_complete_quote_without_followup(
         "currency": "USD",
         "incoterm": "CIP",
         "moq": "100 kg",
-        "grade": "USP grade",
+        "grade": "USP",
         "payment_terms": "T/T",
-        "lead_time": "15 days",
+        "lead_time": "9 working days",
         "has_coa": True,
         "has_tds": False,
     }

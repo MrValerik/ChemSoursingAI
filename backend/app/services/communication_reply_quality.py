@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-REPLY_POLICY_VERSION = "reply_quality.v2"
+REPLY_POLICY_VERSION = "reply_quality.v3"
 REPLY_DISCIPLINE = """
 Before writing the next reply, silently check the latest supplier question and
 all earlier supplier facts. Reply to that question first; do not restart the RFQ.
@@ -81,6 +81,34 @@ _ONLY_ADVANCE = re.compile(
     r"|только\s+100\s*%\s*(?:предоплат|аванс)", re.I
 )
 _PAYMENT_DECLARATION = re.compile(r"\bpayment(?:\s+terms)?\s*(?::|is\b|are\b)|\b\d+\s*%\s*(?:T\s*/\s*T|deposit|advance)|\b(?:net\s+\d+|T\s*/\s*T)\b|предоплат|условия\s+оплат", re.I)
+_GRADE_CODE_RE = re.compile(r"\b(?:USP|BP|EP|FCC|ACS|HPLC)\b", re.I)
+
+
+def _affirmed_grade_codes(text: str) -> set[str]:
+    result: set[str] = set()
+    for match in _GRADE_CODE_RE.finditer(text):
+        before = text[max(0, match.start() - 60):match.start()]
+        after = text[match.end():match.end() + 35]
+        if re.search(
+            r"(?:\bnot\b|cannot|can['’]?t|does\s+not|do\s+not|"
+            r"unable\s+to|не)\s+(?:(?:meet|supply|offer|provide|"
+            r"соответств\w*|постав\w*|предлаг\w*)\s+)?(?:the\s+)?$",
+            before,
+            re.I,
+        ) or re.match(
+            r"\s*(?:is\s+)?(?:not\s+available|unavailable|не\s+доступ)",
+            after,
+            re.I,
+        ):
+            continue
+        result.add(match.group().upper())
+    return result
+
+
+def _missing_required_grades(context: str, supplier_text: str) -> set[str]:
+    required = _affirmed_grade_codes(context)
+    confirmed = _affirmed_grade_codes(supplier_text)
+    return required - confirmed
 
 
 def _capacities(value: str) -> set[str]:
@@ -130,8 +158,8 @@ def reply_focus(context: str, supplier_text: str, latest_supplier_text: str | No
     if blocker:
         return f"PRIORITY: supplier awaits our {blocker}, which the operator has not provided. Reply only that internal confirmation is needed. No quotation request or checklist until this prerequisite is resolved."
     hints = []
-    required_grades = set(re.findall(r"\b(?:USP|BP|EP|FCC)\b", context, re.I))
-    if required_grades and not any(re.search(rf"\b{grade}\b", supplier_text, re.I) for grade in required_grades):
+    required_grades = _missing_required_grades(context, supplier_text)
+    if required_grades:
         hints.append("PRIORITY: our requested grade is not supplier-confirmed. Ask if the offered product meets it before lower-priority timing/validity questions.")
     if _needs_moq(supplier_text):
         hints.append("PRIORITY: package size is present but no explicit MOQ was found. Ask the actual minimum order quantity now, together with at most two related gaps.")
@@ -165,6 +193,22 @@ def grounded_reply_issue(*, context: str, supplier_text: str, reply: str, stage:
     if (_needs_moq(supplier_text) and not _buyer_blocker(context, latest)
             and not re.search(r"\bMOQ\b|minimum\s+order", reply, re.I)):
         return "Известен размер упаковки, но не MOQ. Спроси минимальное количество заказа, не считай размер мешка MOQ и не пропускай этот пробел."
+    missing_grades = _missing_required_grades(context, supplier_text)
+    if (
+        missing_grades
+        and not _buyer_blocker(context, latest)
+        and not (
+            any(
+                re.search(rf"\b{re.escape(grade)}\b", reply, re.I)
+                for grade in missing_grades
+            )
+            or re.search(r"\b(?:grade|specification)\b|грейд|стандарт", reply, re.I)
+        )
+    ):
+        return (
+            "Требуемый грейд не подтверждён поставщиком. Спроси о нём до "
+            "вопросов о сроке действия цены и других менее важных пробелах."
+        )
     # Only current-message terms: an old deadline must not close a revised quote.
     questions = " ".join(sentence for sentence in re.split(r"[.!\n]+", reply)
                          if re.search(r"\b(?:could|can|please|what|how|is|does)\b", sentence, re.I))

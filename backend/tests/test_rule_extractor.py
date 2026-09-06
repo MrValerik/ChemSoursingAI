@@ -60,3 +60,36 @@ def test_overall_field_accuracy():
     accuracy = hits / total
     # Rule-baseline должен уверенно проходить порог; LLM поднимет выше.
     assert accuracy >= 0.9, f"accuracy {accuracy:.2%} below 0.90"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_grade", "expected_lead_time", "expected_moq"),
+    [
+        (
+            "Caffeine CAS 58-08-2, USP. USD 16/kg EXW for 200 kg; "
+            "MOQ 20 kg. Payment: 100% T/T in advance only. "
+            "Dispatch within 9 working days after payment. CoA and TDS attached.",
+            "USP",
+            "9 working days",
+            "20 kg",
+        ),
+        (
+            "Кофеин USP, CAS 58-08-2. Цена 16 USD/kg EXW на 200 кг. "
+            "MOQ 20 кг. Только 100% предоплата T/T. CoA и TDS приложены. "
+            "Срок подготовки отгрузки 9 рабочих дней.",
+            "USP",
+            "9 рабочих дней",
+            "20 кг",
+        ),
+    ],
+)
+def test_extracts_complete_english_and_russian_supplier_terms(
+    text, expected_grade, expected_lead_time, expected_moq
+):
+    quote = extract_with_rules(text)
+
+    assert quote.grade == expected_grade
+    assert quote.lead_time == expected_lead_time
+    assert quote.moq == expected_moq
+    assert quote.has_coa is True
+    assert quote.has_tds is True

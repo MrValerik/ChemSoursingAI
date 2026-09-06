@@ -61,7 +61,24 @@ def test_priority_hints_use_supplier_evidence_not_buyer_requirements():
     assert "MOQ" not in reply_focus("Quantity: 200 kg", "USD 16/kg, 20 kg bags, MOQ 40 kg")
     assert "internal confirmation" in reply_focus("Quantity: 200 kg", "Which packaging do you need, bags or containers?")
     assert "grade" in reply_focus("Required grade: USP", "Caffeine available")
+    assert "grade" in reply_focus("Required grade: USP", "Product does not meet USP")
     assert not reply_focus("Required grade: USP", "Caffeine USP, 20 kg bags, MOQ 40 kg")
+
+
+def test_missing_required_grade_cannot_be_skipped_for_lower_priority_gaps():
+    context = "Product: Caffeine\nCAS: 58-08-2\nRequired grade: USP"
+    supplier = "Caffeine is available. USD 16/kg FOB Shanghai for 200 kg."
+
+    assert issue(
+        "Could you confirm the MOQ, payment terms, lead time and CoA availability?",
+        context=context,
+        supplier=supplier,
+    )
+    assert issue(
+        "Could you confirm that the offered product meets the required USP grade?",
+        context=context,
+        supplier=supplier,
+    ) is None
 
 
 def test_missing_buyer_prerequisite_takes_priority_over_supplier_checklist():
