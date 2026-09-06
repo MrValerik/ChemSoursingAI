@@ -15,6 +15,7 @@ from app.schemas.communication import (
     SupplierConversationRead,
 )
 from app.services.completeness import accumulate_quotations
+from app.services.communication_links import communication_linked_to_rfq
 
 
 def _contact(manager: Manager | None, channel: Channel) -> str | None:
@@ -81,7 +82,7 @@ def list_communication_overview(
             .options(
                 joinedload(Communication.manager).joinedload(Manager.supplier)
             )
-            .where(Communication.rfq_id == rfq_id)
+            .where(communication_linked_to_rfq(rfq_id))
             .order_by(Communication.created_at, Communication.id)
         ).unique()
     )

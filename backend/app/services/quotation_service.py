@@ -26,6 +26,7 @@ from app.services.completeness import (
     REQUIRED_FIELDS,
     evaluate_completeness,
 )
+from app.services.communication_links import communication_linked_to_rfq
 from app.services.escalation_rules import detect_escalation
 
 
@@ -168,7 +169,7 @@ def build_summary(db: Session, rfq_id: int) -> list[SummaryRow]:
     for communication in db.scalars(
         select(Communication)
         .where(
-            Communication.rfq_id == rfq_id,
+            communication_linked_to_rfq(rfq_id),
             Communication.manager_id.is_not(None),
         )
         .order_by(Communication.created_at, Communication.id)

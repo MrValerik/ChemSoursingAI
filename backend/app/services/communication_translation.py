@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.connectors.google_translate import GoogleTranslateConnector
 from app.models import Communication
 from app.schemas.communication import CommunicationMessageTranslationRead
+from app.services.communication_links import communication_linked_to_rfq
 
 
 def translate_communication_messages(
@@ -19,7 +20,7 @@ def translate_communication_messages(
         db.scalars(
             select(Communication)
             .where(
-                Communication.rfq_id == rfq_id,
+                communication_linked_to_rfq(rfq_id),
                 Communication.id.in_(message_ids),
             )
             .order_by(Communication.created_at, Communication.id)

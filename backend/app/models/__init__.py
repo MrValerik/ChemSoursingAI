@@ -2,6 +2,7 @@
 
 from app.models.base import Base
 from app.models.communication import Communication
+from app.models.communication_rfq import CommunicationRfqLink
 from app.models.communication_profile import (
     CommunicationPolicyAudit,
     CommunicationProfile,
@@ -56,6 +57,7 @@ __all__ = [
     "PurchaseHistoryEntry",
     "RfqRecipient",
     "Communication",
+    "CommunicationRfqLink",
     "CommunicationProfile",
     "CommunicationProfileVersion",
     "CommunicationPolicyAudit",

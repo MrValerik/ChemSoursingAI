@@ -14,6 +14,7 @@ from app.models.base import Base, TimestampMixin
 from app.models.enums import Channel, CommDirection
 
 if TYPE_CHECKING:
+    from app.models.communication_rfq import CommunicationRfqLink
     from app.models.manager import Manager
 
 
@@ -57,4 +58,8 @@ class Communication(Base, TimestampMixin):
 
     manager: Mapped["Manager | None"] = relationship(
         back_populates="communications"
+    )
+    rfq_links: Mapped[list["CommunicationRfqLink"]] = relationship(
+        back_populates="communication",
+        cascade="all, delete-orphan",
     )
