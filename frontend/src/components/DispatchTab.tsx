@@ -611,6 +611,20 @@ export default function DispatchTab({
     }
   };
 
+  const assignRfqProfile = async (profileId: number | null) => {
+    setProfileBusy(true);
+    setError(null);
+    try {
+      await api.assignRfqCommunicationProfile(rfqId, profileId);
+      await load();
+      setNotice("Профиль общения для этого RFQ обновлён.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
   return (
     <div>
       {!compact && (
@@ -687,7 +701,9 @@ export default function DispatchTab({
                       {profileStatus.user_name} · {profileStatus.profile_name} · v
                       {profileStatus.profile_version} · {profileStatus.source === "user"
                         ? "выбран пользователем"
-                        : "системный по умолчанию"}
+                        : profileStatus.source === "rfq"
+                          ? "назначен для RFQ"
+                          : "системный по умолчанию"}
                     </p>
                   </div>
                   <select
@@ -709,6 +725,33 @@ export default function DispatchTab({
                 <p className="note">
                   Выбор и расход лимитов относятся только к вашей учётной записи.
                 </p>
+                {user?.role === "admin" && (
+                  <div className="tab-toolbar">
+                    <div>
+                      <h3>Профиль этого RFQ</h3>
+                      <p className="note">
+                        Применяется, если сотрудник не выбрал личный профиль.
+                      </p>
+                    </div>
+                    <select
+                      aria-label="Профиль общения RFQ"
+                      disabled={profileBusy}
+                      value={profileStatus.rfq_profile_id ?? ""}
+                      onChange={(event) =>
+                        void assignRfqProfile(
+                          event.target.value ? Number(event.target.value) : null,
+                        )
+                      }
+                    >
+                      <option value="">Не назначен</option>
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name} · v{profile.version}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="stack-inline">
                   <span className={`badge ${profileStatus.stopped ? "tone-warn" : "tone-ok"}`}>
                     {profileStatus.stopped ? "Автоответы остановлены" : "Автоответы разрешены"}

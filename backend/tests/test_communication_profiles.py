@@ -84,6 +84,28 @@ def test_profile_precedence_and_role_goals() -> None:
         assert resolve_profile(db, rfq_id=rfq.id, actor_id=owner.id).id == chemist.id
         assert resolve_profile(db, rfq_id=rfq.id).id == buyer.id
 
+        rfq_profile = CommunicationProfile(
+            slug="rfq-profile",
+            name="Профиль RFQ",
+            description=None,
+            system_instructions="Собери условия именно для этого запроса.",
+            required_fields=["price", "currency"],
+            max_input_chars=8000,
+            max_auto_replies=8,
+            max_duration_minutes=100,
+            max_prompt_tokens=10000,
+            max_completion_tokens=2000,
+            max_estimated_cost_usd=5,
+        )
+        db.add(rfq_profile)
+        db.flush()
+        setting = db.get(RfqAiSetting, rfq.id)
+        assert setting is not None
+        setting.communication_profile_id = rfq_profile.id
+        db.flush()
+        assert resolve_profile(db, rfq_id=rfq.id).id == rfq_profile.id
+        assert resolve_profile(db, rfq_id=rfq.id, actor_id=owner.id).id == chemist.id
+
 
 def test_large_input_and_duplicate_event_are_stopped_without_double_audit() -> None:
     with _session() as db:

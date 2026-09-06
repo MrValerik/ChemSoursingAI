@@ -799,7 +799,8 @@ export interface CommunicationProfileStatus {
   profile_slug: string;
   profile_name: string;
   profile_version: number;
-  source: "user" | "default";
+  rfq_profile_id: number | null;
+  source: "user" | "rfq" | "default";
   budget: {
     input_chars: number;
     max_input_chars: number;

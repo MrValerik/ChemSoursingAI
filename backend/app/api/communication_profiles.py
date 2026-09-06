@@ -10,6 +10,7 @@ from app.models import (
     CommunicationProfile,
     CommunicationProfileVersion,
     RFQ,
+    RfqAiSetting,
     User,
 )
 from app.models.enums import UserRole
@@ -247,6 +248,26 @@ def assign_current_user_profile(
     return {"user_id": actor.id, "profile_id": actor.communication_profile_id}
 
 
+@router.patch("/assignments/rfqs/{rfq_id}")
+def assign_rfq_profile(
+    rfq_id: int,
+    payload: CommunicationProfileAssignment,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
+) -> dict:
+    rfq = db.get(RFQ, rfq_id)
+    if rfq is None or rfq.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+    _validate_assignment_profile(db, payload.profile_id)
+    setting = db.get(RfqAiSetting, rfq_id)
+    if setting is None:
+        setting = RfqAiSetting(rfq_id=rfq_id)
+        db.add(setting)
+    setting.communication_profile_id = payload.profile_id
+    db.commit()
+    return {"rfq_id": rfq.id, "profile_id": setting.communication_profile_id}
+
+
 @router.get("/status/{rfq_id}", response_model=CommunicationProfileStatusRead)
 def profile_status(
     rfq_id: int,
@@ -258,7 +279,14 @@ def profile_status(
     budget = budget_status(
         db, profile=profile, rfq_id=rfq.id, actor_id=actor.id
     )
-    source = "user" if actor.communication_profile_id == profile.id else "default"
+    setting = db.get(RfqAiSetting, rfq_id)
+    rfq_profile_id = setting.communication_profile_id if setting else None
+    if actor.communication_profile_id == profile.id:
+        source = "user"
+    elif rfq_profile_id == profile.id:
+        source = "rfq"
+    else:
+        source = "default"
     return CommunicationProfileStatusRead(
         user_id=actor.id,
         user_name=actor.full_name,
@@ -266,6 +294,7 @@ def profile_status(
         profile_slug=profile.slug,
         profile_name=profile.name,
         profile_version=profile.version,
+        rfq_profile_id=rfq_profile_id,
         source=source,
         budget=budget.snapshot,
         stopped=not budget.allowed,

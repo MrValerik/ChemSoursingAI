@@ -205,6 +205,35 @@ def test_communication_profiles_are_versioned_and_assignable(client):
     assert default_status["profile_slug"] == "buyer"
     assert default_status["source"] == "default"
 
+    denied_rfq_assignment = client.patch(
+        f"/communication-profiles/assignments/rfqs/{rfq['id']}",
+        headers=buyer,
+        json={"profile_id": chemist["id"]},
+    )
+    assert denied_rfq_assignment.status_code == 403
+
+    assigned_rfq = client.patch(
+        f"/communication-profiles/assignments/rfqs/{rfq['id']}",
+        headers=admin,
+        json={"profile_id": chemist["id"]},
+    )
+    assert assigned_rfq.status_code == 200
+    assert assigned_rfq.json()["profile_id"] == chemist["id"]
+    rfq_status = client.get(
+        f"/communication-profiles/status/{rfq['id']}",
+        headers=buyer,
+    ).json()
+    assert rfq_status["profile_slug"] == "chemist"
+    assert rfq_status["source"] == "rfq"
+    assert rfq_status["rfq_profile_id"] == chemist["id"]
+
+    invalid_rfq_assignment = client.patch(
+        f"/communication-profiles/assignments/rfqs/{rfq['id']}",
+        headers=admin,
+        json={"profile_id": 999999},
+    )
+    assert invalid_rfq_assignment.status_code == 404
+
 
 def test_russian_seed_does_not_overwrite_user_prompt(client):
     admin = _auth(client, "admin")

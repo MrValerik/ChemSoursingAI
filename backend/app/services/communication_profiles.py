@@ -106,12 +106,16 @@ def resolve_profile(
     rfq_id: int | None,
     actor_id: int | None = None,
 ) -> CommunicationProfile:
-    """Профиль текущего пользователя → системный профиль закупщика."""
+    """Профиль пользователя → профиль RFQ → системный профиль закупщика."""
     profile_ids: list[int] = []
     if actor_id is not None:
         actor = db.get(User, actor_id)
         if actor and actor.communication_profile_id:
             profile_ids.append(actor.communication_profile_id)
+    if rfq_id is not None:
+        setting = db.get(RfqAiSetting, rfq_id)
+        if setting and setting.communication_profile_id:
+            profile_ids.append(setting.communication_profile_id)
     profile = None
     for profile_id in dict.fromkeys(profile_ids):
         candidate = db.get(CommunicationProfile, profile_id)

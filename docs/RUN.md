@@ -516,7 +516,8 @@ backend и проверяет публичный health endpoint. Подробн
 | GET/POST/PATCH | `/communication-profiles` | Версионируемые ролевые профили общения; изменение доступно администратору |
 | PATCH | `/communication-profiles/assignments/users/{id}` | Назначить профиль сотруднику |
 | PATCH | `/communication-profiles/assignments/me` | Выбрать профиль текущей учётной записи; выбор индивидуален для пользователя |
-| GET | `/communication-profiles/status/{rfq_id}` | Профиль текущего пользователя, версия и его фактический расход бюджета диалога |
+| PATCH | `/communication-profiles/assignments/rfqs/{rfq_id}` | Администратору назначить профиль конкретному RFQ; личный профиль сотрудника имеет приоритет |
+| GET | `/communication-profiles/status/{rfq_id}` | Фактический профиль с источником `user` / `rfq` / `default`, версия и индивидуальный расход бюджета диалога |
 | POST | `/supplier-search` | ИИ-запрос и поиск кандидатов со ссылками |
 | POST | `/supplier-search/jobs?rfq_id={id}` | Поставить полный цикл поиска по России, Китаю или Индии и предварительной квалификации в очередь и сразу получить ID; worker не забирает задания до готовности настроенного LLM-профиля |
 | GET | `/search-runs?rfq_id={id}` | Очередь, история и текущие статусы поисков запроса |

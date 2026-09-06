@@ -95,6 +95,7 @@ class CommunicationProfileStatusRead(BaseModel):
     profile_slug: str
     profile_name: str
     profile_version: int
+    rfq_profile_id: int | None
     source: str
     budget: dict
     stopped: bool
