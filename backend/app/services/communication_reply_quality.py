@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-REPLY_POLICY_VERSION = "reply_quality.v3"
+REPLY_POLICY_VERSION = "reply_quality.v4"
 REPLY_DISCIPLINE = """
 Before writing the next reply, silently check the latest supplier question and
 all earlier supplier facts. Reply to that question first; do not restart the RFQ.
@@ -82,6 +82,20 @@ _ONLY_ADVANCE = re.compile(
 )
 _PAYMENT_DECLARATION = re.compile(r"\bpayment(?:\s+terms)?\s*(?::|is\b|are\b)|\b\d+\s*%\s*(?:T\s*/\s*T|deposit|advance)|\b(?:net\s+\d+|T\s*/\s*T)\b|предоплат|условия\s+оплат", re.I)
 _GRADE_CODE_RE = re.compile(r"\b(?:USP|BP|EP|FCC|ACS|HPLC)\b", re.I)
+_REQUESTED_QUANTITY_RE = re.compile(
+    r"(?:quantity|qty|количество|об[ъь]?[её]м)\s*:\s*"
+    r"(\d+(?:[.,]\d+)?\s*(?:kg|кг|mt|tons?|tonnes?|l|л|litres?|liters?))\b",
+    re.I,
+)
+_REQUESTED_INCOTERM_RE = re.compile(
+    r"(?:requested\s+incoterms?|incoterms?|запрошенн\w*\s+инкотермс|инкотермс)\s*:\s*([A-Z]{3})\b",
+    re.I,
+)
+_PRICE_AMOUNT_RE = re.compile(
+    r"\b(?:USD|CNY|EUR|RMB)\s*(\d+(?:[.,]\d+)?)"
+    r"|\b(\d+(?:[.,]\d+)?)\s*(?:USD|CNY|EUR|RMB)\b",
+    re.I,
+)
 
 
 def _affirmed_grade_codes(text: str) -> set[str]:
@@ -109,6 +123,42 @@ def _missing_required_grades(context: str, supplier_text: str) -> set[str]:
     required = _affirmed_grade_codes(context)
     confirmed = _affirmed_grade_codes(supplier_text)
     return required - confirmed
+
+
+def _earlier_scoped_price(
+    context: str,
+    supplier_text: str,
+    latest_supplier_text: str,
+) -> str | None:
+    """Return the earlier requested-scope price when the latest quote changes scope."""
+    if not latest_supplier_text:
+        return None
+    latest_at = supplier_text.rfind(latest_supplier_text)
+    if latest_at <= 0:
+        return None
+    earlier = supplier_text[:latest_at].strip()
+    requested_match = _REQUESTED_QUANTITY_RE.search(context)
+    incoterm_match = _REQUESTED_INCOTERM_RE.search(context)
+    if requested_match is None or incoterm_match is None:
+        return None
+    requested_quantity = next(iter(_capacities(requested_match.group(1))), "")
+    if not requested_quantity or requested_quantity not in _capacities(earlier):
+        return None
+    latest_capacities = _capacities(latest_supplier_text)
+    if not latest_capacities or requested_quantity in latest_capacities:
+        return None
+    incoterm = incoterm_match.group(1)
+    scoped_prices = [
+        match
+        for match in _PRICE_AMOUNT_RE.finditer(earlier)
+        if re.search(rf"\b{re.escape(incoterm)}\b", earlier[match.end():match.end() + 24], re.I)
+    ]
+    latest_prices = list(_PRICE_AMOUNT_RE.finditer(latest_supplier_text))
+    if not scoped_prices or not latest_prices:
+        return None
+    earlier_price = next(group for group in scoped_prices[-1].groups() if group)
+    latest_values = {next(group for group in match.groups() if group) for match in latest_prices}
+    return earlier_price if earlier_price not in latest_values else None
 
 
 def _capacities(value: str) -> set[str]:
@@ -158,6 +208,18 @@ def reply_focus(context: str, supplier_text: str, latest_supplier_text: str | No
     if blocker:
         return f"PRIORITY: supplier awaits our {blocker}, which the operator has not provided. Reply only that internal confirmation is needed. No quotation request or checklist until this prerequisite is resolved."
     hints = []
+    earlier_price = _earlier_scoped_price(
+        context,
+        supplier_text,
+        supplier_text if latest_supplier_text is None else latest_supplier_text,
+    )
+    if earlier_price:
+        hints.append(
+            "PRIORITY: the latest price is for a different quantity than our request. "
+            f"Explicitly cite the earlier {earlier_price} price for the requested quantity "
+            "and Incoterm, then ask whether that earlier offer still applies. Do not ask "
+            "the supplier to quote the already-known requested scope from scratch."
+        )
     required_grades = _missing_required_grades(context, supplier_text)
     if required_grades:
         hints.append("PRIORITY: our requested grade is not supplier-confirmed. Ask if the offered product meets it before lower-priority timing/validity questions.")
@@ -208,6 +270,17 @@ def grounded_reply_issue(*, context: str, supplier_text: str, reply: str, stage:
         return (
             "Требуемый грейд не подтверждён поставщиком. Спроси о нём до "
             "вопросов о сроке действия цены и других менее важных пробелах."
+        )
+    earlier_price = _earlier_scoped_price(context, supplier_text, latest)
+    if (
+        earlier_price
+        and not re.search(rf"\b{re.escape(earlier_price)}\b", reply)
+        and not re.search(r"\b(?:earlier|previous|original|still)\b", reply, re.I)
+    ):
+        return (
+            "Последняя цена относится к другому объёму. Укажи ранее полученную "
+            f"цену {earlier_price} для запрошенного объёма и Incoterm и спроси, "
+            "остаётся ли это прежнее предложение в силе; не запрашивай цену заново."
         )
     # Only current-message terms: an old deadline must not close a revised quote.
     questions = " ".join(sentence for sentence in re.split(r"[.!\n]+", reply)

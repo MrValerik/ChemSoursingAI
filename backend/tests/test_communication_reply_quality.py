@@ -5,8 +5,21 @@ import pytest
 from app.services.communication_reply_quality import grounded_reply_issue, reply_focus
 
 
-def issue(reply, *, context="Product: Caffeine\nCAS: 58-08-2\nQuantity: 200 kg", supplier="", stage="reply"):
-    return grounded_reply_issue(context=context, supplier_text=supplier, reply=reply, stage=stage)
+def issue(
+    reply,
+    *,
+    context="Product: Caffeine\nCAS: 58-08-2\nQuantity: 200 kg",
+    supplier="",
+    latest=None,
+    stage="reply",
+):
+    return grounded_reply_issue(
+        context=context,
+        supplier_text=supplier,
+        latest_supplier_text=latest,
+        reply=reply,
+        stage=stage,
+    )
 
 
 @pytest.mark.parametrize("reply", [
@@ -78,6 +91,44 @@ def test_missing_required_grade_cannot_be_skipped_for_lower_priority_gaps():
         "Could you confirm that the offered product meets the required USP grade?",
         context=context,
         supplier=supplier,
+    ) is None
+
+
+def test_later_small_lot_quote_preserves_earlier_requested_scope():
+    context = (
+        "Product: Caffeine\nCAS: 58-08-2\nQuantity: 200 kg\n"
+        "Delivery destination: Moscow\nRequested Incoterms: CIP"
+    )
+    earlier = "For 200 kg: USD 16/kg FOB Shanghai or USD 19/kg CIP Moscow."
+    latest = "For MOQ 20 kg, USD 33/kg by courier to your door."
+    supplier = f"{earlier}\n{latest}"
+
+    focus = reply_focus(context, supplier, latest)
+    assert "earlier 19 price" in focus
+    assert issue(
+        "Could you clarify the price for our requested quantity of 200 kg CIP Moscow?",
+        context=context,
+        supplier=supplier,
+        latest=latest,
+    )
+    assert issue(
+        "Could you confirm whether the earlier USD 19/kg CIP Moscow offer for 200 kg still applies?",
+        context=context,
+        supplier=supplier,
+        latest=latest,
+    ) is None
+
+
+def test_latest_quote_for_same_requested_quantity_does_not_require_old_price():
+    context = "Quantity: 200 kg\nRequested Incoterms: CIP"
+    supplier = "USD 19/kg CIP for 200 kg.\nRevised offer: USD 18/kg CIP for 200 kg."
+
+    assert not reply_focus(context, supplier, supplier.splitlines()[-1])
+    assert issue(
+        "Thank you for the revised quotation. Could you confirm its validity?",
+        context=context,
+        supplier=supplier,
+        latest=supplier.splitlines()[-1],
     ) is None
 
 
