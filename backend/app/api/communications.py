@@ -29,6 +29,19 @@ from app.schemas.communication import (
     MailboxThreadListRead,
     MailboxThreadDetailRead,
 )
+from app.schemas.combined_communication import (
+    CombinedRfqDispatchCreate,
+    CombinedRfqDispatchRead,
+    CombinedRfqOptionRead,
+    CombinedRfqPreviewRead,
+    CombinedRfqSelection,
+)
+from app.services.combined_communication import (
+    CombinedDispatchError,
+    combined_options,
+    dispatch_combined_message,
+    prepare_combined_message,
+)
 from app.services.communication_delivery import (
     CommunicationSendError,
     send_conversation_message,
@@ -61,6 +74,115 @@ def _visible_rfq(db: Session, rfq_id: int, user: User) -> RFQ:
     ):
         raise HTTPException(status_code=404, detail="Запрос не найден")
     return rfq
+
+
+def _visible_batch_rfqs(db: Session, batch_id: int, user: User) -> list[RFQ]:
+    rfqs = list(
+        db.scalars(
+            select(RFQ)
+            .where(RFQ.batch_id == batch_id, RFQ.deleted_at.is_(None))
+            .order_by(RFQ.id)
+        ).all()
+    )
+    visible = [
+        rfq
+        for rfq in rfqs
+        if user.role in _SEE_ALL_ROLES or rfq.owner_id in (None, user.id)
+    ]
+    if not visible:
+        raise HTTPException(status_code=404, detail="Пакет RFQ не найден")
+    return visible
+
+
+def _combined_read(prepared, communication: Communication | None = None) -> dict:
+    return {
+        "communication_id": communication.id if communication else None,
+        "status": communication.status if communication else None,
+        "supplier_id": prepared.supplier.id,
+        "supplier_company": prepared.supplier.company,
+        "channel": prepared.channel,
+        "rfq_ids": [rfq.id for rfq in prepared.rfqs],
+        "subject": prepared.subject,
+        "body": prepared.body,
+    }
+
+
+@router.get(
+    "/rfq-batches/{batch_id}/combined-communication-options",
+    response_model=list[CombinedRfqOptionRead],
+)
+def list_combined_communication_options(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict]:
+    return combined_options(db, rfqs=_visible_batch_rfqs(db, batch_id, user))
+
+
+@router.post(
+    "/rfq-batches/{batch_id}/combined-communication-preview",
+    response_model=CombinedRfqPreviewRead,
+)
+def preview_combined_communication(
+    batch_id: int,
+    payload: CombinedRfqSelection,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    visible_ids = {rfq.id for rfq in _visible_batch_rfqs(db, batch_id, user)}
+    if not set(payload.rfq_ids).issubset(visible_ids):
+        raise HTTPException(status_code=404, detail="Один или несколько RFQ недоступны")
+    try:
+        prepared = prepare_combined_message(
+            db,
+            batch_id=batch_id,
+            supplier_id=payload.supplier_id,
+            channel=payload.channel,
+            rfq_ids=payload.rfq_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _combined_read(prepared)
+
+
+@router.post(
+    "/rfq-batches/{batch_id}/combined-communications",
+    response_model=CombinedRfqDispatchRead,
+)
+def send_combined_communication(
+    batch_id: int,
+    payload: CombinedRfqDispatchCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    visible_ids = {rfq.id for rfq in _visible_batch_rfqs(db, batch_id, user)}
+    if not set(payload.rfq_ids).issubset(visible_ids):
+        raise HTTPException(status_code=404, detail="Один или несколько RFQ недоступны")
+    try:
+        existing = db.scalar(
+            select(Communication).where(
+                Communication.idempotency_key == payload.idempotency_key
+            )
+        )
+        prepared = prepare_combined_message(
+            db,
+            batch_id=batch_id,
+            supplier_id=payload.supplier_id,
+            channel=payload.channel,
+            rfq_ids=payload.rfq_ids,
+            accept_sent_recipients=existing is not None,
+        )
+        communication = dispatch_combined_message(
+            db,
+            prepared=prepared,
+            idempotency_key=payload.idempotency_key,
+            confirm_external_send=payload.confirm_external_send,
+        )
+    except (ValueError, CombinedDispatchError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _combined_read(prepared, communication)
 
 
 @router.get(

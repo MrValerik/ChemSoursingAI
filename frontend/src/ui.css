@@ -403,3 +403,67 @@ button.multi-select-clear:hover {
   background: var(--panel-2);
   color: var(--text);
 }
+
+.combined-rfq-options,
+.combined-rfq-positions,
+.combined-rfq-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.combined-rfq-options {
+  margin-top: 16px;
+}
+
+.combined-rfq-option {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.combined-rfq-option > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.combined-rfq-positions label {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.combined-rfq-positions input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.combined-rfq-preview {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.combined-rfq-preview > div {
+  display: grid;
+  gap: 5px;
+}
+
+.combined-rfq-preview pre {
+  max-height: 420px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}

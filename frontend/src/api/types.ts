@@ -1409,3 +1409,31 @@ export interface RfqBatchSummary {
   hidden: number;
   items: RfqBatchItem[];
 }
+
+export interface CombinedRfqPosition {
+  rfq_id: number;
+  name: string;
+  cas: string | null;
+  volume: string | null;
+}
+
+export interface CombinedRfqOption {
+  supplier_id: number;
+  supplier_company: string;
+  channel: "email" | "whatsapp";
+  positions: CombinedRfqPosition[];
+}
+
+export interface CombinedRfqPreview {
+  supplier_id: number;
+  supplier_company: string;
+  channel: "email" | "whatsapp";
+  rfq_ids: number[];
+  subject: string | null;
+  body: string;
+}
+
+export interface CombinedRfqDispatch extends CombinedRfqPreview {
+  communication_id: number;
+  status: string;
+}

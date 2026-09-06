@@ -6,6 +6,9 @@ import type {
   ChannelStatus,
   RfqBatchCreateResult,
   RfqBatchSummary,
+  CombinedRfqDispatch,
+  CombinedRfqOption,
+  CombinedRfqPreview,
   RfqImportPreview,
   RfqImportRow,
   CommunicationMessageRead,
@@ -285,6 +288,36 @@ export const api = {
     }),
   getRfqBatch: (batchId: number) =>
     request<RfqBatchSummary>(`/rfq/batch/${batchId}`),
+  combinedCommunicationOptions: (batchId: number) =>
+    request<CombinedRfqOption[]>(
+      `/rfq-batches/${batchId}/combined-communication-options`,
+    ),
+  previewCombinedCommunication: (
+    batchId: number,
+    payload: {
+      supplier_id: number;
+      channel: "email" | "whatsapp";
+      rfq_ids: number[];
+    },
+  ) =>
+    request<CombinedRfqPreview>(
+      `/rfq-batches/${batchId}/combined-communication-preview`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  sendCombinedCommunication: (
+    batchId: number,
+    payload: {
+      supplier_id: number;
+      channel: "email" | "whatsapp";
+      rfq_ids: number[];
+      idempotency_key: string;
+      confirm_external_send: boolean;
+    },
+  ) =>
+    request<CombinedRfqDispatch>(
+      `/rfq-batches/${batchId}/combined-communications`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
   previewRfqImport: (file: File) =>
     requestUpload<RfqImportPreview>("/rfq/import/preview", file),
   // Образец файла: закупщик, открывший экран впервые, не знает, в каком

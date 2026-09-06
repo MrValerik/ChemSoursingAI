@@ -536,6 +536,9 @@ backend и проверяет публичный health endpoint. Подробн
 | POST | `/documents/{id}/extract` | Повторно извлечь текст (например, после установки OCR) |
 | POST | `/documents/{id}/verify` | Независимая проверка паспорта качества агентом с детерминированным veto-gate |
 | GET | `/rfq/{id}/communications` | Диалоги RFQ, сгруппированные по поставщику и каналу, со связанными эскалациями; явно общий диалог отображается в истории каждой связанной позиции |
+| GET | `/rfq-batches/{id}/combined-communication-options` | Общие поставщики и каналы, уже выбранные минимум для двух ещё не отправленных позиций пакета |
+| POST | `/rfq-batches/{id}/combined-communication-preview` | Проверить явный список позиций и получить точный общий текст без отправки |
+| POST | `/rfq-batches/{id}/combined-communications` | После отдельного подтверждения идемпотентно отправить один общий RFQ по явно выбранным позициям |
 | POST | `/rfq/{id}/communications/send` | После явного подтверждения реально отправить сообщение в существующий Email/WhatsApp-диалог; повтор защищён idempotency key |
 | POST multipart | `/rfq/{id}/communications/send-with-attachments` | Отправить в существующий Email/WhatsApp-диалог текст и 1–5 файлов; требуется то же явное подтверждение, файлы сохраняются для аудита |
 | POST | `/communications/{id}/send` | После явного подтверждения отправить сохранённый Email-дозапрос-черновик |
