@@ -22,6 +22,11 @@ from app.services.search_trace import utc_now
 # не отдел продаж, а разбор чужого списка рассылки.
 _MAX_MANAGERS = 3
 
+# Оговорка, которую ставит register_marketplace_seller, пока о компании
+# известно одно имя. Держится строкой, потому что переписывается ровно там,
+# где перестаёт быть правдой, — при находке собственного сайта.
+_NO_PAGE_NOTE = "страница компании недоступна, проверка не проводилась"
+
 # Роды страниц, которые компании не принадлежат: обзор рынка, научная
 # статья, справочник, перечень площадки. Компанию такая страница называет,
 # но говорит о ней с чужих слов, и контакты на ней — чужие. Держится
@@ -154,7 +159,7 @@ def register_marketplace_seller(
             reputation=(
                 f"Сведения площадки {seller.platform}: "
                 f"{seller.claimed_role or 'роль не указана'}; "
-                "страница компании недоступна, проверка не проводилась"
+                f"{_NO_PAGE_NOTE}"
             )[:255],
             source=seller.listing_url[:255],
             qualification_status="candidate",
@@ -548,11 +553,16 @@ def record_seller_site(
     supplier.source = site.url[:255]
     supplier.last_checked_at = utc_now()
     # Прежняя запись говорила «страница компании недоступна» — после того
-    # как сайт найден, это неправда.
-    supplier.reputation = (
-        f"{supplier.reputation or ''}; собственный сайт найден поиском "
-        "по названию"
-    ).lstrip("; ")[:255]
+    # как сайт найден, это неправда, и дописать рядом нельзя: получилась бы
+    # строка «страница недоступна; сайт найден», противоречащая сама себе.
+    # Заменяется именно эта оговорка, а сведения площадки остаются: роль
+    # по-прежнему указана продавцом о себе и проверкой не подтверждена.
+    found = "собственный сайт найден поиском по названию"
+    previous = supplier.reputation or ""
+    if _NO_PAGE_NOTE in previous:
+        supplier.reputation = previous.replace(_NO_PAGE_NOTE, found)[:255]
+    elif found not in previous:
+        supplier.reputation = f"{previous}; {found}".lstrip("; ")[:255]
     _attach_contacts(
         db,
         supplier=supplier,

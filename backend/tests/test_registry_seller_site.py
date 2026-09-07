@@ -100,6 +100,36 @@ def test_the_found_site_becomes_the_source_and_the_contact(client):
         assert not needs_site_lookup(db, supplier)
 
 
+def test_the_note_about_an_unavailable_page_is_replaced_not_appended(client):
+    # Иначе в карточке стояло бы «страница компании недоступна, проверка не
+    # проводилась; собственный сайт найден поиском по названию» — строка,
+    # противоречащая сама себе. Сведения площадки при этом остаются: роль
+    # по-прежнему названа продавцом о себе.
+    with SessionLocal() as db:
+        supplier = _register(db, "Wuhan Oner Biotech Co.,Ltd")
+        db.commit()
+        assert "страница компании недоступна" in supplier.reputation
+
+        record_seller_site(
+            db,
+            supplier=supplier,
+            site=SellerSite(
+                company="Wuhan Oner Biotech Co.,Ltd",
+                url="https://onerbio.com/",
+                title="Oner Bio",
+                contacts={"emails": ["admin@onerbio.com"]},
+            ),
+            substance="Aspirin",
+        )
+        db.commit()
+
+        assert "страница компании недоступна" not in supplier.reputation
+        assert supplier.reputation == (
+            "Сведения площадки echemi: manufacturer; "
+            "собственный сайт найден поиском по названию"
+        )
+
+
 def test_a_site_without_contacts_replaces_the_platform_barrier(client):
     with SessionLocal() as db:
         supplier = _register(db, "Qingdao Nova Chemical Co., Ltd")
