@@ -5,10 +5,10 @@
 единого способа написать ей.
 
 Проверка принадлежности сайта здесь — не формальность. Замер 07.09.2026 на
-шести компаниях из сохранённых выдач: сайт-кандидат нашёлся у всех шести,
-но `senwayer.com` принадлежал другой компании, а `importgenius.cn` —
-агрегатору судовых записей, у которого имя компании стоит в заголовке
-страницы. Оба проходят проверку по заголовку и оба отсеиваются по домену.
+шести компаниях из сохранённых выдач нашёл среди кандидатов
+`importgenius.cn` — агрегатор судовых записей, у которого имя компании
+стоит в заголовке страницы. По заголовку он неотличим от сайта компании,
+по домену отличим сразу.
 """
 
 import os
@@ -62,7 +62,12 @@ def test_an_aggregator_naming_the_company_does_not_belong_to_it():
     )
 
 
-def test_a_different_companys_site_does_not_belong_to_it():
+def test_a_site_under_a_trade_mark_is_missed_and_that_is_the_known_price():
+    # senwayer.com принадлежит именно Dingwang — ChemicalBook публикует
+    # адреса sales@senwayer.* под её именем, — но имени компании в домене
+    # нет, и правило его отвергает. Пропуск оставлен сознательно: по
+    # ложному контакту уходит письмо чужой компании, а этот адрес закупщик
+    # найдёт руками.
     assert not site_belongs_to_company(
         "Dingwang Technology (Wuhan) Co., Ltd", "https://senwayer.com/"
     )
@@ -95,7 +100,7 @@ def test_contacts_are_taken_from_the_companys_own_site():
     assert site.contacts["emails"] == ["sales@zhishangchem.com"]
 
 
-def test_a_site_that_is_not_the_companys_is_never_opened():
+def test_a_page_that_only_names_the_company_is_never_opened():
     def fetch(url: str):
         raise AssertionError(f"чужая страница не должна загружаться: {url}")
 
