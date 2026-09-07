@@ -456,6 +456,7 @@ export interface SupplierRead {
     | "platform"
     | "third_party"
     | "site_not_found"
+    | "site_closed"
     | null;
   linked_requests: {
     rfq_id: number;

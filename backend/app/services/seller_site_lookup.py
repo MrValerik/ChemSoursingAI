@@ -47,6 +47,18 @@ _RESULT_LIMIT = 6
 # прогон незачем.
 BARRIER_SITE_NOT_FOUND = "site_not_found"
 
+# Сайт найден, но нашему чтению закрыт: сервер отвечает отказом клиенту без
+# браузера. Проверено 07.09.2026 на боевом стенде: zhishangchem.com и
+# zhishangchemical.com отдают 403 на оба адреса, хотя домен принадлежит
+# именно этой компании и robots.txt загрузку не запрещает.
+#
+# Отдельный барьер, а не «сайт не найден»: разница для закупщика
+# принципиальная. «Не найден» значит «искать вручную», а «закрыт» — «адрес
+# вот он, откройте в браузере, там всё есть». Обходить отказ мы не будем:
+# ADR-0001 прямо запрещает строить работу на обходе ограничений чужих
+# площадок, и отказ сайта — такое же ограничение.
+BARRIER_SITE_CLOSED = "site_closed"
+
 
 @dataclass(frozen=True)
 class SellerSite:
@@ -63,19 +75,17 @@ class SellerSite:
     fetched_urls: tuple[str, ...] = ()
 
 
-def _load(
-    url: str,
-    *,
-    budget,
-    fetch,
-) -> FetchedPage | None:
-    if budget is not None and budget.refuse_page_fetch() is not None:
-        return None
+def _load(url: str, fetch) -> FetchedPage | None:
+    """Загружает страницу, возвращая None вместо любой ошибки.
+
+    Отказ сайта, обрыв сети, битая кодировка — всё это повод обойтись без
+    страницы, а не ронять прогон поиска.
+    """
     try:
         return fetch(url)
     except PageFetchError:
         return None
-    except Exception:  # сеть, разбор, кодировки — не повод ронять прогон
+    except Exception:
         return None
 
 
@@ -112,6 +122,15 @@ def find_seller_site(
         return None
 
     known = platforms or set()
+    # Первый адрес, про который известно, что он принадлежит компании. Если
+    # прочитать не удалось ни одного, он всё равно уходит в реестр: до сих
+    # пор у компании с площадки не было и адреса сайта, а открыть его
+    # руками закупщик может и там, где отказано нашему чтению.
+    owned_url: str | None = None
+    # Была ли хоть одна попытка чтения. Бюджет, кончившийся до первой
+    # загрузки, — не отказ сайта: такую компанию надо переспросить на
+    # следующем прогоне, а не записывать ей барьер.
+    attempted = False
     for item in results or []:
         url = str((item or {}).get("url") or "")
         if not url:
@@ -122,8 +141,12 @@ def find_seller_site(
             continue
         if not site_belongs_to_company(company, url):
             continue
+        owned_url = owned_url or url
 
-        page = _load(url, budget=budget, fetch=fetch)
+        if budget is not None and budget.refuse_page_fetch() is not None:
+            break
+        attempted = True
+        page = _load(url, fetch)
         if page is None:
             continue
         fetched = [page.final_url or url]
@@ -135,7 +158,9 @@ def find_seller_site(
             # главной. Одна догрузка — по ссылке из разметки, а не по
             # угаданному адресу «/contact.html».
             for link in page.contact_links[:1]:
-                extra = _load(link, budget=budget, fetch=fetch)
+                if budget is not None and budget.refuse_page_fetch() is not None:
+                    break
+                extra = _load(link, fetch)
                 if extra is None:
                     continue
                 fetched.append(extra.final_url or link)
@@ -153,4 +178,13 @@ def find_seller_site(
             barrier=barrier,
             fetched_urls=tuple(fetched),
         )
-    return None
+
+    if owned_url is None or not attempted:
+        return None
+    return SellerSite(
+        company=company,
+        url=owned_url,
+        title=None,
+        contacts={},
+        barrier=BARRIER_SITE_CLOSED,
+    )

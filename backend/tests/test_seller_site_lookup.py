@@ -168,18 +168,23 @@ def test_a_site_without_contacts_is_still_a_result():
     assert site.barrier == "obfuscated"
 
 
-def test_an_unreachable_site_does_not_stop_the_run():
+def test_a_site_closed_to_our_reading_is_still_a_result():
+    # Проверено на боевом стенде 07.09.2026: zhishangchem.com отдаёт 403
+    # клиенту без браузера, хотя домен принадлежит именно этой компании.
+    # Терять найденный адрес из-за отказа нельзя — закупщик откроет его
+    # руками, и там есть и почта, и телефон.
     def fetch(url: str):
         raise PageFetchError("403")
 
-    assert (
-        find_seller_site(
-            "Belle Chemical LLC",
-            search=_search("https://bellechemical.com/"),
-            fetch=fetch,
-        )
-        is None
+    site = find_seller_site(
+        "Belle Chemical LLC",
+        search=_search("https://bellechemical.com/"),
+        fetch=fetch,
     )
+    assert site is not None
+    assert site.url == "https://bellechemical.com/"
+    assert site.contacts == {}
+    assert site.barrier == "site_closed"
 
 
 def test_a_broken_search_does_not_stop_the_run():
@@ -222,6 +227,8 @@ def test_the_query_is_not_spent_beyond_the_budget():
 
 
 def test_the_page_is_not_fetched_beyond_the_budget():
+    # И барьер такой компании не пишется: бюджет кончился, а не сайт
+    # отказал. Её надо переспросить на следующем прогоне.
     def fetch(url: str):
         raise AssertionError("загрузка сверх бюджета не должна выполняться")
 
