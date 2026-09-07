@@ -511,3 +511,75 @@ def register_qualified_candidate(
         link.search_run_id = search_run.id
 
     return supplier
+
+
+def needs_site_lookup(db: Session, supplier: Supplier) -> bool:
+    """Стоит ли искать этой компании собственный сайт.
+
+    Продавец с площадки приходит без связи: писать ему можно только через
+    саму площадку, а её страницы нам недоступны. Поиск сайта по названию
+    это чинит, но стоит запроса, поэтому спрашивается он один раз на
+    компанию, а не каждый прогон.
+
+    Признак «уже искали» — не отдельное поле, а результат самой попытки:
+    удачная кладёт в `source` собственный сайт компании, неудачная ставит
+    барьер `site_not_found`. Компания, найденная когда-то по своему сайту,
+    сюда не попадает вовсе.
+    """
+    if supplier.contact_barrier == "site_not_found":
+        return False
+    source = supplier.source or ""
+    if source and not is_intermediary(source, known_domains(db)):
+        return False
+    has_contact = db.scalar(
+        select(Manager.id).where(Manager.supplier_id == supplier.id).limit(1)
+    )
+    return not has_contact
+
+
+def record_seller_site(
+    db: Session,
+    *,
+    supplier: Supplier,
+    site,
+    substance: str = "",
+) -> None:
+    """Записывает найденный сайт компании и снятые с него контакты."""
+    supplier.source = site.url[:255]
+    supplier.last_checked_at = utc_now()
+    # Прежняя запись говорила «страница компании недоступна» — после того
+    # как сайт найден, это неправда.
+    supplier.reputation = (
+        f"{supplier.reputation or ''}; собственный сайт найден поиском "
+        "по названию"
+    ).lstrip("; ")[:255]
+    _attach_contacts(
+        db,
+        supplier=supplier,
+        result={
+            "url": site.url,
+            "contacts": site.contacts,
+            "contact_barrier": site.barrier,
+        },
+        substance=substance,
+    )
+    # Барьер собственного сайта точнее прежнего «связь через площадку»:
+    # подменённый адрес значит «откройте страницу и прочитайте глазами», а
+    # не «другого пути, кроме площадки, нет».
+    # Читаем из базы, а не из supplier.managers: связь после вставки в той
+    # же сессии остаётся прежней.
+    linked = db.scalar(
+        select(Manager.id).where(Manager.supplier_id == supplier.id).limit(1)
+    )
+    if site.barrier and not linked:
+        supplier.contact_barrier = str(site.barrier)[:32]
+
+
+def record_seller_site_not_found(supplier: Supplier) -> None:
+    """Отмечает, что сайт компании искали и не нашли.
+
+    Без отметки один и тот же запрос уходил бы в поиск каждый прогон:
+    компании с площадок повторяются, а выдача про них не меняется.
+    """
+    supplier.contact_barrier = "site_not_found"
+    supplier.last_checked_at = utc_now()

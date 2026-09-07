@@ -207,3 +207,56 @@ def collect_sellers(results: list[dict]) -> list[MarketplaceSeller]:
         elif current.claimed_role is None and seller.claimed_role is not None:
             sellers[key] = seller
     return list(sellers.values())
+
+
+# --- поиск собственного сайта продавца (ADR-0001, вариант B) ---
+
+# Домен-метка против слов названия. Совпадение здесь — сильный признак:
+# «zhishangchem.com» у «Shandong zhishang chemical» принадлежит именно ей,
+# а «senwayer.com» у «Dingwang Technology» — нет.
+#
+# Замер 07.09.2026 на шести компаниях: сверка по одному заголовку страницы
+# пропустила importgenius.cn — агрегатор судовых записей, у которого имя
+# компании стоит в заголовке. Страница О компании выглядит как страница
+# КОМПАНИИ, и различить их можно только по домену.
+_GENERIC_DOMAIN_WORDS = frozenset(
+    {
+        "chemical", "chemicals", "chem", "group", "china", "cn", "com",
+        "trade", "trading", "biotech", "bio", "tech", "technology", "inc",
+        "ltd", "co", "industry", "industrial", "import", "export", "global",
+        "international", "shop", "store", "mall", "market", "info", "online",
+    }
+)
+
+# Минимальная длина куска названия, по которому домен признаётся своим.
+# Короткое совпадение («bio», «tech») даёт ложные срабатывания почти на
+# любой химической компании.
+_MIN_DOMAIN_TOKEN = 4
+
+
+def _company_words(company: str) -> list[str]:
+    """Значимые слова названия для сверки с доменом."""
+    cleaned = re.sub(r"[^a-z0-9]+", " ", (company or "").casefold())
+    return [
+        word
+        for word in cleaned.split()
+        if len(word) >= _MIN_DOMAIN_TOKEN and word not in _GENERIC_DOMAIN_WORDS
+    ]
+
+
+def site_belongs_to_company(company: str, url: str) -> bool:
+    """Домен принадлежит компании, а не рассказывает о ней.
+
+    Сравнивается метка домена со значимыми словами названия. Это грубее
+    сверки по заголовку, но именно грубость здесь и нужна: агрегатор,
+    каталог и справочник называют компанию в заголовке так же охотно, как
+    её собственный сайт, а вот в домен её имя ставит только она сама.
+    """
+    # Импорт внутри функции: модуль реестра тянет за собой модели и
+    # сессию, а разбор выдачи обязан оставаться без базы.
+    from app.services.intermediaries import domain_label
+
+    label = re.sub(r"[^a-z0-9]+", "", domain_label(url).casefold())
+    if len(label) < _MIN_DOMAIN_TOKEN:
+        return False
+    return any(word in label or label in word for word in _company_words(company))

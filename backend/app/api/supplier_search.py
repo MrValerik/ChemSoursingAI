@@ -73,14 +73,19 @@ from app.services.supplier_search_continuation import (
     supplier_exclusions,
 )
 from app.services.marketplace_listings import collect_sellers
+from app.services.seller_site_lookup import find_seller_site
 from app.services.supplier_registry import (
     NOT_THE_COMPANYS_OWN_PAGE,
+    needs_site_lookup,
+    record_seller_site,
+    record_seller_site_not_found,
     register_marketplace_seller,
     register_qualified_candidate,
 )
 from app.services.intermediaries import (
     active_domains,
     is_intermediary,
+    known_domains,
     is_marketplace_domain,
     marketplace_page_kind,
     normalize_domain as normalize_site_domain,
@@ -2478,6 +2483,66 @@ def _search_coverage_is_sufficient(
     return True
 
 
+# Сколько компаний с площадок искать за один прогон. Ограничение не про
+# деньги, а про время: каждая находка — это запрос и одна-две загрузки, и
+# десяток продавцов растянул бы этап поиска вдвое. Остальные дождутся
+# следующего прогона — искать их повторно ничто не мешает.
+_MAX_SITE_LOOKUPS = 3
+
+
+def _resolve_seller_sites(
+    db: Session,
+    *,
+    stage,
+    suppliers: list,
+    substance: str,
+    budget,
+) -> None:
+    """Ищет собственные сайты компаний, названных площадкой.
+
+    Компания с Echemi приходит без единого способа связи: страницы
+    площадки закрыты защитным экраном, а описание в выдаче несёт только
+    имя. Здесь имя превращается в канал: запрос про компанию, проверка,
+    что домен принадлежит именно ей, и контакты с её сайта.
+
+    Проверка домена здесь главное. Заголовок чужой страницы называет
+    компанию не хуже её собственного сайта — так в кандидаты попал
+    агрегатор судовых записей importgenius.cn, — и отличить их можно
+    только по тому, чьё имя стоит в домене.
+    """
+    if not suppliers:
+        return
+    platforms = known_domains(db)
+    found = 0
+    looked_up = 0
+    for supplier in suppliers[:_MAX_SITE_LOOKUPS]:
+        looked_up += 1
+        site = find_seller_site(
+            supplier.company, budget=budget, platforms=platforms
+        )
+        if site is None:
+            record_seller_site_not_found(supplier)
+            continue
+        record_seller_site(db, supplier=supplier, site=site, substance=substance)
+        found += 1
+        log_agent_event(
+            stage,
+            f"Сайт компании «{supplier.company}» найден: {site.url}. "
+            + (
+                "Контакты сняты со страницы"
+                if site.contacts
+                else f"Связи на сайте нет ({site.barrier or 'ни почты, ни телефона'})"
+            ),
+        )
+    db.commit()
+    skipped = max(len(suppliers) - _MAX_SITE_LOOKUPS, 0)
+    log_agent_event(
+        stage,
+        f"Поиск собственных сайтов: проверено {looked_up}, найдено {found}"
+        + (f", отложено до следующего прогона {skipped}" if skipped else ""),
+    )
+
+
 @router.post("/jobs", response_model=SupplierSearchJobRead, status_code=202)
 def enqueue_supplier_search(
     data: SupplierSearchRequest,
@@ -3408,17 +3473,28 @@ def execute_supplier_search(
     marketplace_sellers = collect_sellers([*raw_results, *intermediary_results])
     if marketplace_sellers:
         registered = 0
+        without_contacts = []
         for seller in marketplace_sellers:
-            if register_marketplace_seller(
+            supplier = register_marketplace_seller(
                 db, search_run=search_run, seller=seller
-            ):
+            )
+            if supplier is not None:
                 registered += 1
+                if needs_site_lookup(db, supplier):
+                    without_contacts.append(supplier)
         db.commit()
         log_agent_event(
             search_stage,
             f"С площадок вычитано продавцов: {len(marketplace_sellers)}, "
             f"заведено в реестр {registered}. Роль указана площадкой и "
             "доказательством не является",
+        )
+        _resolve_seller_sites(
+            db,
+            stage=search_stage,
+            suppliers=without_contacts,
+            substance=data.name,
+            budget=budget,
         )
 
     ranked_pool = _rank_results(
