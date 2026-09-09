@@ -3,12 +3,13 @@ from app.api.deps import get_current_user
 
 from fastapi import Depends, APIRouter, HTTPException, Query
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.connectors.pubchem import PubChemConnector
 from app.core.db import get_db
 from app.models.enums import UserRole
+from app.models.manager import Manager
 from app.models.purchase_decision import PurchaseHistoryEntry
 from app.models.quotation import Quotation
 from app.models.rfq import RFQ
@@ -19,7 +20,9 @@ from app.schemas.substance import (
     SubstanceCreate,
     SubstanceDecision,
     SubstanceHistoryRead,
+    SubstancePriceHistoryRead,
     SubstanceRead,
+    SubstanceRequestRead,
     SubstanceResolveRequest,
     SubstanceResolveResponse,
     SubstanceUpdate,
@@ -51,14 +54,24 @@ def _ensure_editor(user: User) -> None:
         raise HTTPException(status_code=403, detail="Аудитор — только чтение")
 
 
-def _to_read(db: Session, substance: Substance) -> SubstanceRead:
+def _visible_rfq_conditions(user: User) -> list:
+    conditions = [RFQ.deleted_at.is_(None)]
+    if user.role not in _SEE_ALL_ROLES:
+        conditions.append(or_(RFQ.owner_id.is_(None), RFQ.owner_id == user.id))
+    return conditions
+
+
+def _to_read(db: Session, substance: Substance, user: User) -> SubstanceRead:
     item = SubstanceRead.model_validate(substance)
     item.reviewed_by_name = (
         substance.reviewed_by.full_name if substance.reviewed_by else None
     )
     item.request_count = (
         db.scalar(
-            select(func.count(RFQ.id)).where(RFQ.substance_id == substance.id)
+            select(func.count(RFQ.id)).where(
+                RFQ.substance_id == substance.id,
+                *_visible_rfq_conditions(user),
+            )
         )
         or 0
     )
@@ -97,12 +110,17 @@ def resolve_by_name(data: SubstanceResolveRequest) -> SubstanceResolveResponse:
 def price_history(
     cas: str = Query(..., description="CAS-номер"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[dict]:
     """Возвращает историю котировок запросов с тем же CAS."""
     stmt = (
         select(Quotation, RFQ.id.label("rfq_id"))
         .join(RFQ, RFQ.id == Quotation.rfq_id)
-        .where(RFQ.cas == cas.strip(), Quotation.price.is_not(None))
+        .where(
+            RFQ.cas == cas.strip(),
+            Quotation.price.is_not(None),
+            *_visible_rfq_conditions(user),
+        )
         .order_by(Quotation.created_at.desc())
         .limit(20)
     )
@@ -125,6 +143,7 @@ def list_substances(
     q: str | None = Query(default=None, max_length=255),
     limit: int = Query(default=200, ge=1, le=500),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[SubstanceRead]:
     """Возвращает единый справочник с экспертными правилами идентификации."""
     substances = list(
@@ -147,7 +166,7 @@ def list_substances(
                 for synonym in list(substance.synonyms or [])
             )
         ]
-    return [_to_read(db, substance) for substance in substances]
+    return [_to_read(db, substance, user) for substance in substances]
 
 
 @router.post("", response_model=SubstanceRead, status_code=201)
@@ -161,7 +180,7 @@ def add_substance(
         substance = create_substance(db, data, reviewer_id=user.id)
     except SubstanceConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return _to_read(db, substance)
+    return _to_read(db, substance, user)
 
 
 @router.post("/rfq/{rfq_id}/decision", response_model=SubstanceRead)
@@ -181,13 +200,14 @@ def decide_rfq_identity(
     ):
         raise HTTPException(status_code=404, detail="Запрос не найден")
     substance = apply_rfq_decision(db, rfq, data, reviewer_id=user.id)
-    return _to_read(db, substance)
+    return _to_read(db, substance, user)
 
 
 @router.get("/{substance_id}", response_model=SubstanceRead)
 def get_substance(
     substance_id: int,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> SubstanceRead:
     substance = db.get(
         Substance,
@@ -196,7 +216,92 @@ def get_substance(
     )
     if substance is None:
         raise HTTPException(status_code=404, detail="Химическое вещество не найдено")
-    return _to_read(db, substance)
+    return _to_read(db, substance, user)
+
+
+@router.get(
+    "/{substance_id}/requests",
+    response_model=list[SubstanceRequestRead],
+)
+def get_substance_requests(
+    substance_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[SubstanceRequestRead]:
+    """Возвращает видимые пользователю запросы по карточке вещества."""
+    if db.get(Substance, substance_id) is None:
+        raise HTTPException(status_code=404, detail="Химическое вещество не найдено")
+    requests = list(
+        db.scalars(
+            select(RFQ)
+            .options(joinedload(RFQ.owner), selectinload(RFQ.quotations))
+            .where(
+                RFQ.substance_id == substance_id,
+                *_visible_rfq_conditions(user),
+            )
+            .order_by(RFQ.created_at.desc(), RFQ.id.desc())
+        ).all()
+    )
+    return [
+        SubstanceRequestRead(
+            id=rfq.id,
+            cas=rfq.cas,
+            name=rfq.name,
+            status=rfq.status,
+            volume=rfq.volume,
+            owner_id=rfq.owner_id,
+            owner_name=rfq.owner.full_name if rfq.owner else None,
+            quotation_count=len(rfq.quotations),
+            created_at=rfq.created_at,
+        )
+        for rfq in requests
+    ]
+
+
+@router.get(
+    "/{substance_id}/price-history",
+    response_model=list[SubstancePriceHistoryRead],
+)
+def get_substance_price_history(
+    substance_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[SubstancePriceHistoryRead]:
+    """Возвращает все полученные цены по связанным видимым запросам."""
+    if db.get(Substance, substance_id) is None:
+        raise HTTPException(status_code=404, detail="Химическое вещество не найдено")
+    quotations = list(
+        db.scalars(
+            select(Quotation)
+            .join(RFQ, RFQ.id == Quotation.rfq_id)
+            .options(joinedload(Quotation.manager).joinedload(Manager.supplier))
+            .where(
+                RFQ.substance_id == substance_id,
+                Quotation.price.is_not(None),
+                *_visible_rfq_conditions(user),
+            )
+            .order_by(Quotation.created_at.desc(), Quotation.id.desc())
+        ).all()
+    )
+    return [
+        SubstancePriceHistoryRead(
+            quotation_id=quotation.id,
+            rfq_id=quotation.rfq_id,
+            quoted_at=quotation.created_at,
+            price=float(quotation.price),
+            currency=quotation.currency,
+            price_unit=quotation.price_unit,
+            quoted_quantity=quotation.quoted_quantity,
+            incoterm=quotation.incoterm,
+            moq=quotation.moq,
+            supplier_name=(
+                quotation.manager.supplier.company
+                if quotation.manager and quotation.manager.supplier
+                else None
+            ),
+        )
+        for quotation in quotations
+    ]
 
 
 @router.get(
@@ -261,4 +366,4 @@ def edit_substance(
     if substance is None:
         raise HTTPException(status_code=404, detail="Химическое вещество не найдено")
     substance = update_substance(db, substance, data, reviewer_id=user.id)
-    return _to_read(db, substance)
+    return _to_read(db, substance, user)

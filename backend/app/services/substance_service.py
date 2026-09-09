@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.rfq import RFQ
@@ -71,6 +72,70 @@ def _record_revision(
     )
 
 
+def find_or_create_substance_for_request(
+    db: Session,
+    *,
+    cas: str | None,
+    name: str,
+    verification: dict | None,
+) -> tuple[Substance | None, bool]:
+    """Возвращает карточку по CAS или создаёт безопасный черновик справочника.
+
+    Название без CAS не является устойчивым идентификатором: торговая марка,
+    смесь и соседняя соль могут называться почти одинаково. Поэтому такие
+    запросы не объединяются автоматически и ждут экспертного решения.
+    """
+    if not cas:
+        return None, False
+
+    normalized_cas = normalize_cas(cas)
+    substance = db.scalar(select(Substance).where(Substance.cas == normalized_cas))
+    if substance is not None:
+        return substance, False
+
+    preferred_name = name.strip()
+    substance = Substance(
+        cas=normalized_cas,
+        preferred_name=preferred_name,
+        synonyms=[preferred_name],
+        excluded_names=[],
+        review_status="unreviewed",
+        verification=verification,
+    )
+    try:
+        # Два пользователя могут одновременно завести первый RFQ по одному
+        # CAS. Уникальность БД выбирает одну карточку, а второй запрос после
+        # отката только внутренней savepoint-транзакции связывается с ней.
+        with db.begin_nested():
+            db.add(substance)
+            db.flush()
+    except IntegrityError:
+        substance = db.scalar(
+            select(Substance).where(Substance.cas == normalized_cas)
+        )
+        if substance is None:
+            raise
+        return substance, False
+    return substance, True
+
+
+def record_substance_created_from_request(
+    db: Session,
+    substance: Substance,
+    *,
+    actor_id: int,
+    rfq_id: int,
+) -> None:
+    """Фиксирует происхождение автоматически созданной карточки вещества."""
+    _record_revision(
+        db,
+        substance,
+        action="created_from_request",
+        actor_id=actor_id,
+        source_rfq_id=rfq_id,
+    )
+
+
 def _merge_names(*groups: list[str]) -> list[str]:
     merged: list[str] = []
     seen: set[str] = set()
@@ -95,14 +160,34 @@ def create_substance(
         raise SubstanceConflictError(
             "CAS не прошёл проверку формата и контрольной суммы"
         )
-    if db.scalar(select(Substance).where(Substance.cas == cas)) is not None:
-        raise SubstanceConflictError("Вещество с таким CAS уже есть в справочнике")
     synonyms = _merge_names([data.preferred_name], data.synonyms)
     excluded = [
         name
         for name in _merge_names(data.excluded_names)
         if name.casefold() not in {item.casefold() for item in synonyms}
     ]
+    existing = db.scalar(select(Substance).where(Substance.cas == cas))
+    if existing is not None:
+        if existing.review_status != "unreviewed":
+            raise SubstanceConflictError("Вещество с таким CAS уже есть в справочнике")
+        before = _snapshot(existing)
+        existing.preferred_name = data.preferred_name
+        existing.synonyms = synonyms
+        existing.excluded_names = excluded
+        existing.notes = data.notes
+        existing.review_status = "confirmed"
+        existing.reviewed_by_id = reviewer_id
+        _record_revision(
+            db,
+            existing,
+            action="catalog_confirmed",
+            actor_id=reviewer_id,
+            before=before,
+        )
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     substance = Substance(
         cas=cas,
         preferred_name=data.preferred_name,

@@ -62,6 +62,8 @@ import type {
   SubstanceInfo,
   SubstanceResolution,
   SubstanceHistoryEntry,
+  SubstanceLinkedRequest,
+  SubstancePriceHistoryItem,
   SubstanceRecord,
   SummaryRow,
   PurchaseDecisionRead,
@@ -385,6 +387,12 @@ export const api = {
 
   listSubstancePurchaseHistory: (id: number) =>
     request<PurchaseHistoryEntry[]>(`/substances/${id}/purchase-history`),
+
+  listSubstanceRequests: (id: number) =>
+    request<SubstanceLinkedRequest[]>(`/substances/${id}/requests`),
+
+  listSubstancePriceHistory: (id: number) =>
+    request<SubstancePriceHistoryItem[]>(`/substances/${id}/price-history`),
 
   decideSubstanceIdentity: (
     rfqId: number,

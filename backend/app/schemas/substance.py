@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models.enums import RFQStatus
 from app.services.cas import normalize_cas
 
 
@@ -118,6 +119,35 @@ class SubstanceHistoryRead(BaseModel):
     actor_name: str | None = None
     source_rfq_id: int | None
     created_at: datetime
+
+
+class SubstanceRequestRead(BaseModel):
+    """Один закупочный запрос, связанный с карточкой вещества."""
+
+    id: int
+    cas: str | None
+    name: str
+    status: RFQStatus
+    volume: str | None
+    owner_id: int | None
+    owner_name: str | None = None
+    quotation_count: int = 0
+    created_at: datetime
+
+
+class SubstancePriceHistoryRead(BaseModel):
+    """Одна полученная цена по связанному закупочному запросу."""
+
+    quotation_id: int
+    rfq_id: int
+    quoted_at: datetime
+    price: float
+    currency: str | None
+    price_unit: str | None
+    quoted_quantity: str | None
+    incoterm: str | None
+    moq: str | None
+    supplier_name: str | None = None
 
 
 class SubstanceResolveRequest(BaseModel):

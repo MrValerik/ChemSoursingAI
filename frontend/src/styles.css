@@ -4960,7 +4960,8 @@ button.substance-list-item.active {
   color: var(--text);
 }
 
-.substance-history {
+.substance-history,
+.substance-related-section {
   display: grid;
   gap: 10px;
   margin-top: 18px;
@@ -4969,8 +4970,18 @@ button.substance-list-item.active {
 }
 
 .substance-history h3,
-.substance-history p {
+.substance-history p,
+.substance-related-section h3,
+.substance-related-section p {
   margin: 0;
+}
+
+.substance-related-table {
+  min-width: 720px;
+}
+
+.substance-related-table .link-btn {
+  text-align: left;
 }
 
 .substance-history-list {

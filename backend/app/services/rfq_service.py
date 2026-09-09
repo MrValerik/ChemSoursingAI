@@ -18,6 +18,10 @@ from app.models.search_trace import SearchRun
 from app.schemas.rfq import RFQCreate
 from app.services.rfq_builder import RFQInput, build_rfq
 from app.services.search_trace import cancel_search_run, utc_now
+from app.services.substance_service import (
+    find_or_create_substance_for_request,
+    record_substance_created_from_request,
+)
 
 if TYPE_CHECKING:
     from app.models.substance import Substance
@@ -77,6 +81,18 @@ def create_rfq(
         # фиксируем честно: это не справочные данные.
         field_sources["cas"] = "human"
 
+    substance_id = data.substance_id
+    created_substance = False
+    substance = None
+    if substance_id is None:
+        substance, created_substance = find_or_create_substance_for_request(
+            db,
+            cas=data.cas,
+            name=data.name,
+            verification=verification,
+        )
+        substance_id = substance.id if substance is not None else None
+
     rfq = RFQ(
         cas=data.cas,
         name=data.name,
@@ -103,18 +119,24 @@ def create_rfq(
         channels=data.channels or [],
         search_countries=data.search_countries,
         supplier_target=data.supplier_target,
-        substance_id=data.substance_id,
+        substance_id=substance_id,
         status=status,
         verified=verified,
         verification=verification,
         owner_id=owner_id,
     )
     db.add(rfq)
+    db.flush()
+    if created_substance and substance is not None and owner_id is not None:
+        record_substance_created_from_request(
+            db,
+            substance,
+            actor_id=owner_id,
+            rfq_id=rfq.id,
+        )
     if commit:
         db.commit()
         db.refresh(rfq)
-    else:
-        db.flush()
     return rfq
 
 
