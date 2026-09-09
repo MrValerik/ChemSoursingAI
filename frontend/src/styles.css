@@ -432,19 +432,14 @@ h1, h2, h3 {
   border-radius: var(--radius-sm);
   background: var(--panel-2);
 }
-.analog-switch {
+.analog-switch { display: flex; align-items: center; gap: 8px; }
+.analog-switch-head {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
 }
-.analog-switch-head { display: flex; align-items: center; gap: 8px; }
 .analog-switch-label { font-weight: 600; font-size: 13px; }
-.analog-switch-hint {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
 .analog-details {
   display: flex;
   flex-direction: column;

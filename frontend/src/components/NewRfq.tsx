@@ -839,8 +839,13 @@ export default function NewRfq({
             не является совпадением по веществу. Поэтому переключатель, а
             не молчаливое расширение выдачи. */}
         <div className="field analog-block">
-          <label className="analog-switch">
-            <span className="analog-switch-head">
+          {/* Подсказка вынесена из подписи в значок: выключенный блок — одна
+              строка, и три строки объяснения под ней читались как условие
+              запроса, а не как справка о переключателе. Значок лежит рядом
+              с подписью, а не внутри неё: он кнопка, и клик по нему внутри
+              label переключал бы саму отметку. */}
+          <div className="analog-switch">
+            <label className="analog-switch-head">
               <input
                 type="checkbox"
                 aria-label="Искать возможный аналог"
@@ -848,13 +853,9 @@ export default function NewRfq({
                 onChange={(event) => setAnalogMode(event.target.checked)}
               />
               <span className="analog-switch-label">Искать возможный аналог</span>
-            </span>
-            <span className="analog-switch-hint">
-              Обычный поиск ищет названное вещество. Аналог — это другой
-              продукт со схожей функцией: он никогда не считается точным
-              совпадением и всегда уходит на проверку специалисту.
-            </span>
-          </label>
+            </label>
+            <HelpTip text="Обычный поиск ищет названное вещество. Аналог — это другой продукт со схожей функцией: он никогда не считается точным совпадением и всегда уходит на проверку специалисту." />
+          </div>
 
           {analogMode && (
             <div className="analog-details">
