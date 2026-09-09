@@ -11,12 +11,20 @@ from app.models import User
 from app.models.enums import UserRole
 from app.schemas.auth import UserRead
 from app.schemas.user_admin import UserCreate, UserUpdate
+from app.services.token_usage import user_tokens
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
 class UserAdminRead(UserRead):
     is_active: bool = True
+    # Расход ИИ на поиске, накопленный за всё время. Считается по этапам
+    # запусков пользователя, а не отдельным счётчиком в строке: счётчик
+    # разошёлся бы с трассой на первой же откаченной транзакции.
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    search_runs: int = 0
 
 
 @router.get(
@@ -24,10 +32,21 @@ class UserAdminRead(UserRead):
     response_model=list[UserAdminRead],
     dependencies=[Depends(require_roles(UserRole.HEAD, UserRole.ADMIN))],
 )
-def list_users(db: Session = Depends(get_db)) -> list[User]:
-    """Руководителю — для назначения; админу — для управления доступами."""
-    stmt = select(User).order_by(User.full_name)
-    return list(db.scalars(stmt).all())
+def list_users(db: Session = Depends(get_db)) -> list[UserAdminRead]:
+    """Руководителю — для назначения; админу — для управления доступами.
+
+    Вместе с доступами показывается расход токенов: лимит на один запрос
+    удерживает стоимость поиска, но кто именно расходует бюджет, видно
+    только по накопленной сумме.
+    """
+    users = list(db.scalars(select(User).order_by(User.full_name)).all())
+    usage = user_tokens(db, [user.id for user in users])
+    return [
+        UserAdminRead.model_validate(user).model_copy(
+            update=usage.get(user.id, {})
+        )
+        for user in users
+    ]
 
 
 @router.post(

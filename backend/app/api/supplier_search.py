@@ -50,6 +50,7 @@ from app.services.search_budget import (
     STOP_COVERAGE_SUFFICIENT,
     STOP_PLAN_EXHAUSTED,
     STOP_TARGET_REACHED,
+    STOP_TOKEN_BUDGET,
     SearchBudget,
 )
 from app.services.search_trace import (
@@ -67,6 +68,7 @@ from app.services.search_countries import (
     mentioned_countries,
     normalize_search_country,
 )
+from app.services.token_usage import run_tokens
 from app.services.supplier_search_continuation import (
     country_runs,
     result_is_excluded,
@@ -209,6 +211,22 @@ def _page_text_budget(
 
 class SearchRunCancelled(RuntimeError):
     """Stop a worker that resumed after its run was cancelled."""
+
+
+def _budget_name(reason: str | None) -> str:
+    """Называет исчерпанный бюджет так, как он назван в настройках.
+
+    Закупщик читает это в карточке этапа. «Бюджет LLM-вызовов» на
+    исчерпанном лимите токенов отправил бы его крутить не ту настройку:
+    вызовов могло остаться сколько угодно, кончились деньги.
+    """
+    if reason == STOP_TOKEN_BUDGET:
+        return "бюджет токенов запроса"
+    return "бюджет LLM-вызовов"
+
+
+def _budget_refusal_message(reason: str) -> str:
+    return f"Исчерпан {_budget_name(reason)} ({reason})"
 
 
 def _raise_if_cancelled(db: Session, search_run: SearchRun) -> None:
@@ -2692,7 +2710,13 @@ def execute_supplier_search(
     search_run.error = None
     search_run.completed_at = None
     db.commit()
-    budget = SearchBudget.from_settings()
+    # Лимит токенов задан на запрос целиком, поэтому бюджет начинается не
+    # с нуля: этапы этого же запуска уже могли потратить часть.
+    carried_prompt, carried_completion = run_tokens(db, search_run.id)
+    budget = SearchBudget.from_settings(
+        carried_prompt_tokens=carried_prompt,
+        carried_completion_tokens=carried_completion,
+    )
 
     # Кириллица, набранная вместо латиницы, убивает поиск целиком: запрос
     # #31 «С18-С22 fatty alcohol» дал ноль на все восемь запросов, потому
@@ -2790,6 +2814,7 @@ def execute_supplier_search(
         .limit(1)
     )
     llm = LLMClient()
+    budget.count_tokens_of(llm)
     identity = _fallback_identity(data, lookup)
     identity_error: str | None = None
     identity_input = {
@@ -2837,7 +2862,7 @@ def execute_supplier_search(
             budget_refusal = budget.refuse_llm_call()
             if budget_refusal is not None:
                 raise LLMUnavailableError(
-                    f"Бюджет LLM-вызовов исчерпан ({budget_refusal})"
+                    _budget_refusal_message(budget_refusal)
                 )
             raw_identity = llm.generate_json(
                 system_prompt=identity_system_prompt,
@@ -2996,7 +3021,7 @@ def execute_supplier_search(
             budget_refusal = budget.refuse_llm_call()
             if budget_refusal is not None:
                 raise LLMUnavailableError(
-                    f"Бюджет LLM-вызовов исчерпан ({budget_refusal})"
+                    _budget_refusal_message(budget_refusal)
                 )
             generated = llm.generate_json(
                 system_prompt=base_system_prompt,
@@ -3688,7 +3713,13 @@ def execute_supplier_qualification(
         identification_method=data.identification_method,
     )
     settings = get_settings()
-    budget = SearchBudget.from_settings()
+    # Лимит токенов задан на запрос целиком, поэтому бюджет начинается не
+    # с нуля: этапы этого же запуска уже могли потратить часть.
+    carried_prompt, carried_completion = run_tokens(db, search_run.id)
+    budget = SearchBudget.from_settings(
+        carried_prompt_tokens=carried_prompt,
+        carried_completion_tokens=carried_completion,
+    )
     search_run.status = "fetching_sources"
     db.commit()
     fetch_run, fetch_clock = start_agent_run(
@@ -3953,6 +3984,7 @@ def execute_supplier_qualification(
         for source in fetched_sources
     ]
     llm = LLMClient()
+    budget.count_tokens_of(llm)
     search_run.status = "qualifying"
     db.commit()
     qualification_run, qualification_clock = start_agent_run(
@@ -3984,7 +4016,7 @@ def execute_supplier_qualification(
                 qualification_stop_reason = budget_refusal
                 log_agent_event(
                     qualification_run,
-                    "Останавливаю оценку: исчерпан бюджет LLM-вызовов; "
+                    f"Останавливаю оценку: исчерпан {_budget_name(budget_refusal)}; "
                     "неоценённые источники уходят на ручную проверку",
                     kind="warning",
                 )
@@ -4483,7 +4515,7 @@ def execute_supplier_qualification(
                     verification_stop_reason = budget_refusal
                     log_agent_event(
                         verification_run,
-                        "Останавливаю аудит: исчерпан бюджет LLM-вызовов; "
+                        f"Останавливаю аудит: исчерпан {_budget_name(budget_refusal)}; "
                         "непроверенные кандидаты уходят на ручную проверку",
                         kind="warning",
                     )

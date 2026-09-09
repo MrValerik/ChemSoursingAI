@@ -7,6 +7,19 @@ import type { UserAdminRead } from "../api/types";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import IntegrationSettingsPanel from "./IntegrationSettingsPanel";
 
+// Разряды у шестизначного расхода: «412030» и «41203» на глаз не
+// различаются, а это разница в десять раз.
+const formatTokens = (value: number) => value.toLocaleString("ru-RU");
+
+const runWord = (count: number) => {
+  const tail = count % 10;
+  const teen = count % 100;
+  if (teen >= 11 && teen <= 14) return "запусков";
+  if (tail === 1) return "запуск";
+  if (tail >= 2 && tail <= 4) return "запуска";
+  return "запусков";
+};
+
 export default function SettingsSection() {
   const { user: me } = useAuth();
   const [users, setUsers] = useState<UserAdminRead[]>([]);
@@ -151,6 +164,7 @@ export default function SettingsSection() {
                 <th>Логин</th>
                 <th>Роль</th>
                 <th>Статус</th>
+                <th>Токены на поиск</th>
                 <th></th>
               </tr>
             </thead>
@@ -176,6 +190,24 @@ export default function SettingsSection() {
                     <span className={`badge ${u.is_active ? "tone-ok" : "tone-neutral"}`}>
                       {u.is_active ? "активен" : "отключён"}
                     </span>
+                  </td>
+                  <td>
+                    {/* Расход за всё время. Лимит держит стоимость одного
+                        запроса, а кто расходует бюджет — видно только по
+                        накопленной сумме. */}
+                    {u.search_runs > 0 ? (
+                      <>
+                        {formatTokens(u.total_tokens)}
+                        <span className="note">
+                          {" "}
+                          ({formatTokens(u.prompt_tokens)} вход +{" "}
+                          {formatTokens(u.completion_tokens)} выход,{" "}
+                          {u.search_runs} {runWord(u.search_runs)})
+                        </span>
+                      </>
+                    ) : (
+                      <span className="note">поиск не запускался</span>
+                    )}
                   </td>
                   <td>
                     {u.id !== me?.id && (

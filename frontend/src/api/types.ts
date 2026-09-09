@@ -655,6 +655,11 @@ export interface TemplateRead {
 
 export interface UserAdminRead extends UserRead {
   is_active: boolean;
+  // Расход ИИ на поиске за всё время: сумма по этапам запусков пользователя.
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  search_runs: number;
 }
 
 export interface ChannelStatus {
@@ -972,6 +977,11 @@ export interface SearchBudgetSnapshot {
   page_fetches_used: number;
   max_llm_calls: number;
   llm_calls_used: number;
+  // Потолок на весь запрос поиска; 0 означает «без ограничения».
+  max_tokens: number;
+  tokens_used: number;
+  prompt_tokens_used: number;
+  completion_tokens_used: number;
   max_runtime_s: number;
   elapsed_s: number;
   stop_reason: string | null;
