@@ -1654,16 +1654,120 @@ button.is-busy:disabled {
   color: var(--on-brand-fill);
   border-color: var(--brand-fill);
 }
+.chip-count { opacity: 0.7; font-variant-numeric: tabular-nums; }
+/* Пустой отбор не прячется, а тускнеет: важно видеть, что «Молчат» — ноль. */
+.chip.empty { color: var(--muted); }
+.chip.empty.active { color: var(--on-brand-fill); }
 
 .table-panel { padding: 0; overflow-x: auto; }
 .requests-table th { cursor: pointer; user-select: none; white-space: nowrap; }
 .requests-table th:hover { color: var(--text); }
 tr.clickable { cursor: pointer; }
 .requests-table td .cas { font-size: 12px; color: var(--muted); }
-/* Доля ответивших под бейджем статуса: статус — стадия, охват — факт. */
-.requests-table td .status-coverage { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.requests-table td .status-coverage.thin { color: var(--warn); }
 .requests-table td.request-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Полоска конвейера под названием вещества: четыре сегмента, пройденные
+   залиты, текущий подсвечен акцентом. Заменяет бейдж статуса — слово
+   «Сводка готова» занимало полстроки и не говорило, далеко ли до конца. */
+.stage-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.stage-steps { display: flex; gap: 3px; }
+.stage-step {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.stage-step.done { background: var(--accent); }
+.stage-step.current { background: var(--brand); }
+.stage-name { font-size: 11px; color: var(--muted); }
+
+/* Ближайшее действие. Четыре тона читаются как шкала: красный — сделать
+   сейчас, янтарный — в очереди на действие, зелёный — готово, серый —
+   ждём и делать нечего. Терракота бренда для «todo» не годится: рядом с
+   красным она неотличима, и весь столбец превращался в тёплое пятно. */
+.action-chip {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.action-chip.tone-alert {
+  background: var(--err-soft);
+  color: var(--err);
+  border-color: var(--err);
+  font-weight: 600;
+}
+.action-chip.tone-todo {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.action-chip.tone-done { background: var(--ok-soft); color: var(--ok); }
+.action-chip.tone-wait { background: var(--info-soft); color: var(--muted); }
+.requests-table td .action-detail {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.action-cell,
+.dialogue-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+/* Охват переписки: разослано / ответили / молчат. */
+.dialogue-counts { display: flex; flex-direction: column; gap: 2px; }
+.dialogue-total { font-size: 13px; }
+.dialogue-parts { display: flex; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+.dialogue-parts .muted { color: var(--muted); }
+.dialogue-parts .replied { color: var(--ok); }
+.dialogue-parts .silent { color: var(--warn); }
+.dialogue-error { font-size: 12px; color: var(--err); }
+.dialogue-empty { font-size: 12px; color: var(--muted); }
+.dialogue-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dialogue-toggle:hover { color: var(--brand-dark); background: none; }
+
+/* Раскрытая строка: с кем именно идёт диалог. */
+tr.dialogue-row > td { background: var(--bg); padding: 10px 14px; }
+.dialogue-list { list-style: none; margin: 0; padding: 0; }
+.dialogue-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.dialogue-list li:last-child { border-bottom: none; }
+.dialogue-company { font-weight: 500; }
+.dialogue-channel { color: var(--muted); font-size: 12px; }
+.dialogue-when { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+/* Даты в колонке сроков: когда разослали и когда последний раз отвечали. */
+.request-timeline { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.request-timeline .muted { color: var(--muted); font-size: 12px; }
+.request-timeline .silent { color: var(--warn); font-size: 12px; }
 .requests-table .request-actions-column {
   width: 1%;
   text-align: right;
@@ -2002,7 +2106,6 @@ button.danger:hover {
   background: var(--err-soft);
   color: var(--err);
 }
-.esc-badge { margin-left: 6px; font-weight: 700; }
 
 /* Индикатор полноты. */
 .meter {

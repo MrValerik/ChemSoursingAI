@@ -568,6 +568,7 @@ button.shell-nav-toggle,
     display: none;
   }
   /* Название вещества — заголовок карточки, а не строка «ключ — значение». */
+  table.mobile-cards td[data-label="Вещество / стадия"],
   table.mobile-cards td[data-label="Вещество / CAS"],
   table.mobile-cards td[data-label="Запрос"] {
     display: block;
@@ -578,10 +579,12 @@ button.shell-nav-toggle,
     font-weight: 600;
     text-align: left;
   }
+  table.mobile-cards td[data-label="Вещество / стадия"]::before,
   table.mobile-cards td[data-label="Вещество / CAS"]::before,
   table.mobile-cards td[data-label="Запрос"]::before {
     display: none;
   }
+  table.mobile-cards td[data-label="Вещество / стадия"] .cas,
   table.mobile-cards td[data-label="Вещество / CAS"] .cas,
   table.mobile-cards td[data-label="Запрос"] .cas {
     font-weight: 400;
@@ -589,6 +592,43 @@ button.shell-nav-toggle,
   table.mobile-cards .request-actions-column {
     width: auto;
     max-width: none;
+  }
+  /* Раскрытая переписка — не «ключ — значение», а вложенный список: подпись
+     колонки ей не нужна, и растягивать её вправо тоже не надо. */
+  table.mobile-cards tr.dialogue-row {
+    margin-top: -8px;
+    border-top: 0;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  }
+  table.mobile-cards tr.dialogue-row td {
+    display: block;
+    text-align: left;
+  }
+  table.mobile-cards tr.dialogue-row td::before {
+    display: none;
+  }
+  .dialogue-list li {
+    align-items: flex-start;
+  }
+  .dialogue-when {
+    margin-left: 0;
+  }
+  /* Подпись колонки и многострочное значение выравниваются по верху, а
+     внутренние ряды прижимаются к правому краю карточки — иначе цифры
+     переписки уезжали бы влево, к подписи. */
+  table.mobile-cards td[data-label="Что сделать"],
+  table.mobile-cards td[data-label="Переписка"],
+  table.mobile-cards td[data-label="Сроки"] {
+    align-items: flex-start;
+  }
+  table.mobile-cards .action-cell,
+  table.mobile-cards .dialogue-cell,
+  table.mobile-cards .dialogue-counts,
+  table.mobile-cards .request-timeline {
+    align-items: flex-end;
+  }
+  table.mobile-cards .dialogue-parts {
+    justify-content: flex-end;
   }
   /* Панель со списком больше не прокручивается вбок и не рисует вторую рамку
      вокруг карточек: они уже сами по себе карточки. */

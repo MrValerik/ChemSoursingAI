@@ -127,6 +127,8 @@ def list_communication_overview(
 
     conversations: dict[tuple[str, str, str], SupplierConversationRead] = {}
     contacts: dict[tuple[Channel, str], tuple[Supplier, Manager]] = {}
+    # Диалоги, в которых компания хоть раз написала сама.
+    answered: set[tuple[str, str, str]] = set()
 
     for recipient in recipients:
         supplier = recipient.supplier
@@ -223,7 +225,12 @@ def list_communication_overview(
                 created_at=message.created_at,
             )
         )
-        conversation.last_message_at = message.created_at
+        # Дата письма, а не момент вставки строки: синхронизация ящика
+        # заводит месячную переписку одним заходом, и по created_at все
+        # диалоги выглядели бы свежими.
+        conversation.last_message_at = message.message_at or message.created_at
+        if message.direction == CommDirection.INBOUND:
+            answered.add(key)
 
     unassigned: list[CommunicationEscalationRead] = []
     for escalation in escalations:
@@ -273,13 +280,17 @@ def list_communication_overview(
             quotation.manager.supplier_id, []
         ).append(quotation)
 
-    for conversation in conversations.values():
+    for key, conversation in conversations.items():
         supplier_quotations = (
             quotations_by_supplier.get(conversation.supplier_id, [])
             if conversation.supplier_id is not None
             else []
         )
         if not supplier_quotations:
+            # Компания написала, но условий в письме не было: вопрос про
+            # грейд котировки не создаёт. «Ответа нет» тут неправда.
+            if key in answered:
+                conversation.data_collection_status = "collecting"
             continue
         progress = accumulate_quotations(supplier_quotations)
         missing = list(

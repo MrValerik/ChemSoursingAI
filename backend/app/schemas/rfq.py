@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.models.enums import RFQStatus
 from app.services.cas import is_valid_cas, normalize_cas, suggest_check_digit
 from app.services.incoterms import SUPPORTED_INCOTERMS, normalize_incoterms
+from app.services.rfq_progress import ACTION_VERIFY, STAGE_SEARCH
 from app.services.search_countries import normalize_search_country
 
 # Способ идентификации предмета закупки. Номер есть не у всего, что
@@ -226,3 +227,31 @@ class RFQListItem(BaseModel):
     # Поставщики, которым RFQ разослан: знаменатель к числу ответов.
     n_recipients: int = 0
     has_open_escalation: bool = False
+
+    # Ход работ: стадия конвейера и ближайшее действие закупщика. Коды
+    # выводит app.services.rfq_progress, подписи живут во фронтенде.
+    stage: str = STAGE_SEARCH
+    next_action: str = ACTION_VERIFY
+    # Найдено поиском и не исключено вручную — знаменатель для «разослать».
+    n_suppliers_found: int = 0
+    # Компании, приславшие хотя бы один ответ, и молчащие. Считаются по
+    # компаниям, а не по котировкам: одна компания присылает несколько.
+    n_suppliers_replied: int = 0
+    n_silent: int = 0
+    # Компании, чьё сообщение осталось без нашего ответа.
+    n_awaiting_our_reply: int = 0
+    # Отправки, упавшие с ошибкой канала: письмо не ушло, и это не видно
+    # ни по статусу, ни по числу ответов.
+    n_dispatch_errors: int = 0
+    # Причины открытых эскалаций — попадают прямо в подпись действия.
+    escalation_reasons: list[str] = Field(default_factory=list)
+
+    # Даты, по которым видно ход переписки. created_at остаётся, но в
+    # таблице показываются эти: дата заведения ничего не говорит о работе.
+    dispatched_at: datetime | None = None
+    last_inbound_at: datetime | None = None
+    last_outbound_at: datetime | None = None
+    # Суток с последнего ответа поставщика, а до ответов — с рассылки.
+    # Считается на сервере: клиенту не с чем сравнивать наивное время,
+    # которое отдаёт SQLite.
+    waiting_days: int | None = None

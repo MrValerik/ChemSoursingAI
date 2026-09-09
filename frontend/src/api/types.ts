@@ -159,6 +159,24 @@ export interface RFQRead {
   rfq_is_customized: boolean;
 }
 
+// Стадия конвейера и ближайшее действие закупщика: коды приходят с
+// сервера (app/services/rfq_progress.py), подписи живут в
+// requestProgress.ts.
+export type RFQStage = "search" | "dispatch" | "dialogue" | "summary";
+
+export type RFQNextAction =
+  | "closed"
+  | "escalation"
+  | "dispatch_error"
+  | "reply"
+  | "silence"
+  | "decide"
+  | "incomplete"
+  | "waiting"
+  | "dispatch"
+  | "search"
+  | "verify";
+
 export interface RFQListItem {
   identification_method: IdentificationMethod;
   owner_id: number | null;
@@ -176,6 +194,22 @@ export interface RFQListItem {
   search_countries: string[] | null;
   supplier_target: number;
   created_at: string;
+
+  // Ход работ по заявке.
+  stage: RFQStage;
+  next_action: RFQNextAction;
+  n_suppliers_found: number;
+  n_suppliers_replied: number;
+  n_silent: number;
+  n_awaiting_our_reply: number;
+  n_dispatch_errors: number;
+  escalation_reasons: string[];
+  dispatched_at: string | null;
+  last_inbound_at: string | null;
+  last_outbound_at: string | null;
+  // Суток с последнего ответа, а до ответов — с рассылки. Считает сервер:
+  // у клиента нет зоны для наивного времени из SQLite.
+  waiting_days: number | null;
 }
 
 export interface ExtractedQuote {

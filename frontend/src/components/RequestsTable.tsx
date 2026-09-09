@@ -1,16 +1,42 @@
 // Раздел «Запросы» (раздел 6 UI/UX-плана): сводная таблица всех RFQ
 // с фильтрами, быстрыми чипами, сортировкой и экспортом CSV.
+//
+// Строка отвечает на три вопроса подряд: что за заявка, что с ней нужно
+// сделать прямо сейчас и как идёт переписка. Статус RFQ для этого не
+// годился — он описывает, что успела сделать система, а не что должен
+// сделать человек, поэтому первым после названия идёт вычисленное
+// сервером ближайшее действие, а не бейдж статуса.
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { RFQListItem } from "../api/types";
+import type {
+  CommunicationOverviewRead,
+  RFQListItem,
+  RFQNextAction,
+  RFQStage,
+  SupplierConversationRead,
+} from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
+import { STATUS_LABELS } from "./statusLabels";
+import {
+  ACTION_TONE,
+  STAGE_LABELS,
+  STAGE_ORDER,
+  actionChip,
+  actionUrgency,
+  days,
+} from "./requestProgress";
 import { Icon, Input, MultiSelect, Toast } from "./ui";
 
-type QuickFilter = "all" | "attention" | "incomplete" | "review";
+type QuickFilter =
+  | "all"
+  | "todo"
+  | "reply"
+  | "silence"
+  | "undispatched"
+  | "decide";
 type ScopeFilter = "mine" | "all";
-type SortKey = "id" | "name" | "status" | "created_at" | "owner_name";
+type SortKey = "id" | "name" | "action" | "dispatched_at" | "owner_name";
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString("ru-RU");
 
@@ -23,28 +49,77 @@ const formatMoment = (value: string) =>
     minute: "2-digit",
   });
 
-// Статус описывает стадию обработки, а не охват: «Сводка готова» появляется
-// и при одном ответе из шести. Поэтому под бейджем идёт доля ответивших, а
-// если ответила меньше половины разосланных — она подсвечивается.
-const responseLabel = (r: RFQListItem) => {
-  // Котировок бывает больше, чем разосланных компаний: карточку заводит и
-  // тестовый прогон общения, и ручной ввод — оба минуют рассылку. Доля
-  // тогда получается вида «6 из 4», поэтому знаменатель показывается
-  // только там, где он честен.
-  if (r.n_recipients > 0 && r.n_quotations <= r.n_recipients) {
-    return `ответили ${r.n_quotations} из ${r.n_recipients}`;
-  }
-  if (r.n_quotations > 0) return `ответов: ${r.n_quotations}`;
-  return null;
+// «3 сент.» вместо «03.09.2026»: в колонке сроков важен порядок дней, а не
+// точность до года, и короткая форма оставляет место второй строке.
+const formatShortDate = (value: string) =>
+  new Date(value).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+
+const daysSince = (value: string) => {
+  const diff = Date.now() - new Date(value).getTime();
+  return Math.max(0, Math.floor(diff / 86_400_000));
 };
 
-const THIN_RESPONSE = (r: RFQListItem) =>
-  r.n_recipients > 0 && r.n_quotations * 2 < r.n_recipients;
+const agoLabel = (value: string) => {
+  const passed = daysSince(value);
+  if (passed === 0) return "сегодня";
+  if (passed === 1) return "вчера";
+  return `${days(passed)} назад`;
+};
 
-const NEEDS_ATTENTION = (r: RFQListItem) =>
-  r.has_open_escalation ||
-  (r.n_quotations > 0 && r.completeness_pct < 100) ||
-  r.status === "escalated";
+const CHANNEL_LABELS: Record<string, string> = {
+  email: "почта",
+  whatsapp: "WhatsApp",
+};
+
+// Состояние сбора данных по одной компании — те же слова, что во вкладке
+// «Общение» карточки, чтобы раскрытая строка и карточка не спорили.
+const COLLECTION_LABELS: Record<string, { label: string; tone: string }> = {
+  complete: { label: "Данные собраны", tone: "tone-ok" },
+  needs_human: { label: "Нужен человек", tone: "tone-warn" },
+  collecting: { label: "Сбор данных", tone: "tone-info" },
+  not_started: { label: "Ответа нет", tone: "tone-neutral" },
+};
+
+// Быстрые чипы отбирают строки по ближайшему действию, а не по статусу:
+// «требуют внимания» раньше срабатывал почти на всём, что в работе, и
+// потому ничего не выделял.
+const QUICK_ACTIONS: Record<QuickFilter, RFQNextAction[] | null> = {
+  all: null,
+  todo: ["escalation", "dispatch_error", "reply", "silence"],
+  reply: ["reply"],
+  silence: ["silence"],
+  undispatched: ["verify", "search", "dispatch"],
+  decide: ["decide"],
+};
+
+const ALL_ACTIONS: RFQNextAction[] = [
+  "escalation",
+  "dispatch_error",
+  "reply",
+  "silence",
+  "decide",
+  "incomplete",
+  "waiting",
+  "dispatch",
+  "verify",
+  "search",
+  "closed",
+];
+
+// Подписи действий в фильтре — без чисел, которые есть только у строки.
+const ACTION_FILTER_LABELS: Record<RFQNextAction, string> = {
+  escalation: "Разобрать вручную",
+  dispatch_error: "Не ушло письмо",
+  reply: "Ответить поставщику",
+  silence: "Напомнить о себе",
+  decide: "Сравнить предложения",
+  incomplete: "Собираем данные",
+  waiting: "Ждём ответов",
+  dispatch: "Разослать запросы",
+  verify: "Проверить вещество",
+  search: "Найти поставщиков",
+  closed: "Закрыт",
+};
 
 // Список перезапрашивается при монтировании: возврат из карточки — это
 // переход по адресу, а не смена внутреннего состояния, поэтому счётчик
@@ -66,13 +141,24 @@ export default function RequestsTable({
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RFQListItem | null>(null);
 
+  // Раскрытая строка догружает переписку по требованию: список остаётся
+  // одним запросом, а «с кем именно идёт диалог» видно, не уходя из него.
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [dialogues, setDialogues] = useState<
+    Record<number, SupplierConversationRead[]>
+  >({});
+  const [dialogueError, setDialogueError] = useState<Record<number, string>>({});
+  const [dialogueLoading, setDialogueLoading] = useState<number | null>(null);
+
   const [quick, setQuick] = useState<QuickFilter>("all");
   const [scope, setScope] = useState<ScopeFilter>("mine");
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [actionFilters, setActionFilters] = useState<string[]>([]);
   const [ownerFilters, setOwnerFilters] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("id");
-  const [sortAsc, setSortAsc] = useState(false);
+  // По умолчанию наверху самое срочное: со списка начинают день, а не
+  // смотрят в него, что завели последним.
+  const [sortKey, setSortKey] = useState<SortKey>("action");
+  const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
     setLoading(true);
@@ -94,12 +180,10 @@ export default function RequestsTable({
   const filtered = useMemo(() => {
     let out = rows;
     if (scope === "mine" && user) out = out.filter((r) => r.owner_id === user.id);
-    if (quick === "attention") out = out.filter(NEEDS_ATTENTION);
-    if (quick === "incomplete")
-      out = out.filter((r) => r.n_quotations > 0 && r.completeness_pct < 100);
-    if (quick === "review") out = out.filter((r) => r.status === "escalated" || r.has_open_escalation);
-    if (statusFilters.length > 0) {
-      out = out.filter((r) => statusFilters.includes(r.status));
+    const quickActions = QUICK_ACTIONS[quick];
+    if (quickActions) out = out.filter((r) => quickActions.includes(r.next_action));
+    if (actionFilters.length > 0) {
+      out = out.filter((r) => actionFilters.includes(r.next_action));
     }
     if (ownerFilters.length > 0) {
       out = out.filter(
@@ -118,16 +202,47 @@ export default function RequestsTable({
     }
     const dir = sortAsc ? 1 : -1;
     return [...out].sort((a, b) => {
+      if (sortKey === "action") {
+        const byUrgency = actionUrgency(a) - actionUrgency(b);
+        // Внутри одной срочности первым идёт то, что ждёт дольше.
+        const byWait = (b.waiting_days ?? -1) - (a.waiting_days ?? -1);
+        return (byUrgency || byWait || b.id - a.id) * dir;
+      }
+      if (sortKey === "dispatched_at") {
+        // Неразосланные заявки уходят в конец при любом направлении: даты
+        // у них нет, и подмешивать их к самым свежим бессмысленно.
+        if (!a.dispatched_at && !b.dispatched_at) return b.id - a.id;
+        if (!a.dispatched_at) return 1;
+        if (!b.dispatched_at) return -1;
+        return (a.dispatched_at < b.dispatched_at ? -1 : 1) * dir;
+      }
       const av = a[sortKey] ?? "";
       const bv = b[sortKey] ?? "";
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
       return String(av).localeCompare(String(bv), "ru") * dir;
     });
-  }, [rows, scope, user, quick, statusFilters, ownerFilters, search, sortKey, sortAsc]);
+  }, [rows, scope, user, quick, actionFilters, ownerFilters, search, sortKey, sortAsc]);
 
   const mineCount = user
     ? rows.filter((row) => row.owner_id === user.id).length
     : 0;
+
+  // Счётчики на чипах: сколько строк попадёт под каждый отбор в текущем
+  // охвате. Без них «Требуют действия» приходится нажимать, чтобы узнать,
+  // есть ли там вообще что-нибудь.
+  const scoped = useMemo(
+    () =>
+      scope === "mine" && user
+        ? rows.filter((row) => row.owner_id === user.id)
+        : rows,
+    [rows, scope, user],
+  );
+
+  const quickCount = (key: QuickFilter) => {
+    const actions = QUICK_ACTIONS[key];
+    if (!actions) return scoped.length;
+    return scoped.filter((row) => actions.includes(row.next_action)).length;
+  };
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) setSortAsc((v) => !v);
@@ -137,18 +252,72 @@ export default function RequestsTable({
     }
   };
 
+  const toggleExpanded = (row: RFQListItem) => {
+    if (expanded === row.id) {
+      setExpanded(null);
+      return;
+    }
+    setExpanded(row.id);
+    if (dialogues[row.id] || dialogueLoading === row.id) return;
+    setDialogueLoading(row.id);
+    api
+      .communicationOverview(row.id)
+      .then((overview: CommunicationOverviewRead) => {
+        setDialogues((current) => ({
+          ...current,
+          [row.id]: overview.conversations,
+        }));
+        setDialogueError((current) => {
+          const next = { ...current };
+          delete next[row.id];
+          return next;
+        });
+      })
+      .catch((caught) =>
+        setDialogueError((current) => ({
+          ...current,
+          [row.id]: caught instanceof Error ? caught.message : String(caught),
+        })),
+      )
+      .finally(() => setDialogueLoading(null));
+  };
+
   const exportCsv = () => {
-    const header = ["№", "Вещество", "CAS", "Статус", "Ответили", "Разослано", "Создан"];
+    const header = [
+      "№",
+      "Вещество",
+      "CAS",
+      "Стадия",
+      "Статус",
+      "Что сделать",
+      "Разослано",
+      "Ответили",
+      "Молчат",
+      "Ждут ответа",
+      "Ошибки доставки",
+      "Полнота, %",
+      "Дата рассылки",
+      "Дней ожидания",
+      "Создан",
+    ];
     if (showOwner) header.push("Ответственный");
     const lines = [header.join(";")];
     for (const r of filtered) {
       const row = [
         r.id,
         `"${r.name.replace(/"/g, '""')}"`,
-        r.cas,
+        r.cas ?? "",
+        STAGE_LABELS[r.stage] ?? r.stage,
         STATUS_LABELS[r.status],
-        r.n_quotations,
+        `"${actionChip(r).label}"`,
         r.n_recipients,
+        r.n_suppliers_replied,
+        r.n_silent,
+        r.n_awaiting_our_reply,
+        r.n_dispatch_errors,
+        r.completeness_pct,
+        r.dispatched_at ? formatDate(r.dispatched_at) : "",
+        r.waiting_days ?? "",
         formatDate(r.created_at),
       ];
       if (showOwner) row.push(`"${r.owner_name ?? ""}"`);
@@ -189,6 +358,132 @@ export default function RequestsTable({
     }
   };
 
+  // Полоска конвейера: пройденные сегменты залиты, текущий подсвечен.
+  const stageStrip = (stage: RFQStage) => {
+    const reached = STAGE_ORDER.indexOf(stage);
+    return (
+      <div className="stage-strip" title={`Стадия: ${STAGE_LABELS[stage] ?? stage}`}>
+        <span className="stage-steps" aria-hidden="true">
+          {STAGE_ORDER.map((key, index) => (
+            <span
+              key={key}
+              className={`stage-step${index < reached ? " done" : ""}${
+                index === reached ? " current" : ""
+              }`}
+            />
+          ))}
+        </span>
+        <span className="stage-name">{STAGE_LABELS[stage] ?? stage}</span>
+      </div>
+    );
+  };
+
+  // Охват переписки. «Ответили» считается по компаниям, а не по котировкам:
+  // одна компания присылает несколько котировок, а вопрос без цены не
+  // создаёт ни одной, хотя переписка уже идёт.
+  const dialogueCell = (r: RFQListItem) => {
+    if (r.n_recipients === 0) {
+      return (
+        <span className="dialogue-empty">
+          {r.n_suppliers_found > 0
+            ? `найдено ${r.n_suppliers_found}, не разослано`
+            : "не разослано"}
+        </span>
+      );
+    }
+    return (
+      <div className="dialogue-counts">
+        <span className="dialogue-total">разослано {r.n_recipients}</span>
+        <span className="dialogue-parts">
+          <span className={r.n_suppliers_replied > 0 ? "replied" : "muted"}>
+            ответили {r.n_suppliers_replied}
+          </span>
+          {r.n_silent > 0 && (
+            <span className={r.n_silent * 2 > r.n_recipients ? "silent" : "muted"}>
+              молчат {r.n_silent}
+            </span>
+          )}
+        </span>
+        {r.n_dispatch_errors > 0 && (
+          <span className="dialogue-error">
+            не ушло писем: {r.n_dispatch_errors}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const timelineCell = (r: RFQListItem) => {
+    if (!r.dispatched_at) {
+      return (
+        <span className="muted" title={`Заведён ${formatMoment(r.created_at)}`}>
+          заведён {formatShortDate(r.created_at)}
+        </span>
+      );
+    }
+    return (
+      <div className="request-timeline">
+        <span title={`Первая отправка: ${formatMoment(r.dispatched_at)}`}>
+          разослано {formatShortDate(r.dispatched_at)}
+        </span>
+        {r.last_inbound_at ? (
+          <span
+            className="muted"
+            title={`Последний ответ: ${formatMoment(r.last_inbound_at)}`}
+          >
+            ответ {agoLabel(r.last_inbound_at)}
+          </span>
+        ) : (
+          <span className={r.next_action === "silence" ? "silent" : "muted"}>
+            {r.waiting_days === null
+              ? "ответов нет"
+              : `тишина ${days(r.waiting_days)}`}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const dialogueRow = (r: RFQListItem) => {
+    const conversations = dialogues[r.id];
+    const failure = dialogueError[r.id];
+    const columns = 5 + (showOwner ? 1 : 0) + (showDeleteAction ? 1 : 0);
+    return (
+      <tr className="dialogue-row" key={`${r.id}-dialogue`}>
+        <td colSpan={columns}>
+          {dialogueLoading === r.id && <p className="note">Загрузка переписки…</p>}
+          {failure && <p className="error">{failure}</p>}
+          {conversations && conversations.length === 0 && (
+            <p className="note">Переписки по этому запросу ещё нет.</p>
+          )}
+          {conversations && conversations.length > 0 && (
+            <ul className="dialogue-list">
+              {conversations.map((item) => {
+                const state =
+                  COLLECTION_LABELS[item.data_collection_status] ??
+                  COLLECTION_LABELS.not_started;
+                return (
+                  <li key={`${item.supplier_id ?? item.contact}-${item.channel}`}>
+                    <span className="dialogue-company">{item.supplier_company}</span>
+                    <span className="dialogue-channel">
+                      {CHANNEL_LABELS[item.channel] ?? item.channel}
+                    </span>
+                    <span className={`badge ${state.tone}`}>{state.label}</span>
+                    <span className="dialogue-when">
+                      {item.last_message_at
+                        ? `последнее сообщение ${agoLabel(item.last_message_at)}`
+                        : "сообщений нет"}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="requests-page">
       <div className="requests-header">
@@ -222,13 +517,13 @@ export default function RequestsTable({
         <div className="requests-filters">
           <MultiSelect
             className="requests-status-filter"
-            label="Статус"
-            options={Object.entries(STATUS_LABELS).map(([value, label]) => ({
+            label="Что сделать"
+            options={ALL_ACTIONS.map((value) => ({
               value,
-              label,
+              label: ACTION_FILTER_LABELS[value],
             }))}
-            values={statusFilters}
-            onChange={setStatusFilters}
+            values={actionFilters}
+            onChange={setActionFilters}
           />
         {showOwner && (
             <MultiSelect
@@ -254,19 +549,26 @@ export default function RequestsTable({
           {(
             [
               ["all", "Все"],
-              ["attention", "Требуют внимания"],
-              ["incomplete", "Неполные"],
-              ["review", "На ручном разборе"],
+              ["todo", "Требуют действия"],
+              ["reply", "Ждут нашего ответа"],
+              ["silence", "Молчат"],
+              ["undispatched", "Не разослано"],
+              ["decide", "Готовы к решению"],
             ] as [QuickFilter, string][]
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              className={`chip ${quick === key ? "active" : ""}`}
-              onClick={() => setQuick(key)}
-            >
-              {label}
-            </button>
-          ))}
+          ).map(([key, label]) => {
+            const count = quickCount(key);
+            return (
+              <button
+                key={key}
+                className={`chip ${quick === key ? "active" : ""} ${
+                  count === 0 && key !== "all" ? "empty" : ""
+                }`}
+                onClick={() => setQuick(key)}
+              >
+                {label} <span className="chip-count">{count}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -289,9 +591,14 @@ export default function RequestsTable({
             <thead>
               <tr>
                 <th onClick={() => toggleSort("id")}>№{arrow("id")}</th>
-                <th onClick={() => toggleSort("name")}>Вещество / CAS{arrow("name")}</th>
-                <th onClick={() => toggleSort("status")}>Статус{arrow("status")}</th>
-                <th onClick={() => toggleSort("created_at")}>Дата{arrow("created_at")}</th>
+                <th onClick={() => toggleSort("name")}>
+                  Вещество / стадия{arrow("name")}
+                </th>
+                <th onClick={() => toggleSort("action")}>Что сделать{arrow("action")}</th>
+                <th>Переписка</th>
+                <th onClick={() => toggleSort("dispatched_at")}>
+                  Сроки{arrow("dispatched_at")}
+                </th>
                 {showOwner && (
                   <th onClick={() => toggleSort("owner_name")}>
                     Ответственный{arrow("owner_name")}
@@ -301,53 +608,77 @@ export default function RequestsTable({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
-                <tr key={r.id} className="clickable" onClick={() => onOpen(r.id)}>
-                  <td data-label="№">{r.id}</td>
-                  <td data-label="Вещество / CAS">
-                    <div>{r.name}</div>
-                    <div className="cas">CAS {r.cas}</div>
-                  </td>
-                  <td data-label="Статус">
-                    <span className={`badge tone-${STATUS_TONE[r.status]}`}>
-                      {STATUS_LABELS[r.status]}
-                    </span>
-                    {r.has_open_escalation && (
-                      <span className="badge tone-warn esc-badge" title="Открытая эскалация">
-                        !
-                      </span>
-                    )}
-                    {responseLabel(r) && (
-                      <div className={`status-coverage ${THIN_RESPONSE(r) ? "thin" : ""}`}>
-                        {responseLabel(r)}
-                      </div>
-                    )}
-                  </td>
-                  <td className="request-date" data-label="Дата" title={formatMoment(r.created_at)}>
-                    {formatDate(r.created_at)}
-                  </td>
-                  {showOwner && <td data-label="Ответственный">{r.owner_name ?? "—"}</td>}
-                  {showDeleteAction && (
-                    <td className="request-actions-column" data-label="Действия">
-                      {canDelete(r) && (
-                        <button
-                          aria-label={`Удалить запрос №${r.id}`}
-                          className="ui-icon-button request-delete-button"
-                          disabled={deletingId === r.id}
-                          title="Удалить запрос"
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setPendingDelete(r);
-                          }}
-                        >
-                          <Icon name="trash" size={16} />
-                        </button>
-                      )}
+              {filtered.flatMap((r) => {
+                const chip = actionChip(r);
+                const main = (
+                  <tr key={r.id} className="clickable" onClick={() => onOpen(r.id)}>
+                    <td data-label="№">{r.id}</td>
+                    <td data-label="Вещество / стадия">
+                      <div>{r.name}</div>
+                      {r.cas && <div className="cas">CAS {r.cas}</div>}
+                      {stageStrip(r.stage)}
                     </td>
-                  )}
-                </tr>
-              ))}
+                    <td data-label="Что сделать">
+                      {/* Обёртка нужна карточке на телефоне: там подпись и
+                          значение — соседи по flex-строке, и без неё чип
+                          с пояснением разъезжались по разным краям. */}
+                      <div className="action-cell">
+                        <span
+                          className={`action-chip tone-${ACTION_TONE[r.next_action]}`}
+                          title={`Статус запроса: ${STATUS_LABELS[r.status]}`}
+                        >
+                          {chip.label}
+                        </span>
+                        {chip.detail && (
+                          <div className="action-detail">{chip.detail}</div>
+                        )}
+                      </div>
+                    </td>
+                    <td data-label="Переписка">
+                      <div className="dialogue-cell">
+                        {dialogueCell(r)}
+                        {r.n_recipients > 0 && (
+                          <button
+                            aria-expanded={expanded === r.id}
+                            className="dialogue-toggle"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleExpanded(r);
+                            }}
+                          >
+                            {expanded === r.id ? "свернуть" : "с кем переписка"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="request-date" data-label="Сроки">
+                      {timelineCell(r)}
+                    </td>
+                    {showOwner && <td data-label="Ответственный">{r.owner_name ?? "—"}</td>}
+                    {showDeleteAction && (
+                      <td className="request-actions-column" data-label="Действия">
+                        {canDelete(r) && (
+                          <button
+                            aria-label={`Удалить запрос №${r.id}`}
+                            className="ui-icon-button request-delete-button"
+                            disabled={deletingId === r.id}
+                            title="Удалить запрос"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setPendingDelete(r);
+                            }}
+                          >
+                            <Icon name="trash" size={16} />
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+                return expanded === r.id ? [main, dialogueRow(r)] : [main];
+              })}
             </tbody>
           </table>
         </div>

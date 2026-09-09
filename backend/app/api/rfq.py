@@ -4,6 +4,9 @@
 руководитель/администратор/аудитор — все. Права проверяются на сервере.
 """
 
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select
@@ -12,10 +15,18 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_current_user
 from app.core.db import get_db
 from app.models import RfqAiSetting, Substance, User
-from app.models.enums import DispatchStatus, EscalationStatus, UserRole
+from app.models.communication import Communication
+from app.models.enums import (
+    CommDirection,
+    DispatchStatus,
+    EscalationStatus,
+    UserRole,
+)
 from app.models.escalation import Escalation
+from app.models.manager import Manager
 from app.models.quotation import Quotation
 from app.models.recipient import RfqRecipient
+from app.models.rfq_supplier import RfqSupplierLink
 from app.models.search_trace import SearchRun
 from app.models.rfq import RFQ
 from app.models.rfq_batch import RfqBatch
@@ -51,6 +62,13 @@ from app.services.rfq_builder import (
     UnsupportedIncotermError,
     build_rfq,
 )
+from app.services.rfq_progress import (
+    RfqProgress,
+    as_utc,
+    rfq_next_action,
+    rfq_stage,
+    waiting_days,
+)
 from app.services.rfq_service import (
     archive_rfq,
     create_rfq,
@@ -61,6 +79,38 @@ from app.services.rfq_service import (
 from app.services.search_trace import create_search_run
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
+
+# Значение RfqSupplierLink.status для компании, снятой закупщиком вручную.
+# Дублирует константу из app.api.suppliers: импорт оттуда завёл бы цикл
+# между двумя роутерами.
+LINK_EXCLUDED = "excluded"
+
+
+@dataclass
+class _Dialogue:
+    """Свёртка переписки заявки по компаниям.
+
+    Складывается из пар «последнее входящее / последнее исходящее» на одну
+    компанию. Компания считается ответившей, если от неё пришло хоть одно
+    сообщение, и ждущей нас, если её сообщение новее нашего.
+    """
+
+    replied: int = 0
+    awaiting: int = 0
+    last_inbound: datetime | None = None
+    last_outbound: datetime | None = None
+
+    def add(self, inbound: datetime | None, outbound: datetime | None) -> None:
+        if inbound is not None:
+            self.replied += 1
+            if outbound is None or inbound > outbound:
+                self.awaiting += 1
+            if self.last_inbound is None or inbound > self.last_inbound:
+                self.last_inbound = inbound
+        if outbound is not None and (
+            self.last_outbound is None or outbound > self.last_outbound
+        ):
+            self.last_outbound = outbound
 
 # Роли, видящие все запросы (остальные — только свои).
 _SEE_ALL_ROLES = {UserRole.HEAD, UserRole.ADMIN, UserRole.AUDITOR}
@@ -500,10 +550,16 @@ def list_rfqs(
 
     # Знаменатель охвата: скольким поставщикам RFQ действительно ушёл. Один
     # поставщик может стоять в двух каналах — считаем компании, не отправки.
+    # Заодно берём момент первой отправки (дата заведения заявки ничего не
+    # говорит о ходе работ) и число упавших отправок.
     recipient_rows = db.execute(
         select(
             RfqRecipient.rfq_id,
             func.count(func.distinct(RfqRecipient.supplier_id)),
+            func.min(RfqRecipient.created_at),
+            func.sum(
+                case((RfqRecipient.status == DispatchStatus.ERROR, 1), else_=0)
+            ),
         )
         .where(
             RfqRecipient.rfq_id.in_(ids),
@@ -511,28 +567,112 @@ def list_rfqs(
         )
         .group_by(RfqRecipient.rfq_id)
     ).all()
-    recipients = {rfq_id: int(total or 0) for rfq_id, total in recipient_rows}
+    recipients = {
+        rfq_id: (int(total or 0), dispatched_at, int(errors or 0))
+        for rfq_id, total, dispatched_at, errors in recipient_rows
+    }
+
+    # Найденные компании до рассылки: без них «разослать» предлагать нечему.
+    link_rows = db.execute(
+        select(RfqSupplierLink.rfq_id, func.count(RfqSupplierLink.id))
+        .where(
+            RfqSupplierLink.rfq_id.in_(ids),
+            RfqSupplierLink.status != LINK_EXCLUDED,
+        )
+        .group_by(RfqSupplierLink.rfq_id)
+    ).all()
+    found = {rfq_id: int(total or 0) for rfq_id, total in link_rows}
+
+    # Состояние переписки по каждой компании: когда она написала последний
+    # раз и когда последний раз писали мы. Из пары выводится и «ответили»,
+    # и «ждут нашего ответа» — счётчик котировок ни того, ни другого не
+    # даёт: одна компания присылает несколько котировок, а вопрос без
+    # цены не создаёт ни одной.
+    moment = func.coalesce(Communication.message_at, Communication.created_at)
+    conversation_rows = db.execute(
+        select(
+            Communication.rfq_id,
+            Manager.supplier_id,
+            func.max(
+                case(
+                    (Communication.direction == CommDirection.INBOUND, moment),
+                    else_=None,
+                )
+            ),
+            func.max(
+                case(
+                    (Communication.direction == CommDirection.OUTBOUND, moment),
+                    else_=None,
+                )
+            ),
+        )
+        .join(Manager, Manager.id == Communication.manager_id)
+        .where(Communication.rfq_id.in_(ids))
+        .group_by(Communication.rfq_id, Manager.supplier_id)
+    ).all()
+
+    dialogues: dict[int, _Dialogue] = {}
+    for rfq_id, _supplier_id, last_in, last_out in conversation_rows:
+        state = dialogues.setdefault(rfq_id, _Dialogue())
+        state.add(as_utc(last_in), as_utc(last_out))
 
     esc_rows = db.execute(
-        select(Escalation.rfq_id)
+        select(Escalation.rfq_id, Escalation.reason)
         .where(
             Escalation.rfq_id.in_(ids),
             Escalation.status != EscalationStatus.RESOLVED,
         )
         .distinct()
     ).all()
-    escalated = {row[0] for row in esc_rows}
+    escalations: dict[int, list[str]] = {}
+    for rfq_id, reason in esc_rows:
+        value = reason.value if hasattr(reason, "value") else str(reason)
+        escalations.setdefault(rfq_id, []).append(value)
 
+    now = datetime.now(timezone.utc)
     items: list[RFQListItem] = []
     for r in rfqs:
         total, complete = quotes.get(r.id, (0, 0))
+        n_recipients, dispatched_at, n_errors = recipients.get(r.id, (0, None, 0))
+        dialogue = dialogues.get(r.id, _Dialogue())
+        reasons = escalations.get(r.id, [])
+
+        progress = RfqProgress(
+            status=r.status,
+            verified=r.verified,
+            n_suppliers_found=found.get(r.id, 0),
+            n_recipients=n_recipients,
+            n_dispatch_errors=n_errors,
+            n_suppliers_replied=dialogue.replied,
+            n_awaiting_our_reply=dialogue.awaiting,
+            n_open_escalations=len(reasons),
+            n_quotations=total,
+            completeness_pct=round(100 * complete / total) if total else 0,
+            dispatched_at=as_utc(dispatched_at),
+            last_inbound_at=dialogue.last_inbound,
+            last_outbound_at=dialogue.last_outbound,
+        )
+
         item = RFQListItem.model_validate(r)
         item.owner_name = r.owner.full_name if r.owner else None
-        item.n_quotations = total
+        item.n_quotations = progress.n_quotations
         item.n_complete = complete
-        item.completeness_pct = round(100 * complete / total) if total else 0
-        item.n_recipients = recipients.get(r.id, 0)
-        item.has_open_escalation = r.id in escalated
+        item.completeness_pct = progress.completeness_pct
+        item.n_recipients = progress.n_recipients
+        item.has_open_escalation = bool(reasons)
+
+        item.stage = rfq_stage(progress)
+        item.next_action = rfq_next_action(progress, now=now)
+        item.n_suppliers_found = progress.n_suppliers_found
+        item.n_suppliers_replied = progress.n_suppliers_replied
+        item.n_silent = progress.n_silent
+        item.n_awaiting_our_reply = progress.n_awaiting_our_reply
+        item.n_dispatch_errors = progress.n_dispatch_errors
+        item.escalation_reasons = reasons
+        item.dispatched_at = progress.dispatched_at
+        item.last_inbound_at = progress.last_inbound_at
+        item.last_outbound_at = progress.last_outbound_at
+        item.waiting_days = waiting_days(progress, now=now)
         items.append(item)
     return items
 
