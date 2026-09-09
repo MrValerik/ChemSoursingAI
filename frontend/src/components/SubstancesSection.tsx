@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type {
   PurchaseHistoryEntry,
   SubstanceHistoryEntry,
+  SubstanceLinkedRequest,
+  SubstancePriceHistoryItem,
   SubstanceRecord,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { Field, HelpTip, Icon, Input, Textarea, Toast } from "./ui";
+import { STATUS_LABELS, STATUS_TONE } from "./statusLabels";
 
 const REVIEW_LABELS: Record<string, string> = {
   confirmed: "Подтверждено специалистом",
@@ -22,6 +25,8 @@ const REVIEW_TONES: Record<string, string> = {
 };
 
 const HISTORY_LABELS: Record<string, string> = {
+  created_from_request: "Карточка создана из закупочного запроса",
+  catalog_confirmed: "Автоматическая карточка подтверждена специалистом",
   created: "Карточка создана и подтверждена",
   rules_updated: "Экспертные правила обновлены",
   identity_confirmed: "Идентификация ИИ подтверждена",
@@ -122,6 +127,7 @@ function TagEditor({
 export default function SubstancesSection() {
   // Открытая карточка вещества — часть адреса: /substances/17.
   const { substanceId } = useParams();
+  const navigate = useNavigate();
   const focusId = substanceId ? Number(substanceId) : null;
   const { user } = useAuth();
   const canEdit = user?.role !== "auditor";
@@ -140,6 +146,8 @@ export default function SubstancesSection() {
   const [notes, setNotes] = useState("");
   const [history, setHistory] = useState<SubstanceHistoryEntry[]>([]);
   const [purchaseHistory, setPurchaseHistory] = useState<PurchaseHistoryEntry[]>([]);
+  const [linkedRequests, setLinkedRequests] = useState<SubstanceLinkedRequest[]>([]);
+  const [priceHistory, setPriceHistory] = useState<SubstancePriceHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
@@ -187,6 +195,8 @@ export default function SubstancesSection() {
     if (selectedId === null || creating) {
       setHistory([]);
       setPurchaseHistory([]);
+      setLinkedRequests([]);
+      setPriceHistory([]);
       setHistoryError(null);
       return;
     }
@@ -195,11 +205,15 @@ export default function SubstancesSection() {
     Promise.all([
       api.listSubstanceHistory(selectedId),
       api.listSubstancePurchaseHistory(selectedId),
+      api.listSubstanceRequests(selectedId),
+      api.listSubstancePriceHistory(selectedId),
     ])
-      .then(([data, purchases]) => {
+      .then(([data, purchases, requests, prices]) => {
         if (!active) return;
         setHistory(data);
         setPurchaseHistory(purchases);
+        setLinkedRequests(requests);
+        setPriceHistory(prices);
         setHistoryError(null);
       })
       .catch((caught) => {
@@ -259,13 +273,23 @@ export default function SubstancesSection() {
       setCreating(false);
       setSelectedId(saved.id);
       setNotice("Правила идентификации сохранены и будут применяться в новых поисках.");
-      const [, updatedHistory, updatedPurchaseHistory] = await Promise.all([
+      const [
+        ,
+        updatedHistory,
+        updatedPurchaseHistory,
+        updatedRequests,
+        updatedPrices,
+      ] = await Promise.all([
         load(),
         api.listSubstanceHistory(saved.id),
         api.listSubstancePurchaseHistory(saved.id),
+        api.listSubstanceRequests(saved.id),
+        api.listSubstancePriceHistory(saved.id),
       ]);
       setHistory(updatedHistory);
       setPurchaseHistory(updatedPurchaseHistory);
+      setLinkedRequests(updatedRequests);
+      setPriceHistory(updatedPrices);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));
     } finally {
@@ -407,6 +431,113 @@ export default function SubstancesSection() {
                   onChange={(event) => setNotes(event.target.value)}
                 />
               </Field>
+              {!creating && selected && (
+                <section className="substance-related-section">
+                  <div className="heading-with-help">
+                    <h3>Связанные запросы</h3>
+                    <HelpTip text="Здесь показаны закупочные запросы, автоматически связанные с карточкой по точному CAS-номеру. Доступ зависит от вашей роли и ответственного за запрос." />
+                  </div>
+                  {historyLoading && <p className="note">Загрузка запросов…</p>}
+                  {!historyLoading && linkedRequests.length === 0 && (
+                    <p className="note">Связанных запросов пока нет.</p>
+                  )}
+                  {linkedRequests.length > 0 && (
+                    <div className="table-scroll">
+                      <table className="summary substance-related-table">
+                        <thead>
+                          <tr>
+                            <th>Запрос</th>
+                            <th>Дата</th>
+                            <th>Объём</th>
+                            <th>Статус</th>
+                            <th>Котировки</th>
+                            <th>Ответственный</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {linkedRequests.map((request) => (
+                            <tr key={request.id}>
+                              <td>
+                                <button
+                                  className="link-btn"
+                                  type="button"
+                                  onClick={() => navigate(`/requests/${request.id}`)}
+                                >
+                                  #{request.id} · {request.name}
+                                </button>
+                              </td>
+                              <td>
+                                {new Date(request.created_at).toLocaleDateString("ru-RU")}
+                              </td>
+                              <td>{request.volume ?? "—"}</td>
+                              <td>
+                                <span className={`badge tone-${STATUS_TONE[request.status]}`}>
+                                  {STATUS_LABELS[request.status]}
+                                </span>
+                              </td>
+                              <td>{request.quotation_count}</td>
+                              <td>{request.owner_name ?? "Не назначен"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              )}
+              {!creating && selected && (
+                <section className="substance-related-section">
+                  <div className="heading-with-help">
+                    <h3>История цен</h3>
+                    <HelpTip text="Каждая строка — сохранённая котировка по связанному запросу. Цена показывается вместе с валютой, единицей и базисом; несопоставимые условия не пересчитываются автоматически." />
+                  </div>
+                  {historyLoading && <p className="note">Загрузка цен…</p>}
+                  {!historyLoading && priceHistory.length === 0 && (
+                    <p className="note">Цены по этому веществу ещё не получены.</p>
+                  )}
+                  {priceHistory.length > 0 && (
+                    <div className="table-scroll">
+                      <table className="summary substance-related-table">
+                        <thead>
+                          <tr>
+                            <th>Дата</th>
+                            <th>Цена</th>
+                            <th>Базис</th>
+                            <th>Количество / MOQ</th>
+                            <th>Поставщик</th>
+                            <th>Запрос</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {priceHistory.map((entry) => (
+                            <tr key={entry.quotation_id}>
+                              <td>
+                                {new Date(entry.quoted_at).toLocaleDateString("ru-RU")}
+                              </td>
+                              <td>
+                                {entry.price.toLocaleString("ru-RU")} {entry.currency ?? ""}
+                                {entry.price_unit ? ` / ${entry.price_unit}` : ""}
+                              </td>
+                              <td>{entry.incoterm ?? "—"}</td>
+                              <td>{entry.quoted_quantity ?? entry.moq ?? "—"}</td>
+                              <td>{entry.supplier_name ?? "Не указан"}</td>
+                              <td>
+                                <button
+                                  className="link-btn"
+                                  type="button"
+                                  onClick={() => navigate(`/requests/${entry.rfq_id}/summary`)}
+                                >
+                                  #{entry.rfq_id}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              )}
               {!creating && selected && (
                 <section className="substance-history">
                   <div className="heading-with-help">

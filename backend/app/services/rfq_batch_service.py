@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.models.prompt import RfqAiSetting
 from app.models.rfq import RFQ
 from app.models.rfq_batch import RfqBatch
+from app.models.substance import Substance
 from app.schemas.rfq import RFQCreate
 from app.services.rfq_builder import UnsupportedIncotermError
 from app.services.rfq_service import create_rfq, search_run_payload
@@ -212,6 +213,11 @@ def create_rfq_batch(
 
             runs = 0
             if start_search:
+                substance = (
+                    db.get(Substance, rfq.substance_id)
+                    if rfq.substance_id is not None
+                    else None
+                )
                 # Отдельный прогон на каждую страну: у него свой correlation
                 # ID, свой статус и своя ошибка. Один прогон на позицию не
                 # дал бы отличить, где именно поиск встал.
@@ -223,6 +229,7 @@ def create_rfq_batch(
                         input_payload=search_run_payload(
                             rfq,
                             country=country,
+                            substance=substance,
                             additional_instructions=data.additional_instructions,
                         ),
                         mode="queued_search",

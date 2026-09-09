@@ -87,6 +87,31 @@ export interface SubstanceHistoryEntry {
   created_at: string;
 }
 
+export interface SubstanceLinkedRequest {
+  id: number;
+  cas: string | null;
+  name: string;
+  status: RFQStatus;
+  volume: string | null;
+  owner_id: number | null;
+  owner_name: string | null;
+  quotation_count: number;
+  created_at: string;
+}
+
+export interface SubstancePriceHistoryItem {
+  quotation_id: number;
+  rfq_id: number;
+  quoted_at: string;
+  price: number;
+  currency: string | null;
+  price_unit: string | null;
+  quoted_quantity: string | null;
+  incoterm: string | null;
+  moq: string | null;
+  supplier_name: string | null;
+}
+
 export interface RFQPreview {
   subject: string;
   body: string;

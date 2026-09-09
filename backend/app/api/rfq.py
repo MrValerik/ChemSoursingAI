@@ -402,6 +402,8 @@ def create(
         rfq = create_rfq(db, data, verify=verify, owner_id=user.id)
     except UnsupportedIncotermError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if selected_substance is None and rfq.substance_id is not None:
+        selected_substance = db.get(Substance, rfq.substance_id)
     if data.additional_instructions:
         db.add(
             RfqAiSetting(
