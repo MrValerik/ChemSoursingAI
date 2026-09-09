@@ -5,6 +5,12 @@
 // пришёл. Экран отвечает на один вопрос: что именно система прочитала в
 // файле и с какими оговорками.
 //
+// Живёт отдельным окном, а на форме создания запроса остаётся одна кнопка
+// в углу. Список из файла и одна позиция руками — разные задачи, и
+// подробное описание колонок, развёрнутое прямо в форме, оттесняло вниз
+// то, ради чего форму открыли. В окне же места хватает и на описание, и
+// на примеры, и на широкую таблицу разбора.
+//
 // Ничего не создаётся и не сохраняется: ни запросов, ни самого файла.
 // Список сырья — коммерческая тайна закупщика, и пока нет решения о сроке
 // хранения, самый безопасный файл — тот, которого нет на диске.
@@ -13,12 +19,13 @@
 // неверным номером обязан показать 49 готовых строк и одну проблемную с
 // номером строки, полем и причиной.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError } from "../api/client";
 import type {
   RfqBatchCreateResult,
   RfqImportPreview,
+  RfqImportReference,
   RfqImportRow,
 } from "../api/types";
 
@@ -72,11 +79,55 @@ export default function RfqImport({ onCreated }: Props) {
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
   const [result, setResult] = useState<RfqBatchCreateResult | null>(null);
+  // Окно закрыто, пока закупщик заполняет форму на одну позицию: список
+  // из файла — соседняя задача, а не продолжение формы.
+  const [open, setOpen] = useState(false);
+  // Описание колонок и примеры заполнения. Приезжают с сервера при первом
+  // открытии окна: до него этот текст никому не нужен.
+  const [reference, setReference] = useState<RfqImportReference | null>(null);
   // Ключ идемпотентности живёт вместе с разобранным файлом: повторное
   // нажатие и повтор после обрыва ответа приходят с тем же ключом и не
   // создают второй набор запросов. Новый файл — новый ключ.
   const idempotencyKey = useRef<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Описание колонок живёт на сервере рядом с правилами разбора — там же,
+  // откуда собирается образец файла. Забирается один раз: пока не выкатили
+  // новую сборку, текст не меняется.
+  useEffect(() => {
+    if (!open || reference) return;
+    let cancelled = false;
+    void api
+      .rfqImportReference()
+      .then((loaded) => {
+        if (!cancelled) setReference(loaded);
+      })
+      // Молча: без описания колонок окно остаётся рабочим — файл
+      // разбирается, образец качается. Показывать здесь ошибку значило бы
+      // пугать закупщика тем, что на его задачу не влияет.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, reference]);
+
+  // Пока окно открыто, страница под ним не прокручивается: две полосы
+  // прокрутки рядом — это ровно та неразбериха, из-за которой список и
+  // переехал в окно. Escape закрывает — окно ничего не теряет, разобранный
+  // файл ждёт следующего открытия.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   const isExcluded = (row: number) => excluded.includes(row);
 
@@ -191,276 +242,386 @@ export default function RfqImport({ onCreated }: Props) {
   };
 
   return (
-    <div className="rfq-import">
-      <div className="rfq-import-head">
-        <label className="rfq-import-pick">
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".xlsx,.xlsm,.csv,.txt"
-            disabled={busy}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void upload(file);
-            }}
-          />
-          <span className="rfq-import-pick-label">
-            <Icon name="flask" size={15} />
-            {busy ? "Читаю файл…" : "Загрузить список из XLSX или CSV"}
-          </span>
-        </label>
-        <HelpTip text="Файл разбирается на сервере детерминированно и нигде не сохраняется: ни как документ, ни в журнале. В нейросеть он не отправляется. Ожидаются колонки «Название» (обязательна), CAS, объём, единица, чистота, грейд, синонимы, спецификация, цена, валюта, Incoterms, страны, комментарий — на русском или английском." />
-        {fileName && !busy && (
-          <span className="rfq-import-file">{fileName}</span>
+    <>
+      {/* В форме создания запроса — одна кнопка в углу. Всё остальное
+          (описание колонок, образец, разбор файла) живёт в окне: на форме
+          это оттесняло вниз поля, ради которых её открыли. */}
+      <button
+        aria-haspopup="dialog"
+        className="rfq-import-open"
+        type="button"
+        onClick={() => setOpen(true)}
+      >
+        <Icon name="flask" size={15} />
+        Загрузить список из XLSX или CSV
+        {/* Закрытое окно не должно прятать разобранный файл: иначе
+            закупщик, закрывший его на минуту, начнёт загрузку заново. */}
+        {preview && !result && (
+          <span className="rfq-import-open-badge">{ready.length}</span>
         )}
-      </div>
+      </button>
 
-      {/* Перечисление колонок в подсказке не отвечает на вопрос «а как
-          записать?»: два базиса поставки в одной ячейке, чистота
-          процентом, объём с единицей. Заполненный образец показывает это
-          строками, а в XLSX — ещё и примечанием на каждом заголовке. */}
-      <p className="rfq-import-template">
-        Не знаете, в каком виде нужен файл — скачайте образец:{" "}
-        <button
-          type="button"
-          className="link-btn"
-          disabled={template !== null}
-          onClick={() => void downloadTemplate("xlsx")}
+      {open && (
+        <div
+          className="rfq-import-backdrop"
+          role="presentation"
+          onClick={() => setOpen(false)}
         >
-          {template === "xlsx" ? "готовлю XLSX…" : "XLSX"}
-        </button>
-        {" · "}
-        <button
-          type="button"
-          className="link-btn"
-          disabled={template !== null}
-          onClick={() => void downloadTemplate("csv")}
-        >
-          {template === "csv" ? "готовлю CSV…" : "CSV"}
-        </button>
-        . В нём заполнены три строки: с номером CAS, без номера — по
-        спецификации — и по минимуму. Лишние колонки можно удалить,
-        обязательна только «Название».
-      </p>
-
-      {error && <p className="error">{error}</p>}
-
-      {preview && (
-        <>
-          {preview.file_warnings.map((item, index) => (
-            <p className="rfq-import-warning" key={index}>
-              {item.message}
-            </p>
-          ))}
-
-          <p className="rfq-import-summary">
-            Прочитано строк: <strong>{preview.total_rows}</strong>. Готовы к
-            созданию: <strong>{ready.length}</strong>
-            {broken.length > 0 && (
-              <>
-                {" "}
-                · с ошибками: <strong>{broken.length}</strong>
-              </>
-            )}
-            {excluded.length > 0 && (
-              <>
-                {" "}
-                · исключено: <strong>{excluded.length}</strong>
-              </>
-            )}
-          </p>
-
-          <div className="rfq-import-table-wrap">
-            <table className="rfq-import-table">
-              <thead>
-                <tr>
-                  <th className="rfq-import-col-take">
-                    <span title="Создавать запрос по этой строке">Брать</span>
-                  </th>
-                  <th className="rfq-import-col-row">Стр.</th>
-                  {EDITABLE.map((column) => (
-                    <th key={column.key} style={{ width: column.width }}>
-                      {column.label}
-                    </th>
-                  ))}
-                  <th>Что прочитано</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const skipped = isExcluded(row.row);
-                  return (
-                    <tr
-                      key={row.row}
-                      className={[
-                        !row.importable ? "is-broken" : "",
-                        skipped ? "is-skipped" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                    >
-                      <td className="rfq-import-col-take">
-                        <input
-                          type="checkbox"
-                          aria-label={`Строка ${row.row}: создавать запрос`}
-                          checked={row.importable && !skipped}
-                          disabled={!row.importable}
-                          onChange={() => toggleExcluded(row.row)}
-                        />
-                      </td>
-                      <td className="rfq-import-col-row">{row.row}</td>
-                      {EDITABLE.map((column) => (
-                        <td key={column.key}>
-                          {/* Поле управляемое: набранное сразу видно в
-                              строке, а перепроверка на сервере идёт по
-                              завершении правки — по Enter или уходу
-                              фокуса, а не на каждую букву. */}
-                          <input
-                            className="rfq-import-cell"
-                            aria-label={`Строка ${row.row}, ${column.label}`}
-                            value={row.raw[column.key] ?? ""}
-                            disabled={rechecking === row.row}
-                            onChange={(event) =>
-                              editDraft(row, column.key, event.target.value)
-                            }
-                            onBlur={() => void commitEdit(row)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                void commitEdit(row);
-                              }
-                            }}
-                          />
-                        </td>
-                      ))}
-                      <td className="rfq-import-read">
-                        {row.importable ? (
-                          <ReadValues row={row} />
-                        ) : (
-                          <span className="rfq-import-none">—</span>
-                        )}
-                        {row.errors.map((item, index) => (
-                          <p className="rfq-import-row-error" key={`e${index}`}>
-                            {item.message}
-                          </p>
-                        ))}
-                        {row.warnings.map((item, index) => (
-                          <p
-                            className="rfq-import-row-warning"
-                            key={`w${index}`}
-                          >
-                            {item.message}
-                          </p>
-                        ))}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {broken.length > 0 && (
-            <p className="rfq-import-hint">
-              Строки с ошибками в запросы не попадут. Исправьте значение прямо в
-              таблице — проверка повторится — или оставьте как есть и создайте
-              остальные.
-            </p>
-          )}
-
-          {result ? (
-            <div className="rfq-import-result">
-              <p className="rfq-import-summary">
-                {result.created
-                  ? "Пакет создан."
-                  : "Пакет уже был создан этим же действием — повтор ничего не задвоил."}{" "}
-                Запросов: <strong>{result.created_count}</strong> · поисков в
-                очереди: <strong>{result.search_runs}</strong>
-                {result.failed_count > 0 && (
-                  <>
-                    {" "}
-                    · не создано: <strong>{result.failed_count}</strong>
-                  </>
-                )}
-              </p>
-              {result.results
-                .filter((item) => item.error)
-                .map((item) => (
-                  <p className="rfq-import-row-error" key={item.row}>
-                    Строка {item.row} · {item.name}: {item.error}
-                  </p>
-                ))}
-              <button onClick={() => onCreated?.(result.batch_id)}>
-                Открыть сводку пакета
+          <section
+            aria-labelledby="rfq-import-title"
+            aria-modal="true"
+            className="rfq-import"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="rfq-import-head">
+              <h2 id="rfq-import-title">Список позиций из XLSX или CSV</h2>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => setOpen(false)}
+              >
+                Закрыть
               </button>
-            </div>
-          ) : (
-            <>
-              <div className="rfq-import-defaults">
-                <div className="field">
-                  <div className="heading-with-help">
-                    <label>Условия поставки для всего списка</label>
-                    <HelpTip text="Применяются к позициям, у которых в файле нет колонки Incoterms. Если базис указан в самой строке, действует он." />
-                  </div>
-                  <IncotermPicker
-                    label="Условия поставки для всего списка"
-                    values={incoterms}
-                    onChange={setIncoterms}
+            </header>
+
+            <div className="rfq-import-body">
+              <p className="rfq-import-lead">
+                Файл разбирается на сервере детерминированно и нигде не
+                сохраняется: ни как документ, ни в журнале. В нейросеть он не
+                отправляется. Обязательна одна колонка — «Название»; лишние
+                колонки можно оставить, разбор их пропустит и скажет, какие
+                именно.
+              </p>
+
+              <div className="rfq-import-pick-row">
+                <label className="rfq-import-pick">
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    accept=".xlsx,.xlsm,.csv,.txt"
+                    disabled={busy}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void upload(file);
+                    }}
                   />
-                </div>
-                <div className="field">
-                  <div className="heading-with-help">
-                    <label>Страны поиска для всего списка</label>
-                    <HelpTip text="Применяются к позициям, у которых в файле нет колонки со странами. Указанное в строке сильнее." />
-                  </div>
-                  <div className="checks">
-                    {BATCH_COUNTRIES.map((country) => (
-                      <label key={country}>
-                        <input
-                          type="checkbox"
-                          checked={countries.includes(country)}
-                          onChange={() =>
-                            setCountries((current) =>
-                              current.includes(country)
-                                ? current.filter((item) => item !== country)
-                                : [...current, country],
-                            )
-                          }
-                        />
-                        {country}
-                      </label>
+                  <span className="rfq-import-pick-label">
+                    <Icon name="flask" size={15} />
+                    {busy ? "Читаю файл…" : "Выбрать файл"}
+                  </span>
+                </label>
+                {fileName && !busy && (
+                  <span className="rfq-import-file">{fileName}</span>
+                )}
+              </div>
+
+              {/* Перечисление колонок не отвечает на вопрос «а как
+                  записать?»: два базиса поставки в одной ячейке, чистота
+                  процентом, объём с единицей. Заполненный образец
+                  показывает это строками, а в XLSX — ещё и примечанием на
+                  каждом заголовке. */}
+              <p className="rfq-import-template">
+                Не знаете, в каком виде нужен файл — скачайте образец:{" "}
+                <button
+                  type="button"
+                  className="link-btn"
+                  disabled={template !== null}
+                  onClick={() => void downloadTemplate("xlsx")}
+                >
+                  {template === "xlsx" ? "готовлю XLSX…" : "XLSX"}
+                </button>
+                {" · "}
+                <button
+                  type="button"
+                  className="link-btn"
+                  disabled={template !== null}
+                  onClick={() => void downloadTemplate("csv")}
+                >
+                  {template === "csv" ? "готовлю CSV…" : "CSV"}
+                </button>
+                . Скачанный образец, залитый обратно без правок, даёт готовые
+                строки.
+              </p>
+
+              {/* Пока файла нет — описание развёрнуто: закупщик пришёл сюда
+                  именно за ним. После разбора оно сворачивается в строку:
+                  место нужно таблице. */}
+              {reference && (
+                <details className="rfq-import-reference" open={!preview}>
+                  <summary>Колонки файла и примеры заполнения</summary>
+                  <table className="rfq-import-columns">
+                    <tbody>
+                      {reference.columns.map((column) => (
+                        <tr key={column.field}>
+                          <th scope="row">{column.title}</th>
+                          <td>{column.hint}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="rfq-import-examples">
+                    {reference.rows.map((example, index) => (
+                      <div className="rfq-import-example" key={index}>
+                        <p className="rfq-import-example-caption">
+                          {example.caption}
+                        </p>
+                        <dl>
+                          {example.values.map((value) => (
+                            <div key={value.title}>
+                              <dt>{value.title}</dt>
+                              <dd>{value.value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
                     ))}
                   </div>
-                </div>
-              </div>
+                </details>
+              )}
 
-              <div className="rfq-import-actions">
-                <button
-                  disabled={
-                    creating || ready.length === 0 || incoterms.length === 0
-                  }
-                  onClick={() => void createBatch()}
-                  title={
-                    ready.length === 0
-                      ? "Нет ни одной строки, готовой к созданию"
-                      : incoterms.length === 0
-                        ? "Отметьте хотя бы одно условие поставки"
-                        : undefined
-                  }
-                >
-                  {creating
-                    ? "Создаю запросы…"
-                    : `Создать ${ready.length} запрос(ов) и начать поиск`}
-                </button>
-                <span className="rfq-import-hint">
-                  По каждой позиции создаётся отдельный запрос со своим поиском.
-                </span>
-              </div>
-            </>
-          )}
-        </>
+              {error && <p className="error">{error}</p>}
+
+              {preview && (
+                <>
+                  {preview.file_warnings.map((item, index) => (
+                    <p className="rfq-import-warning" key={index}>
+                      {item.message}
+                    </p>
+                  ))}
+
+                  <p className="rfq-import-summary">
+                    Прочитано строк: <strong>{preview.total_rows}</strong>.
+                    Готовы к созданию: <strong>{ready.length}</strong>
+                    {broken.length > 0 && (
+                      <>
+                        {" "}
+                        · с ошибками: <strong>{broken.length}</strong>
+                      </>
+                    )}
+                    {excluded.length > 0 && (
+                      <>
+                        {" "}
+                        · исключено: <strong>{excluded.length}</strong>
+                      </>
+                    )}
+                  </p>
+
+                  <div className="rfq-import-table-wrap">
+                    <table className="rfq-import-table">
+                      <thead>
+                        <tr>
+                          <th className="rfq-import-col-take">
+                            <span title="Создавать запрос по этой строке">
+                              Брать
+                            </span>
+                          </th>
+                          <th className="rfq-import-col-row">Стр.</th>
+                          {EDITABLE.map((column) => (
+                            <th key={column.key} style={{ width: column.width }}>
+                              {column.label}
+                            </th>
+                          ))}
+                          <th>Что прочитано</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row) => {
+                          const skipped = isExcluded(row.row);
+                          return (
+                            <tr
+                              key={row.row}
+                              className={[
+                                !row.importable ? "is-broken" : "",
+                                skipped ? "is-skipped" : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" ")}
+                            >
+                              <td className="rfq-import-col-take">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Строка ${row.row}: создавать запрос`}
+                                  checked={row.importable && !skipped}
+                                  disabled={!row.importable}
+                                  onChange={() => toggleExcluded(row.row)}
+                                />
+                              </td>
+                              <td className="rfq-import-col-row">{row.row}</td>
+                              {EDITABLE.map((column) => (
+                                <td key={column.key}>
+                                  {/* Поле управляемое: набранное сразу видно
+                                      в строке, а перепроверка на сервере идёт
+                                      по завершении правки — по Enter или
+                                      уходу фокуса, а не на каждую букву. */}
+                                  <input
+                                    className="rfq-import-cell"
+                                    aria-label={`Строка ${row.row}, ${column.label}`}
+                                    value={row.raw[column.key] ?? ""}
+                                    disabled={rechecking === row.row}
+                                    onChange={(event) =>
+                                      editDraft(
+                                        row,
+                                        column.key,
+                                        event.target.value,
+                                      )
+                                    }
+                                    onBlur={() => void commitEdit(row)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        void commitEdit(row);
+                                      }
+                                    }}
+                                  />
+                                </td>
+                              ))}
+                              <td className="rfq-import-read">
+                                {row.importable ? (
+                                  <ReadValues row={row} />
+                                ) : (
+                                  <span className="rfq-import-none">—</span>
+                                )}
+                                {row.errors.map((item, index) => (
+                                  <p
+                                    className="rfq-import-row-error"
+                                    key={`e${index}`}
+                                  >
+                                    {item.message}
+                                  </p>
+                                ))}
+                                {row.warnings.map((item, index) => (
+                                  <p
+                                    className="rfq-import-row-warning"
+                                    key={`w${index}`}
+                                  >
+                                    {item.message}
+                                  </p>
+                                ))}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {broken.length > 0 && (
+                    <p className="rfq-import-hint">
+                      Строки с ошибками в запросы не попадут. Исправьте
+                      значение прямо в таблице — проверка повторится — или
+                      оставьте как есть и создайте остальные.
+                    </p>
+                  )}
+
+                  {result ? (
+                    <div className="rfq-import-result">
+                      <p className="rfq-import-summary">
+                        {result.created
+                          ? "Пакет создан."
+                          : "Пакет уже был создан этим же действием — повтор ничего не задвоил."}{" "}
+                        Запросов: <strong>{result.created_count}</strong> ·
+                        поисков в очереди: <strong>{result.search_runs}</strong>
+                        {result.failed_count > 0 && (
+                          <>
+                            {" "}
+                            · не создано: <strong>{result.failed_count}</strong>
+                          </>
+                        )}
+                      </p>
+                      {result.results
+                        .filter((item) => item.error)
+                        .map((item) => (
+                          <p className="rfq-import-row-error" key={item.row}>
+                            Строка {item.row} · {item.name}: {item.error}
+                          </p>
+                        ))}
+                      <button
+                        onClick={() => {
+                          setOpen(false);
+                          onCreated?.(result.batch_id);
+                        }}
+                      >
+                        Открыть сводку пакета
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="rfq-import-defaults">
+                        <div className="field">
+                          <div className="heading-with-help">
+                            <label>Условия поставки для всего списка</label>
+                            <HelpTip text="Применяются к позициям, у которых в файле нет колонки Incoterms. Если базис указан в самой строке, действует он." />
+                          </div>
+                          <IncotermPicker
+                            label="Условия поставки для всего списка"
+                            values={incoterms}
+                            onChange={setIncoterms}
+                          />
+                        </div>
+                        <div className="field">
+                          <div className="heading-with-help">
+                            <label>Страны поиска для всего списка</label>
+                            <HelpTip text="Применяются к позициям, у которых в файле нет колонки со странами. Указанное в строке сильнее." />
+                          </div>
+                          <div className="checks">
+                            {BATCH_COUNTRIES.map((country) => (
+                              <label key={country}>
+                                <input
+                                  type="checkbox"
+                                  checked={countries.includes(country)}
+                                  onChange={() =>
+                                    setCountries((current) =>
+                                      current.includes(country)
+                                        ? current.filter(
+                                            (item) => item !== country,
+                                          )
+                                        : [...current, country],
+                                    )
+                                  }
+                                />
+                                {country}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rfq-import-actions">
+                        <button
+                          disabled={
+                            creating ||
+                            ready.length === 0 ||
+                            incoterms.length === 0
+                          }
+                          onClick={() => void createBatch()}
+                          title={
+                            ready.length === 0
+                              ? "Нет ни одной строки, готовой к созданию"
+                              : incoterms.length === 0
+                                ? "Отметьте хотя бы одно условие поставки"
+                                : undefined
+                          }
+                        >
+                          {creating
+                            ? "Создаю запросы…"
+                            : `Создать ${ready.length} запрос(ов) и начать поиск`}
+                        </button>
+                        <span className="rfq-import-hint">
+                          По каждой позиции создаётся отдельный запрос со своим
+                          поиском.
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 

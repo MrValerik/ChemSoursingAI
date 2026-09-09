@@ -866,6 +866,14 @@ TEMPLATE_ROWS: tuple[dict[str, str], ...] = (
     },
 )
 
+# Подписи к строкам образца. Три случая различаются не набором колонок, а
+# способом опознать вещество, и без подписи разница читается не сразу.
+TEMPLATE_ROW_CAPTIONS: tuple[str, ...] = (
+    "С номером CAS: заполнено всё, что о позиции обычно известно.",
+    "Без номера: вещество опознаётся по спецификации.",
+    "По минимуму: название, объём и единица.",
+)
+
 # Выбор единицы в Excel. Русские написания идут первыми: закупщик пишет
 # «кг», и список, где их нет, выглядел бы запретом на привычную запись —
 # хотя разбор её понимает.
@@ -886,6 +894,34 @@ def _template_table() -> list[list[str]]:
         for row in TEMPLATE_ROWS
     ]
     return [header, *body]
+
+
+def template_reference() -> dict:
+    """Описание колонок и заполненные строки образца — для экрана загрузки.
+
+    Берётся из того же места, из которого собирается сам файл образца:
+    пояснение к колонке живёт в одном экземпляре, и подсказка на экране
+    не может разойтись с примечанием на заголовке в XLSX.
+    """
+    return {
+        "columns": [
+            {"field": field_name, "title": title, "hint": hint}
+            for field_name, title, hint in TEMPLATE_COLUMNS
+        ],
+        "rows": [
+            {
+                "caption": caption,
+                # Пустые колонки в пример не попадают: пример нужен, чтобы
+                # показать заполнение, а не длину заголовка.
+                "values": [
+                    {"title": title, "value": row[field_name]}
+                    for field_name, title, _ in TEMPLATE_COLUMNS
+                    if row.get(field_name)
+                ],
+            }
+            for row, caption in zip(TEMPLATE_ROWS, TEMPLATE_ROW_CAPTIONS)
+        ],
+    }
 
 
 def build_template_csv() -> bytes:

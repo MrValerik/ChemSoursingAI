@@ -56,6 +56,7 @@ from app.services.rfq_import import (
     build_template_xlsx,
     parse_import_file,
     parse_import_row,
+    template_reference,
 )
 from app.services.rfq_builder import (
     RFQInput,
@@ -154,6 +155,17 @@ class RFQGenerateRequest(BaseModel):
     volume: str | None = None
     target_price: float | None = None
     currency: str = "USD"
+
+
+@router.get("/import/reference")
+def import_reference(user: User = Depends(get_current_user)) -> dict:
+    """Описание колонок и примеры заполнения для окна загрузки списка.
+
+    Отдаётся сервером по той же причине, по которой сервер собирает и сам
+    образец: правила разбора живут здесь, и текст, повторённый на экране
+    руками, разошёлся бы с ними при первой же правке разбора.
+    """
+    return template_reference()
 
 
 @router.get("/import/template")

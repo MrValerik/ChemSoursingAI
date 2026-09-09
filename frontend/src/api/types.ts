@@ -1479,6 +1479,25 @@ export interface RfqImportPreview {
   importable_rows: number;
 }
 
+/** Колонка файла и что в неё писать. Текст приходит с сервера — оттуда же,
+    откуда собирается образец, поэтому окно не расходится с разбором. */
+export interface RfqImportColumn {
+  field: string;
+  title: string;
+  hint: string;
+}
+
+/** Заполненная строка образца: только непустые колонки. */
+export interface RfqImportExample {
+  caption: string;
+  values: { title: string; value: string }[];
+}
+
+export interface RfqImportReference {
+  columns: RfqImportColumn[];
+  rows: RfqImportExample[];
+}
+
 // --- пакетное создание запросов (MEET2-02) ---
 
 /** Итог по одной строке списка. Каждая строка отвечает за себя. */

@@ -274,6 +274,35 @@ button.shell-nav-toggle,
 /* ===== 600px: телефон ===== */
 
 @media (max-width: 600px) {
+  /* На телефоне заголовок и кнопка списка не делят строку: кнопка с
+     полным названием шире половины экрана, и заголовок ужимался в
+     столбик из трёх слов. */
+  .rfq-import-open {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Название колонки над пояснением, а не рядом: в две колонки на 375px
+     пояснение вытягивается в столбик по два слова. */
+  .rfq-import-columns,
+  .rfq-import-columns tbody,
+  .rfq-import-columns tr,
+  .rfq-import-columns th,
+  .rfq-import-columns td {
+    display: block;
+  }
+  .rfq-import-columns tr {
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .rfq-import-columns th,
+  .rfq-import-columns td {
+    width: auto;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+  }
+
   .summary-heading-actions,
   .summary-columns-dialog-footer {
     align-items: stretch;

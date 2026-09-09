@@ -170,6 +170,46 @@ def test_anonymous_cannot_take_the_template(client):
     assert _template(client, None).status_code in {401, 403}
 
 
+def _reference(client: TestClient, token: str | None):
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    return client.get("/rfq/import/reference", headers=headers)
+
+
+def test_reference_describes_every_column_of_the_template(client):
+    """Окно загрузки берёт описание колонок оттуда же, откуда образец.
+
+    Разъехавшись, они дадут худший вид ошибки: на экране написано одно, а
+    файл разбирается по другому.
+    """
+    from app.services.rfq_import import TEMPLATE_COLUMNS
+
+    response = _reference(client, _token(client, "ivanov"))
+    assert response.status_code == 200, response.text
+    columns = response.json()["columns"]
+    assert [column["field"] for column in columns] == [
+        field_name for field_name, _, _ in TEMPLATE_COLUMNS
+    ]
+    assert all(column["hint"] for column in columns)
+
+
+def test_reference_examples_repeat_the_rows_of_the_template(client):
+    """Примеры на экране — те же три строки, что лежат в файле образца."""
+    from app.services.rfq_import import TEMPLATE_ROWS
+
+    rows = _reference(client, _token(client, "ivanov")).json()["rows"]
+    assert len(rows) == len(TEMPLATE_ROWS)
+    for example, source in zip(rows, TEMPLATE_ROWS):
+        assert example["caption"]
+        # Пустых колонок в примере нет: он показывает заполнение.
+        assert [value["value"] for value in example["values"]] == [
+            value for value in source.values() if value
+        ]
+
+
+def test_anonymous_cannot_take_the_reference(client):
+    assert _reference(client, None).status_code in {401, 403}
+
+
 def test_unknown_template_format_is_refused(client):
     response = _template(client, _token(client, "ivanov"), fmt="pdf")
     assert response.status_code == 422

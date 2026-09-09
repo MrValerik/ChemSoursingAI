@@ -5441,16 +5441,89 @@ button.substance-list-item.active {
 }
 
 /* Импорт списка позиций из XLSX/CSV.
-   Таблица предпросмотра широкая и на узком экране прокручивается внутри
-   своей рамки: горизонтальная прокрутка всей страницы ломает форму. */
-.rfq-import {
-  margin-bottom: 16px;
-  padding: 12px 14px;
+   Форму создания запроса список занимал целым блоком с описанием колонок и
+   собственной полосой прокрутки — две полосы на одном экране. Осталась
+   кнопка в углу заголовка, всё остальное живёт в окне: там таблице разбора
+   хватает ширины, а прокрутка ровно одна — у самого окна. */
+.new-rfq-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+.new-rfq-head h2 { margin: 0; }
+.rfq-import-open {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 7px;
+  padding: 7px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
 }
-.rfq-import-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.rfq-import-open:hover { border-color: var(--brand); background: var(--panel-2); }
+/* Сколько строк ждёт в закрытом окне. Без счётчика закупщик, закрывший
+   окно на минуту, начинает загрузку заново. */
+.rfq-import-open-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--brand-fill);
+  color: var(--on-brand-fill);
+  font-size: 11px;
+}
+
+.rfq-import-backdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  padding: 20px;
+  place-items: center;
+  background: rgb(15 23 42 / 28%);
+}
+.rfq-import {
+  display: flex;
+  width: min(900px, 100%);
+  max-height: 88vh;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 18px 48px rgb(15 23 42 / 18%);
+}
+.rfq-import-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.rfq-import-head h2 { margin: 0; font-size: 15px; }
+/* Прокручивается только эта область — она же единственная прокрутка на
+   экране, пока окно открыто: страница под ним зафиксирована. */
+.rfq-import-body { padding: 16px 20px 20px; overflow-y: auto; }
+.rfq-import-lead {
+  margin: 0;
+  max-width: 720px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.rfq-import-pick-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
 .rfq-import-pick input[type="file"] { display: none; }
 .rfq-import-pick-label {
   display: inline-flex;
@@ -5459,7 +5532,7 @@ button.substance-list-item.active {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--panel);
+  background: var(--panel-2);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -5478,8 +5551,8 @@ button.substance-list-item.active {
 /* Ссылки на образец файла: строкой под кнопкой выбора, а не кнопкой рядом
    с ней. Образец нужен один раз, а список загружают каждый день. */
 .rfq-import-template {
-  margin: 8px 0 0;
-  max-width: 640px;
+  margin: 10px 0 0;
+  max-width: 720px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
@@ -5487,9 +5560,74 @@ button.substance-list-item.active {
 .rfq-import-template .link-btn { font-size: 12px; }
 .rfq-import-template .link-btn:disabled { color: var(--muted); cursor: default; }
 
+/* Что писать в каждую колонку и три заполненные строки. Текст приходит с
+   сервера — оттуда же, откуда собирается образец файла. */
+.rfq-import-reference {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.rfq-import-reference > summary {
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rfq-import-columns {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.rfq-import-columns th,
+.rfq-import-columns td {
+  padding: 5px 8px 5px 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.45;
+}
+.rfq-import-columns th {
+  width: 130px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rfq-import-columns td { color: var(--muted); }
+.rfq-import-examples {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.rfq-import-example {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+.rfq-import-example-caption {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.rfq-import-example dl { margin: 0; font-size: 12px; }
+.rfq-import-example dl > div {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) 1fr;
+  gap: 4px 10px;
+  margin-bottom: 4px;
+}
+.rfq-import-example dt { color: var(--muted); }
+.rfq-import-example dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Таблица разбора прокручивается вбок, но не вниз: своя вертикальная
+   полоса рядом с полосой окна — это два скролла на одном экране, и
+   закупщик перестаёт понимать, какой из них двигает список. */
 .rfq-import-table-wrap {
-  max-height: 420px;
-  overflow: auto;
+  margin-top: 4px;
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel);
@@ -5503,9 +5641,6 @@ button.substance-list-item.active {
   vertical-align: top;
 }
 .rfq-import-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   background: var(--panel-2);
   font-weight: 600;
   white-space: nowrap;
@@ -5550,7 +5685,7 @@ button.substance-list-item.active {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--panel);
+  background: var(--panel-2);
 }
 .rfq-import-result .rfq-import-summary { margin-top: 0; }
 .rfq-import-result button { margin-top: 8px; }

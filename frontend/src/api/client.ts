@@ -10,6 +10,7 @@ import type {
   CombinedRfqOption,
   CombinedRfqPreview,
   RfqImportPreview,
+  RfqImportReference,
   RfqImportRow,
   CommunicationMessageRead,
   MailboxFolder,
@@ -335,6 +336,11 @@ export const api = {
   // Образец файла: закупщик, открывший экран впервые, не знает, в каком
   // виде нужен список. Собирается на сервере — там же, где живут правила
   // разбора, поэтому образец не может разойтись с тем, что читается.
+  // Описание колонок и примеры заполнения для окна загрузки. Запрашивается
+  // при первом открытии окна: до него эти пять килобайт текста никому не
+  // нужны.
+  rfqImportReference: () =>
+    request<RfqImportReference>("/rfq/import/reference"),
   rfqImportTemplate: (format: "xlsx" | "csv") =>
     requestFile(
       `/rfq/import/template?fmt=${format}`,
