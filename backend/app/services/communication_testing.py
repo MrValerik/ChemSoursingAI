@@ -10,10 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.connectors.email import EmailConnector
-from app.connectors.google_translate import (
-    GoogleTranslateConnector,
-    GoogleTranslateError,
-)
 from app.connectors.pubchem import PubChemConnector
 from app.connectors.whatsapp import WhatsAppConnector
 from app.core.config import get_settings
@@ -43,6 +39,7 @@ from app.services.integration_settings import (
     mask_recipient,
 )
 from app.services.communication_recipient import protect_recipient, recipient_key
+from app.services.text_translation import LLMTranslationConnector, TranslationError
 from app.services.communication_policy import classify_supplier_message
 from app.services.communication_profiles import (
     budget_escalation_note,
@@ -334,27 +331,25 @@ def translate_test_dialogue(
     db: Session,
     *,
     run_id: int,
-    translator: GoogleTranslateConnector | None = None,
+    translator: LLMTranslationConnector | None = None,
 ) -> CommunicationTestRun:
-    """Переводит все реплики диалога через Google Translate одним действием."""
+    """Переводит все реплики диалога настроенной моделью одним действием."""
     run = _load_run(db, run_id)
     if run is None:
         raise LookupError("Тестовый диалог не найден")
-    google = translator or GoogleTranslateConnector()
+    translation_service = translator or LLMTranslationConnector()
     translations: list[str] = []
     try:
         for message in run.messages:
             translations.append(
-                google.translate(
+                translation_service.translate(
                     message.content,
                     source_language="auto",
                     target_language="ru",
                 )
             )
-    except GoogleTranslateError as exc:
-        raise CommunicationTestError(
-            "Google Translate не смог перевести диалог"
-        ) from exc
+    except TranslationError as exc:
+        raise CommunicationTestError(str(exc)) from exc
     for message, translation in zip(run.messages, translations, strict=True):
         message.translation_ru = translation
     db.commit()
@@ -364,20 +359,20 @@ def translate_test_dialogue(
 def translate_preview_text(
     content: str,
     *,
-    translator: GoogleTranslateConnector | None = None,
+    translator: LLMTranslationConnector | None = None,
 ) -> str:
-    """Передаёт сохранённый английский RFQ в Google Translate без LLM."""
+    """Переводит сохранённый английский RFQ настроенной моделью общения."""
     source = content.strip()
     if not source:
         raise CommunicationTestError("RFQ пуст — переводить нечего")
     try:
-        return (translator or GoogleTranslateConnector()).translate(
+        return (translator or LLMTranslationConnector()).translate(
             source,
             source_language="en",
             target_language="ru",
         )
-    except GoogleTranslateError as exc:
-        raise CommunicationTestError("Google Translate не смог перевести RFQ") from exc
+    except TranslationError as exc:
+        raise CommunicationTestError(str(exc)) from exc
 
 
 def _attach_quote_assessment(run: CommunicationTestRun) -> CommunicationTestRun:

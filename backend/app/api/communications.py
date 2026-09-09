@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.connectors.email import EmailConfigurationError, EmailDeliveryError
-from app.connectors.google_translate import GoogleTranslateError
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.models import Communication, RFQ, User
@@ -57,6 +56,7 @@ from app.services.mailbox_history import (
     mailbox_criteria,
     mailbox_message_read,
 )
+from app.services.text_translation import TranslationError
 
 router = APIRouter(tags=["communications"])
 
@@ -218,7 +218,7 @@ def translate_communications(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except GoogleTranslateError as exc:
+    except TranslationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return CommunicationTranslationRead(translations=translations)
 

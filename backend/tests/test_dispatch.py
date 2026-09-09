@@ -2423,7 +2423,7 @@ def test_real_supplier_dialogue_translation_is_temporary_and_scoped(
         contact="translate@supplier.example",
     )
     monkeypatch.setattr(
-        "app.services.communication_translation.GoogleTranslateConnector.translate",
+        "app.services.communication_translation.LLMTranslationConnector.translate",
         lambda self, text, **kwargs: f"RU: {text}",
     )
 
@@ -2468,12 +2468,12 @@ def test_real_supplier_dialogue_translation_reports_provider_error(
     )
 
     def fail_translation(self, text, **kwargs):
-        from app.connectors.google_translate import GoogleTranslateError
+        from app.services.text_translation import TranslationError
 
-        raise GoogleTranslateError("Google Translate недоступен")
+        raise TranslationError("Сервис перевода временно недоступен")
 
     monkeypatch.setattr(
-        "app.services.communication_translation.GoogleTranslateConnector.translate",
+        "app.services.communication_translation.LLMTranslationConnector.translate",
         fail_translation,
     )
     response = client.post(
@@ -2483,7 +2483,7 @@ def test_real_supplier_dialogue_translation_reports_provider_error(
     )
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "Google Translate недоступен"
+    assert response.json()["detail"] == "Сервис перевода временно недоступен"
 
 
 def test_manual_whatsapp_message_records_provider_error_without_retry(

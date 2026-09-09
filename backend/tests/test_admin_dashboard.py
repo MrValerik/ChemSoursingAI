@@ -36,10 +36,10 @@ def _login(client, username="admin"):
 
 
 @pytest.fixture(autouse=True)
-def google_translate_stub(monkeypatch):
-    """Диалоги в API-тестах переводятся без обращения к внешнему Google."""
+def dialogue_translation_stub(monkeypatch):
+    """Диалоги в API-тестах переводятся без обращения к внешней LLM."""
     monkeypatch.setattr(
-        "app.services.communication_testing.GoogleTranslateConnector.translate",
+        "app.services.communication_testing.LLMTranslationConnector.translate",
         lambda self, text, **kwargs: f"Здравствуйте. {text}",
     )
 

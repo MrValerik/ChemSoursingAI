@@ -3,10 +3,10 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.connectors.google_translate import GoogleTranslateConnector
 from app.models import Communication
 from app.schemas.communication import CommunicationMessageTranslationRead
 from app.services.communication_links import communication_linked_to_rfq
+from app.services.text_translation import LLMTranslationConnector
 
 
 def translate_communication_messages(
@@ -14,7 +14,7 @@ def translate_communication_messages(
     *,
     rfq_id: int,
     message_ids: list[int],
-    translator: GoogleTranslateConnector | None = None,
+    translator: LLMTranslationConnector | None = None,
 ) -> list[CommunicationMessageTranslationRead]:
     messages = list(
         db.scalars(
@@ -31,11 +31,11 @@ def translate_communication_messages(
     if missing_ids:
         raise ValueError("Одно или несколько сообщений не принадлежат этому запросу")
 
-    google = translator or GoogleTranslateConnector()
+    translation = translator or LLMTranslationConnector()
     return [
         CommunicationMessageTranslationRead(
             message_id=message.id,
-            translation_ru=google.translate(
+            translation_ru=translation.translate(
                 message.body,
                 source_language="auto",
                 target_language="ru",
