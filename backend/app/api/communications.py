@@ -488,7 +488,8 @@ def send_draft(
 
 @router.post("/communications/email/sync", response_model=EmailSyncRead)
 def sync_email(
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=100, ge=1, le=500),
+    seen_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> EmailSyncRead:
@@ -499,7 +500,7 @@ def sync_email(
             detail="Проверка общей почты доступна закупщику, руководителю и администратору",
         )
     try:
-        summary = sync_inbox(db, limit=limit)
+        summary = sync_inbox(db, limit=limit, seen_only=seen_only)
     except EmailConfigurationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except EmailDeliveryError as exc:

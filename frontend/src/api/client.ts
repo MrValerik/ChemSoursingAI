@@ -767,7 +767,7 @@ export const api = {
       body: JSON.stringify({ confirm_external_send: true }),
     }),
 
-  syncEmailCommunications: (limit = 20) =>
+  syncEmailCommunications: (limit = 100) =>
     request<EmailSyncRead>(`/communications/email/sync?limit=${limit}`, {
       method: "POST",
     }),

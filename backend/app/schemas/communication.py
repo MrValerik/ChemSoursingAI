@@ -201,4 +201,5 @@ class EmailSyncRead(BaseModel):
     followups_sent: int
     escalations_created: int
     contacts_linked: int = 0
+    backfilled_seen: int = 0
     errors: list[str] = Field(default_factory=list)

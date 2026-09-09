@@ -661,6 +661,7 @@ export interface EmailSyncRead {
   followups_sent: number;
   escalations_created: number;
   contacts_linked: number;
+  backfilled_seen: number;
   errors: string[];
 }
 

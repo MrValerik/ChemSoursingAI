@@ -378,6 +378,7 @@ export default function DispatchTab({
       const syncErrors = result.errors;
       setNotice(
         `Проверено писем: ${result.fetched}. Обработано: ${result.processed}. ` +
+          `Восстановлено ранее прочитанных: ${result.backfilled_seen}. ` +
           `Связано новых адресов: ${result.contacts_linked}. ` +
           `Новых эскалаций: ${result.escalations_created}.`,
       );

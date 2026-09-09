@@ -86,6 +86,7 @@ class EmailSyncSummary:
     followups_sent: int = 0
     escalations_created: int = 0
     contacts_linked: int = 0
+    backfilled_seen: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -99,6 +100,7 @@ class EmailSyncSummary:
             "followups_sent": self.followups_sent,
             "escalations_created": self.escalations_created,
             "contacts_linked": self.contacts_linked,
+            "backfilled_seen": self.backfilled_seen,
             "errors": self.errors,
         }
 
@@ -339,6 +341,7 @@ def _create_followup(
     llm: LLMClient | None = None,
     profile_instructions: str = "",
     body_override: str | None = None,
+    force_draft: bool = False,
 ) -> str | None:
     if db.scalar(
         select(PurchaseDecision.id).where(PurchaseDecision.rfq_id == rfq.id)
@@ -351,6 +354,10 @@ def _create_followup(
     mode = runtime.auto_followup_mode.strip().lower()
     if mode == "off" or (not missing and body_override is None):
         return None
+    if force_draft and mode == "send":
+        # Ранее прочитанное письмо могло лежать в Gmail несколько дней. При
+        # восстановлении истории нельзя неожиданно отправлять старый дозапрос.
+        mode = "draft"
     if body_override is not None:
         body = body_override
     elif mode == "send":
@@ -631,6 +638,7 @@ def sync_inbox(
     connector: EmailConnector | None = None,
     *,
     limit: int = 20,
+    seen_only: bool = False,
 ) -> EmailSyncSummary:
     """Загружает новые письма и создаёт котировки один раз по Message-ID."""
     email = connector or EmailConnector(effective_email_settings(db)[0])
@@ -644,7 +652,12 @@ def sync_inbox(
         summary.errors.append(
             f"Повторная привязка контактов: {type(exc).__name__}: {exc}"
         )
-    messages = email.fetch_unseen(limit=limit)
+    fetch_recent = getattr(email, "fetch_recent", None)
+    messages = (
+        fetch_recent(limit=limit, seen_only=seen_only)
+        if callable(fetch_recent)
+        else email.fetch_unseen(limit=limit)
+    )
     summary.fetched = len(messages)
     seen_uids: list[str] = []
 
@@ -659,6 +672,8 @@ def sync_inbox(
                 summary.duplicates += 1
                 seen_uids.append(message.uid)
                 continue
+            if message.was_seen:
+                summary.backfilled_seen += 1
             rfqs = _find_rfqs(db, message)
             if not rfqs:
                 inbound = Communication(
@@ -996,6 +1011,7 @@ def sync_inbox(
                 llm=client,
                 profile_instructions=profile_prompt_instructions(audit_start.profile),
                 body_override=handoff,
+                force_draft=message.was_seen,
             )
             if handoff is not None:
                 audit_start.audit.policy_route = "handoff"

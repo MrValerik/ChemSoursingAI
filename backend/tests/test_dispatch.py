@@ -972,7 +972,8 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
     class FakeConnector:
         seen: list[str] = []
 
-        def fetch_unseen(self, limit=20):
+        def fetch_recent(self, limit=100, *, seen_only=False):
+            assert seen_only is False
             return [
                 IncomingEmail(
                     uid="500",
@@ -981,8 +982,12 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
                     from_address="reply@supplier.example",
                     to_addresses=["buyer@example.com"],
                     text="Price USD 500/MT, CIP Moscow.",
+                    was_seen=True,
                 )
             ]
+
+        def send(self, **kwargs):
+            raise AssertionError("Backfill must not send an external follow-up")
 
         def mark_seen(self, uids):
             self.seen.extend(uids)
@@ -1014,8 +1019,8 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
         "app.services.email_workflow.effective_email_settings",
         lambda db: (
             SimpleNamespace(
-                auto_followup_mode="draft",
-                email_delivery_mode="demo",
+                auto_followup_mode="send",
+                email_delivery_mode="live",
                 email_from="buyer@example.com",
             ),
             False,
@@ -1044,6 +1049,8 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
     assert result.processed == 1
     assert result.quotations_created == 1
     assert result.followups_drafted == 1
+    assert result.followups_sent == 0
+    assert result.backfilled_seen == 1
     assert connector.seen == ["500"]
     history = _communications(rfq["id"])
     assert [item.status for item in history] == ["received", "draft"]
@@ -1612,7 +1619,7 @@ def test_live_auto_followup_uses_rfq_identity_without_llm_draft(
 def test_email_sync_is_available_to_buyer_and_admin(client, monkeypatch):
     monkeypatch.setattr(
         "app.api.communications.sync_inbox",
-        lambda db, limit=20: SimpleNamespace(
+        lambda db, limit=100, seen_only=False: SimpleNamespace(
             as_dict=lambda: {
                 "fetched": 1,
                 "processed": 1,
@@ -1622,6 +1629,8 @@ def test_email_sync_is_available_to_buyer_and_admin(client, monkeypatch):
                 "followups_drafted": 0,
                 "followups_sent": 0,
                 "escalations_created": 1,
+                "contacts_linked": 0,
+                "backfilled_seen": 1,
                 "errors": [],
             }
         ),
@@ -1632,6 +1641,7 @@ def test_email_sync_is_available_to_buyer_and_admin(client, monkeypatch):
         )
         assert response.status_code == 200
         assert response.json()["escalations_created"] == 1
+        assert response.json()["backfilled_seen"] == 1
 
 
 def _started_conversation(client, headers, *, channel: str, contact: str):

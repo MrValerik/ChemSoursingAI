@@ -8,7 +8,7 @@ import imaplib
 import re
 import smtplib
 import ssl
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from email import message_from_bytes, policy
 from email.header import decode_header, make_header
@@ -42,6 +42,9 @@ class IncomingEmail:
     references: list[str] = field(default_factory=list)
     attachments: list[dict] = field(default_factory=list)
     message_at: datetime | None = None
+    # Письмо могло быть открыто в веб-интерфейсе до синхронизации ChemSource AI.
+    # Такие ответы тоже импортируются, но не должны запускать автоотправку задним числом.
+    was_seen: bool = False
 
 
 def _decode_header(value: str | None) -> str:
@@ -300,7 +303,12 @@ class EmailConnector:
                 pass
         return {"smtp": True, "imap": True}
 
-    def fetch_unseen(self, limit: int = 20) -> list[IncomingEmail]:
+    def _fetch_messages(
+        self,
+        *,
+        limit: int,
+        search_criterion: str,
+    ) -> list[IncomingEmail]:
         if not self.imap_configured:
             raise EmailConfigurationError("IMAP не настроен: заполните IMAP_*")
         s = self.settings
@@ -312,10 +320,14 @@ class EmailConnector:
                 raise EmailDeliveryError(
                     f"IMAP не открыл папку {s.imap_folder!r}"
                 )
-            status, data = client.uid("search", None, "UNSEEN")
+            status, data = client.uid("search", None, search_criterion)
             if status != "OK":
-                raise EmailDeliveryError("IMAP не выполнил поиск непрочитанных писем")
+                raise EmailDeliveryError("IMAP не выполнил поиск входящих писем")
             uids = (data[0] or b"").split()[-max(1, limit) :]
+            status, unseen_data = client.uid("search", None, "UNSEEN")
+            if status != "OK":
+                raise EmailDeliveryError("IMAP не определил непрочитанные письма")
+            unseen_uids = set((unseen_data[0] or b"").split())
             messages: list[IncomingEmail] = []
             for uid_bytes in uids:
                 uid = uid_bytes.decode("ascii", errors="ignore")
@@ -331,7 +343,9 @@ class EmailConnector:
                     None,
                 )
                 if raw:
-                    messages.append(parse_email(raw, uid))
+                    parsed = parse_email(raw, uid)
+                    parsed.was_seen = uid_bytes not in unseen_uids
+                    messages.append(parsed)
             return messages
         except (OSError, imaplib.IMAP4.error) as exc:
             raise EmailDeliveryError(f"Не удалось прочитать IMAP: {exc}") from exc
@@ -340,6 +354,26 @@ class EmailConnector:
                 client.logout()
             except (OSError, imaplib.IMAP4.error):
                 pass
+
+    def fetch_unseen(self, limit: int = 20) -> list[IncomingEmail]:
+        return self._fetch_messages(limit=limit, search_criterion="UNSEEN")
+
+    def fetch_recent(
+        self,
+        limit: int = 100,
+        *,
+        days: int = 30,
+        seen_only: bool = False,
+    ) -> list[IncomingEmail]:
+        """Читает недавние ответы независимо от флага Gmail «прочитано»."""
+        since = (datetime.now(timezone.utc) - timedelta(days=max(1, days))).strftime(
+            "%d-%b-%Y"
+        )
+        state = "SEEN " if seen_only else ""
+        return self._fetch_messages(
+            limit=limit,
+            search_criterion=f"({state}SINCE {since})",
+        )
 
     def mark_seen(self, uids: list[str]) -> None:
         """Помечает только успешно обработанные письма."""

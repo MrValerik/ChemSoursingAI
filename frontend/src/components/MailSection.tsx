@@ -42,6 +42,7 @@ function syncNotice(result: EmailSyncRead) {
   }
   return (
     `Почта обновлена: получено ${result.fetched}, сохранено ${result.processed}, ` +
+    `восстановлено прочитанных ${result.backfilled_seen}, ` +
     `неопределённых ${result.unmatched}.`
   );
 }

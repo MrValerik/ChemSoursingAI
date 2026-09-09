@@ -33,6 +33,7 @@ def test_parse_email_extracts_safe_text_and_attachments():
     assert parsed.in_reply_to == "<request-42@example.com>"
     assert parsed.message_at is not None
     assert parsed.message_at.isoformat() == "2020-02-20T12:00:00+00:00"
+    assert parsed.was_seen is False
     # Содержимое доходит до слоя workflow: без него паспорт качества нельзя
     # сохранить и прочитать. В JSON коммуникации оно уже не попадает.
     assert parsed.attachments == [
@@ -87,6 +88,65 @@ def test_parse_email_ignores_hidden_inline_images_but_keeps_attached_png():
     assert [item["filename"] for item in parsed.attachments] == [
         "product-label.png"
     ]
+
+
+def test_fetch_recent_includes_seen_and_unseen_messages(monkeypatch):
+    def raw_message(message_id: str) -> bytes:
+        message = EmailMessage()
+        message["From"] = "supplier@example.com"
+        message["To"] = "buyer@example.com"
+        message["Subject"] = "Re: [RFQ-42] Quote"
+        message["Message-ID"] = message_id
+        message.set_content("Price USD 10/kg")
+        return message.as_bytes()
+
+    raw = {
+        b"10": raw_message("<seen@example.com>"),
+        b"11": raw_message("<unseen@example.com>"),
+    }
+
+    class FakeImap:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def login(self, username, password):
+            return "OK", []
+
+        def select(self, folder, readonly=False):
+            assert readonly is False
+            return "OK", [b"2"]
+
+        def uid(self, command, *args):
+            if command == "search":
+                criterion = str(args[-1])
+                if criterion == "UNSEEN":
+                    return "OK", [b"11"]
+                assert "SINCE" in criterion
+                return "OK", [b"10 11"]
+            if command == "fetch":
+                uid = args[0]
+                key = uid.encode() if isinstance(uid, str) else uid
+                return "OK", [(b"RFC822", raw[key])]
+            raise AssertionError(f"Unexpected IMAP command: {command}")
+
+        def logout(self):
+            return "BYE", []
+
+    monkeypatch.setattr("app.connectors.email.imaplib.IMAP4_SSL", FakeImap)
+    settings = SimpleNamespace(
+        imap_host="imap.example.com",
+        imap_port=993,
+        imap_user="buyer@example.com",
+        imap_password="secret",
+        imap_use_ssl=True,
+        imap_folder="INBOX",
+        email_timeout_s=30,
+    )
+
+    messages = EmailConnector(settings).fetch_recent(limit=100)
+
+    assert [message.uid for message in messages] == ["10", "11"]
+    assert [message.was_seen for message in messages] == [True, False]
 
 
 def test_send_preserves_explicit_message_id(monkeypatch):
