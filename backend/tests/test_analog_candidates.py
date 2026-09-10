@@ -13,7 +13,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test_analog_candidates.db")
 
 from app.extraction.llm_client import LLMUnavailableError
 from app.services import analog_candidates
-from app.services.analog_candidates import suggest_analogs
+from app.services.analog_candidates import _ANALOG_SCHEMA, suggest_analogs
 
 
 class _StubLLM:
@@ -329,3 +329,28 @@ def test_candidates_dropped_by_a_constraint_are_named(monkeypatch):
     # Пустой список из-за запрета объясняется иначе, чем пустая выдача:
     # в первом случае замены были, во втором их нет вовсе.
     assert any("сняты вашим ограничением" in warning for warning in result.warnings)
+
+
+def test_schema_lists_every_field_as_required():
+    """Строгий режим не прощает поля мимо required.
+
+    10.09.2026 подбор слёг на проде сразу после выката: в схему добавилось
+    поле «rejected», а в required — нет. Провайдер отверг запрос целиком, и
+    на экране это выглядело как «модель недоступна» при живой модели. Час
+    ушёл на то, чтобы понять, что модель здесь ни при чём.
+    """
+
+    def check(node: dict, path: str = "schema") -> None:
+        if node.get("type") == "object" and node.get("additionalProperties") is False:
+            assert set(node.get("properties", {})) == set(node.get("required", [])), (
+                f"{path}: поля {set(node.get('properties', {}))} "
+                f"против required {set(node.get('required', []))}"
+            )
+        for name, child in (node.get("properties") or {}).items():
+            if isinstance(child, dict):
+                check(child, f"{path}.{name}")
+        items = node.get("items")
+        if isinstance(items, dict):
+            check(items, f"{path}[]")
+
+    check(_ANALOG_SCHEMA)
