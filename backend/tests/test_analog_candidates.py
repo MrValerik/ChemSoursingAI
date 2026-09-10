@@ -11,7 +11,10 @@ import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_analog_candidates.db")
 
-from app.extraction.llm_client import LLMUnavailableError
+from app.extraction.llm_client import (
+    LLMOutputTruncatedError,
+    LLMUnavailableError,
+)
 from app.services import analog_candidates
 from app.services.analog_candidates import _ANALOG_SCHEMA, suggest_analogs
 
@@ -473,3 +476,26 @@ def test_the_same_substance_with_a_grade_suffix_is_not_a_replacement(monkeypatch
 
     assert [item.name for item in result.candidates] == ["Полиакриламид"]
     assert any("то же вещество" in warning for warning in result.warnings)
+
+
+def test_truncated_answer_is_not_reported_as_a_parsing_failure(monkeypatch):
+    """Обрыв по лимиту выхода — не сбой разбора и не отказ модели.
+
+    Замер на проде 10.09.2026: ответ перестал помещаться в лимит, как
+    только повёз и кандидатов, и снятых с обоснованиями. Закупщик увидел
+    «не удалось разобрать выдачу; попробуйте ещё раз» — совет, который
+    ничего не меняет: повтор того же запроса обрывается там же.
+    """
+    _patch_search(
+        monkeypatch,
+        _snippets(("Alternatives", "https://example.test/a", "some text")),
+    )
+
+    result = suggest_analogs(
+        "Ксантановая камедь",
+        llm=_StubLLM(LLMOutputTruncatedError("ответ не поместился в лимит выхода")),
+    )
+
+    assert result.candidates == []
+    assert any("не поместился в лимит" in warning for warning in result.warnings)
+    assert not any("попробуйте ещё раз" in warning for warning in result.warnings)

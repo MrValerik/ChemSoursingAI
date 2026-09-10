@@ -31,7 +31,11 @@ from app.connectors.web_search import (
     UnknownSearchProvider,
     search_web,
 )
-from app.extraction.llm_client import LLMClient, LLMUnavailableError
+from app.extraction.llm_client import (
+    LLMClient,
+    LLMOutputTruncatedError,
+    LLMUnavailableError,
+)
 from app.services.cas import is_valid_cas, normalize_cas
 
 logger = logging.getLogger(__name__)
@@ -83,8 +87,8 @@ _SYSTEM_PROMPT = """Ты помогаешь специалисту по заку
 - source_url — адрес того фрагмента, который ты процитировал.
 - Номер CAS указывай, только если он есть в приведённых фрагментах. Если
   номера в тексте нет — ставь null. Не восстанавливай номер по памяти.
-- reason — одно-два предложения по-русски: чем это вещество заменяет
-  закупаемое и в чём отличается. Если из выдачи видны ограничения замены
+- reason — ОДНО предложение по-русски (не длиннее 200 знаков): чем это
+  вещество заменяет закупаемое и в чём отличается. Если из выдачи видны ограничения замены
   (другая дозировка, другая форма, другой класс), назови их.
 - У смесей, полимеров и INCI-названий номера может не быть в принципе. Это
   нормальный ответ, а не ошибка: верни кандидата без номера."""
@@ -107,7 +111,7 @@ _REJECTED_SCHEMA = {
                 "type": "string",
                 "enum": ["constraint", "application", "same_substance"],
             },
-            "reason": {"type": "string", "maxLength": 300},
+            "reason": {"type": "string", "maxLength": 180},
         },
     },
 }
@@ -143,7 +147,7 @@ _ANALOG_SCHEMA = {
                 "properties": {
                     "name": {"type": "string", "maxLength": 200},
                     "cas": {"type": ["string", "null"], "maxLength": 20},
-                    "reason": {"type": "string", "maxLength": 400},
+                    "reason": {"type": "string", "maxLength": 220},
                     "source_url": {"type": "string", "maxLength": 500},
                     "quote": {"type": "string", "maxLength": 400},
                 },
@@ -448,13 +452,27 @@ def suggest_analogs(
             user_text=user_text,
             schema_name="analog_candidates",
             json_schema=_ANALOG_SCHEMA,
-            max_tokens=1400,
+            # Ответ везёт и кандидатов, и снятых с обоснованиями:
+            # прежних 1400 не хватало, и обрыв приходил закупщику
+            # как «не удалось разобрать выдачу».
+            max_tokens=2600,
         )
         suggestion.llm_used = True
     except LLMUnavailableError as exc:
         logger.warning("LLM unavailable while suggesting analogs for %r: %s", query, exc)
         suggestion.warnings.append(
             "Модель недоступна: подбор не выполнен. Повторите позже."
+        )
+        return suggestion
+    except LLMOutputTruncatedError as exc:
+        # Модель доступна и ответила — ответу не хватило места. Повтор того
+        # же запроса ничего не изменит, и говорить «попробуйте ещё раз»
+        # значит гонять закупщика по кругу.
+        logger.warning("Analog suggestion truncated for %r: %s", query, exc)
+        suggestion.warnings.append(
+            "Ответ модели не поместился в лимит: подбор не выполнен. "
+            "Сократите описание применения и показателей — они уходят в "
+            "запрос целиком."
         )
         return suggestion
     except Exception as exc:  # noqa: BLE001 - кнопка не должна падать целиком
