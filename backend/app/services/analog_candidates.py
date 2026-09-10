@@ -70,6 +70,12 @@ _SYSTEM_PROMPT = """Ты помогаешь специалисту по заку
   вещество бывает и в других исполнениях, запрета не нарушает: «не пищевые
   добавки» означает «не нужна пищевая марка», а не «вещество не должно
   существовать в пищевом исполнении».
+- Продукт того же производителя под другим кодом — НЕ аналог: за заменой
+  идут как раз тогда, когда нужно уйти от этой линейки. Возвращай такой
+  вариант в `rejected` с basis "same_substance".
+- Возвращай название конкретного продукта или вещества. Рубрики и
+  обобщения («synthetic lubricants», «mold-release alternatives») закупать
+  нельзя — их не возвращай вовсе.
 - Если из выдачи следует, что предлагаемое — то же самое вещество под
   другим названием (синоним, торговая марка, «also known as»), это НЕ
   аналог. Такой вариант возвращай в `rejected` с basis "same_substance",
@@ -208,6 +214,77 @@ class AnalogSuggestion:
 _SCOPE_WORDS = 3
 
 
+# Слова, которые описывают род продукта, а не его марку. По ним строится
+# запрос для позиций, у которых в названии одна марка и код: перечни замен
+# по марке не находятся, а по роду — находятся.
+_CODE_RE = re.compile(r"[0-9]")
+
+# Марка позиции — первое слово названия, если оно не описывает продукт само
+# по себе. Владельцы линеек в списке заказчика пишутся именно так: XIAMETER
+# PMX-200, DOWSIL 556, SYL-OFF 7689.
+_KIND_WORDS = {
+    "silicone",
+    "silane",
+    "fluid",
+    "emulsion",
+    "antifoam",
+    "compound",
+    "crosslinker",
+    "blend",
+    "polymer",
+    "resin",
+    "wax",
+    "additive",
+    "agent",
+    "coating",
+    "elastomer",
+    "microemulsion",
+    "powdered",
+    "cosmetic",
+    "grade",
+}
+
+
+def _brand_of(name: str) -> str:
+    """Марка позиции: первое слово названия, если оно не род продукта.
+
+    Заказчик приносит «XIAMETER PMX-200 Silicone Fluid» и «DOWSIL 556
+    Cosmetic Grade Fluid» — марка стоит первой. Для «Ксантановая камедь»
+    марки нет, и функция возвращает пустую строку.
+    """
+    words = _bare_name(name).split()
+    if not words:
+        return ""
+    first = words[0]
+    if first in _KIND_WORDS or _CODE_RE.search(first) or len(first) < 3:
+        return ""
+    # У родовых названий второе слово тоже описательное («ксантановая
+    # камедь», «acetylsalicylic acid»), а у марки за ней идёт код.
+    tail = words[1:]
+    if not any(_CODE_RE.search(word) for word in tail):
+        return ""
+    return first
+
+
+def _product_kind(name: str) -> str:
+    """Род продукта: что это такое, без марки и кода.
+
+    «XIAMETER ACP-1000 Antifoam Compound» -> «Antifoam Compound». Замер на
+    списке заказчика 10.09.2026: запрос по марке перечней замен не находит,
+    и три позиции из десяти вернули пусто. Запрос по роду продукта — то,
+    как эти замены называют на страницах заводов.
+    """
+    words = [word for word in (name or "").split() if not _CODE_RE.search(word)]
+    brand = _brand_of(name)
+    kept = [
+        word
+        for word in words
+        if _bare_name(word) != brand and _bare_name(word)
+    ]
+    kind = " ".join(kept).strip(" -–—()")
+    return kind if len(kind.split()) >= 1 and kind.casefold() != (name or "").casefold() else ""
+
+
 def _bare_name(value: str) -> str:
     """Название без уточнений: скобки, марка, лишние пробелы — прочь.
 
@@ -278,6 +355,16 @@ def _queries(
         queries.append(f"{name} {specification[:120]} alternative raw material")
     else:
         queries.append(f"{name} functional alternative raw material")
+
+    # Позиция-марка: перечни замен по коду продукта не находятся, а по роду
+    # находятся. «XIAMETER ACP-1000 Antifoam Compound» -> «Antifoam Compound
+    # (alternative OR replacement) supplier». Замер на списке заказчика
+    # 10.09.2026: три позиции из десяти вернули пусто именно из-за этого.
+    kind = _product_kind(name)
+    if kind:
+        queries.append(
+            f"{kind} (alternative OR replacement OR equivalent) manufacturer{scope}"
+        )
     return queries
 
 
@@ -344,6 +431,18 @@ def _accept(
         suggestion.warnings.append(
             f"«{name}» — это то же вещество под другим названием"
             " или его марка, а не замена."
+        )
+        return None
+
+    brand = _brand_of(source_name)
+    if brand and brand in _bare_name(name).split():
+        # Соседняя марка того же производителя заменой не является: за
+        # аналогом идут как раз тогда, когда нужно уйти от этой линейки —
+        # по цене, по срокам или потому, что её не продают в Россию.
+        # Замер на списке заказчика 10.09.2026: две позиции из десяти
+        # вернули соседние коды того же Dow.
+        suggestion.warnings.append(
+            f"«{name}» — марка того же производителя, а не замена ему."
         )
         return None
 

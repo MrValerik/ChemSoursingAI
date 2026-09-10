@@ -16,7 +16,12 @@ from app.extraction.llm_client import (
     LLMUnavailableError,
 )
 from app.services import analog_candidates
-from app.services.analog_candidates import _ANALOG_SCHEMA, suggest_analogs
+from app.services.analog_candidates import (
+    _ANALOG_SCHEMA,
+    _brand_of,
+    _product_kind,
+    suggest_analogs,
+)
 
 
 class _StubLLM:
@@ -525,3 +530,76 @@ def test_the_prompt_keeps_doubtful_candidates_instead_of_dropping_them():
     assert "Молчание источника о применении — не основание" in flat
     # То же правило для запрета закупщика: сомнение решает человек.
     assert "оставь его в `candidates` и напиши сомнение" in flat
+
+
+def test_a_neighbouring_grade_of_the_same_brand_is_not_a_replacement(monkeypatch):
+    """Соседний код той же линейки — не замена: от неё и уходят.
+
+    Замер на списке заказчика 10.09.2026: «Xiameter OFS-6341 Silane» дал
+    OFS-6040, OFS-0777 и OFS-6020, «Syl-Off 7689» — SYL-OFF SL 12 и 7678.
+    Закупщик идёт за аналогом как раз тогда, когда нужно уйти от линейки —
+    по цене, по срокам или потому, что её не возят в Россию.
+    """
+    _patch_search(
+        monkeypatch,
+        _snippets(("Silanes", "https://example.test/s", "OFS-6040 and Z-6040")),
+    )
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "XIAMETER OFS-6040 Silane",
+                    "cas": None,
+                    "reason": "Соседняя марка той же линейки.",
+                    "source_url": "https://example.test/s",
+                    "quote": "OFS-6040 and Z-6040",
+                },
+                {
+                    "name": "Dow Z-6040 равнозначный силан Momentive",
+                    "cas": None,
+                    "reason": "Тот же силан другого производителя.",
+                    "source_url": "https://example.test/s",
+                    "quote": "OFS-6040 and Z-6040",
+                },
+            ],
+            "rejected": [],
+        }
+    )
+
+    result = suggest_analogs("Xiameter OFS-6341 Silane", llm=llm)
+
+    assert [item.name for item in result.candidates] == [
+        "Dow Z-6040 равнозначный силан Momentive"
+    ]
+    assert any("того же производителя" in warning for warning in result.warnings)
+
+
+def test_a_trade_name_gets_a_query_about_the_kind_of_product(monkeypatch):
+    """У позиции-марки спрашивается род продукта, а не код.
+
+    Замер на списке заказчика 10.09.2026: три позиции из десяти вернули
+    пусто — по коду «ACP-1000» перечней замен не существует, а по «antifoam
+    compound» они есть. Это две трети спроса заказчика: линейки Dow без
+    номера CAS.
+    """
+    queries = _patch_search(monkeypatch, [])
+
+    suggest_analogs("Xiameter ACP-1000 Antifoam Compound", llm=_StubLLM({}))
+
+    assert any(
+        "Antifoam Compound" in query and "ACP-1000" not in query
+        for query in queries
+    )
+
+
+def test_ordinary_substances_have_neither_brand_nor_kind():
+    """Отсечение по марке не должно трогать обычные позиции.
+
+    У «Ксантановой камеди» первого слова-марки нет, и придумывать его
+    нельзя: иначе фильтр снимет «Ксантановую смолу» как «ту же марку».
+    """
+    assert _brand_of("Ксантановая камедь") == ""
+    assert _product_kind("Ксантановая камедь") == ""
+    assert _brand_of("Метилпарабен") == ""
+    assert _brand_of("Xiameter ACP-1000 Antifoam Compound") == "xiameter"
+    assert _product_kind("Xiameter ACP-1000 Antifoam Compound") == "Antifoam Compound"
