@@ -179,6 +179,9 @@ class ResolvedNameRead(BaseModel):
     quote: str | None = None
     cas_confirmed: bool = False
     synonyms: list[str] = Field(default_factory=list)
+    # Самый надёжный из найденных вариантов. Отмечается не больше одного;
+    # у русского ввода отметку получает только международное написание.
+    recommended: bool = False
 
 
 class SubstanceResolveResponse(BaseModel):

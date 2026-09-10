@@ -5464,6 +5464,24 @@ button.substance-list-item.active {
    в источнике. Разница с «модель так сказала» показывается, а не скрывается. */
 .resolve-cas.is-confirmed { color: var(--ok); }
 
+/* Самый надёжный из найденных вариантов. Подсвечен, но не выбран за
+   человека: у русского ввода форма подставляет его сама, у латинского —
+   только показывает, потому что там ошибиться карточкой дороже. */
+.resolve-card.is-recommended {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.resolve-card-badge {
+  margin-right: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--brand);
+  color: var(--brand);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.resolve-applied { margin: 6px 0 0; }
+
 .resolve-card-reason { font-size: 12px; color: var(--muted); }
 .resolve-card-quote {
   font-size: 12px;
