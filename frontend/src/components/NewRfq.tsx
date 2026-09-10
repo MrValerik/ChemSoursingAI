@@ -838,33 +838,6 @@ export default function NewRfq({
           </p>
         )}
 
-        {/* Названия того же вещества и соседние по написанию нужны поиску
-            поставщиков этого вещества. Подбор замен ими не пользуется: он
-            ищет ДРУГОЕ вещество, и список синонимов исходного ему не якорь,
-            а шум. */}
-        {!analogMode && (
-        <div className="row">
-          <NameCandidates
-            label="Другие названия того же вещества"
-            hint="Равнозначные названия расширяют поиск. Без номера они служат основным якорем, но и с номером помогают: у карбомера запрос по номеру не нашёл ни одного поставщика, а по марке — сразу всех."
-            placeholder="например, Cocamidopropyl betaine"
-            candidates={suggestedSynonyms}
-            value={synonyms}
-            onChange={changeSynonyms}
-            hintFor={explainName}
-          />
-          <NameCandidates
-            label="Похожие названия, которые НЕ подходят"
-            hint="Соседние по названию вещества — другая соль, другой грейд. Они уйдут в отрицательный фильтр, иначе поиск найдёт настоящих поставщиков не того вещества."
-            placeholder="например, Betaine hydrochloride"
-            candidates={differentNames.map((item) => item.name)}
-            value={excludedNames}
-            onChange={setExcludedNames}
-            hintFor={explainName}
-          />
-        </div>
-        )}
-
         {/* Аналог — отдельная задача, а не послабление точного поиска.
             Запрос с этой отметкой к поставщикам сразу не идёт: сначала
             система подберёт вещества-заменители с доказательствами, а
@@ -941,6 +914,33 @@ export default function NewRfq({
             </div>
           )}
         </div>
+
+        {/* Названия того же вещества и соседние по написанию нужны поиску
+            поставщиков этого вещества. Подбор замен ими не пользуется: он
+            ищет ДРУГОЕ вещество, и список синонимов исходного ему не якорь,
+            а шум. */}
+        {!analogMode && (
+        <div className="row">
+          <NameCandidates
+            label="Другие названия того же вещества"
+            hint="Равнозначные названия расширяют поиск. Без номера они служат основным якорем, но и с номером помогают: у карбомера запрос по номеру не нашёл ни одного поставщика, а по марке — сразу всех."
+            placeholder="например, Cocamidopropyl betaine"
+            candidates={suggestedSynonyms}
+            value={synonyms}
+            onChange={changeSynonyms}
+            hintFor={explainName}
+          />
+          <NameCandidates
+            label="Похожие названия, которые НЕ подходят"
+            hint="Соседние по названию вещества — другая соль, другой грейд. Они уйдут в отрицательный фильтр, иначе поиск найдёт настоящих поставщиков не того вещества."
+            placeholder="например, Betaine hydrochloride"
+            candidates={differentNames.map((item) => item.name)}
+            value={excludedNames}
+            onChange={setExcludedNames}
+            hintFor={explainName}
+          />
+        </div>
+        )}
 
         {/* Всё остальное — условия закупки конкретного вещества:
             требования, чистота, объём, цена, страны, базисы. Подбору
