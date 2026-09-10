@@ -521,39 +521,46 @@ def _annotate_formulas(resolution: SubstanceResolution) -> None:
     connector = PubChemConnector()
     seen: dict[str, tuple[str | None, str | None]] = {}
     for item in resolution.candidates:
-        if not item.cas or not item.cas_confirmed:
-            continue
-        if item.cas not in seen:
-            try:
-                info = connector.verify_cas(item.cas)
-            except Exception as exc:  # noqa: BLE001 - справочник не роняет кнопку
-                logger.warning("PubChem verify failed for %s: %s", item.cas, exc)
-                seen[item.cas] = (None, None)
-            else:
-                seen[item.cas] = (
-                    (info.molecular_formula, info.iupac_name)
-                    if info.found
-                    else (None, None)
-                )
-        formula, iupac = seen[item.cas]
-        item.formula = formula
-        if not iupac or item.relation != "same":
+        if item.cas and item.cas_confirmed:
+            if item.cas not in seen:
+                try:
+                    info = connector.verify_cas(item.cas)
+                except Exception as exc:  # noqa: BLE001 - справочник не роняет кнопку
+                    logger.warning("PubChem verify failed for %s: %s", item.cas, exc)
+                    seen[item.cas] = (None, None)
+                else:
+                    seen[item.cas] = (
+                        (info.molecular_formula, info.iupac_name)
+                        if info.found
+                        else (None, None)
+                    )
+            item.formula, iupac = seen[item.cas]
+        else:
+            iupac = None
+        if item.relation != "same":
             # У соседнего названия расхождение состава — не находка, а
             # определение: карточка «НЕ подходит» затем и показана, что
             # это другое вещество. Прогон 10.09.2026 по алюминиевой соли
             # дал три предупреждения, из них два — про такие карточки.
             continue
-        # Сверяется введённое человеком название, а не название кандидата:
-        # кандидат мог приехать уже подменённым, и сравнение его с самим
-        # собой ничего бы не поймало.
-        conflict = compare_names(resolution.query, iupac)
+        # Систематическое название справочника надёжнее, но есть не всегда:
+        # у кандидата может не быть номера вовсе. Тогда сверяется само его
+        # название — и это не формальность. Прогон на проде 10.09.2026:
+        # «Aluminum diacetate hydroxide» с номером отметку потерял, а
+        # «Aluminium acetate hydroxide» — то же соседнее вещество без
+        # номера — её получил, потому что сверять было не с чем.
+        reference = iupac or item.name
+        # Сверяется введённое человеком название, а не название кандидата
+        # с самим собой: кандидат мог приехать уже подменённым.
+        conflict = compare_names(resolution.query, reference)
         if conflict is None:
             continue
         item.formula_conflict = conflict
+        number = f" (CAS {item.cas})" if item.cas else ""
         resolution.warnings.append(
-            f"«{item.name}» (CAS {item.cas}) — состав не сходится с тем, что "
-            f"вы назвали: {conflict}. Номер подтверждён источником, но, "
-            "похоже, он от соседней соли. Проверьте перед поиском."
+            f"«{item.name}»{number} — состав не сходится с тем, что вы "
+            f"назвали: {conflict}. Похоже, это соседняя соль. Проверьте "
+            "перед поиском."
         )
 
 

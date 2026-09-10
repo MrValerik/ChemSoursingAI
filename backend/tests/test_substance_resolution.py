@@ -877,7 +877,7 @@ def test_neighbouring_salt_with_a_real_number_loses_the_badge(monkeypatch):
     assert wrong.formula_conflict is not None
     assert "ацетатных групп: у вас 1, у найденного 2" in wrong.formula_conflict
     assert not wrong.recommended, "соседняя соль не может быть самым надёжным вариантом"
-    assert any("от соседней соли" in text for text in result.warnings)
+    assert any("соседняя соль" in text for text in result.warnings)
 
     # Место якоря освободилось, и запасная ступень его заняла: позиция не
     # осталась вовсе без названия, по которому можно спросить рынок.
@@ -940,4 +940,61 @@ def test_a_neighbouring_name_is_not_warned_about_twice(monkeypatch):
     # Формула показывается всё равно — она помогает увидеть разницу глазом.
     assert neighbour.formula == "C6H9AlO6"
     assert neighbour.formula_conflict is None
-    assert not any("от соседней соли" in text for text in result.warnings)
+    assert not any("соседняя соль" in text for text in result.warnings)
+
+
+def test_neighbouring_salt_without_a_number_also_loses_the_badge(monkeypatch):
+    """Сверка не зависит от наличия номера у кандидата.
+
+    Прогон на проде 10.09.2026: «Aluminum diacetate hydroxide» с номером
+    142-03-0 отметку потерял, а «Aluminium acetate hydroxide» — то же
+    соседнее вещество, только без номера — её получил, потому что сверять
+    было не с чем. Сверять есть с чем: само название кандидата.
+    """
+    snippets = _snippets(
+        ("Алюминия ацетат", "https://ru.example/al", "Aluminium acetate hydroxide")
+    )
+
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+    monkeypatch.setattr(
+        substance_resolution, "search_web", lambda query, limit=8: list(snippets)
+    )
+    llm = _SequenceLLM(
+        [
+            {
+                "candidates": [
+                    {
+                        "name": "Aluminium acetate hydroxide",
+                        "cas": None,
+                        "relation": "same",
+                        "reason": "альтернативное написание",
+                        "source_url": "https://ru.example/al",
+                        "quote": "Aluminium acetate hydroxide",
+                    }
+                ]
+            },
+            {"names": [{"name": "Aluminium dihydroxide acetate", "reason": "разбор"}]},
+        ]
+    )
+
+    result = resolve_substance("Дигидроксимоноацетат алюминия", llm=llm)
+
+    neighbour = next(
+        item for item in result.candidates if item.name == "Aluminium acetate hydroxide"
+    )
+    assert neighbour.formula_conflict is not None
+    assert "гидроксильных групп: у вас 2, у найденного 1" in neighbour.formula_conflict
+    assert not neighbour.recommended
+
+    # А правильный разбор числительных расхождения не даёт и отметку берёт.
+    right = next(
+        item
+        for item in result.candidates
+        if item.name == "Aluminium dihydroxide acetate"
+    )
+    assert right.formula_conflict is None
+    assert right.recommended
