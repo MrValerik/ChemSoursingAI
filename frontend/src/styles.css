@@ -3982,6 +3982,83 @@ button.mail-list-item.is-selected {
    границы прокручиваемой области, и подсказка обрезалась ею. Вниз и
    вправо место есть всегда: содержимое растёт в эту сторону. Обратное
    направление задаётся точечно там, где значок стоит у правого края. */
+.recipient-selection-heading { width: 88px; white-space: nowrap; }
+
+button.recipient-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
+  vertical-align: middle;
+}
+button.recipient-checkbox:hover { background: var(--brand-soft); }
+button.recipient-checkbox:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.recipient-checkbox-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--muted);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text-soft);
+}
+.recipient-checkbox-mark svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.recipient-checkbox[aria-checked="true"] .recipient-checkbox-mark {
+  background: var(--brand-fill);
+  border-color: var(--brand-fill);
+  color: var(--on-brand-fill);
+}
+button.recipient-checkbox[aria-disabled="true"] {
+  cursor: not-allowed;
+  background: transparent;
+}
+.recipient-checkbox[aria-disabled="true"] .recipient-checkbox-mark {
+  background: var(--panel-2);
+  border-color: var(--border-strong);
+  color: var(--muted);
+}
+.recipient-checkbox-tooltip {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.recipient-checkbox-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .help-tip > span[role="tooltip"] {
   position: absolute;
   left: 0;

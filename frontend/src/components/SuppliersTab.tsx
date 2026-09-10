@@ -12,6 +12,7 @@ import type {
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { HelpTip } from "./ui";
+import RecipientCheckbox from "./RecipientCheckbox";
 
 const TYPE_LABELS: Record<string, string> = {
   manufacturer: "производитель",
@@ -467,7 +468,7 @@ export default function SuppliersTab({
         <table className="summary">
           <thead>
             <tr>
-              <th></th>
+              <th className="recipient-selection-heading">В рассылку</th>
               {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
                 <th key={key}>
                   <button
@@ -491,6 +492,19 @@ export default function SuppliersTab({
               const selected = alreadySelected.has(s.id);
               // Ушедшее письмо не отзывается: снять такую галочку нельзя.
               const locked = !!recipient && recipient.status !== "queued";
+              const selectionReason = readOnly
+                ? "Выбор недоступен: у аудитора доступ только для просмотра."
+                : locked
+                  ? "Рассылка уже начата — изменить выбор получателя нельзя."
+                  : s.channels.length === 0
+                    ? "Нельзя выбрать: нет контакта для рассылки. " +
+                      (s.contact_barrier && BARRIER_LABELS[s.contact_barrier]
+                        ? `Причина: ${BARRIER_LABELS[s.contact_barrier]}. `
+                        : "") +
+                      "Откройте карточку компании и добавьте Email или WhatsApp."
+                    : busy
+                      ? "Сохраняем изменения. Подождите несколько секунд."
+                      : null;
               return (
                 // Клик по строке раскрывает карточку, а не ставит галочку:
                 // выбор получателя — действие с последствиями, и для него
@@ -501,22 +515,11 @@ export default function SuppliersTab({
                   onClick={() => setDetailId(s.id)}
                 >
                   <td>
-                    <input
-                      type="checkbox"
+                    <RecipientCheckbox
                       checked={selected}
-                      onClick={(e) => e.stopPropagation()}
-                      disabled={
-                        readOnly || busy || locked || s.channels.length === 0
-                      }
+                      reason={selectionReason}
                       onChange={() => void toggle(s)}
-                      title={
-                        locked
-                          ? "Письмо уже отправлено — получателя не убрать"
-                          : s.channels.length === 0
-                            ? "У компании нет контакта для рассылки"
-                            : undefined
-                      }
-                      aria-label={`Включить «${s.company}» в рассылку`}
+                      label={`Включить «${s.company}» в рассылку`}
                     />
                   </td>
                   <td>
