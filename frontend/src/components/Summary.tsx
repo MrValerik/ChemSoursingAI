@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import type {
   PurchaseDecisionRead,
@@ -8,7 +8,7 @@ import type {
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
-import { Input, Textarea } from "./ui";
+import { IconButton, Input, Textarea } from "./ui";
 
 interface Props {
   rfq: RFQRead;
@@ -222,6 +222,32 @@ const SUMMARY_COLUMNS: SummaryColumnDefinition[] = [
   { key: "status", label: "Статус", width: 100 },
 ];
 
+const ALL_SUMMARY_COLUMN_KEYS = SUMMARY_COLUMNS.map(({ key }) => key);
+const REQUIRED_WEBSITE_COLUMN_KEYS: SummaryColumnKey[] = ["decision"];
+const WEBSITE_COLUMNS_STORAGE_KEY = "chemsource.summary.columns.website.v1";
+const DOWNLOAD_COLUMNS_STORAGE_KEY = "chemsource.summary.columns.download.v1";
+
+const readStoredColumns = (
+  storageKey: string,
+  requiredColumns: SummaryColumnKey[] = [],
+): SummaryColumnKey[] => {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [...ALL_SUMMARY_COLUMN_KEYS];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [...ALL_SUMMARY_COLUMN_KEYS];
+    const allowed = new Set(ALL_SUMMARY_COLUMN_KEYS);
+    const selected = ALL_SUMMARY_COLUMN_KEYS.filter(
+      (key) =>
+        (parsed.includes(key) && allowed.has(key)) ||
+        requiredColumns.includes(key),
+    );
+    return selected.length > 0 ? selected : [...ALL_SUMMARY_COLUMN_KEYS];
+  } catch {
+    return [...ALL_SUMMARY_COLUMN_KEYS];
+  }
+};
+
 export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const { user } = useAuth();
   const readOnly = user?.role === "auditor";
@@ -232,10 +258,12 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   );
   const [decisionNote, setDecisionNote] = useState("");
   const [onlyComplete, setOnlyComplete] = useState(false);
+  const [historyDays, setHistoryDays] = useState(365);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [tableEditing, setTableEditing] = useState(false);
   const [editingQuotationId, setEditingQuotationId] = useState<number | null>(
     null,
@@ -243,11 +271,53 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const [editDraft, setEditDraft] = useState<SummaryEditDraft | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [websiteColumns, setWebsiteColumns] = useState<SummaryColumnKey[]>(() =>
+    readStoredColumns(
+      WEBSITE_COLUMNS_STORAGE_KEY,
+      REQUIRED_WEBSITE_COLUMN_KEYS,
+    ),
+  );
+  const [downloadColumns, setDownloadColumns] = useState<SummaryColumnKey[]>(() =>
+    readStoredColumns(DOWNLOAD_COLUMNS_STORAGE_KEY),
+  );
+  const columnSettingsTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      WEBSITE_COLUMNS_STORAGE_KEY,
+      JSON.stringify(websiteColumns),
+    );
+  }, [websiteColumns]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      DOWNLOAD_COLUMNS_STORAGE_KEY,
+      JSON.stringify(downloadColumns),
+    );
+  }, [downloadColumns]);
+
+  useEffect(() => {
+    if (!columnSettingsOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setColumnSettingsOpen(false);
+        columnSettingsTriggerRef.current?.focus();
+      }
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [columnSettingsOpen]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     Promise.all([
-      api.getSummary(rfq.id),
+      api.getSummary(rfq.id, historyDays),
       api.getPurchaseDecision(rfq.id),
     ])
       .then(([summaryRows, savedDecision]) => {
@@ -275,7 +345,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [rfq.id, refreshKey]);
+  }, [rfq.id, refreshKey, historyDays]);
 
   const shown = onlyComplete ? rows.filter((row) => row.is_complete) : rows;
   const selectedRow =
@@ -286,7 +356,10 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const editingRow =
     rows.find((row) => row.quotation_id === editingQuotationId) ?? null;
   const dialogueRow = savedDecisionRow ?? selectedRow;
-  const visibleWebsiteColumns = SUMMARY_COLUMNS;
+  const visibleWebsiteColumns = useMemo(
+    () => SUMMARY_COLUMNS.filter(({ key }) => websiteColumns.includes(key)),
+    [websiteColumns],
+  );
   const visibleTableWidth = useMemo(
     () => visibleWebsiteColumns.reduce((total, column) => total + column.width, 0),
     [visibleWebsiteColumns],
@@ -335,6 +408,11 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
         : "",
     );
     setNotice(null);
+  };
+
+  const closeColumnSettings = () => {
+    setColumnSettingsOpen(false);
+    columnSettingsTriggerRef.current?.focus();
   };
 
   const cancelInlineEdit = () => {
@@ -428,7 +506,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
         editingRow.quotation_id,
         quotationChanges,
       );
-      const updatedRows = await api.getSummary(rfq.id);
+      const updatedRows = await api.getSummary(rfq.id, historyDays);
       setRows(updatedRows);
       setEditingQuotationId(null);
       setEditDraft(null);
@@ -440,19 +518,50 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
     }
   };
 
-  const downloadSummary = async () => {
+  const toggleColumn = (
+    column: SummaryColumnKey,
+    selected: SummaryColumnKey[],
+    update: (columns: SummaryColumnKey[]) => void,
+    requiredColumns: SummaryColumnKey[] = [],
+  ) => {
+    if (requiredColumns.includes(column)) return;
+    if (selected.includes(column)) {
+      if (selected.length === 1) return;
+      update(selected.filter((key) => key !== column));
+      return;
+    }
+    update(
+      ALL_SUMMARY_COLUMN_KEYS.filter(
+        (key) => key === column || selected.includes(key),
+      ),
+    );
+  };
+
+  const downloadSummary = async (mode: "detailed" | "compact") => {
     setError(null);
     try {
-      const blob = await api.exportFullSummary(rfq.id);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `rfq-${rfq.id}-full-table.csv`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      setNotice("Полная таблица скачана.");
+      const blob = await api.exportSummary(
+        rfq.id,
+        mode,
+        historyDays,
+        mode === "detailed" ? downloadColumns : undefined,
+      );
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+      anchor.download =
+        mode === "detailed"
+          ? `rfq-${rfq.id}-summary.csv`
+          : `rfq-${rfq.id}-selected.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+      setNotice(
+        mode === "detailed"
+          ? "Подробный CSV скачан."
+          : "Компактный CSV выбранного предложения скачан.",
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -784,6 +893,20 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
           </div>
           <div className="summary-heading-actions">
             <label className="summary-complete-filter">
+              История
+              <select
+                aria-label="Период истории цен"
+                className="ui-control"
+                value={historyDays}
+                onChange={(event) => setHistoryDays(Number(event.target.value))}
+              >
+                <option value={365}>1 год</option>
+                <option value={730}>2 года</option>
+                <option value={1825}>5 лет</option>
+                <option value={3650}>10 лет</option>
+              </select>
+            </label>
+            <label className="summary-complete-filter">
               <input
                 checked={onlyComplete}
                 onChange={(event) => setOnlyComplete(event.target.checked)}
@@ -805,11 +928,32 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
             )}
             <button
               className="secondary"
-              disabled={rows.length === 0}
+              disabled={shown.length === 0}
               type="button"
-              onClick={() => void downloadSummary()}
+              onClick={() => void downloadSummary("detailed")}
             >
-              Скачать полную таблицу
+              Подробный CSV
+            </button>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => void downloadSummary("compact")}
+              title={
+                decision
+                  ? "Скачать только вручную выбранное предложение"
+                  : "Сначала сохраните выбранное предложение в истории"
+              }
+            >
+              Компактный CSV
+            </button>
+            <button
+              aria-haspopup="dialog"
+              className="secondary"
+              ref={columnSettingsTriggerRef}
+              type="button"
+              onClick={() => setColumnSettingsOpen(true)}
+            >
+              Настроить столбцы
             </button>
           </div>
         </div>
@@ -1034,7 +1178,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
             rfq={rfq}
             onStatusChanged={() => {
               void api
-                .getSummary(rfq.id)
+                .getSummary(rfq.id, historyDays)
                 .then(setRows)
                 .catch((caught) => {
                   setError(
@@ -1046,6 +1190,128 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
         </>
       )}
 
+      {columnSettingsOpen && (
+        <div
+          className="summary-columns-backdrop"
+          role="presentation"
+          onClick={closeColumnSettings}
+        >
+          <section
+            aria-describedby="summary-columns-description"
+            aria-labelledby="summary-columns-title"
+            aria-modal="true"
+            className="summary-columns-dialog"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="summary-columns-dialog-header">
+              <div>
+                <h2 id="summary-columns-title">Настройка столбцов</h2>
+                <p className="note" id="summary-columns-description">
+                  Отдельно выберите данные для экрана и подробного CSV.
+                  Компактный CSV всегда имеет фиксированный договорной формат.
+                  Настройки сохраняются в этом браузере.
+                </p>
+              </div>
+              <IconButton
+                autoFocus
+                icon="close"
+                label="Закрыть настройку столбцов"
+                onClick={closeColumnSettings}
+              />
+            </header>
+
+            <div className="summary-columns-sections">
+              <fieldset className="summary-columns-section">
+                <legend>На сайте</legend>
+                <div className="summary-columns-section-heading">
+                  <span className="note">
+                    Выбрано: {websiteColumns.length} из {SUMMARY_COLUMNS.length}
+                  </span>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => setWebsiteColumns([...ALL_SUMMARY_COLUMN_KEYS])}
+                  >
+                    Выбрать все
+                  </button>
+                </div>
+                <div className="summary-columns-checklist">
+                  {SUMMARY_COLUMNS.map((column) => (
+                    <label key={column.key}>
+                      <input
+                        checked={websiteColumns.includes(column.key)}
+                        disabled={REQUIRED_WEBSITE_COLUMN_KEYS.includes(
+                          column.key,
+                        )}
+                        type="checkbox"
+                        onChange={() =>
+                          toggleColumn(
+                            column.key,
+                            websiteColumns,
+                            setWebsiteColumns,
+                            REQUIRED_WEBSITE_COLUMN_KEYS,
+                          )
+                        }
+                      />
+                      <span>
+                        {column.label}
+                        {REQUIRED_WEBSITE_COLUMN_KEYS.includes(column.key)
+                          ? " · всегда отображается"
+                          : ""}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="summary-columns-section">
+                <legend>В подробном CSV</legend>
+                <div className="summary-columns-section-heading">
+                  <span className="note">
+                    Выбрано: {downloadColumns.length} из {SUMMARY_COLUMNS.length}
+                  </span>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => setDownloadColumns([...ALL_SUMMARY_COLUMN_KEYS])}
+                  >
+                    Выбрать все
+                  </button>
+                </div>
+                <div className="summary-columns-checklist">
+                  {SUMMARY_COLUMNS.map((column) => (
+                    <label key={column.key}>
+                      <input
+                        checked={downloadColumns.includes(column.key)}
+                        type="checkbox"
+                        onChange={() =>
+                          toggleColumn(
+                            column.key,
+                            downloadColumns,
+                            setDownloadColumns,
+                          )
+                        }
+                      />
+                      <span>{column.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+
+            <footer className="summary-columns-dialog-footer">
+              <span className="note">
+                Нельзя скрыть последний столбец. Сравнения и происхождение цены
+                сервер всегда добавляет в подробный CSV.
+              </span>
+              <button type="button" onClick={closeColumnSettings}>
+                Готово
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
