@@ -98,3 +98,20 @@ def test_three_answers_not_two():
         )
         is None
     ), "приставок нет — сравнивать нечего, и это не «сошлось»"
+
+
+def test_partial_overlap_is_not_a_confirmation():
+    """Совпало по одному корню из двух — это совпадение, а не проверка.
+
+    «Aluminium acetate, basic hydrate» сходится с «дигидроксимоноацетатом»
+    по ацетату (один и один) и молчит про гидроксилы, которых у введённого
+    два. На проде 10.09.2026 это прошло за подтверждение состава.
+    """
+    from app.services.stoichiometry import composition_agrees
+
+    assert (
+        composition_agrees(
+            "Дигидроксимоноацетат алюминия", "Aluminium acetate, basic hydrate"
+        )
+        is None
+    )

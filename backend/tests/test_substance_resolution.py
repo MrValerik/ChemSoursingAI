@@ -1048,3 +1048,80 @@ def test_confirmed_composition_outranks_an_uncheckable_name(monkeypatch):
     recommended = [item for item in result.candidates if item.recommended]
     assert [item.name for item in recommended] == ["Dihydroxyaluminium acetate"]
     assert recommended[0].composition_checked
+
+
+def test_uncheckable_anchor_does_not_block_the_fallback(monkeypatch):
+    """Названный числительными состав требует варианта, где они сошлись.
+
+    Прогон на проде 10.09.2026: «Aluminium acetate, basic hydrate»
+    расхождения не даёт — числительных в нём нет вовсе, — и запасная
+    ступень не включалась. Отметка доставалась всё той же соседней соли,
+    записанной так, что сверять нечего.
+    """
+    snippets = _snippets(
+        ("Алюминия ацетат", "https://ru.example/al", "Aluminium acetate, basic hydrate")
+    )
+
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+    monkeypatch.setattr(
+        substance_resolution, "search_web", lambda query, limit=8: list(snippets)
+    )
+    llm = _SequenceLLM(
+        [
+            {
+                "candidates": [
+                    {
+                        "name": "Aluminium acetate, basic hydrate",
+                        "cas": None,
+                        "relation": "same",
+                        "reason": "числительных в названии нет",
+                        "source_url": "https://ru.example/al",
+                        "quote": "Aluminium acetate, basic hydrate",
+                    }
+                ]
+            },
+            {
+                "names": [
+                    {"name": "Dihydroxyaluminium acetate", "reason": "разбор названия"}
+                ]
+            },
+        ]
+    )
+
+    result = resolve_substance("Дигидроксимоноацетат алюминия", llm=llm)
+
+    names = [item.name for item in result.candidates]
+    assert "Dihydroxyaluminium acetate" in names, "запасная ступень обязана включиться"
+    recommended = [item for item in result.candidates if item.recommended]
+    assert [item.name for item in recommended] == ["Dihydroxyaluminium acetate"]
+
+
+def test_a_name_without_numerals_needs_no_fallback(monkeypatch):
+    """Числительных нет во вводе — сверять нечего, и запасная ступень не нужна."""
+    snippets = _snippets(
+        ("2-Ethylhexanol", "https://e.example/104-76-7", "2-Ethylhexanol CAS 104-76-7")
+    )
+    _patch_sources(monkeypatch, results=snippets)
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "2-Ethylhexanol",
+                    "cas": "104-76-7",
+                    "relation": "same",
+                    "reason": "международное написание",
+                    "source_url": "https://e.example/104-76-7",
+                    "quote": "2-Ethylhexanol CAS 104-76-7",
+                }
+            ]
+        }
+    )
+
+    result = resolve_substance("2-этилгексанол", llm=llm)
+
+    assert [item.name for item in result.candidates] == ["2-Ethylhexanol"]
+    assert result.candidates[0].recommended

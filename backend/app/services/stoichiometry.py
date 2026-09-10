@@ -122,13 +122,25 @@ def composition_agrees(entered: str, reference: str) -> bool | None:
     acid, aluminum salt, hydrate (2:1:1)», где состав записан отношением, а
     не приставками. Расхождения модуль не нашёл, потому что и сравнивать
     было нечего, — и «нечего сравнивать» прошло за «сошлось».
+
+    Проверено — значит сошлись все группы, названные человеком. Совпало
+    по одному корню из двух — это не проверка, а совпадение: «Aluminium
+    acetate, basic hydrate» сходится с «дигидроксимоноацетатом» по ацетату
+    (один и один) и молчит про гидроксилы, которых во введённом названии
+    два. На проде 10.09.2026 такое частичное совпадение прошло за
+    подтверждение и закрыло дорогу запасной ступени.
     """
     left = group_counts(entered)
     right = group_counts(reference)
     shared = set(left) & set(right)
     if not shared:
         return None
-    return all(left[root] == right[root] for root in shared)
+    if any(left[root] != right[root] for root in shared):
+        return False
+    # Расхождений нет. Но если справочное название упомянуло не все
+    # названные группы, утверждать про недостающие нечего — это «неизвестно»,
+    # а не «сошлось».
+    return True if set(left) <= set(right) else None
 
 
 def compare_names(entered: str, reference: str) -> str | None:

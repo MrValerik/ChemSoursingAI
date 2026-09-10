@@ -41,7 +41,11 @@ from app.connectors.web_search import (
 )
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.services.cas import is_valid_cas, normalize_cas
-from app.services.stoichiometry import compare_names, composition_agrees
+from app.services.stoichiometry import (
+    compare_names,
+    composition_agrees,
+    group_counts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -527,6 +531,11 @@ def _annotate_formulas(resolution: SubstanceResolution) -> None:
     connector = PubChemConnector()
     seen: dict[str, tuple[str | None, str | None]] = {}
     for item in resolution.candidates:
+        # Уже разобранное не разбирается заново: сверка вызывается второй
+        # раз после запасной ступени, и повтор дал бы то же предупреждение
+        # дважды.
+        if item.formula_conflict or item.composition_checked:
+            continue
         if item.cas and item.cas_confirmed:
             if item.cas not in seen:
                 try:
@@ -795,15 +804,29 @@ def resolve_substance(name: str, *, llm: LLMClient | None = None) -> SubstanceRe
     # Кандидат с расхождением состава якорем не считается: без этого
     # «Aluminum diacetate hydroxide» закрывал бы дорогу запасной ступени
     # и позиция оставалась бы с названием соседней соли.
+    # Если закупщик назвал состав числительными, годным якорем считается
+    # только тот вариант, у которого эти числительные сошлись. Иначе
+    # достаточно отсутствия расхождения.
+    #
+    # Разница не теоретическая. Прогон на проде 10.09.2026 по алюминиевой
+    # соли: карточка «Aluminium acetate, basic hydrate» расхождения не даёт,
+    # потому что числительных в ней нет вовсе, — и запасная ступень не
+    # включалась, а отметка доставалась всё той же соседней соли, только
+    # записанной так, что сверять нечего.
+    countable = bool(group_counts(resolution.query))
     if has_cyrillic(resolution.query) and not any(
         _is_international(item.name)
         and item.relation == "same"
         and not item.formula_conflict
+        and (item.composition_checked or not countable)
         for item in resolution.candidates
     ):
         _add_international_fallback(
             resolution.query, resolution, llm or LLMClient()
         )
+        # Собранные названия проходят ту же сверку состава, что и найденные:
+        # ради неё запасная ступень и включилась.
+        _annotate_formulas(resolution)
     _mark_recommended(resolution)
     return resolution
 
