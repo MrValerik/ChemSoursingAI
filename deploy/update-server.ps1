@@ -5,6 +5,15 @@ param(
     [string]$SshKeyPath = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".ssh\id_ed25519"),
     [string]$KnownHostsPath = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".ssh\known_hosts"),
     [string]$RemoteProjectDir = "/home/valerik/ChemSoursingAI",
+    # Ветка, которую выкатываем. По умолчанию main — штатный путь не
+    # меняется. Другая ветка нужна, когда над проектом одновременно
+    # работает несколько сессий и в main уже лежит чужая незавершённая
+    # работа: выкатывать её вместе со своей значит выкатывать
+    # непроверенное. Прод после такого выката отличается от main, и
+    # первый же штатный `$update` вернёт его на main — это временная
+    # мера под показ, а не состояние.
+    [ValidatePattern("^[A-Za-z0-9._/-]+$")]
+    [string]$Branch = "main",
     [ValidateRange(60, 1800)]
     [int]$TimeoutSeconds = 600
 )
@@ -40,35 +49,36 @@ function Invoke-External {
     }
 }
 
-function Sync-MainWithOrigin {
+function Sync-BranchWithOrigin {
     param(
         [Parameter(Mandatory = $true)][string]$GitExecutable,
-        [Parameter(Mandatory = $true)][string]$RepositoryRoot
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$BranchName
     )
 
     Invoke-External -Executable $GitExecutable -Arguments @(
-        "-C", $RepositoryRoot, "fetch", "origin", "main"
-    ) -FailureMessage "Не удалось обновить сведения об origin/main."
+        "-C", $RepositoryRoot, "fetch", "origin", $BranchName
+    ) -FailureMessage "Не удалось обновить сведения об origin/$BranchName."
 
     $divergence = (
-        & $GitExecutable -C $RepositoryRoot rev-list --left-right --count "origin/main...HEAD"
+        & $GitExecutable -C $RepositoryRoot rev-list --left-right --count "origin/$BranchName...HEAD"
     ).Trim() -split "\s+"
     if ($LASTEXITCODE -ne 0 -or $divergence.Count -ne 2) {
-        throw "Не удалось сравнить локальную ветку main с origin/main."
+        throw "Не удалось сравнить локальную ветку $BranchName с origin/$BranchName."
     }
 
     $remoteAhead = [int]$divergence[0]
     $localAhead = [int]$divergence[1]
     if ($remoteAhead -eq 0) {
-        Write-Host "Синхронизация main: локальных коммитов для отправки — $localAhead."
+        Write-Host "Синхронизация ${BranchName}: локальных коммитов для отправки — $localAhead."
         return
     }
 
     Write-Host (
-        "В origin/main обнаружено новых коммитов: $remoteAhead. " +
-        "Выполняется автоматический rebase локального main."
+        "В origin/$BranchName обнаружено новых коммитов: $remoteAhead. " +
+        "Выполняется автоматический rebase локальной ветки $BranchName."
     )
-    & $GitExecutable -C $RepositoryRoot rebase origin/main
+    & $GitExecutable -C $RepositoryRoot rebase "origin/$BranchName"
     if ($LASTEXITCODE -eq 0) {
         return
     }
@@ -83,7 +93,7 @@ function Sync-MainWithOrigin {
         "Git не сообщил имена файлов."
     }
     throw (
-        "Автоматическая синхронизация main остановлена из-за конфликтов. " +
+        "Автоматическая синхронизация ветки $BranchName остановлена из-за конфликтов. " +
         "Rebase отменён, ВМ не запускалась. Конфликтующие файлы: $conflictText"
     )
 }
@@ -93,8 +103,14 @@ $ssh = Resolve-Application "ssh"
 $curl = Resolve-Application "curl.exe"
 
 $branch = (& $git -C $repositoryRoot branch --show-current).Trim()
-if ($LASTEXITCODE -ne 0 -or $branch -ne "main") {
-    throw "Развёртывание разрешено только из ветки main. Текущая ветка: $branch"
+if ($LASTEXITCODE -ne 0 -or $branch -ne $Branch) {
+    throw "Развёртывание идёт из ветки $Branch. Текущая ветка: $branch"
+}
+if ($Branch -ne "main") {
+    Write-Host (
+        "Выкатывается ветка $Branch, а не main. Прод будет отличаться от " +
+        "main, и первый же штатный `$update вернёт его на main."
+    )
 }
 
 $localChanges = @(& $git -C $repositoryRoot status --porcelain)
@@ -123,7 +139,7 @@ $npm = Resolve-Application "npm.cmd"
 $published = $false
 $maxPublishAttempts = 3
 for ($publishAttempt = 1; $publishAttempt -le $maxPublishAttempts; $publishAttempt++) {
-    Sync-MainWithOrigin -GitExecutable $git -RepositoryRoot $repositoryRoot
+    Sync-BranchWithOrigin -GitExecutable $git -RepositoryRoot $repositoryRoot -BranchName $Branch
 
     Push-Location (Join-Path $repositoryRoot "backend")
     try {
@@ -143,17 +159,17 @@ for ($publishAttempt = 1; $publishAttempt -le $maxPublishAttempts; $publishAttem
         Pop-Location
     }
 
-    & $git -C $repositoryRoot push origin HEAD:main
+    & $git -C $repositoryRoot push origin "HEAD:$Branch"
     $pushExitCode = $LASTEXITCODE
 
     Invoke-External -Executable $git -Arguments @(
-        "-C", $repositoryRoot, "fetch", "origin", "main"
-    ) -FailureMessage "Не удалось проверить опубликованный origin/main."
+        "-C", $repositoryRoot, "fetch", "origin", $Branch
+    ) -FailureMessage "Не удалось проверить опубликованный origin/$Branch."
 
     $localCommit = (& $git -C $repositoryRoot rev-parse HEAD).Trim()
-    $remoteCommit = (& $git -C $repositoryRoot rev-parse origin/main).Trim()
+    $remoteCommit = (& $git -C $repositoryRoot rev-parse "origin/$Branch").Trim()
     if ($LASTEXITCODE -ne 0) {
-        throw "Не удалось определить commit после отправки main."
+        throw "Не удалось определить commit после отправки ветки $Branch."
     }
     if ($pushExitCode -eq 0 -and $localCommit -eq $remoteCommit) {
         $published = $true
@@ -162,18 +178,18 @@ for ($publishAttempt = 1; $publishAttempt -le $maxPublishAttempts; $publishAttem
 
     $remoteAhead = [int](
         (
-            & $git -C $repositoryRoot rev-list --count "HEAD..origin/main"
+            & $git -C $repositoryRoot rev-list --count "HEAD..origin/$Branch"
         ).Trim()
     )
     if ($LASTEXITCODE -ne 0 -or $remoteAhead -eq 0) {
         throw (
-            "Не удалось автоматически отправить main в origin. " +
+            "Не удалось автоматически отправить ветку $Branch в origin. " +
             "ВМ не запускалась. Проверьте доступ к GitHub и правила защиты ветки."
         )
     }
     if ($publishAttempt -lt $maxPublishAttempts) {
         Write-Host (
-            "origin/main изменился во время проверок. " +
+            "origin/$Branch изменился во время проверок. " +
             "Повторная синхронизация и проверка: попытка $($publishAttempt + 1) " +
             "из $maxPublishAttempts."
         )
@@ -181,7 +197,7 @@ for ($publishAttempt = 1; $publishAttempt -le $maxPublishAttempts; $publishAttem
 }
 if (-not $published) {
     throw (
-        "origin/main продолжает изменяться. После $maxPublishAttempts попыток " +
+        "origin/$Branch продолжает изменяться. После $maxPublishAttempts попыток " +
         "публикация остановлена, ВМ не запускалась."
     )
 }
@@ -241,6 +257,7 @@ $remoteBootstrap = @'
 set -Eeuo pipefail
 project_dir="$1"
 expected_commit="$2"
+branch="$3"
 
 server_changes="$(
   git -C "$project_dir" status --porcelain --untracked-files=all |
@@ -252,9 +269,17 @@ if [[ -n "$server_changes" ]]; then
   exit 1
 fi
 
-git -C "$project_dir" fetch origin main
-git -C "$project_dir" checkout main
-git -C "$project_dir" pull --ff-only origin main
+git -C "$project_dir" fetch origin "$branch"
+# Расхождение обязано падать громко: собственный коммит на сервере -
+# это чья-то правка руками, и затирать её молча нельзя. Поэтому
+# существующая ветка догоняется только fast-forward, а -B применяется
+# лишь к ветке, которой на сервере ещё нет.
+if git -C "$project_dir" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null; then
+  git -C "$project_dir" checkout "$branch"
+  git -C "$project_dir" merge --ff-only "origin/$branch"
+else
+  git -C "$project_dir" checkout -b "$branch" "origin/$branch"
+fi
 exec bash "$project_dir/deploy/update-server.sh" "$expected_commit"
 '@
 
@@ -264,7 +289,7 @@ $remoteBootstrapBase64 = [Convert]::ToBase64String(
 )
 $remoteCommand = (
     "printf '%s' '$remoteBootstrapBase64' | base64 --decode | " +
-    "bash -s -- '$RemoteProjectDir' '$localCommit'"
+    "bash -s -- '$RemoteProjectDir' '$localCommit' '$Branch'"
 )
 & $ssh @sshArguments $sshTarget $remoteCommand
 if ($LASTEXITCODE -ne 0) {
