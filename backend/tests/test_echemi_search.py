@@ -110,7 +110,7 @@ def test_busy_browser_retry_limit(env, monkeypatch):
     def busy(*args):
         raise EchemiBrowserBusy()
     monkeypatch.setattr(echemi_worker, "search_echemi", busy)
-    monkeypatch.setattr(echemi_worker, "get_settings", lambda: SimpleNamespace(echemi_busy_retries=2))
+    monkeypatch.setattr(echemi_worker, "get_settings", lambda: SimpleNamespace(echemi_busy_retries=2, echemi_progress_poll_seconds=3))
     assert echemi_worker.run_one() is False
     assert echemi_worker.run_one() is False
     row = client.get(f"/echemi-searches/{sid}").json()
@@ -128,6 +128,79 @@ def test_connector_distinguishes_busy_status(monkeypatch, status):
     monkeypatch.setattr(echemi.httpx, "Client", lambda **kwargs: original(transport=transport, **kwargs))
     with pytest.raises(echemi.EchemiBrowserBusy if status == 409 else httpx.HTTPStatusError):
         echemi.search_echemi("Aspirin", 1)
+
+
+@pytest.mark.parametrize("transport_fails", [False, True])
+def test_progress_visible_before_search_finishes_and_survives_failure(env, monkeypatch, transport_fails):
+    from threading import Event
+    client, _, _ = env
+    sid = client.post("/echemi-searches", json={"query": "Aspirin"}).json()["id"]
+    release = Event()
+    snapshots = [
+        {"results": [{"title": "Aspirin", "price_text": "$20/kg", "detail_status": "pending"}],
+         "diagnostics": {}, "message": "Найден 1 товар"},
+        {"results": [{"title": "Aspirin", "price_text": "$20/kg", "detail_status": "read",
+                      "detail": {"contacts": [], "fields": {}}}],
+         "diagnostics": {"cards_read": 1}, "message": "Прочитана карточка"},
+    ]
+    seen = []
+    original_save = echemi_worker.save_progress
+    def save(search_id, payload):
+        original_save(search_id, payload)
+        row = client.get(f"/echemi-searches/{sid}").json()
+        assert row["status"] == "running" and row["finished_at"] is None
+        assert len(row["results"]) == 1
+        assert row["results"][0]["price_text"] == "$20/kg"
+        assert client.get("/echemi-searches").json()[0]["result_count"] == 1
+        seen.append(row["results"][0]["detail_status"])
+        if len(seen) == 2:
+            release.set()
+    def search(*args):
+        assert release.wait(3), "Progress was not persisted during the active POST"
+        if transport_fails:
+            raise RuntimeError("private connection error")
+        return {"status": "completed", **snapshots[-1]}
+    monkeypatch.setattr(echemi_worker, "get_settings", lambda: SimpleNamespace(echemi_progress_poll_seconds=.01))
+    monkeypatch.setattr(echemi_worker, "search_echemi", search)
+    monkeypatch.setattr(echemi_worker, "get_search_progress", lambda _: snapshots[min(len(seen), 1)])
+    monkeypatch.setattr(echemi_worker, "save_progress", save)
+    assert echemi_worker.run_one()
+    assert seen == ["pending", "read"]
+    row = client.get(f"/echemi-searches/{sid}").json()
+    assert row["status"] == ("partial" if transport_fails else "completed")
+    assert row["results"] == snapshots[-1]["results"]
+    assert row["finished_at"] and "private" not in str(row)
+
+
+@pytest.mark.parametrize("response_status,payload,valid", [
+    (404, {}, True),
+    (200, {"search_id": 7, "results": [], "diagnostics": {}}, True),
+    (200, {"search_id": 8, "results": [], "diagnostics": {}}, False),
+    (200, {"search_id": 7, "results": "invalid", "diagnostics": {}}, False),
+])
+def test_progress_connector_validates_job_identity(monkeypatch, response_status, payload, valid):
+    import httpx
+    from app.connectors import echemi
+    original = httpx.Client
+    transport = httpx.MockTransport(lambda request: httpx.Response(response_status, json=payload))
+    monkeypatch.setattr(echemi.httpx, "Client", lambda **kwargs: original(transport=transport, **kwargs))
+    if valid:
+        assert echemi.get_search_progress(7) == (None if response_status == 404 else payload)
+    else:
+        with pytest.raises(ValueError):
+            echemi.get_search_progress(7)
+
+
+def test_progress_cannot_overwrite_finished_job(env):
+    client, _, sessions = env
+    sid = client.post("/echemi-searches", json={"query": "Aspirin"}).json()["id"]
+    with sessions() as db:
+        row = db.get(EchemiSearch, sid)
+        row.status = "completed"
+        row.results = [{"title": "Saved"}]
+        db.commit()
+    echemi_worker.save_progress(sid, {"results": [], "diagnostics": {}})
+    assert client.get(f"/echemi-searches/{sid}").json()["results"] == [{"title": "Saved"}]
 
 
 def parser():

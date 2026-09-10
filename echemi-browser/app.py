@@ -1,5 +1,6 @@
 """Internal Echemi-only browser. No database or mail credentials in this service."""
 import asyncio
+from copy import deepcopy
 import math
 import os
 import random
@@ -106,6 +107,10 @@ async def collect(query, output):
                 row = parse_offer(block,query=query,observed_at=datetime.now(timezone.utc).isoformat())
                 row["detail_status"] = "pending"
                 output["results"].append(row)
+            for index, row in enumerate(output["results"], start=1):
+                url = row["product_url"]
+                output["message"] = f"Найдено товаров: {len(output['results'])}. Читаем карточку {index} из {len(output['results'])}."
+                row["detail_status"] = "reading"
                 try:
                     await asyncio.sleep(random.uniform(PAUSE_MIN,PAUSE_MAX))
                     await page.goto(url,wait_until="domcontentloaded",timeout=60000)
@@ -146,6 +151,17 @@ async def health():
     return {"status":"ok"}
 
 
+@app.get("/search/{search_id}/progress")
+async def progress(search_id: int):
+    output = active.get("output")
+    if active.get("id") != search_id or output is None:
+        raise HTTPException(404, "No active search")
+    snapshot = deepcopy(output)
+    if active.get("waiting"):
+        snapshot["message"] = "Нужна ручная проверка Echemi. Найденные товары уже сохранены."
+    return {"search_id": search_id, **snapshot}
+
+
 @app.post("/search")
 async def search(request: Search, connection: Request):
     if not request.query.strip():
@@ -155,6 +171,7 @@ async def search(request: Search, connection: Request):
     output = {"status":"running","results":[],"diagnostics":{"captcha":[]}}
     async with busy:
         active['id'] = request.search_id
+        active['output'] = output
         try:
             await run_connected(connection, collect(request.query.strip(),output), timeout=900)
         except Exception as exc:
@@ -162,5 +179,5 @@ async def search(request: Search, connection: Request):
                           message="Сбор прерван по времени или из-за ошибки браузера.")
             output["diagnostics"]["error_type"] = type(exc).__name__
         finally:
-            active.update(id=None, waiting=False, page=None)
+            active.update(id=None, waiting=False, page=None, output=None)
     return output

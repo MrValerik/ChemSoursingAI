@@ -9,7 +9,7 @@ import EchemiVerification from "./EchemiVerification";
 const labels: Record<string,string> = {
   queued:"В очереди", running:"Идёт поиск", completed:"Завершён", partial:"Частичный результат",
   blocked:"Проверка Echemi не пройдена", failed:"Ошибка", read:"Карточка прочитана",
-  pending:"Ожидает чтения", redirected:"Карточка перенаправлена",
+  pending:"Ожидает чтения", reading:"Читаем карточку", not_read:"Карточка не прочитана", redirected:"Карточка перенаправлена",
 };
 const external = (url?: string | null) => url?.startsWith("https://www.echemi.com/") ? url : undefined;
 
@@ -95,7 +95,7 @@ export default function EchemiSearchSection() {
             </div>
           </div>
           <div className="echemi-loading-track" aria-hidden="true"><span /></div>
-          <small>Результаты появятся автоматически. Можно перейти к другим запросам и вернуться позже.</small>
+          <small>Таблица заполняется по мере поиска. Можно перейти к другим запросам и вернуться позже.</small>
         </div> :
         <p role="status">{labels[selected.status] || selected.status}. {selected.message}</p>}
       <p>Цены опубликованы на площадке и не являются подтверждённой котировкой. Заявленная роль продавца требует проверки.</p>
@@ -108,9 +108,11 @@ export default function EchemiSearchSection() {
         <td>{r.price_text || "Цена не опубликована"}<small>{r.warnings?.join(" ")}</small></td>
         <td>{r.detail ? Object.entries(r.detail.fields).filter(([,v])=>v.length).map(([k,v])=><p key={k}>
           <b>{{cas:"CAS",purity:"Чистота",grade:"Сорт",packaging:"Упаковка",minimum_order:"MOQ",address:"Адрес",contact_person:"Контактное лицо"}[k] || k}: </b>
-          {v.map(x=>x.value).join("; ")}</p>) : "Карточка недоступна"}</td>
+          {v.map(x=>x.value).join("; ")}</p>) :
+          ["pending","reading"].includes(r.detail_status) && selected.status === "running" ? "Характеристики появятся после чтения карточки" : "Карточка не прочитана"}</td>
         <td>{r.detail?.contacts.length ? r.detail.contacts.map((c,n)=><p key={n}>{c.value}
-          <small>{c.owner==="platform_echemi"?"Контакт площадки Echemi":"Принадлежность поставщику не подтверждена"}</small></p>) : "Публичные контакты не найдены"}</td>
+          <small>{c.owner==="platform_echemi"?"Контакт площадки Echemi":"Принадлежность поставщику не подтверждена"}</small></p>) :
+          !r.detail ? "Контакты ещё не проверены" : "Публичные контакты не найдены"}</td>
         <td>{labels[r.detail_status] || r.detail_status}<p>
           {external(r.product_url) && <a href={r.product_url!} target="_blank" rel="noreferrer">Открыть карточку ↗</a>}</p>
           <small>{new Date(r.detail?.observed_at || r.observed_at).toLocaleString("ru-RU")}</small>

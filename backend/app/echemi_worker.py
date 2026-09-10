@@ -1,12 +1,45 @@
 """Single database-backed consumer. Browser execution is isolated from DB credentials."""
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 from sqlalchemy import select, text, update
 from app.core.db import SessionLocal, engine
 from app.models.echemi_search import EchemiSearch
-from app.connectors.echemi import EchemiBrowserBusy, search_echemi
+from app.connectors.echemi import EchemiBrowserBusy, search_echemi, get_search_progress
 from app.core.config import get_settings
+
+
+def save_progress(search_id, payload):
+    with SessionLocal() as db:
+        row = db.get(EchemiSearch, search_id)
+        if row is None or row.status != "running":
+            return
+        row.results = payload["results"]
+        row.diagnostics = payload["diagnostics"]
+        if payload.get("message"):
+            row.message = payload["message"]
+        db.commit()
+
+
+def collect_with_progress(query, search_id):
+    # Keep the long POST connection alive while polling snapshots independently.
+    interval = get_settings().echemi_progress_poll_seconds
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(search_echemi, query, search_id)
+        while True:
+            try:
+                return pending.result(timeout=interval)
+            except FutureTimeout:
+                if pending.done():
+                    return pending.result()  # A TimeoutError raised by the job itself.
+            try:
+                payload = get_search_progress(search_id)
+                if payload is not None:
+                    save_progress(search_id, payload)
+            except Exception as exc:
+                # A missed snapshot must not abort the active search.
+                logging.warning("Echemi progress %s unavailable: %s", search_id, type(exc).__name__)
 
 
 def run_one():
@@ -20,7 +53,7 @@ def run_one():
         search_id, query = row.id, row.query
         db.commit()
     try:
-        payload = search_echemi(query, search_id)
+        payload = collect_with_progress(query, search_id)
     except EchemiBrowserBusy:
         with SessionLocal() as db:
             row = db.get(EchemiSearch, search_id)
@@ -41,8 +74,15 @@ def run_one():
                    "diagnostics": {"error_type": type(exc).__name__}}
     with SessionLocal() as db:
         row = db.get(EchemiSearch, search_id)
+        if row.results and not payload["results"] and payload["status"] in {"failed", "blocked"}:
+            payload = {**payload, "status": "partial", "results": row.results,
+                       "message": (payload.get("message") or "Поиск прерван.") + " Ранее найденные данные сохранены.",
+                       "diagnostics": {**(row.diagnostics or {}), **payload.get("diagnostics", {})}}
         row.status = payload["status"]
-        row.results = payload["results"]
+        row.results = [
+            {**item, "detail_status": "not_read"} if item.get("detail_status") in {"pending", "reading"} else item
+            for item in payload["results"]
+        ]
         row.message = payload.get("message")
         row.diagnostics = payload.get("diagnostics", {})
         row.finished_at = datetime.now(timezone.utc)

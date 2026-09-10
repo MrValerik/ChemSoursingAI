@@ -34,6 +34,20 @@ async def get_manual_status(search_id: int) -> dict:
         raise ValueError("Manual browser unavailable") from exc
 
 
+def get_search_progress(search_id: int) -> dict | None:
+    with httpx.Client(timeout=5, trust_env=False) as client:
+        response = client.get(get_settings().echemi_browser_url.rstrip("/") + f"/search/{search_id}/progress")
+        if response.status_code == 404:
+            return None  # Job has not started, or the final response is already on its way.
+        response.raise_for_status()
+        payload = response.json()
+    if (not isinstance(payload, dict) or payload.get("search_id") != search_id
+            or not isinstance(payload.get("results"), list)
+            or not isinstance(payload.get("diagnostics"), dict)):
+        raise ValueError("Invalid Echemi progress")
+    return payload
+
+
 def manual_connection(search_id: int):
     from urllib.parse import urlsplit, urlunsplit
     from websockets.legacy.client import connect
