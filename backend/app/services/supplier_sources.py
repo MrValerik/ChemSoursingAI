@@ -534,6 +534,32 @@ def _distinct_names(name: str, synonyms: list[str] | None) -> list[str]:
     return names
 
 
+_CYRILLIC_IN_NAME = re.compile(r"[Ѐ-ӿ]")
+
+
+def drop_russian_synonyms(
+    synonyms: list[str] | None, *, country: str | None
+) -> list[str]:
+    """Убирает русские написания из якорей внешнего поиска.
+
+    Русское название нужно и остаётся: по нему закупщик узнаёт позицию, по
+    нему сходятся ответы поставщиков и записи реестра. Но в запрос к
+    китайскому или индийскому рынку оно уходит дословно и в кавычках и
+    возвращает ноль — замер 10.09.2026 по пяти позициям заказчика — и тем
+    тратит запрос из бюджета, которого на позицию всего девять-двенадцать.
+
+    Российский рынок — обратный случай: там русское написание и есть
+    рабочее, поэтому фильтр к нему не применяется. Если латинских
+    названий не нашлось вовсе, русские тоже остаются: плохой якорь лучше
+    отсутствующего.
+    """
+    names = [item for item in (synonyms or []) if item and item.strip()]
+    if is_russia(country):
+        return names
+    latin = [item for item in names if not _CYRILLIC_IN_NAME.search(item)]
+    return latin or names
+
+
 def _name_group(name: str, synonyms: list[str] | None) -> str:
     """Группа равнозначных названий: ("бетаин" OR "trimethylglycine").
 
@@ -584,6 +610,10 @@ def build_search_queries(
     отметками закупщика, но полностью не снимается.
     """
     profile = market_profile(country)
+    # Русские написания в якоря внешнего поиска не идут: запрос они тратят,
+    # а выдачу не дают. Само название запроса при этом не подменяется — если
+    # закупщик оставил русское, это его решение, и предупреждён он был.
+    synonyms = drop_russian_synonyms(synonyms, country=country)
     localised = profile.country_term or country
     country_term = f" {localised}" if localised else ""
     if identification_method == "analog" and (analog_reference or name).strip():

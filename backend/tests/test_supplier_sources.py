@@ -721,3 +721,47 @@ def test_the_storefront_platforms_are_never_struck_out():
         "echemi.com",
     ):
         assert platform not in SEARCH_EXCLUDED_DOMAINS
+
+
+def test_russian_synonyms_do_not_reach_chinese_queries():
+    """Русское написание в запрос к внешнему рынку не уходит.
+
+    Оно нужно и остаётся в карточке: по нему закупщик узнаёт позицию, по
+    нему сходятся ответы поставщиков. Но в запросе к Китаю оно уходит
+    дословно и в кавычках и возвращает ноль, тратя запрос из бюджета,
+    которого на позицию всего девять-двенадцать.
+    """
+    queries = build_search_queries(
+        cas=None,
+        name="PEG-12 Dimethicone",
+        country="Китай",
+        ai_query=None,
+        synonyms=["ПЭГ-12 Диметикон", "Dimethicone PEG-12"],
+    )
+    joined = " ".join(queries)
+    assert "ПЭГ-12 Диметикон" not in joined
+    assert "Dimethicone PEG-12" in joined
+
+
+def test_russian_market_keeps_russian_synonyms():
+    """На российском рынке русское написание — рабочий якорь, а не помеха."""
+    queries = build_search_queries(
+        cas=None,
+        name="ПЭГ-12 Диметикон",
+        country="Россия",
+        ai_query=None,
+        synonyms=["ПЭГ-12 Диметикон", "Диметикон ПЭГ-12"],
+    )
+    assert any("Диметикон ПЭГ-12" in query for query in queries)
+
+
+def test_without_latin_names_russian_synonyms_survive():
+    """Плохой якорь лучше отсутствующего: латиницы нет — оставляем что есть."""
+    queries = build_search_queries(
+        cas=None,
+        name="Дигидроксимоноацетат алюминия",
+        country="Китай",
+        ai_query=None,
+        synonyms=["Дигидроксимоноацетат алюминия"],
+    )
+    assert any("Дигидроксимоноацетат алюминия" in query for query in queries)

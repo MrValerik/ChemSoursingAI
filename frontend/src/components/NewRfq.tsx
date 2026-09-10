@@ -290,7 +290,7 @@ export default function NewRfq({
           synonyms,
           suggested: suggestedSynonyms,
         });
-        applyCandidateFrom(best, found.candidates);
+        applyCandidateFrom(best, found.candidates, { auto: true });
         setAppliedRecommendation(best.name);
         setRecommendationDeclined(false);
       } else {
@@ -365,6 +365,12 @@ export default function NewRfq({
   const applyCandidateFrom = (
     candidate: ResolvedName,
     candidates: ResolvedName[],
+    // Подстановка сделана системой, а не нажатием на карточку. Тогда
+    // написание закупщика отмечается синонимом само: он его не отдавал,
+    // у него название забрали — и вернуть его в набор обязана та же
+    // система. При выборе руками своё написание по-прежнему только
+    // предлагается: закупщик видит карточки и решает сам.
+    options: { auto?: boolean } = {},
   ) => {
     const others = candidates.filter(
       (item) =>
@@ -419,6 +425,16 @@ export default function NewRfq({
         // Снятое руками не возвращается: повторный выбор той же карточки
         // не должен отменять решение закупщика.
         ...found.filter((item) => !isMainName(item) && !isDismissed(item)),
+        // Написание закупщика при автоподстановке. В запросы к китайскому
+        // и индийскому рынку оно не уйдёт — там его отсекает сборка
+        // запросов, — но остаётся в карточке, в письме и в реестре, по
+        // нему позиция и узнаётся.
+        ...(options.auto &&
+        nameForLookup &&
+        !isMainName(nameForLookup) &&
+        !isDismissed(nameForLookup)
+          ? [nameForLookup]
+          : []),
       ]),
     );
     setIdentityLocked(true);
