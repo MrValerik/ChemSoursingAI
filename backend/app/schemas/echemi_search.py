@@ -31,3 +31,8 @@ class EchemiSearchSummary(BaseModel):
     created_at: datetime
     finished_at: datetime | None
     result_count: int
+
+
+class EchemiManualStatus(BaseModel):
+    waiting: bool
+    remaining_seconds: int = Field(ge=0, le=600)

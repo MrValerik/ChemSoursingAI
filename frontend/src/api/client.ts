@@ -1,3 +1,4 @@
+import type { EchemiManualStatus } from "./types";
 // Тонкий HTTP-клиент к бэкенду. В dev запросы идут через Vite-прокси (/api -> :8000).
 // JWT-токен хранится в localStorage и добавляется в Authorization.
 
@@ -1241,3 +1242,14 @@ export const api = {
 export const listEchemiSearches = (offset=0) => request<import("./types").EchemiSummary[]>(`/echemi-searches?offset=${offset}&limit=50`);
 export const getEchemiSearch = (id:number) => request<import("./types").EchemiSearch>(`/echemi-searches/${id}`);
 export const createEchemiSearch = (query:string) => request<import("./types").EchemiSearch>("/echemi-searches", {method:"POST",body:JSON.stringify({query})});
+
+export function getEchemiManualStatus(id: number): Promise<EchemiManualStatus> {
+  return request(`/echemi-searches/${id}/manual`);
+}
+export function openEchemiManual(id: number): WebSocket {
+  const url = new URL(`${BASE}/echemi-searches/${id}/manual`, window.location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(url);
+  ws.onopen = () => ws.send(getToken() ?? "");
+  return ws;
+}

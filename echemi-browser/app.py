@@ -1,13 +1,11 @@
 """Internal Echemi-only browser. No database or mail credentials in this service."""
 import asyncio
-import json
 import math
 import os
 import random
 import re
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -15,7 +13,10 @@ from playwright.async_api import async_playwright
 from diagnostics import public_url, verification_result
 from parsing import parse_detail, _BLOCKS, parse_offer, product_url, is_verification, is_valid_cas
 
+from manual import router as manual_router, active, wait_for_human
+
 app = FastAPI()
+app.include_router(manual_router)
 busy = asyncio.Lock()
 LIMIT = min(20, max(1, int(os.getenv("ECHEMI_MAX_RESULTS", "10"))))
 PROFILE = os.getenv("ECHEMI_PROFILE_DIR", "/data/profile")
@@ -24,6 +25,7 @@ PAUSE_MAX = max(PAUSE_MIN, float(os.getenv("ECHEMI_PAUSE_MAX", "14")))
 
 
 class Search(BaseModel):
+    search_id: int = Field(gt=0)
     query: str = Field(min_length=1, max_length=200)
 
 
@@ -44,53 +46,9 @@ class Mouse:
 
 
 async def ready(page, mouse, events):
-    if not is_verification(await page.locator("body").inner_text(), await page.title()):
+    if not is_verification(await page.locator('body').inner_text(), await page.title()):
         return True
-    event = {"url": public_url(page.url), "status": "waiting", "slider_attempted": False}
-    events.append(event)
-    try:
-        handle = page.locator("#aliyunCaptcha-sliding-slider")
-        track = page.locator("#aliyunCaptcha-sliding-body")
-        await handle.wait_for(state="visible", timeout=25000)
-        await handle.scroll_into_view_if_needed()
-        await asyncio.sleep(2)
-        h, t = await handle.bounding_box(), await track.bounding_box()
-        await asyncio.sleep(1)
-        if not h or not t or h != await handle.bounding_box():
-            raise ValueError("Unstable slider")
-        vp = await page.evaluate("({w:innerWidth,h:innerHeight})")
-        for _ in range(2):
-            await mouse.go(min(vp["w"]-20,max(20,h["x"]+random.uniform(-100,100))),
-                           min(vp["h"]-30,max(20,h["y"]-random.uniform(35,100))))
-        sx, sy = h["x"]+h["width"]*.25, h["y"]+h["height"]*.525
-        scale = (t["width"]-h["width"])/280
-        points = json.loads(Path(__file__).with_name("trajectory.json").read_text())
-        if any(not (0 <= sx+x*scale < vp["w"] and 0 <= sy+y*scale < vp["h"]) for _,x,y in points):
-            raise ValueError("Trajectory outside viewport")
-        await mouse.go(sx,sy)
-        await asyncio.sleep(.7)
-        event["slider_attempted"] = True
-        await page.mouse.down()
-        began = time.monotonic()
-        try:
-            for dt,x,y in points[1:]:
-                await asyncio.sleep(max(0,dt-(time.monotonic()-began)))
-                mouse.x, mouse.y = sx+x*scale,sy+y*scale
-                await page.mouse.move(mouse.x,mouse.y)
-        finally:
-            await page.mouse.up()
-        event["drag_seconds"] = round(time.monotonic()-began, 3)
-        await asyncio.sleep(12)
-        passed = not is_verification(await page.locator("body").inner_text(),await page.title())
-        event["status"] = "passed" if passed else "not_passed"
-        return passed
-    except Exception as exc:
-        event.update(status="not_passed", error_type=type(exc).__name__)
-        return False
-
-
-
-
+    return await wait_for_human(page, events)
 
 async def collect(query, output):
     async with async_playwright() as p:
@@ -179,6 +137,7 @@ async def collect(query, output):
                           message="Часть карточек недоступна. Сохранены данные выдачи." if incomplete else
                           ("Сбор первой страницы завершён." if output["results"] else "Товары в выдаче не найдены."))
         finally:
+            active.update(waiting=False, page=None)
             await context.close()
 
 
@@ -195,10 +154,13 @@ async def search(request: Search):
         raise HTTPException(409,"Browser busy")
     output = {"status":"running","results":[],"diagnostics":{"captcha":[]}}
     async with busy:
+        active['id'] = request.search_id
         try:
             await asyncio.wait_for(collect(request.query.strip(),output),timeout=900)
         except Exception as exc:
             output.update(status="partial" if output["results"] else "failed",
                           message="Сбор прерван по времени или из-за ошибки браузера.")
             output["diagnostics"]["error_type"] = type(exc).__name__
+        finally:
+            active.update(id=None, waiting=False, page=None)
     return output

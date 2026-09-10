@@ -1630,3 +1630,5 @@ export interface EchemiResult {
 export interface EchemiSummary { id: number; query: string; status: string; message: string | null;
   created_at: string; finished_at: string | null; result_count: number }
 export interface EchemiSearch extends Omit<EchemiSummary,"result_count"> { results: EchemiResult[]; diagnostics: Record<string,unknown> }
+
+export interface EchemiManualStatus { waiting: boolean; remaining_seconds: number }

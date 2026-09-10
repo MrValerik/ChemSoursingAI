@@ -4,6 +4,7 @@ import { createEchemiSearch, getEchemiSearch, listEchemiSearches, userErrorMessa
 import type { EchemiSearch, EchemiSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import "./echemi.css";
+import EchemiVerification from "./EchemiVerification";
 
 const labels: Record<string,string> = {
   queued:"В очереди", running:"Идёт поиск", completed:"Завершён", partial:"Частичный результат",
@@ -65,7 +66,7 @@ export default function EchemiSearchSection() {
       <div><input id="echemi-query" value={query} onChange={e=>setQuery(e.target.value)}
         maxLength={200} required placeholder="Например, Aspirin или 50-78-2" />
         <button type="submit" disabled={sending || !query.trim()}>{sending?"Создаём…":"Найти"}</button></div>
-      <small>До 10 карточек с первой страницы. Сбор может занять до 15 минут; вкладку можно закрыть.</small>
+      <small>До 10 карточек с первой страницы. Сбор может занять до 15 минут; при появлении CAPTCHA потребуется ваше участие.</small>
     </form>}
     {error && <p role="alert" className="echemi-error">{error}</p>}
     <h2>История запросов</h2>
@@ -78,6 +79,7 @@ export default function EchemiSearchSection() {
       <button disabled={rows.length<50} onClick={()=>setOffset(offset+50)}>Далее</button></div>
     {selected && <>
       <h2>Результаты: {selected.query}</h2>
+      {selected.status === "running" && user?.role !== "auditor" && <EchemiVerification key={selected.id} searchId={selected.id} />}
       <p role="status">{labels[selected.status] || selected.status}. {selected.message}</p>
       <p>Цены опубликованы на площадке и не являются подтверждённой котировкой. Заявленная роль продавца требует проверки.</p>
       {!selected.results.length ? <p>{["queued","running"].includes(selected.status)?"Результаты появятся после завершения сбора.":"Сохранённых товаров нет."}</p> :

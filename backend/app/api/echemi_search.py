@@ -47,3 +47,6 @@ def detail(search_id: int, db: Session = Depends(get_db), user: User = Depends(g
     if row is None:
         raise HTTPException(404, "Поиск не найден")
     return row
+
+from app.api.echemi_manual import router as manual_router
+router.include_router(manual_router)

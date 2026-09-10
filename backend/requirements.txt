@@ -24,3 +24,4 @@ pypdf==5.1.0
 pytesseract==0.3.13
 pdf2image==1.17.0
 pillow==11.0.0
+websockets==13.1

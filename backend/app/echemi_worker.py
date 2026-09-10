@@ -19,7 +19,7 @@ def run_one():
         search_id, query = row.id, row.query
         db.commit()
     try:
-        payload = search_echemi(query)
+        payload = search_echemi(query, search_id)
     except Exception as exc:
         logging.warning("Echemi search %s failed: %s", search_id, type(exc).__name__)
         payload = {"status": "failed", "results": [],

@@ -68,7 +68,7 @@ def test_limit_and_unauthenticated(env):
 def test_worker_success_and_failure(env,monkeypatch):
     client,_,sessions=env
     first=client.post("/echemi-searches",json={"query":"Aspirin"}).json()["id"]
-    monkeypatch.setattr(echemi_worker,"search_echemi",lambda q: {
+    monkeypatch.setattr(echemi_worker,"search_echemi",lambda q, search_id: {
         "status":"partial","results":[{"title":q,"detail_status":"blocked"}],"diagnostics":{"captcha":[]}})
     assert echemi_worker.run_one()
     result=client.get(f"/echemi-searches/{first}").json()
@@ -76,7 +76,7 @@ def test_worker_success_and_failure(env,monkeypatch):
     assert result["finished_at"]
     assert not echemi_worker.run_one()
     second=client.post("/echemi-searches",json={"query":"second"}).json()["id"]
-    def fail(q):
+    def fail(q, search_id):
         raise RuntimeError("sensitive raw server message")
     monkeypatch.setattr(echemi_worker,"search_echemi",fail)
     assert echemi_worker.run_one()
