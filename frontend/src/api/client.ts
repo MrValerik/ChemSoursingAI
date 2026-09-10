@@ -494,22 +494,11 @@ export const api = {
       `/rfq/${rfqId}/summary?history_days=${historyDays}`,
     ),
 
-  exportSummary: (
-    rfqId: number,
-    mode: "detailed" | "compact",
-    historyDays = 365,
-    columns?: string[],
-  ) => {
-    const params = new URLSearchParams({
-      mode,
-      history_days: String(historyDays),
-    });
-    if (columns) params.set("columns", columns.join(","));
-    return requestFile(
-      `/rfq/${rfqId}/summary/export?${params.toString()}`,
-      "Не удалось выгрузить сводную таблицу.",
-    );
-  },
+  exportFullSummary: (rfqId: number) =>
+    requestFile(
+      `/rfq/${rfqId}/summary/export?mode=detailed`,
+      "Не удалось выгрузить полную сводную таблицу.",
+    ),
 
   updateQuotation: (
     rfqId: number,

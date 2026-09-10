@@ -254,13 +254,6 @@ button.shell-nav-toggle,
   .mail-filters label:first-of-type,
   .mail-filters label:first-of-type input { width: 100%; }
 
-  .summary-columns-sections {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .summary-columns-checklist {
-    max-height: 260px;
-  }
 }
 
 /* Ящик выезжает — это движение по существу: оно показывает, откуда взялось
@@ -303,24 +296,13 @@ button.shell-nav-toggle,
     white-space: normal;
   }
 
-  .summary-heading-actions,
-  .summary-columns-dialog-footer {
+  .summary-heading-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .summary-heading-actions > button,
-  .summary-columns-dialog-footer > button {
+  .summary-heading-actions > button {
     width: 100%;
-  }
-
-  .summary-columns-backdrop {
-    padding: 10px;
-  }
-
-  .summary-columns-dialog {
-    max-height: calc(100vh - 20px);
-    padding: 16px;
   }
 
   .summary-inline-toolbar,
