@@ -1613,3 +1613,15 @@ export interface CombinedRfqDispatch extends CombinedRfqPreview {
   communication_id: number;
   status: string;
 }
+
+export interface EchemiEvidence { value: string; quote: string; source_url: string }
+export interface EchemiContact { kind: string; value: string; owner: string; quote: string; source_url: string }
+export interface EchemiResult {
+  product_url: string | null; title: string; seller_name: string | null; seller_url: string | null;
+  price_text: string | null; source_text: string; observed_at: string; detail_status: string; warnings?: string[];
+  detail?: { title: string; source_url: string; source_text: string; observed_at: string;
+    fields: Record<string,EchemiEvidence[]>; contacts: EchemiContact[] };
+}
+export interface EchemiSummary { id: number; query: string; status: string; message: string | null;
+  created_at: string; finished_at: string | null; result_count: number }
+export interface EchemiSearch extends Omit<EchemiSummary,"result_count"> { results: EchemiResult[]; diagnostics: Record<string,unknown> }

@@ -216,6 +216,38 @@ services:
       retries: 3
       start_period: 40s
 
+  echemi-browser:
+    init: true
+    build: ./echemi-browser
+    restart: unless-stopped
+    shm_size: "512mb"
+    environment:
+      ECHEMI_MAX_RESULTS: ${ECHEMI_MAX_RESULTS:-10}
+      ECHEMI_PAUSE_MIN: ${ECHEMI_PAUSE_MIN:-8}
+      ECHEMI_PAUSE_MAX: ${ECHEMI_PAUSE_MAX:-14}
+    volumes:
+      - echemi_profile:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  echemi-worker:
+    build: ./backend
+    restart: unless-stopped
+    command: ["python", "-m", "app.echemi_worker"]
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-chemsource}:${POSTGRES_PASSWORD:-change_me}@db:5432/${POSTGRES_DB:-chemsource}
+      ECHEMI_BROWSER_URL: http://echemi-browser:8080
+    depends_on:
+      backend:
+        condition: service_healthy
+      echemi-browser:
+        condition: service_healthy
+
   email-worker:
     build: ./backend
     restart: unless-stopped
@@ -313,5 +345,6 @@ services:
         condition: service_healthy
 
 volumes:
+  echemi_profile:
   pgdata:
   whatsapp_web_data:

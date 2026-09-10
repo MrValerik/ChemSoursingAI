@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.api import (
     auth,
+    echemi_search,
     communication_testing,
     communication_profiles,
     communications,
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(echemi_search.router)
     app.include_router(health.router)
     app.include_router(intermediaries.router)
     app.include_router(prompts.router)

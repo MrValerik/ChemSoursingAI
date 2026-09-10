@@ -79,3 +79,5 @@ __all__ = [
     "Substance",
     "SubstanceRevision",
 ]
+
+from app.models.echemi_search import EchemiSearch

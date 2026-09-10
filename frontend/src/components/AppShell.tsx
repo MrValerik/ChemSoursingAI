@@ -11,6 +11,7 @@ import { Icon, IconButton } from "./ui";
 
 export type SectionKey =
   | "requests"
+  | "echemi"
   | "substances"
   | "suppliers"
   | "intermediaries"
@@ -34,6 +35,7 @@ interface NavItem {
 // Видимость разделов по ролям (раздел 4 плана: матрица доступа).
 const NAV_ITEMS: NavItem[] = [
   { key: "requests", label: "Запросы", roles: ["buyer", "head", "admin", "auditor"] },
+  { key: "echemi", label: "Поиск в Echemi", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "substances", label: "Химические вещества", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "suppliers", label: "Поставщики", roles: ["buyer", "head", "admin", "auditor"] },
   {

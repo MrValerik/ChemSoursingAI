@@ -18,6 +18,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    echemi_browser_url: str = Field(default='http://echemi-browser:8080')
+
     # --- Приложение ---
     app_env: str = Field(default="development")
     app_host: str = Field(default="0.0.0.0")

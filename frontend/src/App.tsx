@@ -1,3 +1,4 @@
+import EchemiSearchSection from "./components/EchemiSearchSection";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
@@ -34,6 +35,8 @@ function RequireSection({
 }
 
 const SECTION_ELEMENTS: { path: string; section: SectionKey; element: React.ReactNode }[] = [
+  { path: "/echemi", section: "echemi", element: <EchemiSearchSection /> },
+  { path: "/echemi/:searchId", section: "echemi", element: <EchemiSearchSection /> },
   { path: "/substances", section: "substances", element: <SubstancesSection /> },
   { path: "/substances/:substanceId", section: "substances", element: <SubstancesSection /> },
   { path: "/suppliers", section: "suppliers", element: <SuppliersSection /> },
