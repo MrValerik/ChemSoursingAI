@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from playwright.async_api import async_playwright
+from diagnostics import public_url, verification_result
 from parsing import parse_detail, _BLOCKS, parse_offer, product_url, is_verification, is_valid_cas
 
 app = FastAPI()
@@ -45,7 +46,7 @@ class Mouse:
 async def ready(page, mouse, events):
     if not is_verification(await page.locator("body").inner_text(), await page.title()):
         return True
-    event = {"url": page.url, "status": "waiting"}
+    event = {"url": public_url(page.url), "status": "waiting", "slider_attempted": False}
     events.append(event)
     try:
         handle = page.locator("#aliyunCaptcha-sliding-slider")
@@ -68,6 +69,7 @@ async def ready(page, mouse, events):
             raise ValueError("Trajectory outside viewport")
         await mouse.go(sx,sy)
         await asyncio.sleep(.7)
+        event["slider_attempted"] = True
         await page.mouse.down()
         began = time.monotonic()
         try:
@@ -77,6 +79,7 @@ async def ready(page, mouse, events):
                 await page.mouse.move(mouse.x,mouse.y)
         finally:
             await page.mouse.up()
+        event["drag_seconds"] = round(time.monotonic()-began, 3)
         await asyncio.sleep(12)
         passed = not is_verification(await page.locator("body").inner_text(),await page.title())
         event["status"] = "passed" if passed else "not_passed"
@@ -98,6 +101,18 @@ async def collect(query, output):
         try:
             page = context.pages[0] if context.pages else await context.new_page()
             page.set_default_timeout(25000)
+            output['diagnostics']['browser_version'] = await page.evaluate('navigator.userAgent')
+            output['diagnostics']['verification_responses'] = []
+            async def observe(response):
+                host = urlsplit(response.url).hostname or ''
+                if host.endswith('.aliyuncs.com') and 'captcha' in host:
+                    try:
+                        safe = verification_result(await response.json())
+                        if safe and len(output['diagnostics']['verification_responses']) < 30:
+                            output['diagnostics']['verification_responses'].append(safe)
+                    except Exception:
+                        pass
+            page.on('response', observe)
             mouse = Mouse(page)
             await page.goto("https://www.echemi.com/",wait_until="domcontentloaded",timeout=60000)
             await asyncio.sleep(8)

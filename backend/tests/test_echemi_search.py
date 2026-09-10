@@ -112,3 +112,14 @@ def test_price_and_url_boundaries():
     assert row["price_min"] is None
     assert p.product_url("https://www.echemi.com.evil.example/produce/sample.html") is None
     assert p.product_url("http://127.0.0.1/produce/sample.html") is None
+
+
+def test_diagnostics_do_not_keep_tokens():
+    path=Path(__file__).resolve().parents[2]/"echemi-browser"/"diagnostics.py"
+    spec=importlib.util.spec_from_file_location("echemi_diagnostics_test",path)
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.public_url("https://www.echemi.com/?secret=token#fragment")=="https://www.echemi.com/"
+    assert module.verification_result({"Result":{"VerifyCode":"F001","VerifyResult":False,"token":"secret"}})=={"verify_code":"F001","verify_result":False}
+    assert module.verification_result({"Result":{"VerifyCode":"secret-token","VerifyResult":"secret"}})=={}
+    assert module.verification_result(None)=={}
