@@ -70,7 +70,7 @@ export default function EchemiSearchSection() {
       <div><input id="echemi-query" value={query} onChange={e=>setQuery(e.target.value)}
         maxLength={200} required placeholder="Например, Aspirin или 50-78-2" />
         <button type="submit" disabled={sending || !query.trim()}>{sending?"Создаём…":"Найти"}</button></div>
-      <small>До 10 карточек с первой страницы. Сбор может занять до 15 минут; при появлении CAPTCHA потребуется ваше участие.</small>
+      <small>До 10 карточек с первой страницы. Сбор может занять до 15 минут; если автоматическая проверка CAPTCHA не пройдёт, потребуется ваше участие.</small>
     </form>}
     {error && <p role="alert" className="echemi-error">{error}</p>}
     <h2>История запросов</h2>

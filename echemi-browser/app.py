@@ -16,6 +16,7 @@ from parsing import parse_detail, _BLOCKS, parse_offer, product_url, is_verifica
 
 from chrome_runtime import open_chrome
 from page_state import needs_verification
+from verification import attempt_slider
 from job_lifecycle import run_connected
 from manual import router as manual_router, active, wait_for_human
 
@@ -52,12 +53,18 @@ class Mouse:
 async def ready(page, mouse, events):
     if not await needs_verification(page):
         return True
+    if os.getenv("ECHEMI_AUTO_VERIFY", "true").lower() == "true":
+        if await attempt_slider(page, mouse, events):
+            return True
+        if not await needs_verification(page):
+            return True
     return await wait_for_human(page, events)
 
 async def collect(query, output):
     async with async_playwright() as p, open_chrome(p, PROFILE) as context:
         try:
             page = context.pages[0] if context.pages else await context.new_page()
+            await page.bring_to_front()
             await page.set_viewport_size({"width": 1280, "height": 900})
             page.set_default_timeout(25000)
             output["diagnostics"]["browser_launch"] = "chrome_cdp"
