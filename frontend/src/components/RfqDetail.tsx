@@ -8,6 +8,7 @@ import { api, userErrorMessage } from "../api/client";
 import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
+import AnalogPicker from "./AnalogPicker";
 import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
@@ -85,15 +86,6 @@ const INCOTERM_HELP: Record<string, string> = {
   FOB: "FOB: продавец грузит товар на судно в порту отправления; фрахт и страхование дальше оплачивает покупатель.",
   CIP: "CIP: продавец оплачивает перевозку и страхование до согласованного пункта, но риск переходит при передаче первому перевозчику.",
   DAP: "DAP: продавец довозит товар до согласованного места назначения; ввозные пошлины и растаможку оплачивает покупатель.",
-};
-
-// Подписи границ замены аналога. Значения приходят из контракта backend
-// (AnalogVariation), незнакомое показывается как есть.
-const ANALOG_VARIATION_LABELS: Record<string, string> = {
-  salt: "другая соль или форма",
-  purity: "другая чистота или грейд",
-  form: "другое физическое состояние",
-  manufacturer: "другой производитель",
 };
 
 const displayCountry = (value: string) =>
@@ -344,35 +336,22 @@ export default function RfqDetail({
               )}
             </dd>
             {/* Поиск аналога показывается отдельной строкой, а не вместо
-                CAS: аналог ищут и по веществу с известным номером, и тогда
-                строка «CAS» занята, а задача поиска всё равно другая. */}
+                CAS: замену подбирают и веществу с известным номером, и тогда
+                строка «CAS» занята, а задача запроса всё равно другая. */}
             {rfq.identification_method === "analog" && (
               <>
                 <dt className="param-label">
                   <Term
                     label="Поиск аналога"
-                    help="Запрос ищет не сам названный продукт, а его возможную замену. Кандидат по такому запросу не считается точным совпадением: равнозначность состава и свойств подтверждает специалист."
+                    help="Запрос ищет не поставщиков названного вещества, а замену ему. Сначала подбираются вещества-кандидаты с доказательствами, закупщик отмечает подходящие, и поиск компаний идёт уже по ним — отдельным запросом на каждое."
                   />
                 </dt>
                 <dd className="param-value">
-                  <span className="badge tone-warn">возможный аналог</span>
+                  <span className="badge tone-warn">подбор замены</span>
                   <Term
-                    label={`эталон: ${rfq.analog_reference || rfq.name}`}
-                    help="Продукт или торговая марка, замену которой ищет запрос."
+                    label="поиск компаний — по выбранным аналогам"
+                    help="По самой этой позиции поставщиков никто не ищет: она задаёт, чему подбирают замену. Подбор и выбор — на вкладке «Поиск и проверка»."
                   />
-                  {rfq.analog_variations?.length ? (
-                    <Term
-                      label={`допустимо: ${rfq.analog_variations
-                        .map((item) => ANALOG_VARIATION_LABELS[item] ?? item)
-                        .join(", ")}`}
-                      help="Границы замены, которые задал закупщик. Всё, что за этими границами, аналогом по этому запросу не считается."
-                    />
-                  ) : (
-                    <Term
-                      label="границы замены не заданы"
-                      help="Закупщик не указал, чем аналог может отличаться от эталона. Предложение поставщика в этом случае предсказать нельзя — сверяйте состав и свойства вручную."
-                    />
-                  )}
                 </dd>
               </>
             )}
@@ -543,12 +522,24 @@ export default function RfqDetail({
           </div>
 
           {tab === "overview" && <OverviewTab rfq={rfq} />}
-          {tab === "supplier_search" && (
-            <SupplierSearchSection
-              rfq={rfq}
-              onOpenSubstance={onOpenSubstance}
-            />
-          )}
+          {/* Запрос на аналог поставщиков не ищет: у него ещё нет вещества,
+              которое закупают. Вместо поиска — подбор замен и выбор
+              закупщика; поиск компаний идёт уже по заведённым из них
+              запросам. */}
+          {tab === "supplier_search" &&
+            (rfq.identification_method === "analog" ? (
+              <AnalogPicker
+                rfqId={rfq.id}
+                name={rfq.name}
+                onBatchCreated={(id) => navigate(`/requests/batch/${id}`)}
+                onOpenRfq={(id) => navigate(`/requests/${id}`)}
+              />
+            ) : (
+              <SupplierSearchSection
+                rfq={rfq}
+                onOpenSubstance={onOpenSubstance}
+              />
+            ))}
 
           {tab === "suppliers" && (
             <SuppliersTab rfqId={rfq.id} onGoToDispatch={() => setTab("dispatch")} />

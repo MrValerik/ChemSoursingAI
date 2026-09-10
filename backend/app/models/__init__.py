@@ -24,7 +24,7 @@ from app.models.prompt import PromptTemplate, PromptVersion, RfqAiSetting
 from app.models.purchase_decision import PurchaseDecision, PurchaseHistoryEntry
 from app.models.quotation import Quotation, QuotationFieldAudit
 from app.models.recipient import RfqRecipient
-from app.models.rfq import RFQ
+from app.models.rfq import RFQ, RfqAnalogCandidate
 from app.models.rfq_batch import RfqBatch
 from app.models.rfq_supplier import RfqSupplierLink
 from app.models.search_trace import (
@@ -44,6 +44,7 @@ __all__ = [
     "FeedbackMessage",
     "User",
     "RFQ",
+    "RfqAnalogCandidate",
     "RfqBatch",
     "RfqSupplierLink",
     "Supplier",

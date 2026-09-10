@@ -51,19 +51,18 @@ def test_request_by_specification_needs_no_cas():
     assert data.cas is None
 
 
-def test_request_by_analog_needs_the_reference_substance():
-    """«Аналог» без эталона — это не задание, а пожелание."""
-    with pytest.raises(ValidationError):
-        RFQCreate(**_create(identification_method="analog"))
+def test_request_by_analog_needs_only_the_substance_being_replaced():
+    """Заменяемое вещество — это и есть название запроса.
 
-    data = RFQCreate(
-        **_create(
-            identification_method="analog",
-            analog_reference="107-43-7",
-            analog_variations=["salt", "manufacturer"],
-        )
-    )
-    assert data.analog_reference == "107-43-7"
+    Раньше «аналог» требовал отдельного поля «эталон», потому что запрос
+    сразу уходил искать поставщиков и эталон был единственным якорем.
+    Теперь между «нужна замена» и поиском компаний стоит подбор: система
+    называет вещества-заменители, закупщик выбирает. Эталон при этом
+    всегда повторял бы название, и спрашивать его стало неоткуда.
+    """
+    data = RFQCreate(**_create(identification_method="analog"))
+    assert data.name == "Бетаин"
+    assert data.analog_reference is None
 
 
 def test_request_by_cas_still_requires_the_number():
@@ -105,14 +104,18 @@ def test_wrong_check_digit_names_the_correct_number():
 # --- способ идентификации доезжает до поиска ---
 
 
-def test_the_analog_setup_reaches_the_queued_search():
+def test_the_identification_setup_reaches_the_queued_search():
     """Форма собирает, карточка хранит — поиск обязан это получить.
 
     Кнопка «Создать запрос и начать поиск» строила payload прогона
-    вручную и теряла способ идентификации вместе с эталоном. Поиск
-    аналога при этом не падал: он выполнялся как обычный поиск по
-    названию, и по результату подмена была незаметна. Прогон 57 по
-    Dowsil 556 ушёл именно так.
+    вручную и теряла способ идентификации вместе со спецификацией. Поиск
+    при этом не падал: он выполнялся как обычный поиск по названию, и по
+    результату подмена была незаметна. Прогон 57 по Dowsil 556 ушёл
+    именно так.
+
+    Запрос на аналог этой проверке больше не годится: он поиск не
+    ставит — сначала подбираются вещества-заменители. См.
+    tests/test_rfq_analogs.py.
     """
     with TestClient(app) as client:
         token = client.post(
@@ -125,9 +128,7 @@ def test_the_analog_setup_reaches_the_queued_search():
                 "name": "Dowsil 556 Cosmetic Grade Fluid",
                 "incoterms": ["CIP"],
                 "search_countries": ["Китай"],
-                "identification_method": "analog",
-                "analog_reference": "Dowsil 556 Cosmetic Grade Fluid",
-                "analog_variations": ["manufacturer", "purity"],
+                "identification_method": "spec",
                 "specification": "INCI Phenyl Trimethicone",
                 "application": "Косметика",
                 "volume": "500 kg",
@@ -147,9 +148,7 @@ def test_the_analog_setup_reaches_the_queued_search():
             payload = run.input_payload
             run_id = run.id
 
-    assert payload["identification_method"] == "analog"
-    assert payload["analog_reference"] == "Dowsil 556 Cosmetic Grade Fluid"
-    assert payload["analog_variations"] == ["manufacturer", "purity"]
+    assert payload["identification_method"] == "spec"
     assert payload["specification"] == "INCI Phenyl Trimethicone"
     assert payload["application"] == "Косметика"
     assert payload["requested_volume"] == "500 kg"

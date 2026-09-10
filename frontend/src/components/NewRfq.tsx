@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, type RFQCreatePayload } from "../api/client";
 import type {
-  AnalogVariation,
   IdentificationMethod,
   ResolvedName,
   RFQListItem,
@@ -32,32 +31,6 @@ import {
 
 const COUNTRY_OPTIONS = ["Россия", "Китай", "Индия"];
 
-// Чем аналог может отличаться от эталона. Слово «аналог» само по себе
-// означает сразу всё перечисленное, и поставщик отвечает не тем, что
-// ждали: границы замены задаёт закупщик, а не догадка модели.
-// Значения совпадают с AnalogVariation в контракте backend.
-const ANALOG_VARIATIONS: { value: AnalogVariation; label: string; hint: string }[] = [
-  {
-    value: "salt",
-    label: "Другая соль или форма",
-    hint: "Подойдёт гидрохлорид, гидрат или эфир вместо основания.",
-  },
-  {
-    value: "purity",
-    label: "Другая чистота или грейд",
-    hint: "Подойдёт другой грейд, если остальные требования выполнены.",
-  },
-  {
-    value: "form",
-    label: "Другое физическое состояние",
-    hint: "Подойдёт порошок вместо гранул или раствора.",
-  },
-  {
-    value: "manufacturer",
-    label: "Другой производитель",
-    hint: "Подойдёт то же вещество любого завода, не только эталонного.",
-  },
-];
 
 // Грейд — величина справочная, вариантов конечное число. Значение хранится
 // по-английски: оно уходит в письмо поставщику, а письмо английское.
@@ -201,8 +174,6 @@ export default function NewRfq({
   // замену нельзя: закупщик, который просил конкретный продукт, получил бы
   // похожий и узнал об этом только из ответа поставщика.
   const [analogMode, setAnalogMode] = useState(false);
-  const [analogReference, setAnalogReference] = useState("");
-  const [analogVariations, setAnalogVariations] = useState<AnalogVariation[]>([]);
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
   const [searchMode, setSearchMode] = useState<SearchModeKey>(DEFAULT_SEARCH_MODE);
@@ -407,11 +378,6 @@ export default function NewRfq({
     return undefined;
   };
 
-  // Эталон по умолчанию — то, что закупщик уже назвал в запросе: чаще
-  // всего он и есть образец, замену которому ищут. Отдельное поле нужно
-  // для случая, когда эталон — торговая марка, а закупают по функции.
-  const analogReferenceValue = analogReference.trim() || name.trim();
-
   // Способ идентификации остаётся в контракте поиска — он строит разные
   // запросы. Точный и спецификационный выводятся из заполненного, а поиск
   // аналога человек включает сам: это другая задача, а не другое поле.
@@ -426,8 +392,6 @@ export default function NewRfq({
     // Непрошедший проверку номер не уходит в запрос: форма к этому моменту
     // уже не даёт создать запрос с таким полем.
     cas: casValid ? casNormalized : null,
-    analog_reference: analogMode ? analogReferenceValue : null,
-    analog_variations: analogMode ? analogVariations : [],
     // Скрытое поле не отправляется: иначе набранные до ввода номера
     // требования молча уехали бы в письмо поставщику.
     specification: casValid ? null : specification.trim() || null,
@@ -465,13 +429,6 @@ export default function NewRfq({
     // при подтверждении идентичности в самом поиске.
     substance_id: null,
   });
-
-  const toggleAnalogVariation = (variation: AnalogVariation) =>
-    setAnalogVariations((current) =>
-      current.includes(variation)
-        ? current.filter((item) => item !== variation)
-        : [...current, variation],
-    );
 
   const toggleCountry = (country: string) =>
     setCountries((current) =>
@@ -521,16 +478,7 @@ export default function NewRfq({
       setSpecification(source.specification || "");
       // Повтор запроса на аналог остаётся запросом на аналог: скопировать
       // условия и молча сменить задачу на точный поиск нельзя.
-      const sourceIsAnalog = source.identification_method === "analog";
-      setAnalogMode(sourceIsAnalog);
-      setAnalogReference(sourceIsAnalog ? source.analog_reference || "" : "");
-      setAnalogVariations(
-        sourceIsAnalog
-          ? ANALOG_VARIATIONS.map((item) => item.value).filter((value) =>
-              (source.analog_variations || []).includes(value),
-            )
-          : [],
-      );
+      setAnalogMode(source.identification_method === "analog");
       setSynonyms(source.confirmed_synonyms || []);
       // Форма перезаполняется чужим запросом целиком, поэтому память о
       // снятых названиях сбрасывается: она относилась к прошлому набору.
@@ -834,10 +782,11 @@ export default function NewRfq({
           />
         </div>
 
-        {/* Поиск аналога — отдельная задача, а не послабление точного
-            поиска: он ищет замену эталону, и совпадение по функции здесь
-            не является совпадением по веществу. Поэтому переключатель, а
-            не молчаливое расширение выдачи. */}
+        {/* Аналог — отдельная задача, а не послабление точного поиска.
+            Запрос с этой отметкой к поставщикам сразу не идёт: сначала
+            система подберёт вещества-заменители с доказательствами, а
+            закупщик отметит подходящие. Поиск компаний пойдёт уже по ним —
+            отдельным запросом на каждое вещество. */}
         <div className="field analog-block">
           {/* Подсказка вынесена из подписи в значок: выключенный блок — одна
               строка, и три строки объяснения под ней читались как условие
@@ -848,62 +797,22 @@ export default function NewRfq({
             <label className="analog-switch-head">
               <input
                 type="checkbox"
-                aria-label="Искать возможный аналог"
+                aria-label="Искать аналог"
                 checked={analogMode}
                 onChange={(event) => setAnalogMode(event.target.checked)}
               />
-              <span className="analog-switch-label">Искать возможный аналог</span>
+              <span className="analog-switch-label">Искать аналог</span>
             </label>
-            <HelpTip text="Обычный поиск ищет названное вещество. Аналог — это другой продукт со схожей функцией: он никогда не считается точным совпадением и всегда уходит на проверку специалисту." />
+            <HelpTip text="Обычный поиск ищет названное вещество. С этой отметкой система сначала подберёт вещества, которыми его можно заменить, и покажет по каждому цитату из источника. Поиск поставщиков начнётся только по тем, которые вы отметите, — на каждое отдельным запросом." />
           </div>
 
           {analogMode && (
-            <div className="analog-details">
-              <Field
-                label="Эталон: на что должен быть похож аналог"
-                hint="Продукт или торговая марка, замену которой ищем. Если оставить пустым, эталоном станет название из запроса."
-              >
-                <Input
-                  maxLength={255}
-                  placeholder={name.trim() || "например, Dowsil 556"}
-                  value={analogReference}
-                  onChange={(event) => setAnalogReference(event.target.value)}
-                />
-              </Field>
-
-              <div className="field">
-                <div className="heading-with-help">
-                  <label>Что можно менять относительно эталона</label>
-                  <HelpTip text="Без этих границ «аналог» для поставщика означает что угодно, и в ответ приходит не то, что просили. Отмеченное уходит в письмо отдельными строками." />
-                </div>
-                <div className="analog-variations">
-                  {ANALOG_VARIATIONS.map(({ value, label, hint }) => (
-                    <label
-                      key={value}
-                      className={`analog-variation${
-                        analogVariations.includes(value) ? " active" : ""
-                      }`}
-                    >
-                      <span className="analog-variation-head">
-                        <input
-                          type="checkbox"
-                          checked={analogVariations.includes(value)}
-                          onChange={() => toggleAnalogVariation(value)}
-                        />
-                        <span className="analog-variation-label">{label}</span>
-                      </span>
-                      <span className="analog-variation-hint">{hint}</span>
-                    </label>
-                  ))}
-                </div>
-                {analogVariations.length === 0 && (
-                  <p className="analog-note">
-                    Границы замены не заданы — поставщик решит их сам, и
-                    предложение может не подойти. Отметьте хотя бы одну.
-                  </p>
-                )}
-              </div>
-            </div>
+            <p className="analog-note">
+              После создания запроса откроется подбор замен: система назовёт
+              вещества-кандидаты, вы отметите подходящие. Поиск компаний по
+              самому «{name.trim() || "названному веществу"}» при этом не
+              пойдёт — искать будут поставщиков выбранных аналогов.
+            </p>
           )}
         </div>
 

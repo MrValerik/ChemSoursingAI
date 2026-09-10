@@ -1498,6 +1498,38 @@ export interface RfqImportReference {
   rows: RfqImportExample[];
 }
 
+// --- подбор аналогов ---
+
+/** Вещество, предложенное на замену, и доказательство этого предложения. */
+export interface RfqAnalogCandidate {
+  id: number;
+  name: string;
+  cas: string | null;
+  /** Номер прошёл контрольную сумму и найден в источнике дословно. */
+  cas_confirmed: boolean;
+  reason: string;
+  quote: string | null;
+  source_url: string | null;
+  selected: boolean;
+  /** Запрос, заведённый по этому аналогу, если он уже заведён. */
+  created_rfq_id: number | null;
+}
+
+export interface RfqAnalogs {
+  rfq_id: number;
+  name: string;
+  /** null — подбор ещё не запускали. Отличает «не искали» от «не нашли». */
+  suggested_at: string | null;
+  warnings: string[];
+  candidates: RfqAnalogCandidate[];
+}
+
+export interface RfqAnalogConfirmResult {
+  analogs: RfqAnalogs;
+  /** null — по всему выбранному запросы уже были заведены. */
+  batch: RfqBatchCreateResult | null;
+}
+
 // --- пакетное создание запросов (MEET2-02) ---
 
 /** Итог по одной строке списка. Каждая строка отвечает за себя. */

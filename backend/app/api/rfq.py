@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.models import RfqAiSetting, Substance, User
+from app.models import RfqAiSetting, RfqAnalogCandidate, Substance, User
 from app.models.communication import Communication
 from app.models.enums import (
     CommDirection,
@@ -40,6 +40,13 @@ from app.schemas.rfq import (
 from app.services.communication_testing import (
     CommunicationTestError,
     translate_preview_text,
+)
+from app.services.analog_candidates import MAX_CANDIDATES as MAX_ANALOGS
+from app.services.analog_candidates import suggest_analogs
+from app.services.analog_service import (
+    confirm_analogs,
+    stored_candidates,
+    store_suggestion,
 )
 from app.services.incoterms import SUPPORTED_INCOTERMS
 from app.services.rfq_batch_service import (
@@ -423,7 +430,12 @@ def create(
                 additional_instructions=data.additional_instructions.strip(),
             )
         )
-    if start_search:
+    # Запрос на аналог сам к поставщикам не идёт. Сначала подбираются
+    # вещества-заменители, закупщик отмечает подходящие, и поиск компаний
+    # стартует уже по ним — отдельным запросом на каждое. Поставить поиск
+    # здесь значило бы искать поставщиков вещества, которое закупщик
+    # закупать не собирался.
+    if start_search and rfq.identification_method != "analog":
         for country in data.search_countries:
             create_search_run(
                 db,
@@ -441,6 +453,123 @@ def create(
     db.commit()
     db.refresh(rfq)
     return _to_read(rfq)
+
+
+class AnalogConfirm(BaseModel):
+    """Выбор закупщика: по каким аналогам заводить запросы."""
+
+    candidate_ids: list[int] = Field(default_factory=list, max_length=MAX_ANALOGS)
+
+
+def _analog_rfq(db: Session, rfq_id: int, user: User) -> RFQ:
+    """Запрос, к которому относится подбор, с проверкой прав."""
+    rfq = db.get(RFQ, rfq_id)
+    if rfq is None or rfq.deleted_at is not None or not _can_see(user, rfq):
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+    return rfq
+
+
+def _candidate_dict(candidate: RfqAnalogCandidate) -> dict:
+    return {
+        "id": candidate.id,
+        "name": candidate.name,
+        "cas": candidate.cas,
+        "cas_confirmed": candidate.cas_confirmed,
+        "reason": candidate.reason,
+        "quote": candidate.quote,
+        "source_url": candidate.source_url,
+        "selected": candidate.selected,
+        "created_rfq_id": candidate.created_rfq_id,
+    }
+
+
+def _analogs_payload(db: Session, rfq: RFQ) -> dict:
+    return {
+        "rfq_id": rfq.id,
+        "name": rfq.name,
+        # Разделяет «ещё не подбирали» и «подбирали, ничего не нашли»:
+        # без отметки второе выглядит как несработавшая кнопка.
+        "suggested_at": rfq.analog_suggested_at.isoformat()
+        if rfq.analog_suggested_at
+        else None,
+        "warnings": list(rfq.analog_warnings or []),
+        "candidates": [
+            _candidate_dict(item) for item in stored_candidates(db, rfq.id)
+        ],
+    }
+
+
+@router.get("/{rfq_id}/analogs")
+def read_analogs(
+    rfq_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Подобранные аналоги и отметки закупщика."""
+    return _analogs_payload(db, _analog_rfq(db, rfq_id, user))
+
+
+@router.post("/{rfq_id}/analogs/suggest")
+def suggest_rfq_analogs(
+    rfq_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Подбирает вещества, которыми можно заменить позицию.
+
+    Ничего не создаёт: возвращает кандидатов с цитатой и ссылкой, из
+    которых выбирает закупщик. Повторный подбор заменяет прежний список,
+    но не трогает аналоги, по которым запросы уже заведены.
+    """
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    rfq = _analog_rfq(db, rfq_id, user)
+
+    suggestion = suggest_analogs(
+        rfq.name,
+        cas=rfq.cas,
+        specification=rfq.specification,
+    )
+    store_suggestion(db, rfq, suggestion)
+    db.commit()
+    db.refresh(rfq)
+    return _analogs_payload(db, rfq)
+
+
+@router.post("/{rfq_id}/analogs/confirm")
+def confirm_rfq_analogs(
+    rfq_id: int,
+    data: AnalogConfirm,
+    start_search: bool = Query(
+        default=True, description="Ставить поиск поставщиков по каждому аналогу"
+    ),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Заводит запрос на каждый выбранный аналог и ставит поиски.
+
+    Повтор с тем же выбором не заводит второй набор: ключ идемпотентности
+    считается по запросу и составу выбора.
+    """
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    rfq = _analog_rfq(db, rfq_id, user)
+
+    result = confirm_analogs(
+        db,
+        rfq,
+        candidate_ids=data.candidate_ids,
+        owner_id=user.id,
+        start_search=start_search,
+    )
+    db.commit()
+    db.refresh(rfq)
+    return {
+        "analogs": _analogs_payload(db, rfq),
+        # None означает, что по всему выбранному запросы уже были заведены:
+        # менялись только отметки, нового пакета не появилось.
+        "batch": result.to_dict() if result is not None else None,
+    }
 
 
 @router.get("/{rfq_id}", response_model=RFQRead)

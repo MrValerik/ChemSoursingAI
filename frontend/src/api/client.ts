@@ -9,6 +9,8 @@ import type {
   CombinedRfqDispatch,
   CombinedRfqOption,
   CombinedRfqPreview,
+  RfqAnalogConfirmResult,
+  RfqAnalogs,
   RfqImportPreview,
   RfqImportReference,
   RfqImportRow,
@@ -287,6 +289,17 @@ export const api = {
 
   // Обратная сторона verifyCas: номера нет, есть только название. Именно так
   // позиции и приходят от заказчика — списком названий.
+  // Подбор аналогов. Ходит в сеть и в модель, поэтому отдельным действием
+  // закупщика, а не при открытии карточки: молча тратить поиск нельзя.
+  rfqAnalogs: (rfqId: number) => request<RfqAnalogs>(`/rfq/${rfqId}/analogs`),
+  suggestRfqAnalogs: (rfqId: number) =>
+    request<RfqAnalogs>(`/rfq/${rfqId}/analogs/suggest`, { method: "POST" }),
+  /** Заводит запрос на каждый выбранный аналог и ставит поиски. */
+  confirmRfqAnalogs: (rfqId: number, candidateIds: number[]) =>
+    request<RfqAnalogConfirmResult>(`/rfq/${rfqId}/analogs/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ candidate_ids: candidateIds }),
+    }),
   createRfqBatch: (payload: {
     idempotency_key: string;
     source_name?: string | null;

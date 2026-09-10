@@ -39,9 +39,23 @@ class RFQ(Base, TimestampMixin):
     cas: Mapped[str | None] = mapped_column(String(20), index=True, default=None)
     name: Mapped[str] = mapped_column(String(255))
 
-    # Режим analog: эталонное вещество и то, чем от него можно отступить
-    # (соль, чистота, форма, производитель). Без второго поля «аналог»
-    # означает сразу всё перечисленное и текст письма собрать нельзя.
+    # Режим analog: запрос не идёт к поставщикам сам. Сначала система
+    # подбирает вещества-аналоги с доказательствами, закупщик отмечает
+    # подходящие, и уже на каждое отмеченное заводится свой запрос.
+    #
+    # Отметка о времени подбора нужна, чтобы отличить «ещё не подбирали» от
+    # «подбирали и не нашли»: на экране это два разных ответа, и второй без
+    # отметки выглядел бы как несработавшая кнопка.
+    analog_suggested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    # Что не получилось при подборе: недоступная модель, заблокированный
+    # источник, номер без подтверждения. Хранится вместе с результатом —
+    # иначе после перезагрузки страницы пустой список выглядит как ошибка.
+    analog_warnings: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+
+    # Поля прежнего одноступенчатого режима. Новые запросы их не заполняют;
+    # остаются ради карточек, созданных до перехода на двухступенчатый подбор.
     analog_reference: Mapped[str | None] = mapped_column(String(255), default=None)
     analog_variations: Mapped[list[str] | None] = mapped_column(JSON, default=None)
 
@@ -135,4 +149,54 @@ class RFQ(Base, TimestampMixin):
     )
     search_runs: Mapped[list["SearchRun"]] = relationship(
         back_populates="rfq"
+    )
+    # Подобранные аналоги. Живут вместе с запросом: сами по себе, без
+    # позиции, ради которой искали замену, они ничего не значат.
+    analog_candidates: Mapped[list["RfqAnalogCandidate"]] = relationship(
+        back_populates="rfq",
+        cascade="all, delete-orphan",
+        foreign_keys="RfqAnalogCandidate.rfq_id",
+    )
+
+
+class RfqAnalogCandidate(Base, TimestampMixin):
+    """Вещество, предложенное на замену, и доказательство этого предложения.
+
+    Модель здесь — интерпретатор веб-выдачи, а не источник фактов: у каждого
+    кандидата хранится цитата и адрес страницы, откуда она взята. Название
+    без цитаты закупщик проверить не может, а «аналог» ошибкой обходится
+    дороже прочего: закупили не то — узнали через два месяца на производстве.
+
+    Выбор остаётся за человеком. `selected` ставится закупщиком, и только
+    после этого на кандидата заводится собственный запрос (`created_rfq_id`).
+    """
+
+    __tablename__ = "rfq_analog_candidates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rfq_id: Mapped[int] = mapped_column(
+        ForeignKey("rfqs.id", ondelete="CASCADE"), index=True
+    )
+    rfq: Mapped["RFQ"] = relationship(
+        back_populates="analog_candidates", foreign_keys=[rfq_id]
+    )
+
+    name: Mapped[str] = mapped_column(String(255))
+    cas: Mapped[str | None] = mapped_column(String(20), default=None)
+    # Номер прошёл контрольную сумму И дословно найден в источнике. Разница
+    # показывается, а не усредняется: неподтверждённый номер в поиске опаснее
+    # отсутствующего — он уводит поиск к другому веществу молча.
+    cas_confirmed: Mapped[bool] = mapped_column(default=False)
+    # Чем эта замена является: тот же класс, другая соль или форма, другая
+    # марка того же продукта. Одним предложением, по-русски.
+    reason: Mapped[str] = mapped_column(Text, default="")
+    quote: Mapped[str | None] = mapped_column(Text, default=None)
+    source_url: Mapped[str | None] = mapped_column(String(500), default=None)
+
+    selected: Mapped[bool] = mapped_column(default=False, index=True)
+    # Запрос, заведённый по этому аналогу. ON DELETE SET NULL: удаление
+    # заведённого запроса не должно уносить сам подбор — он объясняет,
+    # почему этот запрос вообще появился.
+    created_rfq_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rfqs.id", ondelete="SET NULL"), default=None, index=True
     )
