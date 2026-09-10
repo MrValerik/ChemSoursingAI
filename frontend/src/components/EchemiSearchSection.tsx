@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import "./echemi.css";
 import EchemiVerification from "./EchemiVerification";
 
+const PAGE_SIZE = 5;
 const labels: Record<string,string> = {
   queued:"В очереди", running:"Идёт поиск", completed:"Завершён", partial:"Частичный результат",
   blocked:"Проверка Echemi не пройдена", failed:"Ошибка", read:"Карточка прочитана",
@@ -24,19 +25,22 @@ export default function EchemiSearchSection() {
   const [loading,setLoading] = useState(true);
   const [sending,setSending] = useState(false);
   const [offset,setOffset] = useState(0);
+  const [hasNext,setHasNext] = useState(false);
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     setSelected(null);
     setLoading(true);
+    setRows([]);
     setError("");
     async function refresh() {
       try {
         const [history,detail] = await Promise.all([
-          listEchemiSearches(offset), searchId ? getEchemiSearch(Number(searchId)) : Promise.resolve(null),
+          listEchemiSearches(offset,PAGE_SIZE+1), searchId ? getEchemiSearch(Number(searchId)) : Promise.resolve(null),
         ]);
         if (!alive) return;
-        setRows(history); setSelected(detail); setError("");
+        setRows(history.slice(0,PAGE_SIZE)); setHasNext(history.length>PAGE_SIZE);
+        setSelected(detail); setError("");
       } catch (e) {
         if (alive) setError(userErrorMessage(e,"Не удалось загрузить поиски Echemi."));
       } finally {
@@ -78,8 +82,11 @@ export default function EchemiSearchSection() {
           {["queued", "running"].includes(r.status) && <span className="loading-spinner" aria-hidden="true" />}
           {labels[r.status] || r.status}
         </span></td><td>{r.result_count}</td></tr>)}</tbody></table></div>}
-    <div className="echemi-pages"><button disabled={!offset} onClick={()=>setOffset(Math.max(0,offset-50))}>Назад</button>
-      <button disabled={rows.length<50} onClick={()=>setOffset(offset+50)}>Далее</button></div>
+    <nav className="echemi-pages" aria-label="Страницы истории запросов">
+      <button disabled={loading || !offset} onClick={()=>setOffset(Math.max(0,offset-PAGE_SIZE))}>Назад</button>
+      <span aria-live="polite">Страница {offset/PAGE_SIZE+1}</span>
+      <button disabled={loading || !hasNext} onClick={()=>setOffset(offset+PAGE_SIZE)}>Далее</button>
+    </nav>
     {selected && <>
       <h2>Результаты: {selected.query}</h2>
       {selected.status === "running" && user?.role !== "auditor" && <EchemiVerification key={selected.id} searchId={selected.id} />}

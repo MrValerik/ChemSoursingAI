@@ -13,7 +13,7 @@
 .echemi-section small {display:block; opacity:.75; margin-top:5px;}
 .echemi-table pre {white-space:pre-wrap; overflow-wrap:anywhere; max-width:450px; max-height:300px; overflow:auto;}
 .echemi-table p {margin:6px 0;}
-.echemi-pages {display:flex; gap:10px; margin:12px 0 24px;}
+.echemi-pages {display:flex; align-items:center; gap:10px; margin:12px 0 24px;}
 .echemi-error {color:#b33535;}
 
 .echemi-history-status {display:inline-flex; align-items:center; gap:8px;}
