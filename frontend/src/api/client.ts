@@ -1,4 +1,4 @@
-import type { EchemiManualStatus } from "./types";
+import type { EchemiManualStatus, EchemiSender, EchemiSenderFields } from "./types";
 // Тонкий HTTP-клиент к бэкенду. В dev запросы идут через Vite-прокси (/api -> :8000).
 // JWT-токен хранится в localStorage и добавляется в Authorization.
 
@@ -1254,3 +1254,9 @@ export function openEchemiManual(id: number): WebSocket {
   ws.onopen = () => ws.send(getToken() ?? "");
   return ws;
 }
+
+export const getEchemiSender = () => request<EchemiSender>("/settings/integrations/echemi");
+export const updateEchemiSender = (payload: EchemiSenderFields) =>
+  request<EchemiSender>("/settings/integrations/echemi", {
+    method: "PUT", body: JSON.stringify(payload),
+  });

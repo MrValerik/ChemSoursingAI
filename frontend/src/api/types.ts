@@ -1643,3 +1643,16 @@ export interface EchemiSummary { id: number; query: string; status: string; mess
 export interface EchemiSearch extends Omit<EchemiSummary,"result_count"> { results: EchemiResult[]; diagnostics: Record<string,unknown> }
 
 export interface EchemiManualStatus { waiting: boolean; remaining_seconds: number }
+export interface EchemiSenderFields {
+  email: string;
+  company_name: string;
+  contact_name: string;
+  phone: string;
+  country: string;
+}
+
+export interface EchemiSender extends EchemiSenderFields {
+  configured: boolean;
+  source: string;
+  updated_at: string | null;
+}

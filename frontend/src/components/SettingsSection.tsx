@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import type { UserAdminRead } from "../api/types";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import IntegrationSettingsPanel from "./IntegrationSettingsPanel";
+import EchemiSenderSettings from "./EchemiSenderSettings";
 
 // Разряды у шестизначного расхода: «412030» и «41203» на глаз не
 // различаются, а это разница в десять раз.
@@ -229,6 +230,7 @@ export default function SettingsSection() {
         </div>
       </div>
 
+      <EchemiSenderSettings />
       <IntegrationSettingsPanel />
     </div>
   );

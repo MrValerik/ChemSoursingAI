@@ -38,12 +38,36 @@ from app.services.integration_settings import (
     effective_whatsapp_settings,
     save_setting,
 )
+from app.schemas.echemi_sender import EchemiSenderRead, EchemiSenderUpdate
+from app.services.echemi_sender import read_sender, update_sender
+from app.services.integration_settings import IntegrationSettingsError
+from pydantic import ValidationError
 
 router = APIRouter(
     prefix="/settings",
     tags=["settings"],
     dependencies=[Depends(require_roles(UserRole.ADMIN))],
 )
+
+
+@router.get("/integrations/echemi", response_model=EchemiSenderRead)
+def get_echemi_sender(response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return read_sender(db)
+    except (IntegrationSettingsError, ValidationError):
+        raise HTTPException(503, "Не удалось прочитать настройки отправителя Echemi.")
+
+
+@router.put("/integrations/echemi", response_model=EchemiSenderRead)
+def put_echemi_sender(payload: EchemiSenderUpdate, response: Response,
+                      db: Session = Depends(get_db),
+                      user: User = Depends(require_roles(UserRole.ADMIN))):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return update_sender(db, payload, user.id)
+    except IntegrationSettingsError:
+        raise HTTPException(503, "Не удалось сохранить настройки отправителя Echemi.")
 
 
 def _email_read(db: Session) -> EmailIntegrationRead:
