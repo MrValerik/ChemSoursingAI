@@ -114,6 +114,23 @@ def group_counts(name: str) -> dict[str, int]:
     return counts
 
 
+def composition_agrees(entered: str, reference: str) -> bool | None:
+    """Сошёлся ли состав: True — да, False — нет, None — сравнивать нечего.
+
+    Три ответа, а не два. «Неизвестно» и «сошлось» — разные вещи, и на
+    русском вводе разница решающая: 10.09.2026 отметку получило «Acetic
+    acid, aluminum salt, hydrate (2:1:1)», где состав записан отношением, а
+    не приставками. Расхождения модуль не нашёл, потому что и сравнивать
+    было нечего, — и «нечего сравнивать» прошло за «сошлось».
+    """
+    left = group_counts(entered)
+    right = group_counts(reference)
+    shared = set(left) & set(right)
+    if not shared:
+        return None
+    return all(left[root] == right[root] for root in shared)
+
+
 def compare_names(entered: str, reference: str) -> str | None:
     """Сравнивает числительные двух названий одного вещества.
 

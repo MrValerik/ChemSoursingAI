@@ -68,3 +68,33 @@ def test_latin_multiplier_pairs_are_read_too():
     conflict = compare_names("aluminium diacetate", "aluminium triacetate")
     assert conflict is not None
     assert "у вас 2, у найденного 3" in conflict
+
+
+def test_three_answers_not_two():
+    """«Сошлось» и «сравнивать нечего» — разные ответы.
+
+    10.09.2026 на проде отметку «самый надёжный вариант» получило «Acetic
+    acid, aluminum salt, hydrate (2:1:1)»: состав там записан отношением, а
+    не приставками, расхождения модуль не нашёл — и «нечего сравнивать»
+    прошло за «сошлось».
+    """
+    from app.services.stoichiometry import composition_agrees
+
+    assert (
+        composition_agrees(
+            "Дигидроксимоноацетат алюминия", "aluminum;acetate;dihydroxide"
+        )
+        is True
+    )
+    assert (
+        composition_agrees(
+            "Дигидроксимоноацетат алюминия", "aluminum;diacetate;hydroxide"
+        )
+        is False
+    )
+    assert (
+        composition_agrees(
+            "Дигидроксимоноацетат алюминия", "Acetic acid, aluminum salt, hydrate"
+        )
+        is None
+    ), "приставок нет — сравнивать нечего, и это не «сошлось»"

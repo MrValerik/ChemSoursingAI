@@ -998,3 +998,53 @@ def test_neighbouring_salt_without_a_number_also_loses_the_badge(monkeypatch):
     )
     assert right.formula_conflict is None
     assert right.recommended
+
+
+def test_confirmed_composition_outranks_an_uncheckable_name(monkeypatch):
+    """Сверенный состав весит больше неизвестного.
+
+    10.09.2026 на проде отметку получило «Acetic acid, aluminum salt,
+    hydrate (2:1:1)» — состав записан отношением, приставок нет, сверить
+    нечем. Рядом стоял разобранный вариант с сошедшимся составом, и он
+    отметку не получил, потому что «нечего сравнивать» весило столько же.
+    """
+    snippets = _snippets(
+        ("Алюминия ацетат", "https://ru.example/al", "Acetic acid, aluminum salt")
+    )
+
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+    monkeypatch.setattr(
+        substance_resolution, "search_web", lambda query, limit=8: list(snippets)
+    )
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "Acetic acid, aluminum salt, hydrate (2:1:1)",
+                    "cas": None,
+                    "relation": "same",
+                    "reason": "состав записан отношением",
+                    "source_url": "https://ru.example/al",
+                    "quote": "Acetic acid, aluminum salt",
+                },
+                {
+                    "name": "Dihydroxyaluminium acetate",
+                    "cas": None,
+                    "relation": "same",
+                    "reason": "разбор названия",
+                    "source_url": "https://ru.example/al",
+                    "quote": "Acetic acid, aluminum salt",
+                },
+            ]
+        }
+    )
+
+    result = resolve_substance("Дигидроксимоноацетат алюминия", llm=llm)
+
+    recommended = [item for item in result.candidates if item.recommended]
+    assert [item.name for item in recommended] == ["Dihydroxyaluminium acetate"]
+    assert recommended[0].composition_checked

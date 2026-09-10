@@ -41,7 +41,7 @@ from app.connectors.web_search import (
 )
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.services.cas import is_valid_cas, normalize_cas
-from app.services.stoichiometry import compare_names
+from app.services.stoichiometry import compare_names, composition_agrees
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +226,11 @@ class ResolvedName:
     # Строка объяснения или None. Кандидат при этом остаётся в списке:
     # решает человек, а система обязана назвать, что заметила.
     formula_conflict: str | None = None
+    # Состав сверен и сошёлся. Отличается от «расхождения нет»: у названия
+    # вида «Acetic acid, aluminum salt, hydrate (2:1:1)» состав записан
+    # отношением, приставок в нём нет, и сравнивать попросту нечего.
+    # «Нечего сравнивать» не должно проходить за «сошлось».
+    composition_checked: bool = False
     # Самый надёжный из найденных вариантов: по нему форма ищет по умолчанию.
     # Отмечается ровно один кандидат, и человек волен выбрать другой — но
     # выбор «ничего не выбрано» приводил к поиску по русскому написанию.
@@ -245,6 +250,7 @@ class ResolvedName:
             "recommended": self.recommended,
             "formula": self.formula,
             "formula_conflict": self.formula_conflict,
+            "composition_checked": self.composition_checked,
         }
 
 
@@ -552,9 +558,13 @@ def _annotate_formulas(resolution: SubstanceResolution) -> None:
         reference = iupac or item.name
         # Сверяется введённое человеком название, а не название кандидата
         # с самим собой: кандидат мог приехать уже подменённым.
-        conflict = compare_names(resolution.query, reference)
-        if conflict is None:
+        agrees = composition_agrees(resolution.query, reference)
+        if agrees is None:
             continue
+        if agrees:
+            item.composition_checked = True
+            continue
+        conflict = compare_names(resolution.query, reference)
         item.formula_conflict = conflict
         number = f" (CAS {item.cas})" if item.cas else ""
         resolution.warnings.append(
@@ -725,6 +735,10 @@ def _reliability(item: ResolvedName, *, needs_international: bool) -> int:
     # Название без страницы за спиной — последнее средство. Оно уверенно
     # обходит русское написание, по которому искать нечем, и уверенно
     # проигрывает любому подтверждённому варианту.
+    # Состав сверен и сошёлся — это сильнее любого другого признака после
+    # самой латиницы: именно он отличает верную соль от соседней.
+    if item.composition_checked:
+        score += 6
     if item.source == "translation":
         return score - 4
     if item.source == "pubchem":

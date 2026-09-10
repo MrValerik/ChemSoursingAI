@@ -189,6 +189,9 @@ class ResolvedNameRead(BaseModel):
     # Числительные названия не сошлись со справочными: похоже на соседнюю
     # соль с настоящим номером. Текст объяснения или None.
     formula_conflict: str | None = None
+    # Состав сверен и сошёлся — это не то же, что «расхождения нет»:
+    # у названия с отношением вместо приставок сравнивать попросту нечего.
+    composition_checked: bool = False
 
 
 class SubstanceResolveResponse(BaseModel):
