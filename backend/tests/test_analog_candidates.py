@@ -294,3 +294,38 @@ def test_long_application_does_not_leak_into_the_search_string(monkeypatch):
     assert not any("80" in query for query in queries)
     # Первый запрос остаётся точным: имя в кавычках и слова о замене.
     assert "загуститель" not in queries[0]
+
+
+def test_candidates_dropped_by_a_constraint_are_named(monkeypatch):
+    """Снятое ограничением показывается, а не исчезает молча.
+
+    Замер на проде 10.09.2026: запрет «не пищевые добавки» снял обе
+    найденные замены, и закупщик увидел голое «не нашлось» — как будто
+    поиск сломался. Он задал запрет и вправе увидеть, что под него попало:
+    иначе не понять, смягчать формулировку или искать иначе.
+    """
+    _patch_search(
+        monkeypatch,
+        _snippets(("Thickeners", "https://example.test/t", "guar gum, gelatin")),
+    )
+    llm = _StubLLM(
+        {
+            "candidates": [],
+            "rejected": [
+                {"name": "Желатин", "reason": "животного происхождения"}
+            ],
+        }
+    )
+
+    result = suggest_analogs(
+        "Ксантановая камедь",
+        constraints="без животного происхождения",
+        llm=llm,
+    )
+
+    assert result.candidates == []
+    assert any("Желатин" in warning for warning in result.warnings)
+    assert any("животного происхождения" in warning for warning in result.warnings)
+    # Пустой список из-за запрета объясняется иначе, чем пустая выдача:
+    # в первом случае замены были, во втором их нет вовсе.
+    assert any("сняты вашим ограничением" in warning for warning in result.warnings)
