@@ -265,6 +265,32 @@ def test_application_narrows_the_search_and_reaches_the_model(monkeypatch):
         llm=llm,
     )
 
-    assert any("буровых" in query for query in queries)
+    assert any("промышленный загуститель" in query for query in queries)
     assert "буровых" in llm.calls[0]
     assert "без животного происхождения" in llm.calls[0]
+
+
+def test_long_application_does_not_leak_into_the_search_string(monkeypatch):
+    """В поисковую строку идут первые слова применения, а не весь абзац.
+
+    Замер на проде 10.09.2026: запрос со всей строкой («загуститель
+    бурового раствора, температура до 80 °C, минерализация до 200 г/л»)
+    не нашёл ни одной страницы — под такую фразу их не существует, — и
+    подбор вернул пусто. С коротким «загуститель бурового раствора»
+    нашлись полиакриламиды.
+    """
+    queries = _patch_search(monkeypatch, [])
+
+    suggest_analogs(
+        "Ксантановая камедь",
+        application=(
+            "загуститель бурового раствора, температура до 80 °C, "
+            "минерализация до 200 г/л"
+        ),
+        llm=_StubLLM({"candidates": []}),
+    )
+
+    assert not any("минерализация" in query for query in queries)
+    assert not any("80" in query for query in queries)
+    # Первый запрос остаётся точным: имя в кавычках и слова о замене.
+    assert "загуститель" not in queries[0]
