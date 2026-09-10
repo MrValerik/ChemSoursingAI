@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 
 from app.connectors.web_search import (
@@ -200,6 +201,33 @@ class AnalogSuggestion:
 _SCOPE_WORDS = 3
 
 
+def _bare_name(value: str) -> str:
+    """Название без уточнений: скобки, марка, лишние пробелы — прочь.
+
+    «Ксантановая камедь (для буровых растворов)» и «ксантановая камедь» —
+    одно и то же вещество, и различать их как замену бессмысленно.
+    """
+    text = re.sub(r"\([^)]*\)", " ", value or "")
+    text = re.sub(r"[«»\"'`,;:]", " ", text)
+    return " ".join(text.split()).casefold()
+
+
+def _is_same_substance(candidate: str, source: str) -> bool:
+    """Кандидат — то же вещество, только названное иначе или уже.
+
+    Проверяется у нас, а не просится у модели. Замер на проде 10.09.2026:
+    модель послушно снимала синонимы в rejected и тут же предлагала
+    «модифицированную ксантановую камедь», «промышленную марку» и «марку
+    для буровых растворов» как трёх разных кандидатов на замену
+    ксантановой камеди. Уточнение марки заменой не является.
+    """
+    left = _bare_name(candidate)
+    right = _bare_name(source)
+    if not left or not right:
+        return False
+    return left == right or left in right or right in left
+
+
 def _query_scope(application: str | None) -> str:
     """Короткая отрасль для поисковой строки: два-три слова, не абзац."""
     words = (application or "").replace(",", " ").split()
@@ -303,7 +331,13 @@ def _accept(
     name = (raw.get("name") or "").strip()
     if not name:
         return None
-    if name.casefold() == source_name.strip().casefold():
+    if _is_same_substance(name, source_name):
+        # Не молча: закупщик должен видеть, что предложение было и почему
+        # оно снято — иначе пустой список выглядит как поломка поиска.
+        suggestion.warnings.append(
+            f"«{name}» — это то же вещество под другим названием"
+            " или его марка, а не замена."
+        )
         return None
 
     quote = (raw.get("quote") or "").strip() or None

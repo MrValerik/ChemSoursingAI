@@ -424,3 +424,52 @@ def test_schema_lists_every_field_as_required():
             check(items, f"{path}[]")
 
     check(_ANALOG_SCHEMA)
+
+
+def test_the_same_substance_with_a_grade_suffix_is_not_a_replacement(monkeypatch):
+    """Уточнение марки — не замена, и проверяем это мы, а не модель.
+
+    Замер на проде 10.09.2026: модель послушно снимала синонимы в
+    rejected и тут же предлагала «модифицированную ксантановую камедь»,
+    «промышленную марку» и «марку для буровых растворов» как трёх разных
+    кандидатов на замену ксантановой камеди. Закупщик, выбрав такую
+    «замену», завёл бы запрос на то же самое вещество.
+    """
+    _patch_search(
+        monkeypatch,
+        _snippets(
+            (
+                "Xanthan grades",
+                "https://example.test/grades",
+                "Xanthan gum oilfield grade for drilling fluids",
+            )
+        ),
+    )
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "Ксантановая камедь (для буровых растворов)",
+                    "cas": None,
+                    "reason": "Промысловая марка того же продукта.",
+                    "source_url": "https://example.test/grades",
+                    "quote": "Xanthan gum oilfield grade for drilling fluids",
+                },
+                {
+                    "name": "Полиакриламид",
+                    "cas": None,
+                    "reason": "Другой класс загустителей для буровых растворов.",
+                    "source_url": "https://example.test/grades",
+                    "quote": "Xanthan gum oilfield grade for drilling fluids",
+                },
+            ],
+            "rejected": [],
+        }
+    )
+
+    result = suggest_analogs(
+        "Ксантановая камедь", application="буровые растворы", llm=llm
+    )
+
+    assert [item.name for item in result.candidates] == ["Полиакриламид"]
+    assert any("то же вещество" in warning for warning in result.warnings)
