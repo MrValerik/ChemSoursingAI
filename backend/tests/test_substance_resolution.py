@@ -493,3 +493,191 @@ def test_registry_is_asked_by_name_not_by_number(monkeypatch):
     assert registry, "карточка из справочника должна появиться"
     assert registry[0].cas == "107-43-7"
     assert "Trimethylglycine" in registry[0].synonyms
+
+
+def _recording_search(monkeypatch, results: list[dict]) -> list[str]:
+    """Подменяет поиск, запоминая формулировки запросов."""
+    asked: list[str] = []
+
+    def _search(query: str, limit: int = 8) -> list[dict]:
+        asked.append(query)
+        return list(results)
+
+    monkeypatch.setattr(substance_resolution, "search_web", _search)
+    return asked
+
+
+def test_russian_name_asks_how_the_substance_is_called_internationally(monkeypatch):
+    """У русского ввода первый вопрос — про международное название.
+
+    Английские формулировки на русском названии бесполезны: страниц, где
+    рядом стоят «Дигидроксимоноацетат алюминия» и «CAS number», в сети нет.
+    Мост между написаниями строит русскоязычная выдача, и спросить её надо
+    до того, как русская строка уйдёт в поиск поставщиков.
+    """
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+    asked = _recording_search(monkeypatch, _snippets(("t", "https://e.example", "s")))
+
+    resolve_substance("Дигидроксимоноацетат алюминия", llm=_StubLLM({"candidates": []}))
+
+    assert any("как называется на международном рынке" in query for query in asked)
+    assert any("международное название" in query for query in asked)
+
+
+def test_latin_name_does_not_pay_for_the_international_questions(monkeypatch):
+    """Латинскому вводу мост не нужен: два лишних запроса — лишние деньги."""
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+    asked = _recording_search(monkeypatch, _snippets(("t", "https://e.example", "s")))
+
+    resolve_substance("2-Ethylhexanol", llm=_StubLLM({"candidates": []}))
+
+    assert len(asked) == 3
+    assert not any("международном рынке" in query for query in asked)
+
+
+def test_russian_name_recommends_the_international_spelling(monkeypatch):
+    """Отмечается международное написание, а не самое доказанное русское.
+
+    Русская карточка здесь выигрывает по всем прочим признакам — у неё
+    подтверждённый номер, — и всё равно проигрывает: поиск поставщиков по
+    ней возвращает пустую выдачу, каким бы верным ни был номер.
+    """
+    snippets = _snippets(
+        (
+            "3-метилсульфолан",
+            "https://ru.example/872-93-5",
+            "3-метилсульфолан, CAS 872-93-5, он же 3-Methylsulfolane",
+        )
+    )
+    _patch_sources(monkeypatch, results=snippets)
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "3-метилсульфолан",
+                    "cas": "872-93-5",
+                    "relation": "same",
+                    "reason": "русское написание",
+                    "source_url": "https://ru.example/872-93-5",
+                    "quote": "3-метилсульфолан, CAS 872-93-5",
+                },
+                {
+                    "name": "3-Methylsulfolane",
+                    "cas": "872-93-5",
+                    "relation": "same",
+                    "reason": "международное написание",
+                    "source_url": "https://ru.example/872-93-5",
+                    "quote": "он же 3-Methylsulfolane, CAS 872-93-5",
+                },
+            ]
+        }
+    )
+
+    result = resolve_substance("3-метилсульфолан", llm=llm)
+
+    recommended = [item for item in result.candidates if item.recommended]
+    assert [item.name for item in recommended] == ["3-Methylsulfolane"]
+
+
+def test_missing_international_spelling_is_said_out_loud(monkeypatch):
+    """Не нашлось международного названия — никого не рекомендуем и говорим об этом.
+
+    Молчаливая рекомендация русской карточки была бы хуже отсутствия
+    рекомендации: закупщик нажал бы её и получил тот же пустой поиск.
+    """
+    snippets = _snippets(
+        (
+            "Дигидроксимоноацетат алюминия",
+            "https://ru.example/al",
+            "Дигидроксимоноацетат алюминия применяется в медицине",
+        )
+    )
+    _patch_sources(monkeypatch, results=snippets)
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "Дигидроксимоноацетат алюминия",
+                    "cas": None,
+                    "relation": "same",
+                    "reason": "введённое написание",
+                    "source_url": "https://ru.example/al",
+                    "quote": "Дигидроксимоноацетат алюминия применяется в медицине",
+                }
+            ]
+        }
+    )
+
+    result = resolve_substance("Дигидроксимоноацетат алюминия", llm=llm)
+
+    assert not any(item.recommended for item in result.candidates)
+    assert any("Международного написания" in text for text in result.warnings)
+
+
+def test_latin_name_recommends_the_most_proven_candidate(monkeypatch):
+    """Справочник надёжнее прочтения страницы — его карточка и отмечается."""
+    info = SubstanceInfo(
+        cas="",
+        found=True,
+        cid=7720,
+        iupac_name="2-ethylhexan-1-ol",
+        synonyms=["2-Ethylhexan-1-ol", "104-76-7", "Isooctanol"],
+    )
+    snippets = _snippets(
+        ("2-Ethylhexanol", "https://e.example/104-76-7", "2-Ethylhexanol CAS 104-76-7")
+    )
+    _patch_sources(monkeypatch, pubchem=info, results=snippets)
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "Isooctanol",
+                    "cas": "104-76-7",
+                    "relation": "same",
+                    "reason": "торговое название",
+                    "source_url": "https://e.example/104-76-7",
+                    "quote": "2-Ethylhexanol CAS 104-76-7",
+                }
+            ]
+        }
+    )
+
+    result = resolve_substance("2-Ethylhexanol", llm=llm)
+
+    recommended = [item for item in result.candidates if item.recommended]
+    assert len(recommended) == 1
+    assert recommended[0].source == "pubchem"
+
+
+def test_a_neighbouring_substance_is_never_recommended(monkeypatch):
+    """Соседнее название — отрицательный фильтр, а не якорь поиска."""
+    snippets = _snippets(
+        ("Betaine", "https://e.example/betaine", "Betaine hydrochloride CAS 590-46-5")
+    )
+    _patch_sources(monkeypatch, results=snippets)
+    llm = _StubLLM(
+        {
+            "candidates": [
+                {
+                    "name": "Betaine hydrochloride",
+                    "cas": "590-46-5",
+                    "relation": "different",
+                    "reason": "другая соль",
+                    "source_url": "https://e.example/betaine",
+                    "quote": "Betaine hydrochloride CAS 590-46-5",
+                }
+            ]
+        }
+    )
+
+    result = resolve_substance("Betaine", llm=llm)
+
+    assert not any(item.recommended for item in result.candidates)
