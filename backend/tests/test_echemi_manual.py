@@ -91,6 +91,10 @@ def test_manual_success_and_timeout(monkeypatch):
     module = manual_module(monkeypatch)
     class Page:
         def locator(self,_): return self
+        def get_by_text(self,*args,**kwargs): return self
+        @property
+        def first(self): return self
+        async def is_visible(self): return False
         async def inner_text(self): return "Products"
         async def title(self): return "Echemi"
     async def run():

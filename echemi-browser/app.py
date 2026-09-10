@@ -13,13 +13,15 @@ from playwright.async_api import async_playwright
 from diagnostics import public_url, verification_result
 from parsing import parse_detail, _BLOCKS, parse_offer, product_url, is_verification, is_valid_cas
 
+from chrome_runtime import open_chrome
+from page_state import needs_verification
 from manual import router as manual_router, active, wait_for_human
 
 app = FastAPI()
 app.include_router(manual_router)
 busy = asyncio.Lock()
 LIMIT = min(20, max(1, int(os.getenv("ECHEMI_MAX_RESULTS", "10"))))
-PROFILE = os.getenv("ECHEMI_PROFILE_DIR", "/data/profile")
+PROFILE = os.getenv("ECHEMI_PROFILE_DIR", "/data/chrome-cdp-profile")
 PAUSE_MIN = max(3, float(os.getenv("ECHEMI_PAUSE_MIN", "8")))
 PAUSE_MAX = max(PAUSE_MIN, float(os.getenv("ECHEMI_PAUSE_MAX", "14")))
 
@@ -46,19 +48,17 @@ class Mouse:
 
 
 async def ready(page, mouse, events):
-    if not is_verification(await page.locator('body').inner_text(), await page.title()):
+    if not await needs_verification(page):
         return True
     return await wait_for_human(page, events)
 
 async def collect(query, output):
-    async with async_playwright() as p:
-        context = await p.chromium.launch_persistent_context(
-            PROFILE, headless=os.getenv("ECHEMI_HEADLESS","false")=="true",
-            locale="ru", viewport={"width":1280,"height":900},
-            args=["--disable-dev-shm-usage"])
+    async with async_playwright() as p, open_chrome(p, PROFILE) as context:
         try:
             page = context.pages[0] if context.pages else await context.new_page()
+            await page.set_viewport_size({"width": 1280, "height": 900})
             page.set_default_timeout(25000)
+            output["diagnostics"]["browser_launch"] = "chrome_cdp"
             output['diagnostics']['browser_version'] = await page.evaluate('navigator.userAgent')
             output['diagnostics']['verification_responses'] = []
             async def observe(response):
@@ -138,7 +138,6 @@ async def collect(query, output):
                           ("Сбор первой страницы завершён." if output["results"] else "Товары в выдаче не найдены."))
         finally:
             active.update(waiting=False, page=None)
-            await context.close()
 
 
 @app.get("/health")

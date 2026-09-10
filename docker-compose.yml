@@ -222,6 +222,9 @@ services:
     restart: unless-stopped
     shm_size: "512mb"
     environment:
+      ECHEMI_CHROME_EXECUTABLE: ${ECHEMI_CHROME_EXECUTABLE:-/opt/chrome/chrome-linux64/chrome}
+      ECHEMI_CHROME_SANDBOX: ${ECHEMI_CHROME_SANDBOX:-false}
+      ECHEMI_PROFILE_DIR: ${ECHEMI_PROFILE_DIR:-/data/chrome-cdp-profile}
       ECHEMI_MAX_RESULTS: ${ECHEMI_MAX_RESULTS:-10}
       ECHEMI_PAUSE_MIN: ${ECHEMI_PAUSE_MIN:-8}
       ECHEMI_PAUSE_MAX: ${ECHEMI_PAUSE_MAX:-14}

@@ -4,7 +4,7 @@ import json
 import math
 import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from parsing import is_verification
+from page_state import needs_verification
 
 router = APIRouter()
 active = {"id": None, "page": None, "waiting": False, "deadline": 0.0, "controller": False}
@@ -16,7 +16,7 @@ async def wait_for_human(page, events, timeout=600):
     active.update(page=page, waiting=True, deadline=time.monotonic()+timeout)
     try:
         while time.monotonic() < active["deadline"]:
-            if not is_verification(await page.locator("body").inner_text(), await page.title()):
+            if not await needs_verification(page):
                 event["status"] = "passed"
                 return True
             await asyncio.sleep(1)
@@ -66,7 +66,7 @@ async def control(ws: WebSocket, search_id: int):
             message = json.loads(raw)
             x,y = coordinates(message)
             # Stop input immediately if the challenge has disappeared, before collection resumes.
-            if not active["waiting"] or not is_verification(await page.locator("body").inner_text(),await page.title()):
+            if not active["waiting"] or not await needs_verification(page):
                 return
             await page.mouse.move(x,y)
             if message["type"]=="down" and not down:
