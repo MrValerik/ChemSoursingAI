@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select, text, update
 from app.core.db import SessionLocal, engine
 from app.models.echemi_search import EchemiSearch
-from app.connectors.echemi import search_echemi
+from app.connectors.echemi import EchemiBrowserBusy, search_echemi
+from app.core.config import get_settings
 
 
 def run_one():
@@ -20,6 +21,19 @@ def run_one():
         db.commit()
     try:
         payload = search_echemi(query, search_id)
+    except EchemiBrowserBusy:
+        with SessionLocal() as db:
+            row = db.get(EchemiSearch, search_id)
+            attempts = (row.diagnostics or {}).get("busy_retries", 0) + 1
+            exhausted = attempts >= get_settings().echemi_busy_retries
+            row.status = "failed" if exhausted else "queued"
+            row.message = ("Браузер занят предыдущим поиском и не освободился вовремя. Повторите запрос позже."
+                           if exhausted else "Ожидаем освобождения браузера. Поиск начнётся автоматически.")
+            row.diagnostics = {"busy_retries": attempts, "http_status": 409}
+            row.finished_at = datetime.now(timezone.utc) if exhausted else None
+            db.commit()
+        # Back off through the normal idle sleep, rather than retrying in a tight loop.
+        return False
     except Exception as exc:
         logging.warning("Echemi search %s failed: %s", search_id, type(exc).__name__)
         payload = {"status": "failed", "results": [],

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     )
 
     echemi_browser_url: str = Field(default='http://echemi-browser:8080')
+    echemi_busy_retries: int = Field(default=20, ge=1, le=300)
 
     # --- Приложение ---
     app_env: str = Field(default="development")

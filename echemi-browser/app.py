@@ -7,7 +7,7 @@ import re
 import time
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from playwright.async_api import async_playwright
 from diagnostics import public_url, verification_result
@@ -15,6 +15,7 @@ from parsing import parse_detail, _BLOCKS, parse_offer, product_url, is_verifica
 
 from chrome_runtime import open_chrome
 from page_state import needs_verification
+from job_lifecycle import run_connected
 from manual import router as manual_router, active, wait_for_human
 
 app = FastAPI()
@@ -146,7 +147,7 @@ async def health():
 
 
 @app.post("/search")
-async def search(request: Search):
+async def search(request: Search, connection: Request):
     if not request.query.strip():
         raise HTTPException(422,"Empty query")
     if busy.locked():
@@ -155,7 +156,7 @@ async def search(request: Search):
     async with busy:
         active['id'] = request.search_id
         try:
-            await asyncio.wait_for(collect(request.query.strip(),output),timeout=900)
+            await run_connected(connection, collect(request.query.strip(),output), timeout=900)
         except Exception as exc:
             output.update(status="partial" if output["results"] else "failed",
                           message="Сбор прерван по времени или из-за ошибки браузера.")

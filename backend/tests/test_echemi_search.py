@@ -85,6 +85,51 @@ def test_worker_success_and_failure(env,monkeypatch):
     assert "sensitive" not in str(result)
 
 
+def test_busy_browser_requeues_then_completes(env, monkeypatch):
+    from app.connectors.echemi import EchemiBrowserBusy
+    client, _, _ = env
+    sid = client.post("/echemi-searches", json={"query": "Aspirin"}).json()["id"]
+    def busy(*args):
+        raise EchemiBrowserBusy()
+    monkeypatch.setattr(echemi_worker, "search_echemi", busy)
+    assert echemi_worker.run_one() is False
+    row = client.get(f"/echemi-searches/{sid}").json()
+    assert row["status"] == "queued" and row["finished_at"] is None
+    assert row["diagnostics"]["busy_retries"] == 1
+    monkeypatch.setattr(echemi_worker, "search_echemi", lambda *args: {
+        "status": "completed", "results": [], "diagnostics": {}})
+    assert echemi_worker.run_one()
+    assert client.get(f"/echemi-searches/{sid}").json()["status"] == "completed"
+
+
+def test_busy_browser_retry_limit(env, monkeypatch):
+    from types import SimpleNamespace
+    from app.connectors.echemi import EchemiBrowserBusy
+    client, _, _ = env
+    sid = client.post("/echemi-searches", json={"query": "Aspirin"}).json()["id"]
+    def busy(*args):
+        raise EchemiBrowserBusy()
+    monkeypatch.setattr(echemi_worker, "search_echemi", busy)
+    monkeypatch.setattr(echemi_worker, "get_settings", lambda: SimpleNamespace(echemi_busy_retries=2))
+    assert echemi_worker.run_one() is False
+    assert echemi_worker.run_one() is False
+    row = client.get(f"/echemi-searches/{sid}").json()
+    assert row["status"] == "failed" and row["finished_at"]
+    assert row["diagnostics"] == {"busy_retries": 2, "http_status": 409}
+    assert "занят" in row["message"]
+
+
+@pytest.mark.parametrize("status", [409, 503])
+def test_connector_distinguishes_busy_status(monkeypatch, status):
+    import httpx
+    from app.connectors import echemi
+    original = httpx.Client
+    transport = httpx.MockTransport(lambda request: httpx.Response(status, text="private upstream data"))
+    monkeypatch.setattr(echemi.httpx, "Client", lambda **kwargs: original(transport=transport, **kwargs))
+    with pytest.raises(echemi.EchemiBrowserBusy if status == 409 else httpx.HTTPStatusError):
+        echemi.search_echemi("Aspirin", 1)
+
+
 def parser():
     path=Path(__file__).resolve().parents[2]/"echemi-browser"/"parsing.py"
     spec=importlib.util.spec_from_file_location("echemi_parsing_test",path)
