@@ -50,7 +50,11 @@ class Mouse:
         self.x, self.y = x, y
 
 
-async def ready(page, mouse, events):
+class RestartSearch(Exception):
+    """Retry a rejected verification from the home page in a new Chrome process."""
+
+
+async def ready(page, mouse, events, can_restart=False):
     if not await needs_verification(page):
         return True
     if os.getenv("ECHEMI_AUTO_VERIFY", "true").lower() == "true":
@@ -58,9 +62,33 @@ async def ready(page, mouse, events):
             return True
         if not await needs_verification(page):
             return True
+        if can_restart:
+            raise RestartSearch()
     return await wait_for_human(page, events)
 
 async def collect(query, output):
+    attempts = min(3, max(1, int(os.getenv("ECHEMI_AUTO_ATTEMPTS", "3"))))
+    for attempt in range(1, attempts + 1):
+        event_start = len(output["diagnostics"]["captcha"])
+        output["diagnostics"]["browser_attempt"] = attempt
+        output["diagnostics"]["max_browser_attempts"] = attempts
+        try:
+            await collect_once(query, output, can_restart=attempt < attempts)
+            return
+        except RestartSearch:
+            output["diagnostics"].setdefault("restarts", []).append(
+                {"after_attempt": attempt, "reason": "verification_rejected"})
+            for row in output["results"]:
+                if row["detail_status"] == "reading":
+                    row["detail_status"] = "pending"
+            output["message"] = f"Проверка не пройдена. Заново открываем Echemi: попытка {attempt+1} из {attempts}."
+            await asyncio.sleep(3)
+        finally:
+            for event in output["diagnostics"]["captcha"][event_start:]:
+                event["browser_attempt"] = attempt
+
+
+async def collect_once(query, output, can_restart=False):
     async with async_playwright() as p, open_chrome(p, PROFILE) as context:
         try:
             page = context.pages[0] if context.pages else await context.new_page()
@@ -69,7 +97,7 @@ async def collect(query, output):
             page.set_default_timeout(25000)
             output["diagnostics"]["browser_launch"] = "chrome_cdp"
             output['diagnostics']['browser_version'] = await page.evaluate('navigator.userAgent')
-            output['diagnostics']['verification_responses'] = []
+            output['diagnostics'].setdefault('verification_responses', [])
             async def observe(response):
                 host = urlsplit(response.url).hostname or ''
                 if host.endswith('.aliyuncs.com') and 'captcha' in host:
@@ -86,8 +114,8 @@ async def collect(query, output):
             await mouse.go(230,270,2)
             await mouse.go(580,400,2.4)
             await mouse.go(790,290,1.8)
-            if not await ready(page,mouse,output["diagnostics"]["captcha"]):
-                output.update(status="blocked",message="Echemi не пропустил проверку на главной странице.")
+            if not await ready(page,mouse,output["diagnostics"]["captcha"],can_restart):
+                output.update(status="partial" if output["results"] else "blocked",message="Echemi не пропустил проверку на главной странице.")
                 return
             field = page.locator("#topSearchKeywords")
             box = await field.bounding_box()
@@ -98,12 +126,12 @@ async def collect(query, output):
             await asyncio.sleep(2)
             await field.press("Enter")
             await asyncio.sleep(10)
-            if not await ready(page,mouse,output["diagnostics"]["captcha"]):
-                output.update(status="blocked",message="Echemi не пропустил проверку в поисковой выдаче.")
+            if not await ready(page,mouse,output["diagnostics"]["captcha"],can_restart):
+                output.update(status="partial" if output["results"] else "blocked",message="Echemi не пропустил проверку в поисковой выдаче.")
                 return
             blocks = await page.evaluate(_BLOCKS)
             output["diagnostics"].update(listing_count=len(blocks),limit=LIMIT,scope="first_page")
-            seen = set()
+            seen = {r["product_url"] for r in output["results"]}
             for block in blocks:
                 url = product_url(block["url"])
                 if not url or url in seen:
@@ -115,6 +143,8 @@ async def collect(query, output):
                 row["detail_status"] = "pending"
                 output["results"].append(row)
             for index, row in enumerate(output["results"], start=1):
+                if row["detail_status"] == "read":
+                    continue
                 url = row["product_url"]
                 output["message"] = f"Найдено товаров: {len(output['results'])}. Читаем карточку {index} из {len(output['results'])}."
                 row["detail_status"] = "reading"
@@ -122,14 +152,14 @@ async def collect(query, output):
                     await asyncio.sleep(random.uniform(PAUSE_MIN,PAUSE_MAX))
                     await page.goto(url,wait_until="domcontentloaded",timeout=60000)
                     await asyncio.sleep(5)
-                    if not await ready(page,mouse,output["diagnostics"]["captcha"]):
+                    if not await ready(page,mouse,output["diagnostics"]["captcha"],can_restart):
                         row["detail_status"] = "blocked"
                         continue
                     for _ in range(3):
                         await mouse.go(random.uniform(700,950),random.uniform(300,550))
                         await page.mouse.wheel(0,random.randint(350,600))
                         await asyncio.sleep(random.uniform(1,2))
-                    if not await ready(page,mouse,output["diagnostics"]["captcha"]):
+                    if not await ready(page,mouse,output["diagnostics"]["captcha"],can_restart):
                         row["detail_status"] = "blocked"
                         continue
                     if product_url(page.url) != url:
@@ -143,6 +173,8 @@ async def collect(query, output):
                     row["detail"] = parse_detail(raw,page.url)
                     row["title"] = row["detail"]["title"]
                     row["detail_status"] = "read"
+                except RestartSearch:
+                    raise
                 except Exception as exc:
                     row.update(detail_status="failed",error_type=type(exc).__name__)
             incomplete = any(r["detail_status"] != "read" for r in output["results"])
