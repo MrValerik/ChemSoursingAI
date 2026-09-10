@@ -31,7 +31,11 @@ export interface ResolvedName {
   relation: "same" | "different";
   cas: string | null;
   reason: string;
-  source: "pubchem" | "web";
+  /**
+   * "translation" — название собрано разбором русского термина и ни одной
+   * страницей не подтверждено. Слабее справочника и прочтения страницы.
+   */
+  source: "pubchem" | "web" | "translation";
   source_url: string | null;
   quote: string | null;
   /** Номер прошёл контрольную сумму и найден в источнике, а не назван моделью. */

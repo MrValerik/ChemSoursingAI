@@ -5480,7 +5480,19 @@ button.substance-list-item.active {
   font-size: 11px;
   white-space: nowrap;
 }
-.resolve-applied { margin: 6px 0 0; }
+.resolve-applied {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+.resolve-applied p { margin: 0; }
+/* Название без страницы за спиной. Предупреждение стоит рядом с решением,
+   а не только на карточке ниже по экрану. */
+.resolve-applied-warn { color: var(--warn); }
+.resolve-declined { margin: 6px 0 0; color: var(--warn); }
+.resolve-card-source.is-unconfirmed { color: var(--warn); }
 
 .resolve-card-reason { font-size: 12px; color: var(--muted); }
 .resolve-card-quote {

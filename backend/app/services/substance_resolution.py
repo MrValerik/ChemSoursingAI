@@ -112,6 +112,47 @@ _SYSTEM_PROMPT = """Ты помогаешь специалисту по заку
   Международного написания нет во фрагментах — верни кандидатов без него, но
   не переводи название сам."""
 
+_TRANSLATION_SYSTEM_PROMPT = """Специалист по закупкам ввёл название
+химического вещества по-русски. Назови, как это вещество называется в
+международной номенклатуре — по-английски, латиницей.
+
+Это перевод названия, а не поиск фактов. Русское химическое название
+собрано из тех же морфем, что и английское: «дигидрокси-» — dihydroxy-,
+«моноацетат» — monoacetate, «алюминия» — aluminium. Разбери название и
+собери английское.
+
+Правила:
+- Не называй номер CAS. Совсем. Номер проверяется отдельно и по источнику;
+  названный по памяти, он уводит закупку к другому веществу.
+- Не транслитерируй. «Digidroksimonoatsetat» — не название вещества, по
+  нему ничего не найти. Нужен химический термин.
+- Дай до трёх вариантов написания, от самого употребительного к редкому:
+  систематическое, торговое или INCI, если они есть.
+- reason — одно предложение по-русски: как разобрано название.
+- Не уверен в разборе — верни пустой список. Пустой ответ честнее
+  выдуманного названия."""
+
+_TRANSLATION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["names"],
+    "properties": {
+        "names": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name", "reason"],
+                "properties": {
+                    "name": {"type": "string", "maxLength": 200},
+                    "reason": {"type": "string", "maxLength": 300},
+                },
+            },
+        }
+    },
+}
+
 _RESOLUTION_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -156,6 +197,11 @@ class ResolvedName:
     relation: str
     cas: str | None = None
     reason: str = ""
+    # "pubchem" — справочник, "web" — прочтение страницы, "translation" —
+    # название собрано разбором русского термина и в выдаче не встретилось.
+    # Третий вид слабее двух первых, и слабость его видна в карточке: он
+    # существует потому, что искать поставщиков по русскому названию нельзя,
+    # а не потому, что источник его подтвердил.
     source: str = "web"
     source_url: str | None = None
     quote: str | None = None
@@ -440,6 +486,146 @@ def _merge(candidates: list[ResolvedName]) -> list[ResolvedName]:
     return list(merged.values())[:_MAX_CANDIDATES]
 
 
+def _translate_to_international(
+    query: str,
+    resolution: SubstanceResolution,
+    client: LLMClient,
+) -> list[dict]:
+    """Разбирает русское химическое название и собирает международное.
+
+    Вторая ступень, и она включается, только когда первая не нашла в выдаче
+    ни одного латинского названия. Это не обход правила доказательности, а
+    признание того, что якорь поиска и факт о веществе — разные вещи. Факты
+    (номер, роль поставщика, документы) по-прежнему берутся только из
+    источников. Название же нужно, чтобы вообще было что спросить у
+    китайского рынка: русскую строку он не знает, и без латиницы запрос
+    уходит заведомо пустым.
+    """
+    try:
+        raw = client.generate_json(
+            system_prompt=_TRANSLATION_SYSTEM_PROMPT,
+            user_text=json.dumps({"entered_name": query}, ensure_ascii=False),
+            schema_name="substance_international_name",
+            json_schema=_TRANSLATION_SCHEMA,
+            max_tokens=500,
+        )
+    except LLMUnavailableError as exc:
+        logger.warning("LLM unavailable while translating %r: %s", query, exc)
+        return []
+    except Exception as exc:  # noqa: BLE001 - кнопка не должна падать целиком
+        logger.warning("Translation failed for %r: %s", query, exc)
+        return []
+
+    proposals: list[dict] = []
+    for item in raw.get("names") or []:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()
+        # Транслитерация сюда доходить не должна, но проверить дешевле, чем
+        # объяснять потом, почему поиск ушёл по «Digidroksimonoatsetat».
+        if not name or not _is_international(name):
+            continue
+        proposals.append({"name": name, "reason": (item.get("reason") or "").strip()})
+    if not proposals:
+        resolution.warnings.append(
+            "Международное написание собрать не удалось. Впишите его в "
+            "«Другие названия того же вещества»: по русскому названию поиск "
+            "поставщиков возвращает пустую выдачу."
+        )
+    return proposals
+
+
+def _confirm_translated_name(
+    proposal: dict,
+    resolution: SubstanceResolution,
+) -> ResolvedName:
+    """Проверяет собранное название поиском и признаётся, если не вышло.
+
+    Название, найденное на живой странице, — обычный веб-кандидат со
+    ссылкой и цитатой. Не найденное остаётся в списке, но с источником
+    `translation`: искать по нему всё равно лучше, чем по русскому, а
+    закупщик видит, что за этим названием пока не стоит ни одной страницы.
+    """
+    name = proposal["name"]
+    reason = proposal["reason"]
+    try:
+        results = search_web(f'"{name}" CAS', limit=_SEARCH_RESULTS_PER_QUERY)
+    except Exception as exc:  # noqa: BLE001 - сеть не должна ронять кнопку
+        logger.warning("Confirmation search failed for %r: %s", name, exc)
+        results = []
+
+    for item in results:
+        haystack = " ".join(
+            [
+                (item.get("title") or ""),
+                (item.get("snippet") or ""),
+                (item.get("url") or ""),
+            ]
+        )
+        if name.casefold() not in haystack.casefold():
+            continue
+        snippet = (item.get("snippet") or "").strip()[:400]
+        cas = next(
+            (
+                normalize_cas(found)
+                for found in _CAS_PATTERN.findall(haystack)
+                if is_valid_cas(normalize_cas(found))
+            ),
+            None,
+        )
+        return ResolvedName(
+            name=name,
+            relation="same",
+            cas=cas,
+            cas_confirmed=cas is not None,
+            reason=(
+                f"{reason} Название подтверждено страницей выдачи."
+                if reason
+                else "Международное написание подтверждено страницей выдачи."
+            ),
+            source="web",
+            source_url=(item.get("url") or "").strip() or None,
+            quote=snippet or None,
+        )
+
+    resolution.warnings.append(
+        f"«{name}» — международное написание, собранное разбором русского "
+        "названия. Ни одна страница выдачи его не подтвердила: проверьте "
+        "перед рассылкой поставщикам."
+    )
+    return ResolvedName(
+        name=name,
+        relation="same",
+        cas=None,
+        reason=(
+            f"{reason} Источником не подтверждено."
+            if reason
+            else "Собрано разбором русского названия; источником не подтверждено."
+        ),
+        source="translation",
+        source_url=None,
+        quote=None,
+    )
+
+
+def _add_international_fallback(
+    query: str,
+    resolution: SubstanceResolution,
+    client: LLMClient,
+) -> None:
+    """Даёт русскому вводу латинский якорь, когда выдача его не дала.
+
+    Без этого «Дигидроксимоноацетат алюминия» оставался вовсе без варианта,
+    по которому можно спросить китайский рынок, и закупщик упирался в
+    предложение вписать название руками — то есть в работу, ради снятия
+    которой систему и делают.
+    """
+    for proposal in _translate_to_international(query, resolution, client)[:2]:
+        candidate = _confirm_translated_name(proposal, resolution)
+        resolution.candidates.append(candidate)
+    resolution.candidates = _merge(resolution.candidates)
+
+
 def _reliability(item: ResolvedName, *, needs_international: bool) -> int:
     """Насколько кандидату можно доверять как якорю поиска.
 
@@ -453,6 +639,11 @@ def _reliability(item: ResolvedName, *, needs_international: bool) -> int:
     if needs_international and not _is_international(item.name):
         return 0
     score = 8
+    # Название без страницы за спиной — последнее средство. Оно уверенно
+    # обходит русское написание, по которому искать нечем, и уверенно
+    # проигрывает любому подтверждённому варианту.
+    if item.source == "translation":
+        return score - 4
     if item.source == "pubchem":
         score += 4
     if item.cas_confirmed:
@@ -478,16 +669,10 @@ def _mark_recommended(resolution: SubstanceResolution) -> None:
         for index, item in enumerate(resolution.candidates)
     ]
     ranked = [row for row in ranked if row[0] > 0]
-    if ranked:
-        ranked.sort(key=lambda row: (-row[0], row[1]))
-        ranked[0][2].recommended = True
+    if not ranked:
         return
-    if needs_international and resolution.candidates:
-        resolution.warnings.append(
-            "Международного написания в выдаче не нашлось. Впишите его в "
-            "«Другие названия того же вещества»: по русскому названию поиск "
-            "поставщиков возвращает пустую выдачу."
-        )
+    ranked.sort(key=lambda row: (-row[0], row[1]))
+    ranked[0][2].recommended = True
 
 
 def resolve_substance(name: str, *, llm: LLMClient | None = None) -> SubstanceResolution:
@@ -501,8 +686,21 @@ def resolve_substance(name: str, *, llm: LLMClient | None = None) -> SubstanceRe
     надёжнее прочих (`recommended`). Это подсказка, а не выбор: она нужна
     русскому вводу, где «не выбрано» означает поиск по написанию, которого
     внешний рынок не знает.
+
+    Русский ввод без латинского варианта в выдаче не остаётся ни с чем:
+    включается вторая ступень, которая собирает международное название
+    разбором русского термина и проверяет его поиском. Спрашивать китайский
+    рынок по-русски нечем, и «не нашлось» как конечный ответ означало бы
+    вернуть закупщику ровно ту работу, ради которой он пришёл.
     """
     resolution = _resolve(name, llm=llm)
+    if has_cyrillic(resolution.query) and not any(
+        _is_international(item.name) and item.relation == "same"
+        for item in resolution.candidates
+    ):
+        _add_international_fallback(
+            resolution.query, resolution, llm or LLMClient()
+        )
     _mark_recommended(resolution)
     return resolution
 

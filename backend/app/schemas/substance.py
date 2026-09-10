@@ -174,7 +174,9 @@ class ResolvedNameRead(BaseModel):
     relation: Literal["same", "different"]
     cas: str | None = None
     reason: str = ""
-    source: Literal["pubchem", "web"] = "web"
+    # "translation" — название собрано разбором русского термина и ни одной
+    # страницей не подтверждено. Слабее двух других, и это видно в карточке.
+    source: Literal["pubchem", "web", "translation"] = "web"
     source_url: str | None = None
     quote: str | None = None
     cas_confirmed: bool = False
