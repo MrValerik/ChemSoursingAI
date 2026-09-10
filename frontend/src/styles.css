@@ -5493,6 +5493,9 @@ button.substance-list-item.active {
 .resolve-applied-warn { color: var(--warn); }
 .resolve-declined { margin: 6px 0 0; color: var(--warn); }
 .resolve-card-source.is-unconfirmed { color: var(--warn); }
+/* Расхождение состава. Красным, потому что это не оттенок написания:
+   номер настоящий, но у соседней соли. */
+.resolve-card-conflict { font-size: 12px; color: var(--warn); }
 
 .resolve-card-reason { font-size: 12px; color: var(--muted); }
 .resolve-card-quote {

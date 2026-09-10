@@ -184,6 +184,11 @@ class ResolvedNameRead(BaseModel):
     # Самый надёжный из найденных вариантов. Отмечается не больше одного;
     # у русского ввода отметку получает только международное написание.
     recommended: bool = False
+    # Брутто-формула из справочника по номеру кандидата.
+    formula: str | None = None
+    # Числительные названия не сошлись со справочными: похоже на соседнюю
+    # соль с настоящим номером. Текст объяснения или None.
+    formula_conflict: str | None = None
 
 
 class SubstanceResolveResponse(BaseModel):

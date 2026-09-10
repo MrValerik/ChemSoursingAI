@@ -46,6 +46,13 @@ export interface ResolvedName {
    * У русского ввода отметку получает только международное написание.
    */
   recommended: boolean;
+  /** Брутто-формула из справочника по номеру кандидата. */
+  formula: string | null;
+  /**
+   * Числительные названия не сошлись со справочными: похоже на соседнюю
+   * соль с настоящим номером. Текст объяснения или null.
+   */
+  formula_conflict: string | null;
 }
 
 export interface SubstanceResolution {
