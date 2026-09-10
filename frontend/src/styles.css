@@ -5524,12 +5524,14 @@ button.substance-list-item.active {
 .search-modes {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
 }
-.search-mode {
+.search-modes .search-mode {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
+  margin-bottom: 0;
+  color: var(--text);
   flex: 1 1 180px;
   padding: 10px 12px;
   border: 1px solid var(--border);
