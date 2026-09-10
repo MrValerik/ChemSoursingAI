@@ -312,7 +312,11 @@ def test_candidates_dropped_by_a_constraint_are_named(monkeypatch):
         {
             "candidates": [],
             "rejected": [
-                {"name": "Желатин", "reason": "животного происхождения"}
+                {
+                    "name": "Желатин",
+                    "basis": "constraint",
+                    "reason": "животного происхождения",
+                }
             ],
         }
     )
@@ -329,6 +333,72 @@ def test_candidates_dropped_by_a_constraint_are_named(monkeypatch):
     # Пустой список из-за запрета объясняется иначе, чем пустая выдача:
     # в первом случае замены были, во втором их нет вовсе.
     assert any("сняты вашим ограничением" in warning for warning in result.warnings)
+
+
+def test_rejection_is_labelled_by_what_actually_dropped_it(monkeypatch):
+    """Подпись снятия совпадает с причиной, а не валит всё на запрет.
+
+    Замер на проде 10.09.2026: гуар, агар, каррагинан и пектин сняло
+    несовпадение применения, а подписаны они были «ограничением снят». Так
+    закупщик идёт смягчать запрет, который ничего не отсекал.
+    """
+    _patch_search(
+        monkeypatch,
+        _snippets(("Hydrocolloids", "https://example.test/h", "agar, pectin")),
+    )
+    llm = _StubLLM(
+        {
+            "candidates": [],
+            "rejected": [
+                {
+                    "name": "Агар",
+                    "basis": "application",
+                    "reason": "нет данных о применении в буровых растворах",
+                }
+            ],
+        }
+    )
+
+    result = suggest_analogs(
+        "Ксантановая камедь",
+        application="буровые растворы",
+        constraints="без животного происхождения",
+        llm=llm,
+    )
+
+    assert any("не подходит для указанного применения" in w for w in result.warnings)
+    assert not any("ограничением" in w for w in result.warnings[:1])
+    assert any("не подходят под указанное применение" in w for w in result.warnings)
+
+
+def test_the_same_substance_under_another_name_is_rejected(monkeypatch):
+    """Синоним и торговая марка исходного вещества — не замена.
+
+    Замер на проде 10.09.2026: «Hansheng смола» попала в кандидаты, а в
+    обосновании модель сама написала, что это другое название ксантановой
+    камеди. Такой «аналог» ничего не заменяет, но выглядит готовым ответом.
+    """
+    _patch_search(
+        monkeypatch,
+        _snippets(("Xanthan", "https://example.test/x", "also known as Hansheng")),
+    )
+    llm = _StubLLM(
+        {
+            "candidates": [],
+            "rejected": [
+                {
+                    "name": "Hansheng смола",
+                    "basis": "same_substance",
+                    "reason": "другое торговое название ксантановой камеди",
+                }
+            ],
+        }
+    )
+
+    result = suggest_analogs("Ксантановая камедь", llm=llm)
+
+    assert result.candidates == []
+    assert any("то же вещество под другим названием" in w for w in result.warnings)
 
 
 def test_schema_lists_every_field_as_required():
