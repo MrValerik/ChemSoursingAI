@@ -834,8 +834,19 @@ export default function NewRfq({
                         {item.cas
                           ? `CAS ${item.cas}`
                           : "номер не найден"}
+                        {/* Формула рядом с номером: «C4H7AlO5» под
+                            названием, где закупщик написал «моно», видно
+                            глазом, а рейтингу не видно ничего. */}
+                        {item.formula && ` · ${item.formula}`}
                       </span>
                     </span>
+                    {item.formula_conflict && (
+                      <span className="resolve-card-conflict">
+                        Состав не сходится с тем, что вы назвали —{" "}
+                        {item.formula_conflict}. Номер подтверждён источником,
+                        но, похоже, он от соседней соли.
+                      </span>
+                    )}
                     {item.reason && (
                       <span className="resolve-card-reason">{item.reason}</span>
                     )}

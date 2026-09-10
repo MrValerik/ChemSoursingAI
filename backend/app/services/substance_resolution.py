@@ -41,6 +41,7 @@ from app.connectors.web_search import (
 )
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.services.cas import is_valid_cas, normalize_cas
+from app.services.stoichiometry import compare_names
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,14 @@ class ResolvedName:
     # моделью по памяти. Интерфейс показывает разницу, а не усредняет её.
     cas_confirmed: bool = False
     synonyms: list[str] = field(default_factory=list)
+    # Брутто-формула из справочника по этому номеру. Показывается рядом с
+    # номером: «C4H7AlO5» под названием, в котором закупщик написал «моно»,
+    # видно сразу, а рейтингу не видно ничего.
+    formula: str | None = None
+    # Расхождение числительных между введённым названием и справочным.
+    # Строка объяснения или None. Кандидат при этом остаётся в списке:
+    # решает человек, а система обязана назвать, что заметила.
+    formula_conflict: str | None = None
     # Самый надёжный из найденных вариантов: по нему форма ищет по умолчанию.
     # Отмечается ровно один кандидат, и человек волен выбрать другой — но
     # выбор «ничего не выбрано» приводил к поиску по русскому написанию.
@@ -234,6 +243,8 @@ class ResolvedName:
             "cas_confirmed": self.cas_confirmed,
             "synonyms": self.synonyms,
             "recommended": self.recommended,
+            "formula": self.formula,
+            "formula_conflict": self.formula_conflict,
         }
 
 
@@ -494,6 +505,54 @@ def _merge(candidates: list[ResolvedName]) -> list[ResolvedName]:
     return list(merged.values())[:_MAX_CANDIDATES]
 
 
+def _annotate_formulas(resolution: SubstanceResolution) -> None:
+    """Достаёт из справочника формулу по номеру и сверяет состав с названием.
+
+    Подтверждённый номер до сих пор считался признаком надёжности. На
+    «Дигидроксимоноацетат алюминия» это и вышло боком: номер 142-03-0
+    подтверждён страницей честно, только он от соседней соли — ацетатов
+    два вместо одного. Рейтинг видел подтверждённый номер и ставил
+    отметку «самый надёжный вариант» на другое вещество.
+
+    Сверяются названия, а не формула: посчитать ацетатные группы в
+    C4H7AlO5, не зная строения, нельзя. Формула нужна человеку — её и
+    показываем рядом с номером.
+    """
+    connector = PubChemConnector()
+    seen: dict[str, tuple[str | None, str | None]] = {}
+    for item in resolution.candidates:
+        if not item.cas or not item.cas_confirmed:
+            continue
+        if item.cas not in seen:
+            try:
+                info = connector.verify_cas(item.cas)
+            except Exception as exc:  # noqa: BLE001 - справочник не роняет кнопку
+                logger.warning("PubChem verify failed for %s: %s", item.cas, exc)
+                seen[item.cas] = (None, None)
+            else:
+                seen[item.cas] = (
+                    (info.molecular_formula, info.iupac_name)
+                    if info.found
+                    else (None, None)
+                )
+        formula, iupac = seen[item.cas]
+        item.formula = formula
+        if not iupac:
+            continue
+        # Сверяется введённое человеком название, а не название кандидата:
+        # кандидат мог приехать уже подменённым, и сравнение его с самим
+        # собой ничего бы не поймало.
+        conflict = compare_names(resolution.query, iupac)
+        if conflict is None:
+            continue
+        item.formula_conflict = conflict
+        resolution.warnings.append(
+            f"«{item.name}» (CAS {item.cas}) — состав не сходится с тем, что "
+            f"вы назвали: {conflict}. Номер подтверждён источником, но, "
+            "похоже, он от соседней соли. Проверьте перед поиском."
+        )
+
+
 def _translate_to_international(
     query: str,
     resolution: SubstanceResolution,
@@ -646,6 +705,11 @@ def _reliability(item: ResolvedName, *, needs_international: bool) -> int:
         return 0
     if needs_international and not _is_international(item.name):
         return 0
+    # Состав не сошёлся с названием — рекомендации не будет, каким бы
+    # подтверждённым ни был номер. Именно подтверждённость номера и завела
+    # отметку «самый надёжный вариант» на соседнюю соль.
+    if item.formula_conflict:
+        return 0
     score = 8
     # Название без страницы за спиной — последнее средство. Оно уверенно
     # обходит русское написание, по которому искать нечем, и уверенно
@@ -702,8 +766,14 @@ def resolve_substance(name: str, *, llm: LLMClient | None = None) -> SubstanceRe
     вернуть закупщику ровно ту работу, ради которой он пришёл.
     """
     resolution = _resolve(name, llm=llm)
+    _annotate_formulas(resolution)
+    # Кандидат с расхождением состава якорем не считается: без этого
+    # «Aluminum diacetate hydroxide» закрывал бы дорогу запасной ступени
+    # и позиция оставалась бы с названием соседней соли.
     if has_cyrillic(resolution.query) and not any(
-        _is_international(item.name) and item.relation == "same"
+        _is_international(item.name)
+        and item.relation == "same"
+        and not item.formula_conflict
         for item in resolution.candidates
     ):
         _add_international_fallback(

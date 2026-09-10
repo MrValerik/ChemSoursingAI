@@ -812,3 +812,74 @@ def test_a_neighbouring_substance_is_never_recommended(monkeypatch):
     result = resolve_substance("Betaine", llm=llm)
 
     assert not any(item.recommended for item in result.candidates)
+
+
+def test_neighbouring_salt_with_a_real_number_loses_the_badge(monkeypatch):
+    """Соседняя соль с подтверждённым номером рекомендацию не получает.
+
+    Случай с показа 10.09.2026. По запросу «Дигидроксимоноацетат алюминия»
+    опознание вернуло «Aluminum diacetate hydroxide» с номером 142-03-0,
+    назвало это тем же веществом и поставило отметку «самый надёжный
+    вариант»: номер подтверждён страницей честно, только он от соли, где
+    ацетатов два вместо одного.
+    """
+    snippets = _snippets(
+        (
+            "Алюминия ацетат",
+            "https://ru.example/142-03-0",
+            "Алюминия ацетат ; английское имя Aluminum diacetate hydroxide ; CAS №142-03-0",
+        )
+    )
+
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+        def verify_cas(self, cas: str) -> SubstanceInfo:
+            return SubstanceInfo(
+                cas=cas,
+                found=True,
+                cid=8757,
+                iupac_name="aluminum;diacetate;hydroxide",
+                molecular_formula="C4H7AlO5",
+            )
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+    monkeypatch.setattr(
+        substance_resolution, "search_web", lambda query, limit=8: list(snippets)
+    )
+    llm = _SequenceLLM(
+        [
+            {
+                "candidates": [
+                    {
+                        "name": "Aluminum diacetate hydroxide",
+                        "cas": "142-03-0",
+                        "relation": "same",
+                        "reason": "общепринятое международное название",
+                        "source_url": "https://ru.example/142-03-0",
+                        "quote": "английское имя Aluminum diacetate hydroxide ; CAS №142-03-0",
+                    }
+                ]
+            },
+            {"names": [{"name": "Aluminium dihydroxide acetate", "reason": "разбор"}]},
+        ]
+    )
+
+    result = resolve_substance("Дигидроксимоноацетат алюминия", llm=llm)
+
+    wrong = next(
+        item for item in result.candidates if item.name == "Aluminum diacetate hydroxide"
+    )
+    # Карточка остаётся: решает человек, и снятая с экрана карточка
+    # объяснила бы ему меньше, чем показанная с причиной.
+    assert wrong.formula == "C4H7AlO5"
+    assert wrong.formula_conflict is not None
+    assert "ацетатных групп: у вас 1, у найденного 2" in wrong.formula_conflict
+    assert not wrong.recommended, "соседняя соль не может быть самым надёжным вариантом"
+    assert any("от соседней соли" in text for text in result.warnings)
+
+    # Место якоря освободилось, и запасная ступень его заняла: позиция не
+    # осталась вовсе без названия, по которому можно спросить рынок.
+    recommended = [item for item in result.candidates if item.recommended]
+    assert [item.name for item in recommended] == ["Aluminium dihydroxide acetate"]
