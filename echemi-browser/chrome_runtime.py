@@ -2,6 +2,7 @@
 import asyncio
 import os
 import signal
+import socket
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,9 +14,18 @@ async def open_chrome(playwright, profile):
     directory.mkdir(parents=True, exist_ok=True)
     port_file = directory / "DevToolsActivePort"
     port_file.unlink(missing_ok=True)
+    port = int(os.environ.get("ECHEMI_CDP_PORT", "9222"))
+    if not 1 <= port <= 65535:
+        raise ValueError("ECHEMI_CDP_PORT must be between 1 and 65535")
+    # Refuse an occupied endpoint rather than attaching to another browser.
+    with socket.socket() as probe:
+        if os.name != "nt":
+            # A closed Chrome connection can leave TIME_WAIT entries on Linux.
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(("127.0.0.1", port))
     args = [os.environ.get("ECHEMI_CHROME_EXECUTABLE", "/opt/chrome/chrome-linux64/chrome"),
             "--user-data-dir=" + str(directory.resolve()),
-            "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0",
+            "--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={port}",
             "--no-first-run", "--new-window", "about:blank"]
     # Container isolation is used on this VM; Chromium user namespaces are unavailable.
     if os.environ.get("ECHEMI_CHROME_SANDBOX", "false").lower() != "true":
@@ -31,12 +41,12 @@ async def open_chrome(playwright, profile):
         while time.monotonic() < deadline:
             if proc.returncode is not None:
                 raise RuntimeError("Chrome exited before CDP became available")
-            if port_file.exists():
-                lines = port_file.read_text(encoding="utf-8").splitlines()
-                if lines and lines[0].isdigit() and 0 < int(lines[0]) < 65536:
-                    browser = await playwright.chromium.connect_over_cdp(
-                        "http://127.0.0.1:" + lines[0], timeout=10000)
-                    break
+            try:
+                browser = await playwright.chromium.connect_over_cdp(
+                    f"http://127.0.0.1:{port}", timeout=1000)
+                break
+            except Exception:
+                pass  # Chrome may not have opened its CDP listener yet.
             await asyncio.sleep(.2)
         if browser is None:
             raise TimeoutError("Chrome CDP startup timed out")

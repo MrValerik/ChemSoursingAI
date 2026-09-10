@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import socket
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,7 +25,6 @@ def test_cdp_context_cleans_process_on_success_and_error(tmp_path, monkeypatch, 
     proc.terminate = lambda: killed.append(123)
     async def spawn(*args, **kwargs):
         arguments.extend(args)
-        (tmp_path / "DevToolsActivePort").write_text("9229\n/path", encoding="utf-8")
         return proc
     async def close(): connected.append("closed")
     async def send(command): connected.append(command)
@@ -35,6 +35,10 @@ def test_cdp_context_cleans_process_on_success_and_error(tmp_path, monkeypatch, 
         return SimpleNamespace(contexts=[context], close=close, new_browser_cdp_session=session)
     monkeypatch.setattr(runtime.asyncio, "create_subprocess_exec", spawn)
     monkeypatch.setenv("ECHEMI_CHROME_SANDBOX", "true")
+    with socket.socket() as available:
+        available.bind(("127.0.0.1", 0))
+        port = available.getsockname()[1]
+    monkeypatch.setenv("ECHEMI_CDP_PORT", str(port))
     if hasattr(runtime.os, "killpg"):
         monkeypatch.setattr(runtime.os, "killpg", lambda pid, sig: killed.append(pid))
     async def run():
@@ -46,7 +50,9 @@ def test_cdp_context_cleans_process_on_success_and_error(tmp_path, monkeypatch, 
             assert consumer_fails
     asyncio.run(run())
     assert killed == []
-    assert connected == ["http://127.0.0.1:9229", "Browser.close", "closed"]
+    assert connected == [f"http://127.0.0.1:{port}", "Browser.close", "closed"]
+    assert f"--remote-debugging-port={port}" in arguments
+    assert "--remote-debugging-port=0" not in arguments
     assert "--no-first-run" in arguments and "--no-sandbox" not in arguments
 
 
@@ -81,3 +87,27 @@ def test_visible_challenge_state(title, slider, heading, expected):
         def locator(self, selector): return Locator(slider)
         def get_by_text(self, *args, **kwargs): return Locator(heading)
     assert asyncio.run(state.needs_verification(Page())) is expected
+
+
+@pytest.mark.parametrize("port", ["0", "-1", "65536", "invalid"])
+def test_invalid_cdp_port(tmp_path, monkeypatch, port):
+    runtime = module("chrome_runtime")
+    monkeypatch.setenv("ECHEMI_CDP_PORT", port)
+    async def run():
+        with pytest.raises(ValueError):
+            async with runtime.open_chrome(None, tmp_path):
+                pytest.fail("Invalid port must not launch Chrome")
+    asyncio.run(run())
+
+
+def test_occupied_cdp_port(tmp_path, monkeypatch):
+    runtime = module("chrome_runtime")
+    with socket.socket() as occupied:
+        occupied.bind(("127.0.0.1", 0))
+        occupied.listen()
+        monkeypatch.setenv("ECHEMI_CDP_PORT", str(occupied.getsockname()[1]))
+        async def run():
+            with pytest.raises(OSError):
+                async with runtime.open_chrome(None, tmp_path):
+                    pytest.fail("Must not attach to another listener")
+        asyncio.run(run())
