@@ -13,6 +13,7 @@ import type { RFQRead } from "../api/types";
 import NewRfq from "./NewRfq";
 import RequestsTable from "./RequestsTable";
 import RfqBatchSummary from "./RfqBatchSummary";
+import AnalogRfqDetail from "./AnalogRfqDetail";
 import RfqDetail from "./RfqDetail";
 
 export default function RfqWorkspace() {
@@ -93,6 +94,16 @@ export default function RfqWorkspace() {
       );
     }
     if (!selected) return <p className="note" style={{ padding: 24 }}>Загрузка…</p>;
+    // Подбор аналога — своя задача со своими вкладками, а не обычная
+    // карточка с пустыми. Признак — способ идентификации и отсутствие
+    // эталона: карточки прежнего одноступенчатого режима его заполняли, и
+    // им остаётся обычный вид с уже найденными поставщиками.
+    if (
+      selected.identification_method === "analog" &&
+      !selected.analog_reference
+    ) {
+      return <AnalogRfqDetail rfq={selected} onBack={backToTable} />;
+    }
     return (
       <RfqDetail
         rfq={selected}

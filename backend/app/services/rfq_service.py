@@ -46,22 +46,29 @@ def create_rfq(
     откатить одну неудачную строку стало бы нечем.
     """
     # Валидация базисов выполняется здесь (бросит UnsupportedIncotermError).
-    build_rfq(
-        RFQInput(
-            cas=data.cas,
-            name=data.name,
-            identification_method=data.identification_method,
-            analog_reference=data.analog_reference,
-            analog_variations=list(data.analog_variations),
-            specification=data.specification,
-            incoterms=data.incoterms,
-            purity=data.purity,
-            application=data.application,
-            volume=data.volume,
-            target_price=data.target_price,
-            currency=data.currency,
+    #
+    # Запрос на подбор аналога её не проходит и не должен: письма он не
+    # рассылает — рассылают запросы, заведённые по выбранным веществам, и
+    # базис спрашивается там. Собирать письмо позиции, которую никто не
+    # закупает, значит требовать от закупщика условия поставки вещества,
+    # которое он ещё не выбрал.
+    if data.identification_method != "analog":
+        build_rfq(
+            RFQInput(
+                cas=data.cas,
+                name=data.name,
+                identification_method=data.identification_method,
+                analog_reference=data.analog_reference,
+                analog_variations=list(data.analog_variations),
+                specification=data.specification,
+                incoterms=data.incoterms,
+                purity=data.purity,
+                application=data.application,
+                volume=data.volume,
+                target_price=data.target_price,
+                currency=data.currency,
+            )
         )
-    )
 
     verification = None
     verified = False
@@ -99,6 +106,7 @@ def create_rfq(
         identification_method=data.identification_method,
         analog_reference=data.analog_reference,
         analog_variations=list(data.analog_variations) or None,
+        analog_constraints=data.analog_constraints,
         specification=data.specification,
         confirmed_synonyms=list(data.confirmed_synonyms) or None,
         excluded_names=list(data.excluded_names) or None,
@@ -144,6 +152,13 @@ def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
     """Возвращает ручной черновик или генерирует RFQ из сохранённой записи."""
     if rfq.rfq_subject_override and rfq.rfq_body_override:
         return rfq.rfq_subject_override, rfq.rfq_body_override
+
+    if rfq.identification_method == "analog":
+        # Позиции на подбор письма не полагается: поставщику пишут по
+        # выбранным аналогам, у каждого из которых свой запрос и свой
+        # базис поставки. Пустая пара честнее сгенерированного письма,
+        # которое некому отправить.
+        return "", ""
 
     result = build_rfq(
         RFQInput(

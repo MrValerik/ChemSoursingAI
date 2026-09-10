@@ -10,6 +10,7 @@ import type {
   CombinedRfqOption,
   CombinedRfqPreview,
   RfqAnalogConfirmResult,
+  RfqAnalogTerms,
   RfqAnalogs,
   RfqImportPreview,
   RfqImportReference,
@@ -252,6 +253,8 @@ export interface RFQCreatePayload {
   name: string;
   analog_reference?: string | null;
   analog_variations?: AnalogVariation[];
+  /** Чем заменять нельзя: запрет для подбора аналогов. */
+  analog_constraints?: string | null;
   specification?: string | null;
   /** Названия, отмеченные закупщиком, и снятые им. */
   confirmed_synonyms?: string[];
@@ -294,11 +297,17 @@ export const api = {
   rfqAnalogs: (rfqId: number) => request<RfqAnalogs>(`/rfq/${rfqId}/analogs`),
   suggestRfqAnalogs: (rfqId: number) =>
     request<RfqAnalogs>(`/rfq/${rfqId}/analogs/suggest`, { method: "POST" }),
-  /** Заводит запрос на каждый выбранный аналог и ставит поиски. */
-  confirmRfqAnalogs: (rfqId: number, candidateIds: number[]) =>
+  /** Заводит запрос на каждый выбранный аналог и ставит поиски.
+   *  Условия закупки приходят сюда, а не в форму подбора: пока вещество не
+   *  выбрано, объём и базис поставки называть не по чему. */
+  confirmRfqAnalogs: (
+    rfqId: number,
+    candidateIds: number[],
+    terms?: RfqAnalogTerms,
+  ) =>
     request<RfqAnalogConfirmResult>(`/rfq/${rfqId}/analogs/confirm`, {
       method: "POST",
-      body: JSON.stringify({ candidate_ids: candidateIds }),
+      body: JSON.stringify({ candidate_ids: candidateIds, terms }),
     }),
   createRfqBatch: (payload: {
     idempotency_key: string;

@@ -455,10 +455,29 @@ def create(
     return _to_read(rfq)
 
 
+class AnalogTerms(BaseModel):
+    """Условия закупки для запросов, заводимых по выбранным аналогам.
+
+    Спрашиваются здесь, а не в форме подбора: пока неизвестно, какое
+    вещество закупают, объём и базис поставки называть не по чему.
+    """
+
+    incoterms: list[str] = Field(default_factory=list, max_length=11)
+    search_countries: list[str] = Field(default_factory=list, max_length=3)
+    volume: str | None = Field(default=None, max_length=64)
+    purity: str | None = Field(default=None, max_length=64)
+    target_price: float | None = None
+    currency: str | None = Field(default=None, max_length=3)
+    target_price_unit: str | None = Field(default=None, max_length=32)
+    target_price_incoterm: str | None = Field(default=None, max_length=24)
+    supplier_target: int | None = Field(default=None, ge=1, le=20)
+
+
 class AnalogConfirm(BaseModel):
-    """Выбор закупщика: по каким аналогам заводить запросы."""
+    """Выбор закупщика: по каким аналогам заводить запросы и на каких условиях."""
 
     candidate_ids: list[int] = Field(default_factory=list, max_length=MAX_ANALOGS)
+    terms: AnalogTerms | None = None
 
 
 def _analog_rfq(db: Session, rfq_id: int, user: User) -> RFQ:
@@ -529,6 +548,8 @@ def suggest_rfq_analogs(
         rfq.name,
         cas=rfq.cas,
         specification=rfq.specification,
+        application=rfq.application,
+        constraints=rfq.analog_constraints,
     )
     store_suggestion(db, rfq, suggestion)
     db.commit()
@@ -560,6 +581,7 @@ def confirm_rfq_analogs(
         rfq,
         candidate_ids=data.candidate_ids,
         owner_id=user.id,
+        terms=data.terms.model_dump() if data.terms else None,
         start_search=start_search,
     )
     db.commit()

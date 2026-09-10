@@ -47,11 +47,19 @@ _SYSTEM_PROMPT = """Ты помогаешь специалисту по заку
 Тебе дают закупаемую позицию и фрагменты веб-выдачи. Верни список веществ,
 которыми эту позицию можно заменить.
 
-Аналог — это ДРУГОЕ вещество или другой продукт, выполняющий ту же функцию.
-Иное написание того же вещества, его синоним или торговое название того же
-самого продукта аналогом не являются: такие варианты не возвращай.
+Аналог — это ДРУГОЕ вещество или другой продукт, выполняющий ту же функцию
+В ТОМ ЖЕ ПРИМЕНЕНИИ, которое указано в задании. Иное написание того же
+вещества, его синоним или торговое название того же самого продукта
+аналогом не являются: такие варианты не возвращай.
 
 Правила:
+- Применение (`application`) — критерий, а не пожелание. Замена, которая
+  работает в другой отрасли, но не в указанном применении, не подходит:
+  промышленному загустителю не аналог пищевая добавка из кулинарного
+  сравнения.
+- Ограничения закупщика (`constraints`) — запрет. Кандидата, который им
+  противоречит, не возвращай вовсе, даже если источник называет его
+  заменой.
 - Возвращай только то, что названо во фрагментах выдачи. Не добавляй
   вещества по памяти: специалист не сможет проверить такую замену.
 - В поле quote приведи дословный фрагмент, где видно предлагаемое вещество и
@@ -132,7 +140,12 @@ class AnalogSuggestion:
         }
 
 
-def _queries(name: str, cas: str | None, specification: str | None) -> list[str]:
+def _queries(
+    name: str,
+    cas: str | None,
+    specification: str | None,
+    application: str | None,
+) -> list[str]:
     """Три выдачи: перечни замен, отраслевой разговор и подбор по функции.
 
     Первый запрос ищет то, как замену называют производители и дистрибьюторы:
@@ -140,10 +153,16 @@ def _queries(name: str, cas: str | None, specification: str | None) -> list[str]
     ней говорят в отрасли, включая сравнения «X vs Y». Третий нужен позициям
     без номера: там заменяемое описывается функцией и показателями, а не
     названием, и запрос по названию для них бесполезен.
+
+    Применение подмешивается в первые два запроса: без него выдача по
+    «чем заменить ксантановую камедь» — это кулинарные сравнения, а нужен
+    промышленный загуститель. Замер 10.09.2026: первый же прогон без
+    применения вернул желатин.
     """
+    scope = f" {application.strip()[:80]}" if application and application.strip() else ""
     queries = [
-        f'"{name}" (alternative OR replacement OR substitute) chemical',
-        f"{name} vs alternative raw material comparison",
+        f'"{name}" (alternative OR replacement OR substitute) chemical{scope}',
+        f"{name} vs alternative raw material comparison{scope}",
     ]
     if cas:
         queries.append(f"{cas} {name} substitute equivalent chemical")
@@ -159,11 +178,12 @@ def _collect_snippets(
     name: str,
     cas: str | None,
     specification: str | None,
+    application: str | None,
     suggestion: AnalogSuggestion,
 ) -> list[dict]:
     snippets: list[dict] = []
     seen_urls: set[str] = set()
-    for query in _queries(name, cas, specification):
+    for query in _queries(name, cas, specification, application):
         try:
             results = search_web(query, limit=_SEARCH_RESULTS_PER_QUERY)
         except (SearchProviderNotConfigured, UnknownSearchProvider) as exc:
@@ -279,6 +299,8 @@ def suggest_analogs(
     *,
     cas: str | None = None,
     specification: str | None = None,
+    application: str | None = None,
+    constraints: str | None = None,
     llm: LLMClient | None = None,
 ) -> AnalogSuggestion:
     """Подбирает вещества, которыми можно заменить позицию.
@@ -291,7 +313,7 @@ def suggest_analogs(
     if not query:
         return suggestion
 
-    snippets = _collect_snippets(query, cas, specification, suggestion)
+    snippets = _collect_snippets(query, cas, specification, application, suggestion)
     if not snippets:
         if not suggestion.warnings:
             suggestion.warnings.append(
@@ -306,7 +328,9 @@ def suggest_analogs(
             "purchased_item": {
                 "name": query,
                 "cas": cas,
+                "application": (application or "")[:300] or None,
                 "specification": (specification or "")[:600] or None,
+                "constraints": (constraints or "")[:600] or None,
             },
             "search_results": snippets,
         },

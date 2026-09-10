@@ -90,13 +90,21 @@ def _idempotency_key(rfq_id: int, candidate_ids: list[int]) -> str:
     return f"analog-{rfq_id}-{digest[:24]}"
 
 
-def _child_values(parent: RFQ, candidate: RfqAnalogCandidate) -> dict:
-    """Запрос по аналогу: своё вещество, условия закупки — родительские.
+def _child_values(
+    parent: RFQ, candidate: RfqAnalogCandidate, terms: dict | None = None
+) -> dict:
+    """Запрос по аналогу: своё вещество плюс условия закупки.
+
+    Условия приходят на этом шаге, а не из формы подбора: пока неизвестно,
+    какое вещество закупают, объём и базис поставки называть не по чему.
+    Незаполненное берётся у исходной позиции — так работает повторное
+    заведение, когда закупщик просто добавил ещё один аналог.
 
     Номер подставляется только подтверждённый: неподтверждённый увёл бы
     поиск к другому веществу молча. Без номера запрос идёт спецификацией —
     ровно так же, как обычная позиция без CAS.
     """
+    terms = {key: value for key, value in (terms or {}).items() if value not in (None, "", [])}
     cas = candidate.cas if candidate.cas_confirmed else None
     note_parts = [f"Аналог для «{parent.name}» (запрос №{parent.id})."]
     if candidate.reason:
@@ -113,19 +121,23 @@ def _child_values(parent: RFQ, candidate: RfqAnalogCandidate) -> dict:
         # Требования к материалу остаются родительскими: заменяют вещество,
         # а не задачу, под которую его закупают.
         "specification": parent.specification,
-        "purity": parent.purity,
+        "purity": terms.get("purity") or parent.purity,
         "application": parent.application,
-        "volume": parent.volume,
-        "target_price": float(parent.target_price)
-        if parent.target_price is not None
-        else None,
-        "currency": parent.currency or "USD",
-        "target_price_unit": parent.target_price_unit,
-        "target_price_incoterm": parent.target_price_incoterm,
-        "incoterms": list(parent.incoterms or []),
+        "volume": terms.get("volume") or parent.volume,
+        "target_price": terms.get("target_price")
+        if terms.get("target_price") is not None
+        else (float(parent.target_price) if parent.target_price is not None else None),
+        "currency": terms.get("currency") or parent.currency or "USD",
+        "target_price_unit": terms.get("target_price_unit") or parent.target_price_unit,
+        "target_price_incoterm": (
+            terms.get("target_price_incoterm") or parent.target_price_incoterm
+        ),
+        "incoterms": list(terms.get("incoterms") or parent.incoterms or []),
         "channels": list(parent.channels or []),
-        "search_countries": list(parent.search_countries or ["Китай"]),
-        "supplier_target": parent.supplier_target or 5,
+        "search_countries": list(
+            terms.get("search_countries") or parent.search_countries or ["Китай"]
+        ),
+        "supplier_target": terms.get("supplier_target") or parent.supplier_target or 5,
         # Внутренняя заметка: в письмо поставщику не уходит. Через месяц
         # без неё непонятно, откуда взялся запрос на это вещество.
         "specialist_comment": "\n".join(note_parts)[:4000],
@@ -138,6 +150,7 @@ def confirm_analogs(
     *,
     candidate_ids: list[int],
     owner_id: int,
+    terms: dict | None = None,
     start_search: bool = True,
 ) -> BatchResult | None:
     """Заводит по запросу на каждый выбранный аналог и ставит поиски.
@@ -167,7 +180,7 @@ def confirm_analogs(
         idempotency_key=_idempotency_key(rfq.id, [item.id for item in pending]),
         source_name=f"Аналоги для «{rfq.name}»",
         items=[
-            (index, _child_values(rfq, candidate))
+            (index, _child_values(rfq, candidate, terms))
             for index, candidate in enumerate(pending, start=1)
         ],
         start_search=start_search,

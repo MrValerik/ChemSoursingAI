@@ -174,6 +174,10 @@ export default function NewRfq({
   // замену нельзя: закупщик, который просил конкретный продукт, получил бы
   // похожий и узнал об этом только из ответа поставщика.
   const [analogMode, setAnalogMode] = useState(false);
+  // Чем заменять нельзя. Единственная граница, которую подбор не выведет
+  // сам: «без животного происхождения» знает закупщик, а страница-
+  // сравнение об этом не пишет.
+  const [analogConstraints, setAnalogConstraints] = useState("");
   const [incoterms, setIncoterms] = useState<string[]>(["CIP", "FCA", "EXW"]);
   const [countries, setCountries] = useState<string[]>(["Китай"]);
   const [searchMode, setSearchMode] = useState<SearchModeKey>(DEFAULT_SEARCH_MODE);
@@ -394,11 +398,14 @@ export default function NewRfq({
     cas: casValid ? casNormalized : null,
     // Скрытое поле не отправляется: иначе набранные до ввода номера
     // требования молча уехали бы в письмо поставщику.
+    analog_constraints: analogMode ? analogConstraints.trim() || null : null,
     specification: casValid ? null : specification.trim() || null,
     confirmed_synonyms: synonyms,
     excluded_names: excludedNames,
     name: name.trim(),
-    incoterms,
+    // Базисы и страны у запроса на подбор пустые: их спрашивают на шаге
+    // «Искать поставщиков по выбранным», когда уже понятно, что закупают.
+    incoterms: analogMode ? [] : incoterms,
     // Чистота и грейд лежат в базе одной строкой: число впереди, потому
     // что ТЗ называет именно чистоту, а грейд идёт уточнением.
     purity:
@@ -413,7 +420,7 @@ export default function NewRfq({
       ? `${volumeAmount.trim()} ${volumeUnit}`
       : null,
     channels: ["email"],
-    search_countries: countries,
+    search_countries: analogMode ? [] : countries,
     supplier_target: modeCompanies(searchMode),
     additional_instructions: manufacturerLead.trim()
       ? `Проверь в первую очередь изготовителя «${manufacturerLead.trim()}»: ` +
@@ -537,10 +544,12 @@ export default function NewRfq({
   if (casEntered && !casValid) {
     blockers.push("исправьте CAS-номер или очистите поле");
   }
-  if (countries.length === 0) {
+  // Подбору аналогов страна и базис не нужны: он поставщиков не ищет.
+  // Их спрашивают, когда закупщик выбрал вещества и заводит по ним запросы.
+  if (!analogMode && countries.length === 0) {
     blockers.push("выберите хотя бы одну страну поиска");
   }
-  if (incoterms.length === 0) {
+  if (!analogMode && incoterms.length === 0) {
     blockers.push("отметьте хотя бы одно условие поставки");
   }
 
@@ -761,6 +770,11 @@ export default function NewRfq({
           </p>
         )}
 
+        {/* Названия того же вещества и соседние по написанию нужны поиску
+            поставщиков этого вещества. Подбор замен ими не пользуется: он
+            ищет ДРУГОЕ вещество, и список синонимов исходного ему не якорь,
+            а шум. */}
+        {!analogMode && (
         <div className="row">
           <NameCandidates
             label="Другие названия того же вещества"
@@ -781,6 +795,7 @@ export default function NewRfq({
             hintFor={explainName}
           />
         </div>
+        )}
 
         {/* Аналог — отдельная задача, а не послабление точного поиска.
             Запрос с этой отметкой к поставщикам сразу не идёт: сначала
@@ -807,200 +822,252 @@ export default function NewRfq({
           </div>
 
           {analogMode && (
-            <p className="analog-note">
-              После создания запроса откроется подбор замен: система назовёт
-              вещества-кандидаты, вы отметите подходящие. Поиск компаний по
-              самому «{name.trim() || "названному веществу"}» при этом не
-              пойдёт — искать будут поставщиков выбранных аналогов.
-            </p>
+            <div className="analog-details">
+              <p className="analog-note">
+                Дальше откроется подбор замен: система назовёт
+                вещества-кандидаты с цитатой из источника, вы отметите
+                подходящие. Поиск компаний по самому «
+                {name.trim() || "названному веществу"}» не пойдёт — искать
+                будут поставщиков выбранных аналогов. Объём, базисы и страны
+                спросим тогда же, когда вы их отметите.
+              </p>
+
+              <Field
+                label="Для чего используется"
+                hint="Главный критерий подбора: у одного вещества в разных отраслях разные заменители. Без применения выдача сползает в бытовые сравнения."
+              >
+                <Textarea
+                  maxLength={4000}
+                  placeholder="Например: загуститель бурового раствора, работа при 80 °C и минерализации до 200 г/л"
+                  rows={2}
+                  value={application}
+                  onChange={(event) => setApplication(event.target.value)}
+                />
+              </Field>
+
+              <Field
+                label="Показатели, которые замена обязана держать"
+                hint="То, по чему вещество проверяют на входе: вязкость, чистота, гранулометрия, стандарт. Уходит в поисковые запросы и в требования к заведённым запросам."
+              >
+                <Textarea
+                  maxLength={4000}
+                  placeholder="Например: вязкость 1200–1600 сП при 25 °C, потери при сушке не более 12%"
+                  rows={2}
+                  value={specification}
+                  onChange={(event) => setSpecification(event.target.value)}
+                />
+              </Field>
+
+              <Field
+                label="Чем заменять нельзя"
+                hint="Запрет, а не пожелание: кандидат, который ему противоречит, не показывается вовсе. Этого нет ни в одном источнике — знает только закупщик."
+              >
+                <Textarea
+                  maxLength={2000}
+                  placeholder="Например: без животного происхождения; не менять класс полимера; только пищевой грейд"
+                  rows={2}
+                  value={analogConstraints}
+                  onChange={(event) => setAnalogConstraints(event.target.value)}
+                />
+              </Field>
+            </div>
           )}
         </div>
 
-        {/* Требования участвуют в построении поисковых запросов только
-            без номера — там они второй якорь наравне с названием. При
-            известном номере вещество определено однозначно, и роль этого
-            поля выполняет «Чистота / грейд». */}
-        {!casValid && (
-          <Field
-            label="Требования к веществу"
-            hint="Номера нет — значит искать будут по этому описанию."
-          >
-            <Textarea
-              maxLength={4000}
-              placeholder="Например: неионогенный загуститель для шампуня, вязкость 4000–6000 сП, pH 5–7"
-              value={specification}
-              onChange={(event) => setSpecification(event.target.value)}
-            />
-          </Field>
-        )}
-
-        <div className="row row-compact">
-          {/* ТЗ называет на входе чистоту, поэтому она первая и числом:
-              закупщик проверяет её именно так — «не ниже 99». Грейд идёт
-              уточнением и остаётся необязательным. */}
-          <Field className="field-narrow" label="Чистота не ниже, %">
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              step="0.1"
-              placeholder="99"
-              value={purityPercent}
-              onChange={(event) => setPurityPercent(event.target.value)}
-            />
-          </Field>
-          <Field className="field-grade" label="Грейд / стандарт">
-            <Select value={grade} options={GRADES} onChange={setGrade} />
-          </Field>
-          {grade === "other" && (
-            <Field className="field-grade" label="Какой именно">
-              <Input
-                placeholder="например, Ph. Eur. + FCC"
-                value={gradeOther}
-                onChange={(event) => setGradeOther(event.target.value)}
+        {/* Всё остальное — условия закупки конкретного вещества:
+            требования, чистота, объём, цена, страны, базисы. Подбору
+            замен они не нужны, а закупщик, который ещё не выбрал
+            вещество, назвать их не может. Для подбора форма
+            сворачивается до четырёх полей выше. */}
+        {!analogMode && (
+          <>
+          {/* Требования участвуют в построении поисковых запросов только
+              без номера — там они второй якорь наравне с названием. При
+              известном номере вещество определено однозначно, и роль этого
+              поля выполняет «Чистота / грейд». */}
+          {!casValid && (
+            <Field
+              label="Требования к веществу"
+              hint="Номера нет — значит искать будут по этому описанию."
+            >
+              <Textarea
+                maxLength={4000}
+                placeholder="Например: неионогенный загуститель для шампуня, вязкость 4000–6000 сП, pH 5–7"
+                value={specification}
+                onChange={(event) => setSpecification(event.target.value)}
               />
             </Field>
           )}
-          {/* Число и единица — одно значение, поэтому и поле одно: иначе
-              единица отрывается от своего числа при переносе строки. */}
-          <Field className="field-volume" label="Требуемый объём">
-            <div className="volume-input">
+
+          <div className="row row-compact">
+            {/* ТЗ называет на входе чистоту, поэтому она первая и числом:
+                закупщик проверяет её именно так — «не ниже 99». Грейд идёт
+                уточнением и остаётся необязательным. */}
+            <Field className="field-narrow" label="Чистота не ниже, %">
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step="0.1"
+                placeholder="99"
+                value={purityPercent}
+                onChange={(event) => setPurityPercent(event.target.value)}
+              />
+            </Field>
+            <Field className="field-grade" label="Грейд / стандарт">
+              <Select value={grade} options={GRADES} onChange={setGrade} />
+            </Field>
+            {grade === "other" && (
+              <Field className="field-grade" label="Какой именно">
+                <Input
+                  placeholder="например, Ph. Eur. + FCC"
+                  value={gradeOther}
+                  onChange={(event) => setGradeOther(event.target.value)}
+                />
+              </Field>
+            )}
+            {/* Число и единица — одно значение, поэтому и поле одно: иначе
+                единица отрывается от своего числа при переносе строки. */}
+            <Field className="field-volume" label="Требуемый объём">
+              <div className="volume-input">
+                <Input
+                  type="number"
+                  min={0}
+                  step="any"
+                  placeholder="500"
+                  value={volumeAmount}
+                  onChange={(event) => setVolumeAmount(event.target.value)}
+                />
+                <Select
+                  className="volume-unit"
+                  ariaLabel="Единица измерения"
+                  value={volumeUnit}
+                  options={VOLUME_UNITS}
+                  onChange={setVolumeUnit}
+                />
+              </div>
+            </Field>
+            <Field className="field-narrow" label="Ориентир цены">
               <Input
                 type="number"
                 min={0}
                 step="any"
-                placeholder="500"
-                value={volumeAmount}
-                onChange={(event) => setVolumeAmount(event.target.value)}
+                placeholder="не обязательно"
+                value={targetPrice}
+                onChange={(event) => setTargetPrice(event.target.value)}
               />
+            </Field>
+            <Field className="field-unit" label="Валюта">
               <Select
-                className="volume-unit"
-                ariaLabel="Единица измерения"
-                value={volumeUnit}
-                options={VOLUME_UNITS}
-                onChange={setVolumeUnit}
+                value={currency}
+                options={CURRENCIES}
+                onChange={setCurrency}
               />
-            </div>
-          </Field>
-          <Field className="field-narrow" label="Ориентир цены">
-            <Input
-              type="number"
-              min={0}
-              step="any"
-              placeholder="не обязательно"
-              value={targetPrice}
-              onChange={(event) => setTargetPrice(event.target.value)}
-            />
-          </Field>
-          <Field className="field-unit" label="Валюта">
-            <Select
-              value={currency}
-              options={CURRENCIES}
-              onChange={setCurrency}
-            />
-          </Field>
-          <Field className="field-unit" label="За единицу">
-            <Select
-              value={targetPriceUnit}
-              options={VOLUME_UNITS}
-              onChange={setTargetPriceUnit}
-            />
-          </Field>
+            </Field>
+            <Field className="field-unit" label="За единицу">
+              <Select
+                value={targetPriceUnit}
+                options={VOLUME_UNITS}
+                onChange={setTargetPriceUnit}
+              />
+            </Field>
+            <Field
+              className="field-narrow"
+              label="Базис ориентира"
+              hint="Отклонение считается только при точном совпадении валюты, единицы и Incoterm."
+            >
+              <Input
+                maxLength={24}
+                placeholder="CIP"
+                value={targetPriceIncoterm}
+                onChange={(event) =>
+                  setTargetPriceIncoterm(event.target.value.toUpperCase())
+                }
+              />
+            </Field>
+          </div>
+
           <Field
-            className="field-narrow"
-            label="Базис ориентира"
-            hint="Отклонение считается только при точном совпадении валюты, единицы и Incoterm."
+            label="Область применения"
+            hint="Для чего вещество нужно. Уходит в письмо поставщику: по применению он подскажет подходящий грейд."
           >
-            <Input
-              maxLength={24}
-              placeholder="CIP"
-              value={targetPriceIncoterm}
-              onChange={(event) =>
-                setTargetPriceIncoterm(event.target.value.toUpperCase())
-              }
+            <Textarea
+              maxLength={1000}
+              placeholder="Например: эмульгатор для битумной эмульсии"
+              value={application}
+              onChange={(event) => setApplication(event.target.value)}
             />
           </Field>
-        </div>
 
-        <Field
-          label="Область применения"
-          hint="Для чего вещество нужно. Уходит в письмо поставщику: по применению он подскажет подходящий грейд."
-        >
-          <Textarea
-            maxLength={1000}
-            placeholder="Например: эмульгатор для битумной эмульсии"
-            value={application}
-            onChange={(event) => setApplication(event.target.value)}
-          />
-        </Field>
+          <Field
+            label="Комментарий специалиста"
+            hint="Внутренняя заметка по позиции. Поставщику не отправляется."
+            className="comment-field"
+          >
+            <Textarea
+              maxLength={4000}
+              placeholder="Например: в прошлый раз брали у казанского завода, качество устроило"
+              value={specialistComment}
+              onChange={(event) => setSpecialistComment(event.target.value)}
+            />
+          </Field>
 
-        <Field
-          label="Комментарий специалиста"
-          hint="Внутренняя заметка по позиции. Поставщику не отправляется."
-          className="comment-field"
-        >
-          <Textarea
-            maxLength={4000}
-            placeholder="Например: в прошлый раз брали у казанского завода, качество устроило"
-            value={specialistComment}
-            onChange={(event) => setSpecialistComment(event.target.value)}
-          />
-        </Field>
-
-        <div className="field">
-          <label>Страны поиска</label>
-          <div className="checks">
-            {COUNTRY_OPTIONS.map((country) => (
-              <label key={country}>
-                <input
-                  type="checkbox"
-                  checked={countries.includes(country)}
-                  onChange={() => toggleCountry(country)}
-                />
-                {country}
-              </label>
-            ))}
+          <div className="field">
+            <label>Страны поиска</label>
+            <div className="checks">
+              {COUNTRY_OPTIONS.map((country) => (
+                <label key={country}>
+                  <input
+                    type="checkbox"
+                    checked={countries.includes(country)}
+                    onChange={() => toggleCountry(country)}
+                  />
+                  {country}
+                </label>
+              ))}
+            </div>
+            {countries.length === 0 && (
+              <span className="error">Выберите хотя бы одну страну.</span>
+            )}
           </div>
-          {countries.length === 0 && (
-            <span className="error">Выберите хотя бы одну страну.</span>
-          )}
-        </div>
 
-        {/* Не Field: тот оборачивает содержимое в label, а каждый режим —
-            сам label со своей радиокнопкой, и вложенные label ломают
-            разметку. */}
-        <div className="field">
-          <div className="heading-with-help">
-            <label>Насколько тщательно искать</label>
-            <HelpTip text="Режим задаёт, сколько компаний агент откроет и проверит в каждой стране. Это объём проверки, а не обещание результата: производителем оказывается не всякая проверенная компания, остальные — торговые дома, площадки и справочники. Число поисковых запросов режим не меняет." />
+          {/* Не Field: тот оборачивает содержимое в label, а каждый режим —
+              сам label со своей радиокнопкой, и вложенные label ломают
+              разметку. */}
+          <div className="field">
+            <div className="heading-with-help">
+              <label>Насколько тщательно искать</label>
+              <HelpTip text="Режим задаёт, сколько компаний агент откроет и проверит в каждой стране. Это объём проверки, а не обещание результата: производителем оказывается не всякая проверенная компания, остальные — торговые дома, площадки и справочники. Число поисковых запросов режим не меняет." />
+            </div>
+            <div className="search-modes">
+              {SEARCH_MODES.map((mode) => (
+                <label
+                  key={mode.key}
+                  className={`search-mode${searchMode === mode.key ? " active" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="search-mode"
+                    value={mode.key}
+                    checked={searchMode === mode.key}
+                    onChange={() => setSearchMode(mode.key)}
+                  />
+                  <span className="search-mode-label">{mode.label}</span>
+                  <span className="search-mode-hint">{mode.hint}</span>
+                </label>
+              ))}
+            </div>
           </div>
-          <div className="search-modes">
-            {SEARCH_MODES.map((mode) => (
-              <label
-                key={mode.key}
-                className={`search-mode${searchMode === mode.key ? " active" : ""}`}
-              >
-                <input
-                  type="radio"
-                  name="search-mode"
-                  value={mode.key}
-                  checked={searchMode === mode.key}
-                  onChange={() => setSearchMode(mode.key)}
-                />
-                <span className="search-mode-label">{mode.label}</span>
-                <span className="search-mode-hint">{mode.hint}</span>
-              </label>
-            ))}
-          </div>
-        </div>
 
-        <div className="field">
-          <div className="heading-with-help">
-            <label>Условия поставки</label>
-            <HelpTip text="Базис поставки говорит, до какого места везёт поставщик и с какого места расходы и риск переходят к покупателю. Наведите на код в списке — увидите, кто что делает. Выбранные базисы уходят в письмо, и поставщик называет цену по каждому. Условие, которого нет в списке, впишите прямо в поле: оно уйдёт как есть, а место поставки поставщик подтвердит в ответе. Стоимость доставки программа не рассчитывает — её называет поставщик." />
+          <div className="field">
+            <div className="heading-with-help">
+              <label>Условия поставки</label>
+              <HelpTip text="Базис поставки говорит, до какого места везёт поставщик и с какого места расходы и риск переходят к покупателю. Наведите на код в списке — увидите, кто что делает. Выбранные базисы уходят в письмо, и поставщик называет цену по каждому. Условие, которого нет в списке, впишите прямо в поле: оно уйдёт как есть, а место поставки поставщик подтвердит в ответе. Стоимость доставки программа не рассчитывает — её называет поставщик." />
+            </div>
+            <IncotermPicker values={incoterms} onChange={setIncoterms} />
           </div>
-          <IncotermPicker values={incoterms} onChange={setIncoterms} />
-        </div>
+          </>
+        )}
 
         <div className="actions">
           <button

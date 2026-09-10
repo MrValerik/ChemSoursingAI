@@ -153,6 +153,8 @@ export interface RFQRead {
   name: string;
   analog_reference: string | null;
   analog_variations: string[] | null;
+  /** Чем заменять нельзя: запрет закупщика, который читает подбор. */
+  analog_constraints: string | null;
   specification: string | null;
   confirmed_synonyms: string[] | null;
   excluded_names: string[] | null;
@@ -1522,6 +1524,16 @@ export interface RfqAnalogs {
   suggested_at: string | null;
   warnings: string[];
   candidates: RfqAnalogCandidate[];
+}
+
+/** Условия закупки для запросов, заводимых по выбранным аналогам. */
+export interface RfqAnalogTerms {
+  incoterms: string[];
+  search_countries: string[];
+  volume?: string | null;
+  purity?: string | null;
+  target_price?: number | null;
+  currency?: string | null;
 }
 
 export interface RfqAnalogConfirmResult {

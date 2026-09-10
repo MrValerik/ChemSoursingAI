@@ -38,7 +38,10 @@ def _headers(client: TestClient, username: str = "ivanov") -> dict:
 def _stub_suggestion(monkeypatch, *candidates: AnalogCandidate, warnings=()) -> None:
     """Подменяет сетевую ступень: тест проверяет поток, а не выдачу."""
 
-    def _suggest(name, *, cas=None, specification=None, llm=None):
+    def _suggest(
+        name, *, cas=None, specification=None, application=None,
+        constraints=None, llm=None,
+    ):
         return AnalogSuggestion(
             query=name,
             candidates=list(candidates),
@@ -298,5 +301,100 @@ def test_auditor_cannot_start_a_suggestion(client):
         ).status_code
         == 403
     )
+
+    _cleanup(rfq_id)
+
+
+def test_analog_request_needs_neither_countries_nor_incoterms(client):
+    """Форма подбора их не спрашивает: пока неизвестно вещество, спрашивать нечего."""
+    headers = _headers(client)
+    response = client.post(
+        "/rfq?verify=false&start_search=true",
+        json={
+            "identification_method": "analog",
+            "name": "Ксантановая камедь",
+            "application": "загуститель для буровых растворов",
+            "analog_constraints": "без животного происхождения",
+            "incoterms": [],
+            "search_countries": [],
+        },
+        headers=headers,
+    )
+    assert response.status_code in (200, 201), response.text
+    body = response.json()
+    assert body["identification_method"] == "analog"
+    # Ограничение закупщика доезжает до карточки: подбор читает его, и на
+    # экране должно быть видно, чем он ограничен.
+    assert body["analog_constraints"] == "без животного происхождения"
+
+    # Обычному запросу страна по-прежнему нужна сразу: без неё поиск не
+    # знает, чей рынок обходить.
+    refused = client.post(
+        "/rfq?verify=false&start_search=false",
+        json={
+            "identification_method": "spec",
+            "name": "Бетаин",
+            "incoterms": ["CIP"],
+            "search_countries": [],
+        },
+        headers=headers,
+    )
+    assert refused.status_code == 422
+
+    _cleanup(body["id"])
+
+
+def test_terms_are_asked_at_the_choice_and_reach_the_created_requests(
+    client, monkeypatch
+):
+    """Условия закупки называются, когда уже понятно, что закупают."""
+    headers = _headers(client)
+    created = client.post(
+        "/rfq?verify=false&start_search=true",
+        json={
+            "identification_method": "analog",
+            "name": "Ксантановая камедь",
+            "incoterms": [],
+            "search_countries": [],
+        },
+        headers=headers,
+    ).json()
+    rfq_id = created["id"]
+    _stub_suggestion(
+        monkeypatch,
+        AnalogCandidate(
+            name="Гуаровая камедь",
+            reason="Тот же загуститель.",
+            quote="guar gum",
+            source_url="https://example.test/1",
+        ),
+    )
+    candidates = client.post(
+        f"/rfq/{rfq_id}/analogs/suggest", headers=headers
+    ).json()["candidates"]
+
+    confirmed = client.post(
+        f"/rfq/{rfq_id}/analogs/confirm?start_search=false",
+        json={
+            "candidate_ids": [candidates[0]["id"]],
+            "terms": {
+                "incoterms": ["FCA", "EXW"],
+                "search_countries": ["Индия"],
+                "volume": "20 t",
+                "target_price": 3.4,
+                "currency": "USD",
+            },
+        },
+        headers=headers,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    batch = confirmed.json()["batch"]
+
+    with SessionLocal() as db:
+        child = db.query(RFQ).filter(RFQ.batch_id == batch["batch_id"]).one()
+        assert child.incoterms == ["FCA", "EXW"]
+        assert child.search_countries == ["Индия"]
+        assert child.volume == "20 t"
+        assert float(child.target_price) == 3.4
 
     _cleanup(rfq_id)

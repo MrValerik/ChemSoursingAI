@@ -447,6 +447,46 @@ h1, h2, h3 {
   line-height: 1.45;
 }
 
+/* Карточка подбора: своя шапка и свои вкладки. Ширину держим общую с
+   обычной карточкой запроса — это тот же экран, а не отдельный раздел. */
+.analog-page .tabs { margin-bottom: 14px; }
+.analog-page .panel h3 { margin: 0 0 10px; font-size: 14px; }
+.analog-page .panel h4 { margin: 0; font-size: 13px; }
+
+/* Условия закупки для заводимых запросов. Стоят под списком кандидатов и
+   над кнопкой: их называют последними, уже выбрав вещества. */
+.analog-terms {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.analog-terms-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 10px;
+}
+.analog-terms .field { margin-bottom: 0; }
+.analog-terms .field + .field { margin-top: 12px; }
+
+.analog-created-table {
+  width: 100%;
+  margin-top: 12px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.analog-created-table th,
+.analog-created-table td {
+  padding: 7px 10px 7px 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.analog-created-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.analog-created-reason { color: var(--muted); line-height: 1.45; }
+
 /* Подбор аналогов в карточке запроса. Первая ступень: пока замена не
    выбрана, поиска компаний нет — вкладка «Поиск и проверка» показывает
    этот блок вместо него. */

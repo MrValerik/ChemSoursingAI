@@ -32,6 +32,10 @@ class RFQCreate(BaseModel):
     name: str = Field(..., examples=["Acetylsalicylic acid"])
     analog_reference: str | None = Field(default=None, max_length=255)
     analog_variations: list[AnalogVariation] = Field(default_factory=list)
+    # Чем заменять нельзя. Единственная граница, которую подбор не выведет
+    # сам: «без животного происхождения» или «только пищевой грейд» знает
+    # закупщик, а страница-сравнение об этом не пишет.
+    analog_constraints: str | None = Field(default=None, max_length=2000)
     specification: str | None = Field(default=None, max_length=4000)
     confirmed_synonyms: list[str] = Field(default_factory=list, max_length=50)
     excluded_names: list[str] = Field(default_factory=list, max_length=50)
@@ -39,7 +43,6 @@ class RFQCreate(BaseModel):
     channels: list[str] = Field(default_factory=list, examples=[["email"]])
     search_countries: list[str] = Field(
         default_factory=lambda: ["Китай"],
-        min_length=1,
         max_length=3,
         examples=[["Россия", "Китай", "Индия"]],
     )
@@ -80,7 +83,13 @@ class RFQCreate(BaseModel):
         Свой базис сверх справочника разрешён: закупщик вписал его в
         форме руками и видит, что отправляет. Проверяется только форма
         записи — место поставки такому базису не назначается.
+
+        Пустой список отвергает не это поле, а перекрёстная проверка ниже:
+        запросу на подбор аналога базис не нужен — его выбирают, когда по
+        выбранным веществам заводятся настоящие запросы.
         """
+        if not values:
+            return []
         return normalize_incoterms(values, allow_custom=True)
 
     @field_validator("search_countries")
@@ -96,8 +105,9 @@ class RFQCreate(BaseModel):
             if key not in seen:
                 seen.add(key)
                 countries.append(country)
-        if not countries:
-            raise ValueError("Выберите хотя бы одну страну поиска")
+        # Пустой список отвергает не это поле, а перекрёстная проверка ниже:
+        # запросу на подбор аналога страны не нужны — их выбирают, когда по
+        # выбранным веществам заводятся настоящие запросы.
         return countries
 
     @model_validator(mode="after")
@@ -125,6 +135,14 @@ class RFQCreate(BaseModel):
         # система сама подбирает вещества-заменители, а закупщик выбирает
         # из них. Раньше здесь требовалось поле «эталон» — при подборе оно
         # всегда повторяло бы название и спрашивать его стало неоткуда.
+        if self.identification_method != "analog" and not self.incoterms:
+            raise ValueError("Отметьте хотя бы одно условие поставки")
+        if self.identification_method != "analog" and not self.search_countries:
+            # Обычному запросу страна нужна сразу: без неё поиск не знает,
+            # чей рынок обходить. Запросу на подбор — нет: он поставщиков
+            # не ищет, а страны спрашиваются при заведении запросов по
+            # выбранным аналогам, когда уже понятно, что закупают.
+            raise ValueError("Выберите хотя бы одну страну поиска")
         # Запрос без номера описания не требует: «нет CAS» перестало означать
         # «молекула неизвестна». Номера нет у смесей и промышленных продуктов,
         # но название у них есть, и поиск по группе названий на нём работает.
@@ -142,6 +160,7 @@ class RFQRead(BaseModel):
     name: str
     analog_reference: str | None = None
     analog_variations: list[str] | None = None
+    analog_constraints: str | None = None
     specification: str | None = None
     confirmed_synonyms: list[str] | None = None
     excluded_names: list[str] | None = None

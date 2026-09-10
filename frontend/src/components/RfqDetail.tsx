@@ -8,7 +8,6 @@ import { api, userErrorMessage } from "../api/client";
 import type { PriceHistoryItem, RFQRead, SearchRunListItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import DispatchTab from "./DispatchTab";
-import AnalogPicker from "./AnalogPicker";
 import SupplierSearchSection from "./SupplierSearchSection";
 import SuppliersTab from "./SuppliersTab";
 import Summary from "./Summary";
@@ -522,29 +521,12 @@ export default function RfqDetail({
           </div>
 
           {tab === "overview" && <OverviewTab rfq={rfq} />}
-          {/* Запрос на аналог поставщиков не ищет: у него ещё нет вещества,
-              которое закупают. Вместо поиска — подбор замен и выбор
-              закупщика; поиск компаний идёт уже по заведённым из них
-              запросам.
-
-              Исключение — карточки, заведённые до перехода на подбор: у
-              них поиск уже отработал одноступенчатым режимом, и подменить
-              им вкладку значило бы отобрать готовый результат. Признак —
-              наличие прогонов: у нового запроса на аналог их не бывает. */}
-          {tab === "supplier_search" &&
-            (rfq.identification_method === "analog" && searchRuns.length === 0 ? (
-              <AnalogPicker
-                rfqId={rfq.id}
-                name={rfq.name}
-                onBatchCreated={(id) => navigate(`/requests/batch/${id}`)}
-                onOpenRfq={(id) => navigate(`/requests/${id}`)}
-              />
-            ) : (
-              <SupplierSearchSection
-                rfq={rfq}
-                onOpenSubstance={onOpenSubstance}
-              />
-            ))}
+          {tab === "supplier_search" && (
+            <SupplierSearchSection
+              rfq={rfq}
+              onOpenSubstance={onOpenSubstance}
+            />
+          )}
 
           {tab === "suppliers" && (
             <SuppliersTab rfqId={rfq.id} onGoToDispatch={() => setTab("dispatch")} />

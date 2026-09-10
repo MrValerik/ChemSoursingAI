@@ -242,3 +242,29 @@ def test_specification_anchors_the_query_for_items_without_a_number(monkeypatch)
     )
 
     assert any("440-460" in query for query in queries)
+
+
+def test_application_narrows_the_search_and_reaches_the_model(monkeypatch):
+    """Применение — не пожелание, а критерий подбора.
+
+    Без него выдача по «чем заменить ксантановую камедь» состоит из
+    кулинарных сравнений, и первый же боевой прогон 10.09.2026 вернул
+    желатин. Применение обязано попасть и в поисковый запрос, и в задание
+    модели — иначе отсечь такую замену нечем.
+    """
+    queries = _patch_search(
+        monkeypatch,
+        _snippets(("Thickeners", "https://example.test/t", "some text")),
+    )
+    llm = _StubLLM({"candidates": []})
+
+    suggest_analogs(
+        "Ксантановая камедь",
+        application="промышленный загуститель для буровых растворов",
+        constraints="без животного происхождения",
+        llm=llm,
+    )
+
+    assert any("буровых" in query for query in queries)
+    assert "буровых" in llm.calls[0]
+    assert "без животного происхождения" in llm.calls[0]
