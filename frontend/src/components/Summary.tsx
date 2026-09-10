@@ -39,29 +39,6 @@ const costCurrency = (row: SummaryRow) => row.cost_currency ?? row.currency;
 
 const pricePerUnit = (row: SummaryRow) => formatPrice(row.price, row.currency);
 
-const priceProvenanceLabel = (row: SummaryRow) => {
-  if (row.price_provenance === "supplier_reply") return "из ответа поставщика";
-  if (row.price_provenance === "test") return "тестовые данные";
-  return "введено вручную";
-};
-
-const deviationLabel = (value: number) =>
-  `${value > 0 ? "+" : ""}${new Intl.NumberFormat("ru-RU", {
-    maximumFractionDigits: 2,
-  }).format(value)}%`;
-
-const comparisonDirection = (value: number) =>
-  value > 0 ? "выше" : value < 0 ? "ниже" : "равно";
-
-const absoluteDeviationLabel = (
-  value: number,
-  currency: string | null,
-  unit: string | null,
-) =>
-  `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 4 }).format(
-    Math.abs(value),
-  )}${currency ? ` ${currency}` : ""}${unit ? `/${unit}` : ""}`;
-
 const documentsLabel = (row: SummaryRow) => {
   const documents = [row.has_coa ? "CoA" : null, row.has_tds ? "TDS" : null].filter(
     Boolean,
@@ -248,6 +225,74 @@ const readStoredColumns = (
   }
 };
 
+const csvCell = (value: string) => {
+  // Ответы поставщика — недоверенный ввод. Excel не должен выполнить значение
+  // ячейки как формулу, если оно начинается с =, +, - или @.
+  const safeValue = /^\s*[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safeValue.replace(/"/g, '""')}"`;
+};
+
+const exportColumnValue = (
+  column: SummaryColumnKey,
+  row: SummaryRow,
+  selectedQuotationId: number | null,
+) => {
+  switch (column) {
+    case "decision":
+      return containsQuotation(row, selectedQuotationId) ? "выбрано" : "";
+    case "supplier":
+      return supplierName(row);
+    case "manufacturer":
+      return manufacturerRoleLabel(row);
+    case "country":
+      return row.origin_country ?? "";
+    case "packaging":
+      return row.packaging ?? "";
+    case "grade":
+      return row.grade ?? "";
+    case "hazmat":
+      return row.is_hazmat === null ? "" : row.is_hazmat ? "да" : "нет";
+    case "price":
+      return row.price === null ? "" : formatPrice(row.price, row.currency);
+    case "price_unit":
+      return row.price_unit ?? "";
+    case "quantity":
+      return row.quoted_quantity ?? "";
+    case "moq":
+      return row.moq ?? "";
+    case "purchase":
+      return row.total_price === null
+        ? ""
+        : formatPrice(row.total_price, costCurrency(row));
+    case "delivery":
+      return row.delivery_cost === null
+        ? ""
+        : formatPrice(row.delivery_cost, costCurrency(row));
+    case "duty":
+      return row.duty_cost === null
+        ? ""
+        : formatPrice(row.duty_cost, costCurrency(row));
+    case "vat":
+      return row.vat_cost === null
+        ? ""
+        : formatPrice(row.vat_cost, costCurrency(row));
+    case "landed":
+      return row.landed_cost === null
+        ? ""
+        : formatPrice(row.landed_cost, costCurrency(row));
+    case "incoterm":
+      return row.incoterm ?? "";
+    case "payment":
+      return row.payment_terms ?? "";
+    case "lead_time":
+      return row.lead_time ?? "";
+    case "documents":
+      return documentsLabel(row);
+    case "status":
+      return row.is_complete ? "полная" : "неполная";
+  }
+};
+
 export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const { user } = useAuth();
   const readOnly = user?.role === "auditor";
@@ -258,7 +303,6 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   );
   const [decisionNote, setDecisionNote] = useState("");
   const [onlyComplete, setOnlyComplete] = useState(false);
-  const [historyDays, setHistoryDays] = useState(365);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -317,7 +361,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
     let cancelled = false;
     setLoading(true);
     Promise.all([
-      api.getSummary(rfq.id, historyDays),
+      api.getSummary(rfq.id),
       api.getPurchaseDecision(rfq.id),
     ])
       .then(([summaryRows, savedDecision]) => {
@@ -345,7 +389,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [rfq.id, refreshKey, historyDays]);
+  }, [rfq.id, refreshKey]);
 
   const shown = onlyComplete ? rows.filter((row) => row.is_complete) : rows;
   const selectedRow =
@@ -359,6 +403,10 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const visibleWebsiteColumns = useMemo(
     () => SUMMARY_COLUMNS.filter(({ key }) => websiteColumns.includes(key)),
     [websiteColumns],
+  );
+  const selectedDownloadColumns = useMemo(
+    () => SUMMARY_COLUMNS.filter(({ key }) => downloadColumns.includes(key)),
+    [downloadColumns],
   );
   const visibleTableWidth = useMemo(
     () => visibleWebsiteColumns.reduce((total, column) => total + column.width, 0),
@@ -506,7 +554,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
         editingRow.quotation_id,
         quotationChanges,
       );
-      const updatedRows = await api.getSummary(rfq.id, historyDays);
+      const updatedRows = await api.getSummary(rfq.id);
       setRows(updatedRows);
       setEditingQuotationId(null);
       setEditDraft(null);
@@ -537,34 +585,32 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
     );
   };
 
-  const downloadSummary = async (mode: "detailed" | "compact") => {
-    setError(null);
-    try {
-      const blob = await api.exportSummary(
-        rfq.id,
-        mode,
-        historyDays,
-        mode === "detailed" ? downloadColumns : undefined,
-      );
+  const downloadSummary = () => {
+    if (shown.length === 0 || selectedDownloadColumns.length === 0) return;
+    const csvRows = [
+      selectedDownloadColumns.map(({ label }) => csvCell(label)).join(";"),
+      ...shown.map((row) =>
+        selectedDownloadColumns
+          .map(({ key }) =>
+            csvCell(exportColumnValue(key, row, selectedQuotationId)),
+          )
+          .join(";"),
+      ),
+    ];
+    const blob = new Blob(["\uFEFF", csvRows.join("\r\n")], {
+      type: "text/csv;charset=utf-8",
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-      anchor.download =
-        mode === "detailed"
-          ? `rfq-${rfq.id}-summary.csv`
-          : `rfq-${rfq.id}-selected.csv`;
+    anchor.download = `rfq-${rfq.id}-summary.csv`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-      setNotice(
-        mode === "detailed"
-          ? "Подробный CSV скачан."
-          : "Компактный CSV выбранного предложения скачан.",
-      );
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
+    setNotice(
+      `Таблица скачана: ${selectedDownloadColumns.length} столбцов, ${shown.length} предложений.`,
+    );
   };
 
   const renderInlineEditor = (
@@ -768,84 +814,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
       case "hazmat":
         return row.is_hazmat === null ? "—" : row.is_hazmat ? "да" : "нет";
       case "price":
-        return (
-          <div className="summary-inline-stack">
-            <span>{pricePerUnit(row)}</span>
-            <small className="note">{priceProvenanceLabel(row)}</small>
-            {row.target_comparison_status === "comparable" &&
-              row.target_price_deviation_percent !== null &&
-              row.target_price_deviation !== null && (
-                <span
-                  className={`badge ${
-                    row.target_price_deviation_percent <= 0
-                      ? "tone-ok"
-                      : "tone-warn"
-                  }`}
-                  title={row.target_comparison_reason}
-                >
-                  к ориентиру: {comparisonDirection(row.target_price_deviation)}{" "}
-                  {absoluteDeviationLabel(
-                    row.target_price_deviation,
-                    row.currency,
-                    row.price_unit,
-                  )}{" "}
-                  ({deviationLabel(row.target_price_deviation_percent)})
-                </span>
-              )}
-            {row.target_comparison_status === "not_comparable" && (
-              <span className="badge tone-warn" title={row.target_comparison_reason}>
-                к ориентиру: несопоставимо
-              </span>
-            )}
-            {row.historical_comparison_status === "comparable" &&
-              row.historical_price_deviation_percent !== null &&
-              row.historical_price_deviation !== null && (
-                <span
-                  className="badge tone-info"
-                  title={`${row.historical_comparison_reason} Медиана ${formatPrice(
-                    row.historical_price,
-                    row.historical_currency,
-                  )}/${row.historical_price_unit}; диапазон ${formatPrice(
-                    row.historical_min_price,
-                    row.historical_currency,
-                  )}–${formatPrice(
-                    row.historical_max_price,
-                    row.historical_currency,
-                  )}; наблюдений: ${row.historical_sample_size}.`}
-                >
-                  к медиане истории: {comparisonDirection(row.historical_price_deviation)}{" "}
-                  {absoluteDeviationLabel(
-                    row.historical_price_deviation,
-                    row.historical_currency,
-                    row.historical_price_unit,
-                  )}{" "}
-                  ({deviationLabel(row.historical_price_deviation_percent)}), n={row.historical_sample_size}
-                </span>
-              )}
-            {row.historical_comparison_status === "comparable" && (
-              <small className="note">
-                история: медиана {formatPrice(
-                  row.historical_price,
-                  row.historical_currency,
-                )}/{row.historical_price_unit}; диапазон {formatPrice(
-                  row.historical_min_price,
-                  row.historical_currency,
-                )}–{formatPrice(
-                  row.historical_max_price,
-                  row.historical_currency,
-                )}
-              </small>
-            )}
-            {row.historical_comparison_status === "not_comparable" && (
-              <span
-                className="badge tone-neutral"
-                title={row.historical_comparison_reason}
-              >
-                к истории: несопоставимо
-              </span>
-            )}
-          </div>
-        );
+        return pricePerUnit(row);
       case "price_unit":
         return row.price_unit ?? "—";
       case "quantity":
@@ -887,25 +856,9 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
             <h2>Сводная сравнительная таблица</h2>
             <p className="note">
               Сравните условия и вручную отметьте предложение для итоговой закупки.
-              Отклонения считаются только при точном совпадении валюты, единицы
-              цены и Incoterm; автоматических пересчётов нет.
             </p>
           </div>
           <div className="summary-heading-actions">
-            <label className="summary-complete-filter">
-              История
-              <select
-                aria-label="Период истории цен"
-                className="ui-control"
-                value={historyDays}
-                onChange={(event) => setHistoryDays(Number(event.target.value))}
-              >
-                <option value={365}>1 год</option>
-                <option value={730}>2 года</option>
-                <option value={1825}>5 лет</option>
-                <option value={3650}>10 лет</option>
-              </select>
-            </label>
             <label className="summary-complete-filter">
               <input
                 checked={onlyComplete}
@@ -930,21 +883,9 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
               className="secondary"
               disabled={shown.length === 0}
               type="button"
-              onClick={() => void downloadSummary("detailed")}
+              onClick={downloadSummary}
             >
-              Подробный CSV
-            </button>
-            <button
-              className="secondary"
-              type="button"
-              onClick={() => void downloadSummary("compact")}
-              title={
-                decision
-                  ? "Скачать только вручную выбранное предложение"
-                  : "Сначала сохраните выбранное предложение в истории"
-              }
-            >
-              Компактный CSV
+              Скачать CSV
             </button>
             <button
               aria-haspopup="dialog"
@@ -1178,7 +1119,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
             rfq={rfq}
             onStatusChanged={() => {
               void api
-                .getSummary(rfq.id, historyDays)
+                .getSummary(rfq.id)
                 .then(setRows)
                 .catch((caught) => {
                   setError(
@@ -1208,8 +1149,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
               <div>
                 <h2 id="summary-columns-title">Настройка столбцов</h2>
                 <p className="note" id="summary-columns-description">
-                  Отдельно выберите данные для экрана и подробного CSV.
-                  Компактный CSV всегда имеет фиксированный договорной формат.
+                  Отдельно выберите данные для экрана и для скачиваемого CSV.
                   Настройки сохраняются в этом браузере.
                 </p>
               </div>
@@ -1266,7 +1206,7 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
               </fieldset>
 
               <fieldset className="summary-columns-section">
-                <legend>В подробном CSV</legend>
+                <legend>При скачивании таблицы</legend>
                 <div className="summary-columns-section-heading">
                   <span className="note">
                     Выбрано: {downloadColumns.length} из {SUMMARY_COLUMNS.length}
@@ -1302,8 +1242,8 @@ export default function Summary({ rfq, refreshKey = 0 }: Props) {
 
             <footer className="summary-columns-dialog-footer">
               <span className="note">
-                Нельзя скрыть последний столбец. Сравнения и происхождение цены
-                сервер всегда добавляет в подробный CSV.
+                Нельзя скрыть последний столбец. Скачивание учитывает фильтр
+                «Только полные».
               </span>
               <button type="button" onClick={closeColumnSettings}>
                 Готово
