@@ -1174,6 +1174,43 @@ def test_communication_testing_can_simulate_supplier_for_manual_buyer(
     assert rejected.status_code == 422
 
 
+def test_supplier_simulation_repairs_mixed_russian_reply(client, monkeypatch):
+    admin = _login(client)
+    outputs = iter(
+        (
+            "We can предложить USD 720/MT, MOQ 100 kg, CIP Moscow.",
+            "We can offer USD 720/MT, MOQ 100 kg, CIP Moscow.",
+        )
+    )
+    calls = []
+
+    def fake_generate_text(self, **kwargs):
+        calls.append(kwargs)
+        return next(outputs)
+
+    monkeypatch.setattr(
+        "app.services.communication_testing.LLMClient.generate_text",
+        fake_generate_text,
+    )
+
+    response = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "procurement_context": "50 kg of ammonia",
+            "simulation_mode": "supplier_ai",
+            "initial_message": "Hello, please quote 50 kg of ammonia.",
+            "delivery_mode": "preview",
+        },
+        headers=admin,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["messages"][-1]["content"].startswith("We can offer")
+    assert len(calls) == 2
+    assert "CRITICAL LANGUAGE REPAIR" in calls[1]["additional_instructions"]
+
+
 def test_communication_testing_uses_saved_rfq_as_first_buyer_message(
     client, monkeypatch
 ):
@@ -1517,7 +1554,7 @@ def test_communication_testing_regenerates_non_english_reply_and_translates_it(
     admin = _login(client)
     generated = iter(
         (
-            "Здравствуйте. Сообщите, пожалуйста, цену и срок поставки.",
+            "Hello. Please confirm цену, grade, form and lead time.",
             "Hello. Please confirm CAS, grade, form, price and lead time.",
             "Здравствуйте. Сообщите, пожалуйста, цену и срок поставки.",
         )
@@ -1553,6 +1590,7 @@ def test_communication_testing_regenerates_non_english_reply_and_translates_it(
     assert "REQUIRED LANGUAGE" in llm_calls[0]["additional_instructions"]
     assert "предыдущая попытка" in llm_calls[1]["additional_instructions"]
     assert "строго соблюдай язык: английском" in llm_calls[1]["additional_instructions"]
+    assert "ни одного кириллического" in llm_calls[1]["additional_instructions"]
     translated = client.post(
         f"/communication-testing/{response.json()['id']}/translation",
         headers=admin,
@@ -1584,7 +1622,7 @@ def test_communication_testing_stops_send_after_two_non_english_replies(
 
     monkeypatch.setattr(
         "app.services.communication_testing.LLMClient.generate_text",
-        lambda self, **kwargs: "Здравствуйте. Сообщите цену и срок поставки.",
+        lambda self, **kwargs: "Hello. Please confirm цену and lead time.",
     )
     monkeypatch.setattr(
         "app.services.communication_testing.EmailConnector.send",

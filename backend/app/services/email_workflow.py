@@ -38,6 +38,7 @@ from app.services.completeness import accumulate_quotations
 from app.services.communication_policy import classify_supplier_message
 from app.services.communication_links import link_communication_to_rfqs
 from app.services.communication_llm import communication_llm_client
+from app.services.communication_language import message_language_matches
 from app.services.communication_profiles import (
     budget_escalation_note,
     finalize_usage,
@@ -254,6 +255,8 @@ def _render_followup(
             ),
             additional_instructions=(
                 "Подготовь только готовое письмо поставщику на английском языке. "
+                "Используй только латиницу: не оставляй кириллические или "
+                "китайские символы, переведи либо транслитерируй названия. "
                 "Не добавляй новые требования. "
                 "Запрашивай только перечисленные недостающие данные и не "
                 "повторяй уже полученные условия. Письмо обязательно должно "
@@ -265,7 +268,8 @@ def _render_followup(
         )
         normalized = generated.casefold()
         if not (
-            re.search(r"\b(?:dear|hello)\b", normalized)
+            message_language_matches(generated, "en")
+            and re.search(r"\b(?:dear|hello)\b", normalized)
             and "thank" in normalized
             and re.search(r"\b(?:best|kind) regards\b", normalized)
         ):

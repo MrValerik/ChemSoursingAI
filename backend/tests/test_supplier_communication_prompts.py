@@ -103,7 +103,10 @@ This is a test message.
     [
         ("Здравствуйте, сообщите цену 2000 USD/kg и пришлите CoA.", "ru", True),
         ("Hello, please provide your price and lead time.", "ru", False),
-        ("Hello, please quote аммиак CAS 7664-41-7.", "en", True),
+        ("Hello, please quote ammonia CAS 7664-41-7.", "en", True),
+        ("Hello, please quote аммиак CAS 7664-41-7.", "en", False),
+        ("Hello, please quote С18-С22 alcohol and provide CoA.", "en", False),
+        ("Hello, 请 provide your price and lead time.", "en", False),
         ("Здравствуйте, пришлите цену и срок поставки.", "en", False),
         ("您好，请提供价格和交货期。", "zh", True),
         ("Hello, please provide your price.", "zh", False),

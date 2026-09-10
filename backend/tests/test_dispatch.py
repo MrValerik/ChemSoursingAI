@@ -32,6 +32,7 @@ from app.services.communication_policy import CommunicationPolicyDecision
 from app.services.email_workflow import (
     _fallback_followup,
     _price_scope_needs_confirmation,
+    _render_followup,
     sync_inbox,
 )
 from app.services.quotation_reconciliation import reconcile_email_quotations
@@ -90,6 +91,38 @@ def test_followup_requests_price_for_original_quantity_when_supplier_quotes_moq(
     )
     assert "requested quantity of 500 kg" in body
     assert "production and delivery lead time" in body
+
+
+def test_followup_falls_back_when_llm_mixes_english_and_russian(monkeypatch):
+    rfq = SimpleNamespace(
+        id=52,
+        name="Water",
+        cas="7732-18-5",
+        volume="1000 kg",
+        verification=None,
+    )
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.get_rfq_prompt_context",
+        lambda *args, **kwargs: ("system prompt", ""),
+    )
+
+    class MixedLanguageLlm:
+        def generate_text(self, **kwargs):
+            return (
+                "Dear Supplier, thank you for your reply. Please confirm цену "
+                "and lead time. Best regards, Procurement Department"
+            )
+
+    body = _render_followup(
+        None,
+        rfq,
+        ["price", "lead_time"],
+        llm=MixedLanguageLlm(),
+    )
+
+    assert body == _fallback_followup(rfq, ["price", "lead_time"])
+    assert "цену" not in body
 
 
 def test_add_supplier_manually(client):

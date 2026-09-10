@@ -56,6 +56,9 @@ from app.services.cas import is_valid_cas, normalize_cas
 from app.services.demo_supplier_document import build_demo_coa_pdf
 from app.services.document_agent import verify_document
 from app.services.communication_llm import communication_llm_client
+from app.services.communication_language import (
+    message_language_matches as _message_language_matches,
+)
 from app.services.communication_reply_quality import REPLY_DISCIPLINE, grounded_reply_issue, reply_focus
 from app.services.document_storage import store_document
 from app.services.document_text import apply_extraction
@@ -76,9 +79,11 @@ _LANGUAGE_INSTRUCTIONS = {
     ),
     "en": (
         "THE REQUIRED LANGUAGE OF THE FINAL MESSAGE IS ENGLISH. Write the whole "
-        "supplier-facing message in English. Other languages may appear only in "
-        "product or company names. This requirement overrides any conflicting "
-        "default-language instruction."
+        "supplier-facing message in English and use Latin script throughout. Do "
+        "not output Cyrillic or Han characters, even inside product or company "
+        "names: translate or transliterate those names into Latin script. CAS "
+        "numbers, units and international abbreviations may remain unchanged. "
+        "This requirement overrides any conflicting default-language instruction."
     ),
     "zh": (
         "最终消息必须使用简体中文。面向供应商的完整消息都要用简体中文撰写；只有 CAS、"
@@ -93,15 +98,14 @@ _LANGUAGE_NAMES = {
     "zh": "китайском",
 }
 
-_CYRILLIC_WORD_RE = re.compile(r"[А-Яа-яЁё]{2,}")
-_LATIN_WORD_RE = re.compile(r"[A-Za-z]{2,}")
-_HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 
 _MAX_TRANSCRIPT_CHARS = 24_000
 _MAX_IDENTITY_CAS_NUMBERS = 10
 
 _SUPPLIER_SIMULATION_PROMPT = """
 You simulate a chemical supplier replying to a buyer's RFQ in English.
+Use Latin script only. Do not output Cyrillic or Han characters; translate or
+transliterate any foreign-language names needed in the reply.
 Use only the procurement context and conversation below. Give a concise,
 realistic commercial answer. Do not claim an attachment exists unless the buyer
 or context says so. Do not make up certificates, stock, company names, payment
@@ -627,18 +631,30 @@ def _generate_supplier_reply(
         client = llm or _communication_test_llm_client()
         run.model = getattr(client, "model", None)
         db.commit()
-        reply = _plain_text_message(
-            client.generate_text(
-                system_prompt=_SUPPLIER_SIMULATION_PROMPT,
-                user_text=_supplier_simulation_prompt(run),
-                additional_instructions=(
-                    "This is an internal preview only. Never address an external "
-                    "recipient and do not mention the simulation."
-                ),
-                max_tokens=512,
+
+        def generate(additional_instructions: str) -> str:
+            return _plain_text_message(
+                client.generate_text(
+                    system_prompt=_SUPPLIER_SIMULATION_PROMPT,
+                    user_text=_supplier_simulation_prompt(run),
+                    additional_instructions=additional_instructions,
+                    max_tokens=512,
+                )
+                or ""
             )
-            or ""
+
+        reply = generate(
+            "This is an internal preview only. Never address an external "
+            "recipient and do not mention the simulation."
         )
+        if reply and not _message_language_matches(reply, "en"):
+            reply = generate(
+                "CRITICAL LANGUAGE REPAIR: rewrite the reply entirely in "
+                "English and Latin script. Do not output a single Cyrillic or "
+                "Han character. Translate or transliterate every foreign-language "
+                "fragment. Return only the corrected supplier reply and do not "
+                "mention the repair or simulation."
+            )
     except LLMUnavailableError as exc:
         run.status = "llm_error"
         run.error = "Нейросеть-поставщик недоступна"
@@ -1060,25 +1076,21 @@ def _reply_quality_issue(
     return None
 
 
-def _message_language_matches(value: str, language: str) -> bool:
-    """Проверяет письменность ответа без отправки текста внешнему детектору."""
-    if language == "ru":
-        words = _CYRILLIC_WORD_RE.findall(value)
-        return len(words) >= 3 and sum(map(len, words)) >= 8
-    if language == "zh":
-        return len(_HAN_RE.findall(value)) >= 4
-    words = _LATIN_WORD_RE.findall(value)
-    return len(words) >= 3 and sum(map(len, words)) >= 8
-
-
 def _language_retry_instructions(run: CommunicationTestRun, *, stage: str) -> str:
-    return (
+    instructions = (
         f"{_generation_instructions(run, stage=stage)}\n\n"
         "КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: предыдущая попытка была написана не на "
         f"выбранном языке. Создай сообщение заново и строго соблюдай язык: "
         f"{_LANGUAGE_NAMES[run.reply_language]}. Не объясняй исправление и не "
         "упоминай предыдущую попытку."
     )
+    if run.reply_language == "en":
+        instructions += (
+            " В готовом тексте не должно быть ни одного кириллического или "
+            "китайского символа. Переведи либо транслитерируй на латиницу все "
+            "названия и фрагменты, которые были переданы на другом языке."
+        )
+    return instructions
 
 
 def _start_prompt(context: str) -> str:
