@@ -61,7 +61,11 @@ from app.services.integration_settings import (
     effective_email_settings,
     effective_whatsapp_settings,
 )
-from app.services.rfq_service import render_rfq_text
+from app.services.rfq_service import (
+    RFQLanguageError,
+    ensure_rfq_english,
+    render_rfq_text,
+)
 from app.services.quotation_service import purchase_history_read
 from app.services.supplier_registry import company_key
 
@@ -761,6 +765,10 @@ def dispatch(
             detail="Подтвердите реальную внешнюю отправку RFQ",
         )
     subject, body = render_rfq_text(rfq)
+    try:
+        ensure_rfq_english(subject, body)
+    except RFQLanguageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     subject = f"[RFQ-{rfq.id}] {subject}"
     sent_any = False
 

@@ -21,6 +21,8 @@ from app.models import (
     Manager,
     Quotation,
     QuotationFieldAudit,
+    RFQ,
+    RfqRecipient,
     SupplierDocument,
     User,
 )
@@ -277,6 +279,17 @@ def test_manual_rfq_draft_is_validated_persisted_and_dispatched(client):
     assert incomplete.status_code == 422
     assert blank.status_code == 422
 
+    mixed_language = client.put(
+        f"/rfq/{rfq['id']}/message-draft",
+        json={
+            "subject": "Quotation request for ethanol",
+            "body": "Dear Supplier, please confirm цену and lead time.",
+        },
+        headers=headers,
+    )
+    assert mixed_language.status_code == 422
+    assert "полностью на английском" in mixed_language.json()["detail"]
+
     custom_subject = "Custom quotation request for ethanol"
     custom_body = "Dear Supplier,\n\nPlease quote 50 kg of ethanol."
     saved = client.put(
@@ -330,6 +343,64 @@ def test_manual_rfq_draft_is_validated_persisted_and_dispatched(client):
     assert len(history) == 1
     assert history[0].subject == f"[RFQ-{rfq['id']}] {custom_subject}"
     assert history[0].body == custom_body
+
+
+def test_dispatch_blocks_legacy_non_english_rfq_before_delivery(client):
+    headers = _login(client)
+    supplier = client.post(
+        "/suppliers",
+        json={
+            "company": "Legacy RFQ Supplier",
+            "email": "legacy-rfq@supplier.example",
+        },
+        headers=headers,
+    ).json()
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={
+            "cas": "123-46-6",
+            "name": "Synthetic material",
+            "incoterms": ["CIP"],
+        },
+        headers=headers,
+    ).json()
+    recipients = client.post(
+        f"/rfq/{rfq['id']}/recipients",
+        json={"items": [{"supplier_id": supplier["id"], "channel": "email"}]},
+        headers=headers,
+    ).json()
+
+    with SessionLocal() as db:
+        stored = db.get(RFQ, rfq["id"])
+        assert stored is not None
+        stored.rfq_subject_override = "Quotation request for water"
+        stored.rfq_body_override = "Dear Supplier, please confirm цену and MOQ."
+        db.commit()
+
+    response = client.post(f"/rfq/{rfq['id']}/dispatch", headers=headers)
+
+    assert response.status_code == 422
+    assert "полностью на английском" in response.json()["detail"]
+    assert _communications(rfq["id"]) == []
+    with SessionLocal() as db:
+        recipient = db.get(RfqRecipient, recipients[0]["id"])
+        assert recipient is not None
+        assert recipient.status.value == "queued"
+
+
+def test_russian_rfq_name_uses_safe_english_cas_label(client):
+    headers = _login(client)
+
+    rfq = client.post(
+        "/rfq?verify=false",
+        json={"cas": "123-45-5", "name": "Тестовое вещество", "incoterms": ["CIP"]},
+        headers=headers,
+    ).json()
+
+    assert "Тестовое вещество" not in rfq["rfq_subject"]
+    assert "Тестовое вещество" not in rfq["rfq_body"]
+    assert "Requested substance" in rfq["rfq_subject"]
+    assert "CAS 123-45-5" in rfq["rfq_subject"]
 
 
 def test_purchase_decision_is_detailed_persisted_and_role_protected(client):

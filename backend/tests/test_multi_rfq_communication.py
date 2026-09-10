@@ -124,7 +124,7 @@ def test_combined_dispatch_requires_selected_recipients_and_is_idempotent() -> N
             batch=batch,
         )
         second = RFQ(
-            name="Citric acid",
+            name="Лимонная кислота",
             cas="77-92-9",
             volume="200 kg",
             incoterms=["CIP"],
@@ -167,6 +167,8 @@ def test_combined_dispatch_requires_selected_recipients_and_is_idempotent() -> N
         assert f"RFQ-{first.id}" in prepared.body
         assert f"RFQ-{second.id}" in prepared.body
         assert "not mixed between products" in prepared.body
+        assert "Лимонная кислота" not in prepared.body
+        assert "Requested substance" in prepared.body
 
         key = "b7f615eb-c044-4f85-aacd-0827611a7526"
         sent = dispatch_combined_message(

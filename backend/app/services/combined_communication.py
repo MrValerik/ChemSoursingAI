@@ -17,7 +17,11 @@ from app.models import Communication, Manager, PurchaseDecision, RFQ, RfqRecipie
 from app.models.enums import Channel, CommDirection, DispatchStatus, RFQStatus
 from app.services.communication_links import link_communication_to_rfqs
 from app.services.integration_settings import effective_email_settings, effective_whatsapp_settings
-from app.services.rfq_service import render_rfq_text
+from app.services.rfq_service import (
+    ensure_rfq_english,
+    external_rfq_name,
+    render_rfq_text,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +54,7 @@ def _combined_text(rfqs: list[RFQ], channel: Channel) -> tuple[str | None, str]:
         sections.extend(
             [
                 "",
-                f"--- Position {index}: RFQ-{rfq.id} · {rfq.name} ---",
+                f"--- Position {index}: RFQ-{rfq.id} · {external_rfq_name(rfq)} ---",
                 body.strip(),
             ]
         )
@@ -61,7 +65,9 @@ def _combined_text(rfqs: list[RFQ], channel: Channel) -> tuple[str | None, str]:
             "MOQ, grade, Incoterm, payment term, lead time and document.",
         ]
     )
-    return (subject if channel == Channel.EMAIL else None), "\n".join(sections)
+    body = "\n".join(sections)
+    ensure_rfq_english(subject, body)
+    return (subject if channel == Channel.EMAIL else None), body
 
 
 def combined_options(
@@ -206,6 +212,8 @@ def dispatch_combined_message(
     confirm_external_send: bool,
 ) -> Communication:
     """Сохраняет одну отправку и связывает её со всеми выбранными позициями."""
+
+    ensure_rfq_english(prepared.subject or "", prepared.body)
 
     rfq_ids = [rfq.id for rfq in prepared.rfqs]
     existing = db.scalar(

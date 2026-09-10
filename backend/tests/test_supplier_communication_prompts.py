@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.connectors.pubchem import SubstanceInfo
+from app.services.communication_language import english_text_uses_latin_script
 from app.services.communication_testing import (
     _message_language_matches,
     _plain_text_message,
@@ -114,6 +115,18 @@ This is a test message.
 )
 def test_message_language_matches_selected_script(generated, language, expected):
     assert _message_language_matches(generated, language) is expected
+
+
+@pytest.mark.parametrize(
+    ("generated", "expected"),
+    [
+        ("Request for quotation: Water (CAS 7732-18-5)", True),
+        ("Request for quotation: Вода (CAS 7732-18-5)", False),
+        ("Request for quotation: 水 (CAS 7732-18-5)", False),
+    ],
+)
+def test_external_rfq_requires_latin_script(generated, expected):
+    assert english_text_uses_latin_script(generated) is expected
 
 
 @pytest.mark.parametrize(

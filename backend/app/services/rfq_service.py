@@ -16,6 +16,7 @@ from app.models.enums import RFQStatus
 from app.models.rfq import RFQ
 from app.models.search_trace import SearchRun
 from app.schemas.rfq import RFQCreate
+from app.services.communication_language import english_text_uses_latin_script
 from app.services.rfq_builder import RFQInput, build_rfq
 from app.services.search_trace import cancel_search_run, utc_now
 from app.services.substance_service import (
@@ -25,6 +26,20 @@ from app.services.substance_service import (
 
 if TYPE_CHECKING:
     from app.models.substance import Substance
+
+
+class RFQLanguageError(ValueError):
+    """Тема или тело исходящего RFQ содержит неанглийский фрагмент."""
+
+
+def ensure_rfq_english(subject: str, body: str) -> None:
+    """Не позволяет сохранить или отправить RFQ с кириллицей либо иероглифами."""
+    if english_text_uses_latin_script(f"{subject}\n{body}"):
+        return
+    raise RFQLanguageError(
+        "RFQ должен быть полностью на английском языке. Переведите все "
+        "кириллические или китайские фрагменты перед сохранением и отправкой."
+    )
 
 
 def create_rfq(
@@ -213,7 +228,9 @@ def external_rfq_name(rfq: RFQ) -> str:
 
     usable_names = list(dict.fromkeys(item for item in candidates if usable(item)))
     if not usable_names:
-        return name
+        # Точный CAS безопаснее непроверенного перевода названия. Так первое
+        # письмо остаётся английским, не скрывая неопределённость идентичности.
+        return "Requested substance" if rfq.cas else name
     acid_names = [item for item in usable_names if "acid" in item.casefold()]
     return min(acid_names or usable_names, key=len)
 
@@ -226,6 +243,8 @@ def update_rfq_message_draft(
     body: str | None,
 ) -> RFQ:
     """Сохраняет ручной RFQ или очищает его, возвращая единый шаблон."""
+    if subject is not None and body is not None:
+        ensure_rfq_english(subject, body)
     rfq.rfq_subject_override = subject
     rfq.rfq_body_override = body
     db.commit()

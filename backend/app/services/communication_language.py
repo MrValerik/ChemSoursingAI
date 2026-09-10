@@ -26,3 +26,12 @@ def message_language_matches(value: str, language: str) -> bool:
         and _CYRILLIC_CHAR_RE.search(value) is None
         and _HAN_RE.search(value) is None
     )
+
+
+def english_text_uses_latin_script(value: str) -> bool:
+    """Проверяет отсутствие русских/китайских фрагментов в готовом тексте."""
+    return (
+        bool(re.search(r"[A-Za-z]", value))
+        and _CYRILLIC_CHAR_RE.search(value) is None
+        and _HAN_RE.search(value) is None
+    )

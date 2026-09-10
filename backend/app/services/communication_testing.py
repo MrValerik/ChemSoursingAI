@@ -57,6 +57,7 @@ from app.services.demo_supplier_document import build_demo_coa_pdf
 from app.services.document_agent import verify_document
 from app.services.communication_llm import communication_llm_client
 from app.services.communication_language import (
+    english_text_uses_latin_script,
     message_language_matches as _message_language_matches,
 )
 from app.services.communication_reply_quality import REPLY_DISCIPLINE, grounded_reply_issue, reply_focus
@@ -1336,6 +1337,13 @@ def run_communication_test(
             raise ValueError("Запрос для тестового диалога не найден")
 
     context = payload.scenario_text
+    if payload.initial_message and not english_text_uses_latin_script(
+        f"{payload.subject}\n{payload.initial_message}"
+    ):
+        raise ValueError(
+            "Первый RFQ должен быть полностью на английском языке. Переведите "
+            "кириллические или китайские фрагменты перед началом диалога."
+        )
     run = CommunicationTestRun(
         actor_id=actor.id,
         rfq_id=payload.rfq_id,

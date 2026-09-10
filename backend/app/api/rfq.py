@@ -78,6 +78,7 @@ from app.services.rfq_progress import (
     waiting_days,
 )
 from app.services.rfq_service import (
+    RFQLanguageError,
     archive_rfq,
     create_rfq,
     search_run_payload,
@@ -631,12 +632,15 @@ def update_message_draft(
         or not _can_see(user, rfq)
     ):
         raise HTTPException(status_code=404, detail="Запрос не найден")
-    update_rfq_message_draft(
-        db,
-        rfq,
-        subject=data.subject,
-        body=data.body,
-    )
+    try:
+        update_rfq_message_draft(
+            db,
+            rfq,
+            subject=data.subject,
+            body=data.body,
+        )
+    except RFQLanguageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _to_read(rfq)
 
 

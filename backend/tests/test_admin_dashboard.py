@@ -1614,6 +1614,26 @@ def test_communication_testing_regenerates_non_english_reply_and_translates_it(
     assert rejected_language.status_code == 422
 
 
+def test_communication_testing_rejects_non_english_initial_rfq(client):
+    admin = _login(client)
+
+    response = client.post(
+        "/communication-testing",
+        json={
+            "channel": "email",
+            "procurement_context": "50 kg ammonia, CAS 7664-41-7",
+            "initial_message": "Dear Supplier, please confirm цену and MOQ.",
+            "delivery_mode": "preview",
+        },
+        headers=admin,
+    )
+
+    assert response.status_code == 422
+    assert "Первый RFQ должен быть полностью на английском" in response.json()[
+        "detail"
+    ]
+
+
 def test_communication_testing_stops_send_after_two_non_english_replies(
     client, monkeypatch
 ):
