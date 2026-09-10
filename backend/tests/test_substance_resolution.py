@@ -883,3 +883,61 @@ def test_neighbouring_salt_with_a_real_number_loses_the_badge(monkeypatch):
     # осталась вовсе без названия, по которому можно спросить рынок.
     recommended = [item for item in result.candidates if item.recommended]
     assert [item.name for item in recommended] == ["Aluminium dihydroxide acetate"]
+
+
+def test_a_neighbouring_name_is_not_warned_about_twice(monkeypatch):
+    """У карточки «НЕ подходит» расхождение состава — определение, не находка.
+
+    Прогон 10.09.2026 по алюминиевой соли выдал три предупреждения о
+    составе, и два из них относились к кандидатам, уже помеченным как
+    другое вещество. Предупреждать о том, что другое вещество — другое,
+    значит топить в шуме единственное предупреждение, которое важно.
+    """
+    snippets = _snippets(
+        ("Алюминия ацетат", "https://ru.example/al", "Aluminum acetate CAS 139-12-8")
+    )
+
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+        def verify_cas(self, cas: str) -> SubstanceInfo:
+            return SubstanceInfo(
+                cas=cas,
+                found=True,
+                cid=8757,
+                iupac_name="aluminum triacetate",
+                molecular_formula="C6H9AlO6",
+            )
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+    monkeypatch.setattr(
+        substance_resolution, "search_web", lambda query, limit=8: list(snippets)
+    )
+    llm = _SequenceLLM(
+        [
+            {
+                "candidates": [
+                    {
+                        "name": "Aluminum acetate",
+                        "cas": "139-12-8",
+                        "relation": "different",
+                        "reason": "простой ацетат, другое вещество",
+                        "source_url": "https://ru.example/al",
+                        "quote": "Aluminum acetate CAS 139-12-8",
+                    }
+                ]
+            },
+            {"names": [{"name": "Aluminium dihydroxide acetate", "reason": "разбор"}]},
+        ]
+    )
+
+    result = resolve_substance("Дигидроксимоноацетат алюминия", llm=llm)
+
+    neighbour = next(
+        item for item in result.candidates if item.name == "Aluminum acetate"
+    )
+    # Формула показывается всё равно — она помогает увидеть разницу глазом.
+    assert neighbour.formula == "C6H9AlO6"
+    assert neighbour.formula_conflict is None
+    assert not any("от соседней соли" in text for text in result.warnings)
