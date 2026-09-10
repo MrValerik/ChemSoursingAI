@@ -47,6 +47,28 @@ logger = logging.getLogger(__name__)
 # Номер в свободном тексте: две-семь цифр, две цифры, одна контрольная.
 _CAS_PATTERN = re.compile(r"\b\d{2,7}-\d{2}-\d\b")
 
+_CYRILLIC_PATTERN = re.compile(r"[Ѐ-ӿ]")
+_LATIN_PATTERN = re.compile(r"[A-Za-z]")
+
+
+def has_cyrillic(text: str) -> bool:
+    """Название написано по-русски хотя бы частично.
+
+    Проверять это нужно до поиска, а не после. Рынок, на котором система ищет
+    поставщиков, русского написания не знает: 10.09.2026 «Дигидроксимоноацетат
+    алюминия» ушёл дословно и в кавычках во все девять запросов прогона, и все
+    девять вернули пустую выдачу. Прогон при этом упал с сообщением про
+    ограничение доступа к поисковику — неверный диагноз вдобавок к пустому
+    результату.
+    """
+    return bool(_CYRILLIC_PATTERN.search(text))
+
+
+def _is_international(name: str) -> bool:
+    """Название годится для внешнего поиска: латиница и никакой кириллицы."""
+    return bool(_LATIN_PATTERN.search(name)) and not has_cyrillic(name)
+
+
 # Сколько названий показывать. Список выбирают глазами, и длинный список
 # выбирать труднее, чем короткий: он превращается в ту же выдачу поисковика,
 # от которой мы уходим.
@@ -82,7 +104,13 @@ _SYSTEM_PROMPT = """Ты помогаешь специалисту по заку
   отличается.
 - У смесей, полимеров и INCI-названий номера может не быть в принципе. Это
   нормальный ответ, а не ошибка: верни кандидата без номера.
-- Не выдумывай названия, которых нет во фрагментах."""
+- Не выдумывай названия, которых нет во фрагментах.
+- Если введённое название написано по-русски, обязательно верни международное
+  написание — то, под которым вещество продают на внешнем рынке (английское,
+  INCI или систематическое). Ставь его первым кандидатом с relation "same".
+  Русское написание кандидатом не возвращай: по нему поставщиков не найти.
+  Международного написания нет во фрагментах — верни кандидатов без него, но
+  не переводи название сам."""
 
 _RESOLUTION_SCHEMA = {
     "type": "object",
@@ -135,6 +163,10 @@ class ResolvedName:
     # моделью по памяти. Интерфейс показывает разницу, а не усредняет её.
     cas_confirmed: bool = False
     synonyms: list[str] = field(default_factory=list)
+    # Самый надёжный из найденных вариантов: по нему форма ищет по умолчанию.
+    # Отмечается ровно один кандидат, и человек волен выбрать другой — но
+    # выбор «ничего не выбрано» приводил к поиску по русскому написанию.
+    recommended: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -147,6 +179,7 @@ class ResolvedName:
             "quote": self.quote,
             "cas_confirmed": self.cas_confirmed,
             "synonyms": self.synonyms,
+            "recommended": self.recommended,
         }
 
 
@@ -274,12 +307,24 @@ def _collect_snippets(name: str, resolution: SubstanceResolution) -> list[dict]:
 
     Третий запрос ищет то, что человеку нужнее всего, а выдача сама не
     показывает: чем запрошенное вещество отличается от соседнего по названию.
+
+    У русского написания к ним добавляются ещё два, и они здесь главные.
+    Английские формулировки на русском названии не работают: страниц, где
+    рядом стоят «Дигидроксимоноацетат алюминия» и «CAS number», в сети нет.
+    Мост между написаниями строит русскоязычная выдача — справочники и
+    каталоги, где русское название приведено вместе с международным.
     """
     queries = [
         f'"{name}" CAS number',
         f"{name} INCI chemical name synonyms",
         f"{name} vs similar name different substance CAS",
     ]
+    if has_cyrillic(name):
+        queries = [
+            f"{name} как называется на международном рынке",
+            f"{name} международное название английское название CAS",
+            *queries,
+        ]
     snippets: list[dict] = []
     seen_urls: set[str] = set()
     for query in queries:
@@ -395,13 +440,74 @@ def _merge(candidates: list[ResolvedName]) -> list[ResolvedName]:
     return list(merged.values())[:_MAX_CANDIDATES]
 
 
+def _reliability(item: ResolvedName, *, needs_international: bool) -> int:
+    """Насколько кандидату можно доверять как якорю поиска.
+
+    Международное написание здесь не украшение, а условие работоспособности:
+    по русскому названию внешняя выдача пуста, каким бы доказанным оно ни
+    было. Поэтому на русском вводе оно весит больше справочника и номера
+    вместе, а без него кандидат в рекомендацию не попадает вовсе.
+    """
+    if item.relation != "same":
+        return 0
+    if needs_international and not _is_international(item.name):
+        return 0
+    score = 8
+    if item.source == "pubchem":
+        score += 4
+    if item.cas_confirmed:
+        score += 3
+    if item.quote:
+        score += 1
+    if item.synonyms:
+        score += 1
+    return score
+
+
+def _mark_recommended(resolution: SubstanceResolution) -> None:
+    """Отмечает один вариант как самый надёжный из найденных.
+
+    Отметка — не решение за человека: список остаётся, выбрать можно любой
+    вариант. Но у русского ввода вариант «не выбрано» означал поиск по
+    русскому написанию, а он всегда пустой, и цена молчания здесь выше цены
+    подсказки.
+    """
+    needs_international = has_cyrillic(resolution.query)
+    ranked = [
+        (_reliability(item, needs_international=needs_international), index, item)
+        for index, item in enumerate(resolution.candidates)
+    ]
+    ranked = [row for row in ranked if row[0] > 0]
+    if ranked:
+        ranked.sort(key=lambda row: (-row[0], row[1]))
+        ranked[0][2].recommended = True
+        return
+    if needs_international and resolution.candidates:
+        resolution.warnings.append(
+            "Международного написания в выдаче не нашлось. Впишите его в "
+            "«Другие названия того же вещества»: по русскому названию поиск "
+            "поставщиков возвращает пустую выдачу."
+        )
+
+
 def resolve_substance(name: str, *, llm: LLMClient | None = None) -> SubstanceResolution:
     """Опознаёт вещество по названию и возвращает кандидатов для выбора.
 
-    Ничего не подставляет автоматически: результат — список, из которого
-    выбирает человек. Пустой список тоже допустимый ответ, и он честнее
-    выдуманного номера.
+    Ничего не подставляет молча: результат — список, из которого выбирает
+    человек. Пустой список тоже допустимый ответ, и он честнее выдуманного
+    номера.
+
+    Единственное, что модуль решает сам, — какой из найденных вариантов
+    надёжнее прочих (`recommended`). Это подсказка, а не выбор: она нужна
+    русскому вводу, где «не выбрано» означает поиск по написанию, которого
+    внешний рынок не знает.
     """
+    resolution = _resolve(name, llm=llm)
+    _mark_recommended(resolution)
+    return resolution
+
+
+def _resolve(name: str, *, llm: LLMClient | None = None) -> SubstanceResolution:
     query = name.strip()
     resolution = SubstanceResolution(query=query)
     if not query:

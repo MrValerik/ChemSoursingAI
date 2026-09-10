@@ -37,6 +37,11 @@ export interface ResolvedName {
   /** Номер прошёл контрольную сумму и найден в источнике, а не назван моделью. */
   cas_confirmed: boolean;
   synonyms: string[];
+  /**
+   * Самый надёжный из найденных вариантов; отмечен не больше одного.
+   * У русского ввода отметку получает только международное написание.
+   */
+  recommended: boolean;
 }
 
 export interface SubstanceResolution {

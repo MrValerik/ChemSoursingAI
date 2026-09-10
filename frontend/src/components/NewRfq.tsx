@@ -191,6 +191,16 @@ export default function NewRfq({
   const [resolution, setResolution] = useState<SubstanceResolution | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
+  // Название, по которому проверка уже отработала. Хранится строкой, а не
+  // флагом: закупщик правит поле после проверки, и флаг остался бы стоять
+  // от прошлого написания.
+  const [checkedName, setCheckedName] = useState<string | null>(null);
+  // Вариант, который проверка подставила сама. Показывается отдельной
+  // строкой: подстановка молча — худший вид помощи, закупщик должен видеть,
+  // по какому названию пойдёт поиск, до того как поиск пойдёт.
+  const [appliedRecommendation, setAppliedRecommendation] = useState<
+    string | null
+  >(null);
   // Вещество выбрано из результатов опознания. Название и номер после
   // этого закрыты на правку: они пришли из справочника вместе, и ручная
   // подмена одного из них рассогласует пару — в поиск уйдёт номер одного
@@ -229,6 +239,18 @@ export default function NewRfq({
   const nameForLookup = name.trim();
   const canResolve = nameForLookup.length >= 2 && !nameIsCas && !resolving;
 
+  // Название написано по-русски. Для поиска поставщиков это не мелочь
+  // оформления: внешний рынок русского написания не знает, и строка уходит
+  // в запросы дословно и в кавычках. Прогон 10.09.2026 по пяти позициям
+  // заказчика: у русских названий пустыми возвращались от пяти до восьми
+  // запросов из девяти-двенадцати, а по «Дигидроксимоноацетат алюминия» —
+  // все девять. Поэтому проверка вещества здесь не совет, а условие.
+  const nameIsRussian = /[Ѐ-ӿ]/.test(nameForLookup);
+  const nameChecked =
+    checkedName !== null && nameKey(checkedName) === nameKey(nameForLookup);
+  const needsSubstanceCheck =
+    nameIsRussian && !nameIsCas && nameForLookup.length >= 2 && !nameChecked;
+
   const runResolve = async () => {
     if (!canResolve) return;
     setResolving(true);
@@ -236,6 +258,23 @@ export default function NewRfq({
     try {
       const found = await api.resolveSubstance(nameForLookup);
       setResolution(found);
+      // Проверка считается выполненной и тогда, когда она ничего не нашла:
+      // пустой ответ — тоже ответ, и держать закупщика на кнопке, которая
+      // второй раз вернёт то же самое, незачем.
+      setCheckedName(nameForLookup);
+      // По умолчанию ищем по самому надёжному найденному варианту. Только
+      // на русском вводе: там «не выбрано» означает поиск по написанию,
+      // которого внешний рынок не знает. На латинице выбор остаётся за
+      // человеком — там ошибиться карточкой дороже, чем не подставить.
+      const best = nameIsRussian
+        ? found.candidates.find((item) => item.recommended)
+        : undefined;
+      if (best) {
+        applyCandidateFrom(best, found.candidates);
+        setAppliedRecommendation(best.name);
+      } else {
+        setAppliedRecommendation(null);
+      }
     } catch (err) {
       setResolveError(
         err instanceof ApiError ? err.message : "Не удалось опознать вещество",
@@ -276,7 +315,18 @@ export default function NewRfq({
   };
 
   const applyCandidate = (candidate: ResolvedName) => {
-    const others = (resolution?.candidates ?? []).filter(
+    setAppliedRecommendation(null);
+    applyCandidateFrom(candidate, resolution?.candidates ?? []);
+  };
+
+  // Набор кандидатов передаётся явно: подстановка по умолчанию срабатывает
+  // сразу после ответа сервера, когда `resolution` в состоянии ещё прежний,
+  // и соседние названия из замыкания взялись бы от прошлой проверки.
+  const applyCandidateFrom = (
+    candidate: ResolvedName,
+    candidates: ResolvedName[],
+  ) => {
+    const others = candidates.filter(
       (item) =>
         item.relation === "same" &&
         item.name.toLowerCase() !== candidate.name.toLowerCase(),
@@ -646,6 +696,15 @@ export default function NewRfq({
 
         {resolveError && <p className="error">{resolveError}</p>}
 
+        {appliedRecommendation && (
+          <p className="note resolve-applied">
+            Поиск пойдёт по «{appliedRecommendation}» — это самый надёжный из
+            найденных вариантов, а по русскому написанию поставщиков не найти.
+            Ваше написание сохранено в равнозначных названиях. Нужен другой
+            вариант — выберите его ниже.
+          </p>
+        )}
+
         {resolution && (
           <div className="resolve-results">
             {sameNames.length > 0 && (
@@ -658,11 +717,20 @@ export default function NewRfq({
                   <button
                     key={`same-${item.name}`}
                     type="button"
-                    className="resolve-card"
+                    className={
+                      item.recommended
+                        ? "resolve-card is-recommended"
+                        : "resolve-card"
+                    }
                     onClick={() => applyCandidate(item)}
                   >
                     <span className="resolve-card-head">
                       <span className="resolve-card-name">{item.name}</span>
+                      {item.recommended && (
+                        <span className="resolve-card-badge">
+                          самый надёжный вариант
+                        </span>
+                      )}
                       <span
                         className={
                           item.cas_confirmed
@@ -1070,23 +1138,49 @@ export default function NewRfq({
         )}
 
         <div className="actions">
-          <button
-            onClick={() => void onCreate()}
-            disabled={!canCreate}
-            title={
-              blockers.length > 0
-                ? `Чтобы начать поиск: ${blockers.join("; ")}`
-                : undefined
-            }
-          >
-            {busy ? "Создаём и ставим поиск в очередь…" : "Создать запрос и начать поиск"}
-          </button>
+          {/* Русское название сначала проверяется, и проверку делает та же
+              кнопка. Отдельный блокировщик здесь был бы честнее по форме и
+              хуже по делу: закупщик и так написал, что закупает, и просить
+              его нажать вторую кнопку значит просить подтвердить то, что
+              система обязана сделать сама. */}
+          {needsSubstanceCheck ? (
+            <button
+              onClick={() => void runResolve()}
+              disabled={!canResolve}
+              title="Название написано по-русски: сначала находим международное написание, по нему и пойдёт поиск"
+            >
+              {resolving
+                ? "Ищу международное название…"
+                : "Проверить вещество и продолжить"}
+            </button>
+          ) : (
+            <button
+              onClick={() => void onCreate()}
+              disabled={!canCreate}
+              title={
+                blockers.length > 0
+                  ? `Чтобы начать поиск: ${blockers.join("; ")}`
+                  : undefined
+              }
+            >
+              {busy
+                ? "Создаём и ставим поиск в очередь…"
+                : "Создать запрос и начать поиск"}
+            </button>
+          )}
         </div>
 
-        {blockers.length === 1 && (
+        {needsSubstanceCheck && (
+          <p className="note blockers-note">
+            Название написано по-русски. Поставщиков ищут по международному
+            написанию, поэтому сначала проверим вещество и найдём его.
+          </p>
+        )}
+
+        {!needsSubstanceCheck && blockers.length === 1 && (
           <p className="note blockers-note">Чтобы начать поиск, {blockers[0]}.</p>
         )}
-        {blockers.length > 1 && (
+        {!needsSubstanceCheck && blockers.length > 1 && (
           <div className="note blockers-note">
             Чтобы начать поиск:
             <ul>
