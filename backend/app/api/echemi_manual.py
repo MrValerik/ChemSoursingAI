@@ -15,15 +15,14 @@ from app.core.security import decode_access_token
 from app.models import User
 from app.models.enums import UserRole
 from app.models.echemi_search import EchemiSearch
+from app.services.echemi_rfq import visible_searches
 
 router = APIRouter()
 
 
 def allowed(db, search_id, user):
-    row = db.get(EchemiSearch, search_id)
-    return bool(row and row.status == "running" and (
-        user.role in (UserRole.HEAD, UserRole.ADMIN) or
-        user.role == UserRole.BUYER and row.author_id == user.id))
+    row = db.scalar(visible_searches(user).where(EchemiSearch.id == search_id))
+    return bool(row and row.status == "running" and user.role != UserRole.AUDITOR)
 
 
 @router.get("/{search_id}/manual", response_model=EchemiManualStatus)

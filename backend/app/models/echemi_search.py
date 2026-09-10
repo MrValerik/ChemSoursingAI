@@ -7,6 +7,7 @@ from app.models.base import Base, TimestampMixin
 class EchemiSearch(Base, TimestampMixin):
     __tablename__ = "echemi_searches"
     id: Mapped[int] = mapped_column(primary_key=True)
+    rfq_id: Mapped[int | None] = mapped_column(ForeignKey("rfqs.id", ondelete="CASCADE"), index=True, default=None)
     author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     query: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)

@@ -1,3 +1,4 @@
+import RfqEchemiResults from "./RfqEchemiResults";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, userErrorMessage } from "../api/client";
 import type {
@@ -2909,12 +2910,12 @@ export default function SupplierSearchSection({
           {data.marketplace_sellers && data.marketplace_sellers.length > 0 && (
             <details className="content-accordion marketplace-sellers">
               <summary>
-                Продавцы с площадки Echemi ({data.marketplace_sellers.length})
+                Echemi в поисковой выдаче ({data.marketplace_sellers.length})
               </summary>
               <div className="content-accordion-body">
                 <p className="note">
-                  Вычитаны из описаний поисковой выдачи о площадке — её
-                  страницы нам недоступны. Роль и страну указывает сам
+                  Эти наводки получены из описаний внешней поисковой выдачи.
+                  Данные самих карточек показаны в отдельной таблице Echemi ниже. Роль и страну указывает сам
                   продавец при регистрации, поэтому это не проверенные
                   кандидаты, а наводки: имя компании для отдельного поиска
                   её собственного сайта. Ни балла, ни доказательств здесь нет.
@@ -2948,6 +2949,7 @@ export default function SupplierSearchSection({
           )}
         </div>
       )}
+      <RfqEchemiResults key={rfq.id} rfqId={rfq.id} />
       {(data || candidateResults.length > 0) && (
         <div className="panel">
           <div className="search-results-header">

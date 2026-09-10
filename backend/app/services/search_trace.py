@@ -38,6 +38,9 @@ def create_search_run(
         input_payload=input_payload,
         started_at=utc_now(),
     )
+    if rfq_id is not None and mode == "queued_search" and status == "queued":
+        from app.services.echemi_rfq import ensure_rfq_search
+        ensure_rfq_search(db, rfq_id, owner_id, repeat=True)
     db.add(run)
     db.flush()
     return run

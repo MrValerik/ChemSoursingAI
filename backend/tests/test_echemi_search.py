@@ -18,7 +18,8 @@ from app import echemi_worker
 @pytest.fixture
 def env(monkeypatch):
     engine = create_engine("sqlite://",connect_args={"check_same_thread":False},poolclass=StaticPool)
-    EchemiSearch.__table__.create(engine)
+    from app.models import Base
+    Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine,expire_on_commit=False)
     user = SimpleNamespace(id=42, role=UserRole.BUYER)
     api = FastAPI()

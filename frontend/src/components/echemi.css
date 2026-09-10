@@ -15,6 +15,8 @@
 .echemi-table p {margin:6px 0;}
 .echemi-pages {display:flex; gap:10px; margin:12px 0 24px;}
 .echemi-error {color:#b33535;}
+.rfq-echemi small {display:block; margin-top:5px; color:var(--text-soft);}
+.rfq-echemi .echemi-pages {align-items:center; flex-wrap:wrap;}
 
 .echemi-history-status {display:inline-flex; align-items:center; gap:8px;}
 .echemi-loading {margin:18px 0; padding:20px; border:1px solid var(--border); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow-soft);}

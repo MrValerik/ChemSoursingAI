@@ -1638,7 +1638,7 @@ export interface EchemiResult {
   detail?: { title: string; source_url: string; source_text: string; observed_at: string;
     fields: Record<string,EchemiEvidence[]>; contacts: EchemiContact[] };
 }
-export interface EchemiSummary { id: number; query: string; status: string; message: string | null;
+export interface EchemiSummary { id: number; rfq_id: number | null; query: string; status: string; message: string | null;
   created_at: string; finished_at: string | null; result_count: number }
 export interface EchemiSearch extends Omit<EchemiSummary,"result_count"> { results: EchemiResult[]; diagnostics: Record<string,unknown> }
 

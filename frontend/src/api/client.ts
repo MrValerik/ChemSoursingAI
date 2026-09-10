@@ -1240,7 +1240,8 @@ export const api = {
     }),
 };
 
-export const listEchemiSearches = (offset=0) => request<import("./types").EchemiSummary[]>(`/echemi-searches?offset=${offset}&limit=50`);
+export const listEchemiSearches = (offset=0, rfqId?: number) => request<import("./types").EchemiSummary[]>(`/echemi-searches?offset=${offset}&limit=50${rfqId === undefined ? "" : "&rfq_id=" + rfqId}`);
+export const startRfqEchemiSearch = (rfqId: number) => request<import("./types").EchemiSearch>(`/echemi-searches/rfq/${rfqId}`, { method: "POST" });
 export const getEchemiSearch = (id:number) => request<import("./types").EchemiSearch>(`/echemi-searches/${id}`);
 export const createEchemiSearch = (query:string) => request<import("./types").EchemiSearch>("/echemi-searches", {method:"POST",body:JSON.stringify({query})});
 

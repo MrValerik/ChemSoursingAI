@@ -17,7 +17,7 @@ from tests.test_echemi_search import env
 def prepare(env, role=UserRole.BUYER, author=42, active=True, status="running"):
     client, user, sessions = env
     with sessions() as db:
-        User.__table__.create(db.get_bind())
+        User.__table__.create(db.get_bind(), checkfirst=True)
         db.add(User(id=42, username="manual", full_name="Test", password_hash="unused",
                     role=role, is_active=active))
         row = EchemiSearch(author_id=author, query="synthetic", status=status)

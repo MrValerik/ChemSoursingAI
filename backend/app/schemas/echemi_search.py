@@ -14,6 +14,7 @@ class EchemiSearchCreate(BaseModel):
 class EchemiSearchRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    rfq_id: int | None = None
     query: str
     status: str
     message: str | None
@@ -25,6 +26,7 @@ class EchemiSearchRead(BaseModel):
 
 class EchemiSearchSummary(BaseModel):
     id: int
+    rfq_id: int | None = None
     query: str
     status: str
     message: str | None
