@@ -74,15 +74,32 @@ export default function EchemiSearchSection() {
       <div className="echemi-table"><table><thead><tr><th>Запрос</th><th>Создан</th><th>Состояние</th><th>Товары</th></tr></thead>
       <tbody>{rows.map(r=><tr key={r.id} className={String(r.id)===searchId?"echemi-selected":""}>
         <td><Link to={"/echemi/"+r.id}>{r.query}</Link></td><td>{new Date(r.created_at).toLocaleString("ru-RU")}</td>
-        <td>{labels[r.status] || r.status}</td><td>{r.result_count}</td></tr>)}</tbody></table></div>}
+        <td><span className="echemi-history-status">
+          {["queued", "running"].includes(r.status) && <span className="loading-spinner" aria-hidden="true" />}
+          {labels[r.status] || r.status}
+        </span></td><td>{r.result_count}</td></tr>)}</tbody></table></div>}
     <div className="echemi-pages"><button disabled={!offset} onClick={()=>setOffset(Math.max(0,offset-50))}>Назад</button>
       <button disabled={rows.length<50} onClick={()=>setOffset(offset+50)}>Далее</button></div>
     {selected && <>
       <h2>Результаты: {selected.query}</h2>
       {selected.status === "running" && user?.role !== "auditor" && <EchemiVerification key={selected.id} searchId={selected.id} />}
-      <p role="status">{labels[selected.status] || selected.status}. {selected.message}</p>
+      {["queued", "running"].includes(selected.status) ?
+        <div className="echemi-loading" role="status" aria-live="polite">
+          <div className="echemi-loading-heading">
+            <span className="echemi-loading-icon" aria-hidden="true"><span className="loading-spinner" /></span>
+            <div>
+              <strong>{selected.status === "queued" ? "Запрос в очереди" : "Ищем товары в Echemi"}</strong>
+              <p>{selected.status === "queued"
+                ? "Поиск начнётся, когда завершится предыдущий запрос."
+                : selected.message || "Открываем Echemi и читаем карточки. Это может занять несколько минут."}</p>
+            </div>
+          </div>
+          <div className="echemi-loading-track" aria-hidden="true"><span /></div>
+          <small>Результаты появятся автоматически. Можно перейти к другим запросам и вернуться позже.</small>
+        </div> :
+        <p role="status">{labels[selected.status] || selected.status}. {selected.message}</p>}
       <p>Цены опубликованы на площадке и не являются подтверждённой котировкой. Заявленная роль продавца требует проверки.</p>
-      {!selected.results.length ? <p>{["queued","running"].includes(selected.status)?"Результаты появятся после завершения сбора.":"Сохранённых товаров нет."}</p> :
+      {!selected.results.length ? (!["queued","running"].includes(selected.status) && <p>Сохранённых товаров нет.</p>) :
       <div className="echemi-table"><table><thead><tr>
         <th>Товар / компания</th><th>Цена из выдачи</th><th>Характеристики</th><th>Контакты</th><th>Источник и состояние</th>
       </tr></thead><tbody>{selected.results.map((r,i)=><tr key={r.product_url || i}>

@@ -15,3 +15,20 @@
 .echemi-table p {margin:6px 0;}
 .echemi-pages {display:flex; gap:10px; margin:12px 0 24px;}
 .echemi-error {color:#b33535;}
+
+.echemi-history-status {display:inline-flex; align-items:center; gap:8px;}
+.echemi-loading {margin:18px 0; padding:20px; border:1px solid var(--border); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow-soft);}
+.echemi-loading-heading {display:flex; align-items:center; gap:16px;}
+.echemi-loading-heading>div {min-width:0;}
+.echemi-loading-heading strong {font-size:16px;}
+.echemi-loading-heading p {margin:6px 0 0; color:var(--text-soft); line-height:1.5;}
+.echemi-loading-icon {display:flex; align-items:center; justify-content:center; flex:0 0 48px; height:48px; border-radius:50%; background:var(--brand-soft);}
+.echemi-loading-icon .loading-spinner {width:24px; height:24px; flex-basis:24px; border-width:3px;}
+.echemi-loading-track {height:4px; margin:20px 0 12px; overflow:hidden; border-radius:4px; background:var(--panel-3);}
+.echemi-loading-track span {display:block; width:35%; height:100%; border-radius:inherit; background:var(--brand); animation:echemi-loading-slide 2.4s ease-in-out infinite alternate;}
+.echemi-loading small {color:var(--text-soft); opacity:1; line-height:1.5;}
+@keyframes echemi-loading-slide {from {transform:translateX(-100%);} to {transform:translateX(286%);}}
+@media (prefers-reduced-motion:reduce) {
+  .echemi-loading-track span {animation:none; margin:auto;}
+  .echemi-loading .loading-spinner, .echemi-history-status .loading-spinner {animation:none;}
+}
