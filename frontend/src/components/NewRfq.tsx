@@ -201,6 +201,19 @@ export default function NewRfq({
   const [appliedRecommendation, setAppliedRecommendation] = useState<
     string | null
   >(null);
+  // Состояние полей до автоподстановки. Подстановка — не то же, что выбор
+  // руками: закупщик её не делал, и вернуть своё написание он должен одним
+  // движением, а не восстанавливая название, номер и синонимы по памяти.
+  const [undoSnapshot, setUndoSnapshot] = useState<{
+    name: string;
+    cas: string;
+    synonyms: string[];
+    suggested: string[];
+  } | null>(null);
+  // Подстановку отменили сознательно. Тогда поиск пойдёт по русскому
+  // написанию, и молчать об этом нельзя: пустая выдача через полторы минуты
+  // хуже предупреждения сейчас.
+  const [recommendationDeclined, setRecommendationDeclined] = useState(false);
   // Вещество выбрано из результатов опознания. Название и номер после
   // этого закрыты на правку: они пришли из справочника вместе, и ручная
   // подмена одного из них рассогласует пару — в поиск уйдёт номер одного
@@ -270,10 +283,19 @@ export default function NewRfq({
         ? found.candidates.find((item) => item.recommended)
         : undefined;
       if (best) {
+        // Снимок делается до подстановки: после неё поля уже чужие.
+        setUndoSnapshot({
+          name,
+          cas,
+          synonyms,
+          suggested: suggestedSynonyms,
+        });
         applyCandidateFrom(best, found.candidates);
         setAppliedRecommendation(best.name);
+        setRecommendationDeclined(false);
       } else {
         setAppliedRecommendation(null);
+        setUndoSnapshot(null);
       }
     } catch (err) {
       setResolveError(
@@ -316,7 +338,25 @@ export default function NewRfq({
 
   const applyCandidate = (candidate: ResolvedName) => {
     setAppliedRecommendation(null);
+    setUndoSnapshot(null);
+    setRecommendationDeclined(false);
     applyCandidateFrom(candidate, resolution?.candidates ?? []);
+  };
+
+  // Возврат к тому, что закупщик написал сам. Отменяется именно
+  // автоподстановка целиком — название, номер и отмеченные ею синонимы, —
+  // а не только замок на полях: снять замок мало, подставленное название
+  // осталось бы в поле и ушло бы в поиск.
+  const undoRecommendation = () => {
+    if (!undoSnapshot) return;
+    setName(undoSnapshot.name);
+    setCas(undoSnapshot.cas);
+    setSynonyms(undoSnapshot.synonyms);
+    setSuggestedSynonyms(undoSnapshot.suggested);
+    setIdentityLocked(false);
+    setAppliedRecommendation(null);
+    setUndoSnapshot(null);
+    setRecommendationDeclined(true);
   };
 
   // Набор кандидатов передаётся явно: подстановка по умолчанию срабатывает
@@ -393,6 +433,16 @@ export default function NewRfq({
         : [...current, candidateName],
     );
   };
+
+  // Подставленное название собрано разбором, а не найдено на странице.
+  // Разница видна на карточке, но карточка ниже по экрану, а решение
+  // принимается здесь.
+  const appliedIsTranslation = (resolution?.candidates ?? []).some(
+    (item) =>
+      item.source === "translation" &&
+      appliedRecommendation !== null &&
+      nameKey(item.name) === nameKey(appliedRecommendation),
+  );
 
   const sameNames = (resolution?.candidates ?? []).filter(
     (item) => item.relation === "same",
@@ -697,11 +747,38 @@ export default function NewRfq({
         {resolveError && <p className="error">{resolveError}</p>}
 
         {appliedRecommendation && (
-          <p className="note resolve-applied">
-            Поиск пойдёт по «{appliedRecommendation}» — это самый надёжный из
-            найденных вариантов, а по русскому написанию поставщиков не найти.
-            Ваше написание сохранено в равнозначных названиях. Нужен другой
-            вариант — выберите его ниже.
+          <div className="note resolve-applied">
+            <p>
+              Поиск пойдёт по «{appliedRecommendation}» — это самый надёжный из
+              найденных вариантов, а по русскому написанию поставщиков не найти.
+              Ваше написание сохранено в равнозначных названиях. Нужен другой
+              вариант — выберите его ниже.
+            </p>
+            {appliedIsTranslation && (
+              <p className="resolve-applied-warn">
+                Это написание собрано разбором вашего названия, и ни одна
+                страница выдачи его не подтвердила. Искать по нему всё равно
+                лучше, чем по русскому, но перед рассылкой поставщикам название
+                стоит проверить.
+              </p>
+            )}
+            {undoSnapshot && (
+              <button
+                type="button"
+                className="secondary"
+                onClick={undoRecommendation}
+              >
+                Вернуть моё название
+              </button>
+            )}
+          </div>
+        )}
+
+        {recommendationDeclined && (
+          <p className="note resolve-declined">
+            Вернули ваше написание — поиск пойдёт по нему. На внешнем рынке
+            русское название обычно даёт пустую выдачу; если это не то, чего вы
+            хотите, выберите вариант из списка ниже.
           </p>
         )}
 
@@ -749,10 +826,18 @@ export default function NewRfq({
                     {item.quote && (
                       <span className="resolve-card-quote">«{item.quote}»</span>
                     )}
-                    <span className="resolve-card-source">
+                    <span
+                      className={
+                        item.source === "translation"
+                          ? "resolve-card-source is-unconfirmed"
+                          : "resolve-card-source"
+                      }
+                    >
                       {item.source === "pubchem"
                         ? "Справочник PubChem"
-                        : item.source_url || "веб-источник"}
+                        : item.source === "translation"
+                          ? "Собрано разбором названия — страницей не подтверждено"
+                          : item.source_url || "веб-источник"}
                     </span>
                   </button>
                 ))}

@@ -30,6 +30,24 @@ class _StubLLM:
         return self.payload
 
 
+class _SequenceLLM:
+    """Отвечает по очереди: опознание, затем сборка международного названия.
+
+    Ступени две, и вызовы у них разные. Один общий ответ на оба скрыл бы
+    ровно то, что проверяется: что вторая ступень вообще состоялась.
+    """
+
+    def __init__(self, payloads: list[dict]):
+        self.payloads = list(payloads)
+        self.calls: list[str] = []
+
+    def generate_json(self, *, user_text: str, **_kwargs) -> dict:
+        self.calls.append(user_text)
+        if not self.payloads:
+            raise AssertionError("модель вызвана больше раз, чем задано ответов")
+        return self.payloads.pop(0)
+
+
 def _snippets(*items: tuple[str, str, str]) -> list[dict]:
     return [
         {"title": title, "url": url, "snippet": snippet}
@@ -587,11 +605,14 @@ def test_russian_name_recommends_the_international_spelling(monkeypatch):
     assert [item.name for item in recommended] == ["3-Methylsulfolane"]
 
 
-def test_missing_international_spelling_is_said_out_loud(monkeypatch):
-    """Не нашлось международного названия — никого не рекомендуем и говорим об этом.
+def test_no_international_name_in_search_falls_back_to_parsing_the_russian(
+    monkeypatch,
+):
+    """Выдача не дала латиницы — название собирается разбором и проверяется.
 
-    Молчаливая рекомендация русской карточки была бы хуже отсутствия
-    рекомендации: закупщик нажал бы её и получил тот же пустой поиск.
+    Спрашивать китайский рынок по-русски нечем. Ответ «не нашлось» вернул бы
+    закупщику ровно ту работу, ради которой он пришёл, поэтому вторая
+    ступень собирает международное написание сама, а поиск его подтверждает.
     """
     snippets = _snippets(
         (
@@ -600,26 +621,136 @@ def test_missing_international_spelling_is_said_out_loud(monkeypatch):
             "Дигидроксимоноацетат алюминия применяется в медицине",
         )
     )
-    _patch_sources(monkeypatch, results=snippets)
-    llm = _StubLLM(
-        {
-            "candidates": [
-                {
-                    "name": "Дигидроксимоноацетат алюминия",
-                    "cas": None,
-                    "relation": "same",
-                    "reason": "введённое написание",
-                    "source_url": "https://ru.example/al",
-                    "quote": "Дигидроксимоноацетат алюминия применяется в медицине",
-                }
-            ]
-        }
+
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+
+    def _search(query: str, limit: int = 8) -> list[dict]:
+        # Подтверждающий запрос идёт уже по собранному названию.
+        if "Aluminium dihydroxide acetate" in query:
+            return _snippets(
+                (
+                    "Aluminium dihydroxide acetate 7360-44-3",
+                    "https://e.example/7360-44-3",
+                    "Aluminium dihydroxide acetate, CAS 7360-44-3, white powder",
+                )
+            )
+        return list(snippets)
+
+    monkeypatch.setattr(substance_resolution, "search_web", _search)
+    llm = _SequenceLLM(
+        [
+            {
+                "candidates": [
+                    {
+                        "name": "Дигидроксимоноацетат алюминия",
+                        "cas": None,
+                        "relation": "same",
+                        "reason": "введённое написание",
+                        "source_url": "https://ru.example/al",
+                        "quote": "Дигидроксимоноацетат алюминия применяется в медицине",
+                    }
+                ]
+            },
+            {
+                "names": [
+                    {
+                        "name": "Aluminium dihydroxide acetate",
+                        "reason": "«дигидрокси-» — dihydroxy, «моноацетат» — acetate",
+                    }
+                ]
+            },
+        ]
+    )
+
+    result = resolve_substance("Дигидроксимоноацетат алюминия", llm=llm)
+
+    names = [item.name for item in result.candidates]
+    assert "Aluminium dihydroxide acetate" in names
+    recommended = [item for item in result.candidates if item.recommended]
+    assert [item.name for item in recommended] == ["Aluminium dihydroxide acetate"]
+    # Подтверждено страницей — значит обычный веб-кандидат со ссылкой, а не
+    # голое предположение. И номер со страницы подхватился.
+    winner = recommended[0]
+    assert winner.source == "web"
+    assert winner.source_url == "https://e.example/7360-44-3"
+    assert winner.cas == "7360-44-3" and winner.cas_confirmed
+
+
+def test_unconfirmed_translation_is_still_offered_but_marked(monkeypatch):
+    """Ни одна страница не подтвердила — вариант остаётся, но помечен.
+
+    Искать по нему всё равно лучше, чем по русскому написанию: у русского
+    шансов нет вовсе. Поэтому кандидат показывается, рекомендуется — и несёт
+    на себе источник `translation`, чтобы закупщик видел цену этого варианта.
+    """
+    snippets = _snippets(
+        ("ПЭГ-12 Диметикон", "https://ru.example/peg", "ПЭГ-12 Диметикон, силикон")
+    )
+
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+    monkeypatch.setattr(
+        substance_resolution, "search_web", lambda query, limit=8: list(snippets)
+    )
+    llm = _SequenceLLM(
+        [
+            {
+                "candidates": [
+                    {
+                        "name": "ПЭГ-12 Диметикон",
+                        "cas": None,
+                        "relation": "same",
+                        "reason": "введённое написание",
+                        "source_url": "https://ru.example/peg",
+                        "quote": "ПЭГ-12 Диметикон, силикон",
+                    }
+                ]
+            },
+            {"names": [{"name": "PEG-12 Dimethicone", "reason": "ПЭГ — PEG"}]},
+        ]
+    )
+
+    result = resolve_substance("ПЭГ-12 Диметикон", llm=llm)
+
+    marked = [item for item in result.candidates if item.source == "translation"]
+    assert [item.name for item in marked] == ["PEG-12 Dimethicone"]
+    assert marked[0].cas is None, "непроверенному названию номер не приписывается"
+    assert marked[0].recommended, "искать всё равно надо по латинице"
+    assert any("не подтвердила" in text for text in result.warnings)
+
+
+def test_transliteration_is_not_an_international_name(monkeypatch):
+    """Латиница сама по себе не годится: по транслиту поставщиков не найти."""
+    snippets = _snippets(
+        ("Дигидроксимоноацетат алюминия", "https://ru.example/al", "описание")
+    )
+
+    class _StubPubChem:
+        def lookup_name(self, name: str) -> SubstanceInfo:
+            return SubstanceInfo(cas="", found=False, error="not_found")
+
+    monkeypatch.setattr(substance_resolution, "PubChemConnector", _StubPubChem)
+    monkeypatch.setattr(
+        substance_resolution, "search_web", lambda query, limit=8: list(snippets)
+    )
+    llm = _SequenceLLM(
+        [
+            {"candidates": []},
+            {"names": []},
+        ]
     )
 
     result = resolve_substance("Дигидроксимоноацетат алюминия", llm=llm)
 
     assert not any(item.recommended for item in result.candidates)
-    assert any("Международного написания" in text for text in result.warnings)
+    assert any("собрать не удалось" in text for text in result.warnings)
 
 
 def test_latin_name_recommends_the_most_proven_candidate(monkeypatch):
