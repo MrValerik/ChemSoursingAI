@@ -17,6 +17,7 @@ class SubstanceConflictError(ValueError):
 
 
 _AUDITED_FIELDS = (
+    "cas",
     "preferred_name",
     "synonyms",
     "excluded_names",
@@ -210,6 +211,41 @@ def create_substance(
     return substance
 
 
+def _apply_cas_correction(
+    db: Session,
+    substance: Substance,
+    new_cas: str | None,
+) -> bool:
+    """Меняет номер карточки, если специалист прислал другой. True — сменился.
+
+    Номер приходит в справочник автоматически из первого запроса, поэтому
+    опечатка закупщика или прайса становится ключом карточки. Проверяем его
+    здесь так же строго, как при создании: контрольная сумма плюс занятость
+    номера другой карточкой.
+    """
+    if new_cas is None:
+        return False
+    cas = normalize_cas(new_cas)
+    if not cas or cas == substance.cas:
+        return False
+    if not is_valid_cas(cas):
+        raise SubstanceConflictError(
+            "CAS не прошёл проверку формата и контрольной суммы"
+        )
+    duplicate = db.scalar(select(Substance).where(Substance.cas == cas))
+    if duplicate is not None:
+        raise SubstanceConflictError(
+            f"CAS {cas} уже занят карточкой «{duplicate.preferred_name}». "
+            "Перенесите правила в неё, а лишнюю карточку не дублируйте"
+        )
+    substance.cas = cas
+    # Автоматическая проверка подтверждала прежний номер и к новому
+    # отношения не имеет. Оставить её значит показывать доказательство от
+    # другого вещества — это ровно то, что запрещают продуктовые правила.
+    substance.verification = None
+    return True
+
+
 def update_substance(
     db: Session,
     substance: Substance,
@@ -218,6 +254,7 @@ def update_substance(
     reviewer_id: int,
 ) -> Substance:
     before = _snapshot(substance)
+    cas_changed = _apply_cas_correction(db, substance, data.cas)
     preferred_name = data.preferred_name or substance.preferred_name
     synonyms = (
         _merge_names([preferred_name], data.synonyms)
@@ -242,11 +279,20 @@ def update_substance(
     _record_revision(
         db,
         substance,
-        action="rules_updated",
+        # Исправление номера — не то же самое, что правка синонимов:
+        # в истории оно должно читаться отдельной строкой.
+        action="cas_corrected" if cas_changed else "rules_updated",
         actor_id=reviewer_id,
         before=before,
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Тот же номер могли занять параллельно между проверкой и commit.
+        db.rollback()
+        raise SubstanceConflictError(
+            "CAS уже занят другой карточкой справочника"
+        ) from exc
     db.refresh(substance)
     return substance
 

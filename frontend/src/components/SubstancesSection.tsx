@@ -31,9 +31,11 @@ const HISTORY_LABELS: Record<string, string> = {
   rules_updated: "Экспертные правила обновлены",
   identity_confirmed: "Идентификация ИИ подтверждена",
   identity_rejected: "Предложение ИИ отклонено",
+  cas_corrected: "CAS-номер исправлен",
 };
 
 const CHANGE_LABELS: Record<string, string> = {
+  cas: "CAS-номер",
   preferred_name: "Предпочтительное наименование",
   synonyms: "Допустимые синонимы",
   excluded_names: "Исключённые названия",
@@ -150,6 +152,9 @@ export default function SubstancesSection() {
   const [priceHistory, setPriceHistory] = useState<SubstancePriceHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  // История открывается по требованию: в карточке с десятками решений она
+  // отодвигает вниз и правила, и кнопку сохранения.
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -192,6 +197,7 @@ export default function SubstancesSection() {
   }, [selected, creating]);
 
   useEffect(() => {
+    setHistoryOpen(false);
     if (selectedId === null || creating) {
       setHistory([]);
       setPurchaseHistory([]);
@@ -265,6 +271,7 @@ export default function SubstancesSection() {
             notes: notes.trim() || null,
           })
         : await api.updateSubstance(selected!.id, {
+            cas: cas.trim(),
             preferred_name: preferredName.trim(),
             synonyms,
             excluded_names: excludedNames,
@@ -338,6 +345,9 @@ export default function SubstancesSection() {
                   setSelectedId(item.id);
                   setCreating(false);
                   setNotice(null);
+                  // Отказ по одной карточке не должен висеть над другой:
+                  // «CAS занят» относится к номеру, который здесь уже не тот.
+                  setError(null);
                 }}
               >
                 <span>
@@ -390,9 +400,16 @@ export default function SubstancesSection() {
                     onChange={(event) => setPreferredName(event.target.value)}
                   />
                 </Field>
-                <Field label="CAS-номер">
+                <Field
+                  hint={
+                    creating
+                      ? undefined
+                      : "Исправьте, если в карточку попал не тот номер: он приходит в справочник из первого запроса вместе с опечаткой закупщика или прайса. Номер проверяется контрольной суммой, занятый другой карточкой не принимается, а прежнее значение остаётся в истории изменений. Связанные запросы сохраняют номер, с которым были созданы и отправлены поставщикам."
+                  }
+                  label="CAS-номер"
+                >
                   <Input
-                    disabled={!creating || !canEdit}
+                    disabled={!canEdit}
                     value={cas}
                     onChange={(event) => setCas(event.target.value)}
                   />
@@ -540,15 +557,35 @@ export default function SubstancesSection() {
               )}
               {!creating && selected && (
                 <section className="substance-history">
-                  <div className="heading-with-help">
-                    <h3>История изменений</h3>
-                    <HelpTip text="История показывает каждое экспертное подтверждение и изменение правил: кто принял решение, когда и какие значения поменялись." />
+                  <div className="tab-toolbar">
+                    <div className="heading-with-help">
+                      <h3>История изменений</h3>
+                      <HelpTip text="История показывает каждое экспертное подтверждение и изменение правил: кто принял решение, когда и какие значения поменялись. Исправленный CAS-номер тоже остаётся здесь вместе с прежним значением." />
+                    </div>
+                    <div className="substance-history-toggle">
+                      {!historyLoading && !historyError && (
+                        <span className="badge tone-neutral">
+                          записей: {history.length + purchaseHistory.length}
+                        </span>
+                      )}
+                      <button
+                        aria-expanded={historyOpen}
+                        className="secondary btn-small"
+                        type="button"
+                        onClick={() => setHistoryOpen((open) => !open)}
+                      >
+                        {historyOpen ? "Свернуть" : "Развернуть"}
+                      </button>
+                    </div>
                   </div>
-                  {historyLoading && <p className="note">Загрузка истории…</p>}
-                  {historyError && (
+                  {historyOpen && historyLoading && (
+                    <p className="note">Загрузка истории…</p>
+                  )}
+                  {historyOpen && historyError && (
                     <p className="error">Не удалось загрузить историю: {historyError}</p>
                   )}
-                  {!historyLoading &&
+                  {historyOpen &&
+                    !historyLoading &&
                     !historyError &&
                     history.length === 0 &&
                     purchaseHistory.length === 0 && (
@@ -556,63 +593,65 @@ export default function SubstancesSection() {
                       История начнёт формироваться после следующего экспертного решения.
                     </p>
                   )}
-                  <div className="substance-history-list">
-                    {history.map((entry) => (
-                      <article className="substance-history-entry" key={entry.id}>
-                        <div className="substance-history-entry-header">
-                          <strong>{HISTORY_LABELS[entry.action] ?? entry.action}</strong>
-                          <time dateTime={entry.created_at}>
-                            {new Date(entry.created_at).toLocaleString("ru-RU", {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })}
-                          </time>
-                        </div>
-                        <div className="substance-history-meta">
-                          <span>
-                            Подтвердил: {entry.actor_name ?? `пользователь #${entry.actor_id}`}
-                          </span>
-                          {entry.source_rfq_id !== null && (
-                            <span>Основание: запрос #{entry.source_rfq_id}</span>
+                  {historyOpen && (
+                    <div className="substance-history-list">
+                      {history.map((entry) => (
+                        <article className="substance-history-entry" key={entry.id}>
+                          <div className="substance-history-entry-header">
+                            <strong>{HISTORY_LABELS[entry.action] ?? entry.action}</strong>
+                            <time dateTime={entry.created_at}>
+                              {new Date(entry.created_at).toLocaleString("ru-RU", {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })}
+                            </time>
+                          </div>
+                          <div className="substance-history-meta">
+                            <span>
+                              Подтвердил: {entry.actor_name ?? `пользователь #${entry.actor_id}`}
+                            </span>
+                            {entry.source_rfq_id !== null && (
+                              <span>Основание: запрос #{entry.source_rfq_id}</span>
+                            )}
+                          </div>
+                          {Object.keys(entry.changes).length > 0 && (
+                            <ul>
+                              {Object.entries(entry.changes).map(([field, change]) => (
+                                <li key={field}>
+                                  <span>{CHANGE_LABELS[field] ?? field}</span>
+                                  <strong>
+                                    {formatHistoryValue(change.before)} →{" "}
+                                    {formatHistoryValue(change.after)}
+                                  </strong>
+                                </li>
+                              ))}
+                            </ul>
                           )}
-                        </div>
-                        {Object.keys(entry.changes).length > 0 && (
-                          <ul>
-                            {Object.entries(entry.changes).map(([field, change]) => (
-                              <li key={field}>
-                                <span>{CHANGE_LABELS[field] ?? field}</span>
-                                <strong>
-                                  {formatHistoryValue(change.before)} →{" "}
-                                  {formatHistoryValue(change.after)}
-                                </strong>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </article>
-                    ))}
-                    {purchaseHistory.map((entry) => (
-                      <article className="substance-history-entry" key={`purchase-${entry.id}`}>
-                        <div className="substance-history-entry-header">
-                          <strong>Итог закупки сохранён</strong>
-                          <time dateTime={entry.created_at}>
-                            {new Date(entry.created_at).toLocaleString("ru-RU", {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })}
-                          </time>
-                        </div>
-                        <div className="substance-history-meta">
-                          <span>{entry.actor_name ?? "Сотрудник"}</span>
-                          <span>Запрос #{entry.rfq_id}</span>
-                          {typeof entry.snapshot.supplier_name === "string" && (
-                            <span>{entry.snapshot.supplier_name}</span>
-                          )}
-                        </div>
-                        <p>{entry.note ?? "Комментарий не указан."}</p>
-                      </article>
-                    ))}
-                  </div>
+                        </article>
+                      ))}
+                      {purchaseHistory.map((entry) => (
+                        <article className="substance-history-entry" key={`purchase-${entry.id}`}>
+                          <div className="substance-history-entry-header">
+                            <strong>Итог закупки сохранён</strong>
+                            <time dateTime={entry.created_at}>
+                              {new Date(entry.created_at).toLocaleString("ru-RU", {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })}
+                            </time>
+                          </div>
+                          <div className="substance-history-meta">
+                            <span>{entry.actor_name ?? "Сотрудник"}</span>
+                            <span>Запрос #{entry.rfq_id}</span>
+                            {typeof entry.snapshot.supplier_name === "string" && (
+                              <span>{entry.snapshot.supplier_name}</span>
+                            )}
+                          </div>
+                          <p>{entry.note ?? "Комментарий не указан."}</p>
+                        </article>
+                      ))}
+                    </div>
+                  )}
                 </section>
               )}
               {error && <p className="error">Ошибка: {error}</p>}
@@ -623,11 +662,7 @@ export default function SubstancesSection() {
                 <div className="actions">
                   <button
                     className="button-with-icon"
-                    disabled={
-                      busy ||
-                      !preferredName.trim() ||
-                      (creating && !cas.trim())
-                    }
+                    disabled={busy || !preferredName.trim() || !cas.trim()}
                     onClick={() => void save()}
                   >
                     <Icon name="save" size={17} />

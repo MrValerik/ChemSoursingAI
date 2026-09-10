@@ -365,5 +365,8 @@ def edit_substance(
     substance = db.get(Substance, substance_id)
     if substance is None:
         raise HTTPException(status_code=404, detail="Химическое вещество не найдено")
-    substance = update_substance(db, substance, data, reviewer_id=user.id)
+    try:
+        substance = update_substance(db, substance, data, reviewer_id=user.id)
+    except SubstanceConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _to_read(db, substance, user)

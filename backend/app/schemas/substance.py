@@ -49,10 +49,20 @@ class SubstanceCreate(BaseModel):
 
 
 class SubstanceUpdate(BaseModel):
+    # Номер карточки исправим: он попадает в справочник автоматически из
+    # первого запроса, а там закупщик мог ошибиться или перенести опечатку
+    # из прайса. Карточка ключуется CAS, поэтому неверный номер иначе
+    # остаётся навсегда и тянет за собой поиск и историю цен.
+    cas: str | None = Field(default=None, min_length=3, max_length=20)
     preferred_name: str | None = Field(default=None, min_length=2, max_length=255)
     synonyms: list[str] | None = Field(default=None, max_length=50)
     excluded_names: list[str] | None = Field(default=None, max_length=50)
     notes: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("cas")
+    @classmethod
+    def clean_optional_cas(cls, value: str | None) -> str | None:
+        return normalize_cas(value) if value is not None else None
 
     @field_validator("preferred_name")
     @classmethod

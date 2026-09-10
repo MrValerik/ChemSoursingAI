@@ -400,6 +400,7 @@ export const api = {
   updateSubstance: (
     id: number,
     payload: {
+      cas?: string;
       preferred_name?: string;
       synonyms?: string[];
       excluded_names?: string[];

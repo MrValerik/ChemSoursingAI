@@ -304,3 +304,130 @@ def test_catalog_rules_can_be_edited_and_auditor_is_read_only(client):
         ).status_code
         == 200
     )
+
+
+def test_wrong_cas_can_be_corrected_and_change_is_visible_in_history(client):
+    """Неверный номер карточки исправим, а история помнит оба значения."""
+    buyer = _auth(client)
+    wrong_cas = _unique_valid_cas()
+    right_cas = _unique_valid_cas()
+    created = client.post(
+        "/substances",
+        headers=buyer,
+        json={"cas": wrong_cas, "preferred_name": "Карточка с опечаткой"},
+    )
+    assert created.status_code == 201
+    substance_id = created.json()["id"]
+
+    corrected = client.patch(
+        f"/substances/{substance_id}",
+        headers=buyer,
+        json={"cas": right_cas},
+    )
+    assert corrected.status_code == 200
+    assert corrected.json()["cas"] == right_cas
+
+    history = client.get(f"/substances/{substance_id}/history", headers=buyer)
+    assert history.status_code == 200
+    entry = history.json()[0]
+    assert entry["action"] == "cas_corrected"
+    assert entry["changes"]["cas"] == {"before": wrong_cas, "after": right_cas}
+    assert entry["snapshot"]["cas"] == right_cas
+    assert entry["actor_name"]
+
+    # Пограничный случай: тот же номер в запросе не превращает обычную
+    # правку правил в исправление номера.
+    same = client.patch(
+        f"/substances/{substance_id}",
+        headers=buyer,
+        json={"cas": right_cas, "notes": "Номер тот же, комментарий новый"},
+    )
+    assert same.status_code == 200
+    latest = client.get(f"/substances/{substance_id}/history", headers=buyer)
+    assert latest.json()[0]["action"] == "rules_updated"
+    assert "cas" not in latest.json()[0]["changes"]
+
+
+def test_cas_correction_rejects_bad_checksum_and_occupied_number(client):
+    """Номер с ошибкой или занятый другой карточкой не принимается."""
+    buyer = _auth(client)
+    first_cas = _unique_valid_cas()
+    second_cas = _unique_valid_cas()
+    first = client.post(
+        "/substances",
+        headers=buyer,
+        json={"cas": first_cas, "preferred_name": "Первая карточка"},
+    )
+    second = client.post(
+        "/substances",
+        headers=buyer,
+        json={"cas": second_cas, "preferred_name": "Вторая карточка"},
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+    substance_id = second.json()["id"]
+
+    broken = client.patch(
+        f"/substances/{substance_id}",
+        headers=buyer,
+        json={"cas": "50-78-3"},
+    )
+    assert broken.status_code == 409
+    assert "контрольной суммы" in broken.json()["detail"]
+
+    occupied = client.patch(
+        f"/substances/{substance_id}",
+        headers=buyer,
+        json={"cas": first_cas},
+    )
+    assert occupied.status_code == 409
+    assert "Первая карточка" in occupied.json()["detail"]
+
+    # Отказ не должен оставлять карточку с наполовину применённой правкой.
+    kept = client.get(f"/substances/{substance_id}", headers=buyer)
+    assert kept.json()["cas"] == second_cas
+
+
+def test_cas_correction_drops_verification_of_previous_number(client):
+    """Проверка прежнего номера не переезжает на исправленный."""
+    buyer = _auth(client)
+    rfq = _create_rfq(client, buyer, _unique_valid_cas(), "Вещество с проверкой")
+    decision = client.post(
+        f"/substances/rfq/{rfq['id']}/decision",
+        headers=buyer,
+        json={
+            "action": "confirm",
+            "suggested_name": "Вещество с проверкой",
+            "verification": {"cas_valid": True, "source": "pubchem"},
+        },
+    )
+    assert decision.status_code == 200
+    assert decision.json()["verification"] == {
+        "cas_valid": True,
+        "source": "pubchem",
+    }
+
+    corrected = client.patch(
+        f"/substances/{decision.json()['id']}",
+        headers=buyer,
+        json={"cas": _unique_valid_cas()},
+    )
+    assert corrected.status_code == 200
+    assert corrected.json()["verification"] is None
+
+
+def test_auditor_cannot_correct_cas(client):
+    """Аудитор остаётся только читателем и для номера тоже."""
+    buyer = _auth(client)
+    created = client.post(
+        "/substances",
+        headers=buyer,
+        json={"cas": _unique_valid_cas(), "preferred_name": "Карточка аудита"},
+    )
+    assert created.status_code == 201
+    forbidden = client.patch(
+        f"/substances/{created.json()['id']}",
+        headers=_auth(client, "auditor"),
+        json={"cas": _unique_valid_cas()},
+    )
+    assert forbidden.status_code == 403
