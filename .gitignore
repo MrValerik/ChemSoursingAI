@@ -38,6 +38,7 @@ data/attachments/
 data/nginx/
 data/backups/
 data/xray/
+data/echemi-*-diagnostic.json
 /data.pre-*/
 *.sqlite
 *.db
