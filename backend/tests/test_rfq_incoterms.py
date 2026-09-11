@@ -25,7 +25,7 @@ from app.services.incoterms import (
     normalize_incoterms,
 )
 from app.services.rfq_builder import RFQInput, build_rfq
-from app.services.rfq_service import render_rfq_text
+from app.services.rfq_service import render_rfq_text, rfq_english_text_is_ready
 
 
 def _create(**kw) -> dict:
@@ -171,10 +171,14 @@ def test_stored_value_outside_the_reference_still_renders():
     subject, body = render_rfq_text(stored)
 
     assert "Betaine" in subject
-    # Базис показан ровно тот, что сохранён, — и без выдуманного места:
-    # место определяет, где переходят риск и расходы.
+    # Латинский базис показан без выдуманного места. Старое русское значение
+    # остаётся в карточке, но во внешний текст не просачивается: смысл такого
+    # базиса нельзя безопасно перевести автоматически.
     assert "  - DDU — named place to be confirmed with the buyer" in body
-    assert "  - САМОВЫВОЗ — named place to be confirmed with the buyer" in body
+    assert stored.incoterms == ["DDU", "самовывоз"]
+    assert "САМОВЫВОЗ" not in body
+    assert "  - CUSTOM — named place to be confirmed with the buyer" in body
+    assert rfq_english_text_is_ready(stored) is False
 
 
 def test_stored_value_inside_the_reference_keeps_its_place():

@@ -35,3 +35,14 @@ def english_text_uses_latin_script(value: str) -> bool:
         and _CYRILLIC_CHAR_RE.search(value) is None
         and _HAN_RE.search(value) is None
     )
+
+
+def text_has_forbidden_external_script(value: str | None) -> bool:
+    """Находит письменность, запрещённую во внешнем английском сообщении."""
+    return bool(
+        value
+        and (
+            _CYRILLIC_CHAR_RE.search(value) is not None
+            or _HAN_RE.search(value) is not None
+        )
+    )

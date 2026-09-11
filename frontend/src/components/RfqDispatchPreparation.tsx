@@ -29,6 +29,7 @@ export default function RfqDispatchPreparation({
   const [translation, setTranslation] = useState<string | null>(null);
   const [translationVisible, setTranslationVisible] = useState(false);
   const [translationBusy, setTranslationBusy] = useState(false);
+  const [englishPreparing, setEnglishPreparing] = useState(false);
   const [savedSubject, setSavedSubject] = useState(
     rfq.rfq_subject ?? "Request for quotation",
   );
@@ -38,6 +39,8 @@ export default function RfqDispatchPreparation({
   const [draftSubject, setDraftSubject] = useState(savedSubject);
   const [draftBody, setDraftBody] = useState(savedBody);
   const [customized, setCustomized] = useState(rfq.rfq_is_customized);
+  const [englishReady, setEnglishReady] = useState(rfq.rfq_english_ready);
+  const [englishError, setEnglishError] = useState(rfq.rfq_english_error);
 
   const queued = useMemo(
     () => recipients.filter((item) => item.status === "queued"),
@@ -66,9 +69,18 @@ export default function RfqDispatchPreparation({
     setDraftSubject(subject);
     setDraftBody(body);
     setCustomized(rfq.rfq_is_customized);
+    setEnglishReady(rfq.rfq_english_ready);
+    setEnglishError(rfq.rfq_english_error);
     setTranslation(null);
     setTranslationVisible(false);
-  }, [rfq.id, rfq.rfq_subject, rfq.rfq_body, rfq.rfq_is_customized]);
+  }, [
+    rfq.id,
+    rfq.rfq_subject,
+    rfq.rfq_body,
+    rfq.rfq_is_customized,
+    rfq.rfq_english_ready,
+    rfq.rfq_english_error,
+  ]);
 
   const removeRecipient = async (recipient: RecipientRead) => {
     setBusy(true);
@@ -108,9 +120,37 @@ export default function RfqDispatchPreparation({
     setDraftSubject(subject);
     setDraftBody(body);
     setCustomized(updated.rfq_is_customized);
+    setEnglishReady(updated.rfq_english_ready);
+    setEnglishError(updated.rfq_english_error);
     setTranslation(null);
     setTranslationVisible(false);
   };
+
+  useEffect(() => {
+    if (englishReady || englishPreparing) return;
+    let active = true;
+    setEnglishPreparing(true);
+    setError(null);
+    void api
+      .prepareRfqEnglish(rfq.id)
+      .then((updated) => {
+        if (!active) return;
+        applyDraft(updated);
+        onChanged();
+      })
+      .catch((caught) => {
+        if (!active) return;
+        setEnglishError(caught instanceof Error ? caught.message : String(caught));
+      })
+      .finally(() => {
+        if (active) setEnglishPreparing(false);
+      });
+    return () => {
+      active = false;
+    };
+    // This effect runs only until the persisted English copy is ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rfq.id, englishReady]);
 
   const toggleTranslation = async () => {
     if (translationVisible) {
@@ -296,11 +336,15 @@ export default function RfqDispatchPreparation({
               Перед отправкой ещё раз покажем каналы и получателей.
             </span>
             <button
-              disabled={busy}
+              disabled={busy || !englishReady}
               onClick={() => void dispatch()}
               type="button"
             >
-              {busy ? "Отправка…" : `Отправить RFQ (${queued.length})`}
+              {englishPreparing
+                ? "Готовим английский RFQ…"
+                : busy
+                  ? "Отправка…"
+                  : `Отправить RFQ (${queued.length})`}
             </button>
           </div>
         )}
@@ -433,6 +477,9 @@ export default function RfqDispatchPreparation({
         )}
 
         {notice && <p className="success-note">{notice}</p>}
+        {!englishReady && !englishPreparing && englishError && (
+          <p className="error">{englishError}</p>
+        )}
         {error && <p className="error">{error}</p>}
 
       </section>

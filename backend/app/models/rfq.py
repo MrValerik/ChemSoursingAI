@@ -108,6 +108,17 @@ class RFQ(Base, TimestampMixin):
     )
     rfq_body_override: Mapped[str | None] = mapped_column(Text, default=None)
 
+    # Проверенная машинная английская версия единого шаблона. Исходные поля
+    # остаются выше без изменений; hash не позволяет использовать устаревший
+    # перевод после изменения любого внешнего поля.
+    rfq_generated_subject_en: Mapped[str | None] = mapped_column(
+        String(500), default=None
+    )
+    rfq_generated_body_en: Mapped[str | None] = mapped_column(Text, default=None)
+    rfq_generated_source_hash: Mapped[str | None] = mapped_column(
+        String(64), default=None
+    )
+
     status: Mapped[RFQStatus] = mapped_column(
         SAEnum(RFQStatus), default=RFQStatus.DRAFT, index=True
     )

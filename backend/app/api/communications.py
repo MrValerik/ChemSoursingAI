@@ -140,6 +140,7 @@ def preview_combined_communication(
             channel=payload.channel,
             rfq_ids=payload.rfq_ids,
         )
+        db.commit()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _combined_read(prepared)

@@ -459,6 +459,11 @@ export const api = {
       },
     ),
 
+  prepareRfqEnglish: (rfqId: number) =>
+    request<RFQRead>(`/rfq/${rfqId}/prepare-english`, {
+      method: "POST",
+    }),
+
   getRfq: (id: number) => request<RFQRead>(`/rfq/${id}`),
 
   listRfqs: () => request<RFQListItem[]>(`/rfq`),

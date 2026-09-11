@@ -78,6 +78,53 @@ def test_llm_translation_reports_unavailable_provider():
         LLMTranslationConnector(llm=UnavailableLlm()).translate("Hello")
 
 
+def test_llm_translation_to_english_rejects_cyrillic_and_preserves_numbers():
+    llm = FakeLlm("Technical active ingredient; assay and impurity profile, min 98%")
+
+    result = LLMTranslationConnector(llm=llm).translate(
+        "Техническое действующее вещество; профиль примесей, мин. 98%",
+        target_language="en",
+    )
+
+    assert result.endswith("min 98%")
+    assert "профиль" not in result
+    assert "professional English" in llm.calls[0]["system_prompt"]
+
+
+def test_llm_translation_to_english_retries_mixed_result():
+    llm = FakeLlm(
+        "Technical ingredient and профиль примесей, min 98%",
+        "Technical ingredient and impurity profile, min 98%",
+    )
+
+    result = LLMTranslationConnector(llm=llm).translate(
+        "Техническое вещество и профиль примесей, мин. 98%",
+        target_language="en",
+    )
+
+    assert result == "Technical ingredient and impurity profile, min 98%"
+    assert len(llm.calls) == 2
+
+
+def test_llm_translation_to_english_rejects_lost_number():
+    llm = FakeLlm("Minimum assay", "Minimum assay")
+
+    with pytest.raises(TranslationError, match="не на английском"):
+        LLMTranslationConnector(llm=llm).translate(
+            "Минимальное содержание 98%",
+            target_language="en",
+        )
+
+
+def test_llm_translation_to_english_allows_decimal_separator_normalization():
+    llm = FakeLlm("Minimum assay 98.5%")
+
+    assert LLMTranslationConnector(llm=llm).translate(
+        "Минимальное содержание 98,5%",
+        target_language="en",
+    ) == "Minimum assay 98.5%"
+
+
 @pytest.mark.parametrize("source", ["", "   "])
 def test_llm_translation_rejects_empty_text(source):
     with pytest.raises(TranslationError, match="пуст"):

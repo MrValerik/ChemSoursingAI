@@ -200,6 +200,8 @@ export interface RFQRead {
   rfq_subject: string | null;
   rfq_body: string | null;
   rfq_is_customized: boolean;
+  rfq_english_ready: boolean;
+  rfq_english_error: string | null;
 }
 
 // Стадия конвейера и ближайшее действие закупщика: коды приходят с

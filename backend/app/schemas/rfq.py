@@ -191,6 +191,8 @@ class RFQRead(BaseModel):
     rfq_subject: str | None = None
     rfq_body: str | None = None
     rfq_is_customized: bool = False
+    rfq_english_ready: bool = True
+    rfq_english_error: str | None = None
     owner_name: str | None = None
 
 

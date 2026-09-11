@@ -78,11 +78,14 @@ from app.services.rfq_progress import (
     waiting_days,
 )
 from app.services.rfq_service import (
+    RFQEnglishPreparationError,
     RFQLanguageError,
     archive_rfq,
     create_rfq,
-    search_run_payload,
+    prepare_rfq_english_text,
     render_rfq_text,
+    rfq_english_text_is_ready,
+    search_run_payload,
     update_rfq_message_draft,
 )
 from app.services.search_trace import create_search_run
@@ -373,7 +376,7 @@ def preview_rfq(
 ) -> dict:
     """Генерирует RFQ без сохранения (для предпросмотра в UI)."""
     try:
-        return build_rfq(
+        result = build_rfq(
             RFQInput(
                 cas=req.cas,
                 name=req.name,
@@ -389,7 +392,24 @@ def preview_rfq(
                 currency=req.currency,
             )
         )
-    except UnsupportedIncotermError as exc:
+        transient = RFQ(
+            cas=req.cas,
+            name=req.name,
+            identification_method=req.identification_method,
+            analog_reference=req.analog_reference,
+            analog_variations=req.analog_variations,
+            specification=req.specification,
+            incoterms=req.incoterms,
+            purity=req.purity,
+            application=req.application,
+            volume=req.volume,
+            target_price=req.target_price,
+            currency=req.currency,
+        )
+        prepare_rfq_english_text(transient)
+        result["subject"], result["body"] = render_rfq_text(transient)
+        return result
+    except (UnsupportedIncotermError, RFQEnglishPreparationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -608,6 +628,29 @@ def get(
         or not _can_see(user, rfq)
     ):
         raise HTTPException(status_code=404, detail="Запрос не найден")
+    return _to_read(rfq)
+
+
+@router.post("/{rfq_id}/prepare-english", response_model=RFQRead)
+def prepare_english_rfq(
+    rfq_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RFQRead:
+    """Переводит внешние поля RFQ и сохраняет проверенную английскую копию."""
+    rfq = db.get(
+        RFQ,
+        rfq_id,
+        options=[joinedload(RFQ.owner), joinedload(RFQ.substance)],
+    )
+    if rfq is None or rfq.deleted_at is not None or not _can_see(user, rfq):
+        raise HTTPException(status_code=404, detail="Запрос не найден")
+    try:
+        prepare_rfq_english_text(rfq)
+    except RFQEnglishPreparationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(rfq)
     return _to_read(rfq)
 
 
@@ -846,7 +889,7 @@ def list_rfqs(
     return items
 
 
-def _to_read(rfq: RFQ) -> RFQRead:
+def _to_read(rfq: RFQ, *, english_error: str | None = None) -> RFQRead:
     """Сериализует RFQ + добавляет сгенерированный текст письма."""
     read = RFQRead.model_validate(rfq)
     subject, body = render_rfq_text(rfq)
@@ -855,6 +898,13 @@ def _to_read(rfq: RFQ) -> RFQRead:
     read.rfq_is_customized = bool(
         rfq.rfq_subject_override and rfq.rfq_body_override
     )
+    read.rfq_english_ready = rfq_english_text_is_ready(rfq)
+    read.rfq_english_error = english_error
+    if not read.rfq_english_ready and not read.rfq_english_error:
+        read.rfq_english_error = (
+            "Английская версия RFQ ещё не подготовлена. "
+            "Отправка заблокирована до успешного перевода."
+        )
     read.owner_name = rfq.owner.full_name if rfq.owner else None
     read.substance_preferred_name = (
         rfq.substance.preferred_name if rfq.substance else None

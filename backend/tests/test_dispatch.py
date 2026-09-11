@@ -38,6 +38,7 @@ from app.services.email_workflow import (
     sync_inbox,
 )
 from app.services.quotation_reconciliation import reconcile_email_quotations
+from app.services.text_translation import TranslationError
 
 
 def _communications(rfq_id: int) -> list[Communication]:
@@ -401,6 +402,134 @@ def test_russian_rfq_name_uses_safe_english_cas_label(client):
     assert "Тестовое вещество" not in rfq["rfq_body"]
     assert "Requested substance" in rfq["rfq_subject"]
     assert "CAS 123-45-5" in rfq["rfq_subject"]
+
+
+def test_russian_dynamic_rfq_fields_are_translated_and_cached(client, monkeypatch):
+    headers = _login(client)
+    calls: list[str] = []
+
+    def translate(self, text, **kwargs):
+        calls.append(text)
+        assert kwargs["target_language"] == "en"
+        translations = {
+            "Technical active ingredient; assay и профиль примесей": (
+                "Technical active ingredient; assay and impurity profile"
+            ),
+            "мин. 98%, агрохимический технический": (
+                "min. 98%, agrochemical technical grade"
+            ),
+        }
+        return translations[text]
+
+    monkeypatch.setattr(
+        "app.services.rfq_english.LLMTranslationConnector.translate",
+        translate,
+    )
+    created = client.post(
+        "/rfq?verify=false",
+        headers=headers,
+        json={
+            "cas": "103055-07-8",
+            "name": "Тестовое вещество",
+            "specification": "Technical active ingredient; assay и профиль примесей",
+            "purity": "мин. 98%, агрохимический технический",
+            "volume": "1 t",
+            "incoterms": ["CIP", "FCA"],
+        },
+    )
+
+    assert created.status_code == 201
+    draft = created.json()
+    assert draft["rfq_english_ready"] is False
+    assert "профиль примесей" not in draft["rfq_body"]
+    assert "English translation required" in draft["rfq_body"]
+    assert calls == []
+
+    prepared = client.post(
+        f"/rfq/{draft['id']}/prepare-english",
+        headers=headers,
+    )
+    assert prepared.status_code == 200
+    payload = prepared.json()
+    assert payload["rfq_english_ready"] is True
+    assert payload["rfq_english_error"] is None
+    assert "assay and impurity profile" in payload["rfq_body"]
+    assert "min. 98%, agrochemical technical grade" in payload["rfq_body"]
+    assert not any("а" <= char.casefold() <= "я" for char in payload["rfq_body"])
+    assert len(calls) == 2
+
+    def unexpected_translate(self, text, **kwargs):
+        raise AssertionError("GET must reuse the persisted English RFQ")
+
+    monkeypatch.setattr(
+        "app.services.rfq_english.LLMTranslationConnector.translate",
+        unexpected_translate,
+    )
+    loaded = client.get(f"/rfq/{payload['id']}", headers=headers)
+    assert loaded.status_code == 200
+    assert loaded.json()["rfq_body"] == payload["rfq_body"]
+    with SessionLocal() as db:
+        stored = db.get(RFQ, payload["id"])
+        assert stored is not None
+        assert stored.specification.endswith("и профиль примесей")
+        assert stored.rfq_generated_body_en == payload["rfq_body"]
+        assert stored.rfq_generated_source_hash
+
+
+def test_unavailable_rfq_translation_never_exposes_or_dispatches_russian(
+    client, monkeypatch
+):
+    headers = _login(client)
+
+    def unavailable(self, text, **kwargs):
+        raise TranslationError("Сервис перевода временно недоступен")
+
+    monkeypatch.setattr(
+        "app.services.rfq_english.LLMTranslationConnector.translate",
+        unavailable,
+    )
+    created = client.post(
+        "/rfq?verify=false",
+        headers=headers,
+        json={
+            "cas": "103055-07-8",
+            "name": "Тестовое вещество",
+            "specification": "профиль примесей",
+            "incoterms": ["CIP"],
+        },
+    )
+
+    assert created.status_code == 201
+    payload = created.json()
+    assert payload["rfq_english_ready"] is False
+    assert "ещё не подготовлена" in payload["rfq_english_error"]
+    assert "профиль примесей" not in payload["rfq_body"]
+    assert "English translation required" in payload["rfq_body"]
+
+    preparation = client.post(
+        f"/rfq/{payload['id']}/prepare-english",
+        headers=headers,
+    )
+    assert preparation.status_code == 422
+    assert "временно недоступен" in preparation.json()["detail"]
+
+    supplier = client.post(
+        "/suppliers",
+        headers=headers,
+        json={
+            "company": "Translation Guard Supplier",
+            "email": "translation-guard@supplier.example",
+        },
+    ).json()
+    client.post(
+        f"/rfq/{payload['id']}/recipients",
+        headers=headers,
+        json={"items": [{"supplier_id": supplier["id"], "channel": "email"}]},
+    )
+    dispatched = client.post(f"/rfq/{payload['id']}/dispatch", headers=headers)
+    assert dispatched.status_code == 422
+    assert "временно недоступен" in dispatched.json()["detail"]
+    assert _communications(payload["id"]) == []
 
 
 def test_purchase_decision_is_detailed_persisted_and_role_protected(client):

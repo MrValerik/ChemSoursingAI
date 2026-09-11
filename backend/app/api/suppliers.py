@@ -62,8 +62,10 @@ from app.services.integration_settings import (
     effective_whatsapp_settings,
 )
 from app.services.rfq_service import (
+    RFQEnglishPreparationError,
     RFQLanguageError,
     ensure_rfq_english,
+    prepare_rfq_english_text,
     render_rfq_text,
 )
 from app.services.quotation_service import purchase_history_read
@@ -764,6 +766,10 @@ def dispatch(
             status_code=422,
             detail="Подтвердите реальную внешнюю отправку RFQ",
         )
+    try:
+        prepare_rfq_english_text(rfq)
+    except RFQEnglishPreparationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     subject, body = render_rfq_text(rfq)
     try:
         ensure_rfq_english(subject, body)

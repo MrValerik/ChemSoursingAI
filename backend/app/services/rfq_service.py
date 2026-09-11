@@ -18,6 +18,13 @@ from app.models.search_trace import SearchRun
 from app.schemas.rfq import RFQCreate
 from app.services.communication_language import english_text_uses_latin_script
 from app.services.rfq_builder import RFQInput, build_rfq
+from app.services.rfq_english import (
+    RFQEnglishPreparationError,
+    cached_rfq_english,
+    prepare_rfq_english,
+    rfq_english_is_ready,
+    safe_rfq_input,
+)
 from app.services.search_trace import cancel_search_run, utc_now
 from app.services.substance_service import (
     find_or_create_substance_for_request,
@@ -166,7 +173,10 @@ def create_rfq(
 def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
     """Возвращает ручной черновик или генерирует RFQ из сохранённой записи."""
     if rfq.rfq_subject_override and rfq.rfq_body_override:
-        return rfq.rfq_subject_override, rfq.rfq_body_override
+        if english_text_uses_latin_script(
+            f"{rfq.rfq_subject_override}\n{rfq.rfq_body_override}"
+        ):
+            return rfq.rfq_subject_override, rfq.rfq_body_override
 
     if rfq.identification_method == "analog":
         # Позиции на подбор письма не полагается: поставщику пишут по
@@ -175,21 +185,13 @@ def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
         # которое некому отправить.
         return "", ""
 
+    external_name = external_rfq_name(rfq)
+    cached = cached_rfq_english(rfq, external_name=external_name)
+    if cached is not None:
+        return cached
+
     result = build_rfq(
-        RFQInput(
-            cas=rfq.cas,
-            name=external_rfq_name(rfq),
-            identification_method=rfq.identification_method,
-            analog_reference=rfq.analog_reference,
-            analog_variations=list(rfq.analog_variations or []),
-            specification=rfq.specification,
-            incoterms=list(rfq.incoterms or []),
-            purity=rfq.purity,
-            application=rfq.application,
-            volume=rfq.volume,
-            target_price=float(rfq.target_price) if rfq.target_price else None,
-            currency=rfq.currency or "USD",
-        ),
+        safe_rfq_input(rfq, external_name=external_name),
         # Запрос уже сохранён, и справочник базисов с тех пор мог измениться.
         # Строгая проверка здесь роняла бы саму карточку: закупщик не смог бы
         # открыть собственный отправленный запрос из-за того, что базис
@@ -197,6 +199,16 @@ def render_rfq_text(rfq: RFQ) -> tuple[str, str]:
         strict=False,
     )
     return result["subject"], result["body"]
+
+
+def prepare_rfq_english_text(rfq: RFQ) -> bool:
+    """Создаёт проверенную английскую внешнюю версию, не меняя оригинал."""
+    return prepare_rfq_english(rfq, external_name=external_rfq_name(rfq))
+
+
+def rfq_english_text_is_ready(rfq: RFQ) -> bool:
+    """Возвращает готовность точной версии к внешней отправке."""
+    return rfq_english_is_ready(rfq, external_name=external_rfq_name(rfq))
 
 
 def external_rfq_name(rfq: RFQ) -> str:

@@ -20,6 +20,7 @@ from app.services.integration_settings import effective_email_settings, effectiv
 from app.services.rfq_service import (
     ensure_rfq_english,
     external_rfq_name,
+    prepare_rfq_english_text,
     render_rfq_text,
 )
 
@@ -154,6 +155,9 @@ def prepare_combined_message(
     )
     if {rfq.id for rfq in rfqs} != set(normalized_ids):
         raise ValueError("Все выбранные RFQ должны принадлежать этому пакету")
+    for rfq in rfqs:
+        prepare_rfq_english_text(rfq)
+    db.flush()
     decided_ids = set(
         db.scalars(
             select(PurchaseDecision.rfq_id).where(
