@@ -39,6 +39,7 @@ from app.services.communication_policy import classify_supplier_message
 from app.services.communication_links import link_communication_to_rfqs
 from app.services.communication_llm import communication_llm_client
 from app.services.communication_language import message_language_matches
+from app.services.communication_test_email import is_communication_test_reply
 from app.services.communication_profiles import (
     budget_escalation_note,
     finalize_usage,
@@ -88,6 +89,7 @@ class EmailSyncSummary:
     escalations_created: int = 0
     contacts_linked: int = 0
     backfilled_seen: int = 0
+    deferred_test_messages: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -102,6 +104,7 @@ class EmailSyncSummary:
             "escalations_created": self.escalations_created,
             "contacts_linked": self.contacts_linked,
             "backfilled_seen": self.backfilled_seen,
+            "deferred_test_messages": self.deferred_test_messages,
             "errors": self.errors,
         }
 
@@ -643,6 +646,7 @@ def sync_inbox(
     *,
     limit: int = 20,
     seen_only: bool = False,
+    unseen_only: bool = False,
 ) -> EmailSyncSummary:
     """Загружает новые письма и создаёт котировки один раз по Message-ID."""
     email = connector or EmailConnector(effective_email_settings(db)[0])
@@ -657,16 +661,25 @@ def sync_inbox(
             f"Повторная привязка контактов: {type(exc).__name__}: {exc}"
         )
     fetch_recent = getattr(email, "fetch_recent", None)
-    messages = (
-        fetch_recent(limit=limit, seen_only=seen_only)
-        if callable(fetch_recent)
-        else email.fetch_unseen(limit=limit)
-    )
+    if unseen_only:
+        messages = email.fetch_unseen(limit=limit)
+    else:
+        messages = (
+            fetch_recent(limit=limit, seen_only=seen_only)
+            if callable(fetch_recent)
+            else email.fetch_unseen(limit=limit)
+        )
     summary.fetched = len(messages)
     seen_uids: list[str] = []
 
     for message in messages:
         try:
+            # Ответы реального Email-теста имеют собственный state machine и
+            # могут отправлять продолжение цепочки. Обычный импорт не должен
+            # сохранять их как неопределённые письма или помечать прочитанными.
+            if is_communication_test_reply(db, message):
+                summary.deferred_test_messages += 1
+                continue
             duplicate = db.scalar(
                 select(Communication.id).where(
                     Communication.external_id == message.message_id

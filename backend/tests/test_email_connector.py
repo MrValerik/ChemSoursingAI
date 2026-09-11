@@ -149,6 +149,61 @@ def test_fetch_recent_includes_seen_and_unseen_messages(monkeypatch):
     assert [message.was_seen for message in messages] == [True, False]
 
 
+def test_fetch_unseen_returns_newer_messages_before_older_uid_timeout(monkeypatch):
+    def raw_message(message_id: str) -> bytes:
+        message = EmailMessage()
+        message["From"] = "supplier@example.com"
+        message["To"] = "buyer@example.com"
+        message["Subject"] = "Quote"
+        message["Message-ID"] = message_id
+        message.set_content("Price USD 10/kg")
+        return message.as_bytes()
+
+    raw = {
+        b"11": raw_message("<eleven@example.com>"),
+        b"12": raw_message("<twelve@example.com>"),
+    }
+
+    class FakeImap:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def login(self, username, password):
+            return "OK", []
+
+        def select(self, folder, readonly=False):
+            return "OK", [b"3"]
+
+        def uid(self, command, *args):
+            if command == "search":
+                return "OK", [b"10 11 12"]
+            if command == "fetch":
+                uid = args[0]
+                key = uid.encode() if isinstance(uid, str) else uid
+                if key == b"10":
+                    raise TimeoutError("old message timed out")
+                return "OK", [(b"RFC822", raw[key])]
+            raise AssertionError(f"Unexpected IMAP command: {command}")
+
+        def logout(self):
+            return "BYE", []
+
+    monkeypatch.setattr("app.connectors.email.imaplib.IMAP4_SSL", FakeImap)
+    settings = SimpleNamespace(
+        imap_host="imap.example.com",
+        imap_port=993,
+        imap_user="buyer@example.com",
+        imap_password="secret",
+        imap_use_ssl=True,
+        imap_folder="INBOX",
+        email_timeout_s=30,
+    )
+
+    messages = EmailConnector(settings).fetch_unseen(limit=100)
+
+    assert [message.uid for message in messages] == ["11", "12"]
+
+
 def test_send_preserves_explicit_message_id(monkeypatch):
     delivered: list[EmailMessage] = []
 

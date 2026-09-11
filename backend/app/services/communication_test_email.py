@@ -68,6 +68,16 @@ def _find_run(db: Session, message: IncomingEmail) -> CommunicationTestRun | Non
     )
 
 
+def is_communication_test_reply(db: Session, message: IncomingEmail) -> bool:
+    """Проверяет, относится ли письмо к отдельной тестовой Email-цепочке.
+
+    Обычный почтовый workflow вызывает этот предикат до сохранения письма,
+    чтобы не забрать ответ песочницы и оставить его профильному обработчику.
+    """
+
+    return _find_run(db, message) is not None
+
+
 def _existing_message(
     db: Session, message_id: str
 ) -> CommunicationTestMessage | None:

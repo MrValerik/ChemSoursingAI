@@ -329,9 +329,20 @@ class EmailConnector:
                 raise EmailDeliveryError("IMAP не определил непрочитанные письма")
             unseen_uids = set((unseen_data[0] or b"").split())
             messages: list[IncomingEmail] = []
-            for uid_bytes in uids:
+            # Сначала читаем самые новые письма. Одно старое тяжёлое или
+            # повреждённое сообщение не должно блокировать все более свежие
+            # ответы поставщиков, ожидающие импорта.
+            for uid_bytes in reversed(uids):
                 uid = uid_bytes.decode("ascii", errors="ignore")
-                status, chunks = client.uid("fetch", uid, "(BODY.PEEK[])")
+                try:
+                    status, chunks = client.uid("fetch", uid, "(BODY.PEEK[])")
+                except (OSError, imaplib.IMAP4.error):
+                    if not messages:
+                        raise
+                    # Соединение после сетевой ошибки может быть непригодно.
+                    # Возвращаем уже прочитанные новые письма; проблемный UID
+                    # останется UNSEEN и будет повторён следующим проходом.
+                    break
                 if status != "OK":
                     continue
                 raw = next(
@@ -346,6 +357,7 @@ class EmailConnector:
                     parsed = parse_email(raw, uid)
                     parsed.was_seen = uid_bytes not in unseen_uids
                     messages.append(parsed)
+            messages.reverse()
             return messages
         except (OSError, imaplib.IMAP4.error) as exc:
             raise EmailDeliveryError(f"Не удалось прочитать IMAP: {exc}") from exc

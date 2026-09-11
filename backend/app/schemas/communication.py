@@ -202,4 +202,5 @@ class EmailSyncRead(BaseModel):
     escalations_created: int
     contacts_linked: int = 0
     backfilled_seen: int = 0
+    deferred_test_messages: int = 0
     errors: list[str] = Field(default_factory=list)

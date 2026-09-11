@@ -682,6 +682,7 @@ export interface EmailSyncRead {
   escalations_created: number;
   contacts_linked: number;
   backfilled_seen: number;
+  deferred_test_messages: number;
   errors: string[];
 }
 

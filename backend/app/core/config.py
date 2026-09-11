@@ -126,6 +126,12 @@ class Settings(BaseSettings):
     smtp_password: str = Field(default="")
     smtp_use_ssl: bool = Field(default=True)
     smtp_starttls: bool = Field(default=False)
+    # Обычные ответы поставщиков должны попадать в RFQ без ручного нажатия
+    # «Проверить почту». Первый проход после запуска также восстанавливает
+    # недавно прочитанные письма, дальнейшие проходят только по UNSEEN.
+    email_inbox_poll_enabled: bool = Field(default=True)
+    email_inbox_poll_interval_s: int = Field(default=30, ge=10, le=3600)
+    email_inbox_poll_batch_size: int = Field(default=100, ge=1, le=500)
     # Автоответы относятся только к явно запущенным администратором реальным
     # тестовым диалогам. По умолчанию worker выключен, чтобы dev/demo никогда
     # не начинал внешнюю переписку сам.
