@@ -14,7 +14,7 @@ from playwright.async_api import async_playwright
 from diagnostics import public_url, verification_result
 from parsing import parse_detail, _BLOCKS, parse_offer, product_url, is_verification, is_valid_cas
 
-from chrome_runtime import open_chrome
+from chrome_runtime import open_chrome, new_job_page
 from page_state import needs_verification
 from job_lifecycle import run_connected
 from manual import router as manual_router, active, wait_for_human
@@ -69,8 +69,7 @@ async def collect(query, output, captcha_probe_attempts=0):
     async with async_playwright() as p, open_chrome(p, PROFILE) as context:
         challenge = None
         try:
-            page = context.pages[0] if context.pages else await context.new_page()
-            await page.set_viewport_size({"width": 1280, "height": 900})
+            page = await new_job_page(context)
             page.set_default_timeout(25000)
             output["diagnostics"]["browser_launch"] = "chrome_cdp"
             output['diagnostics']['browser_version'] = await page.evaluate('navigator.userAgent')

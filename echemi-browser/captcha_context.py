@@ -11,6 +11,8 @@ from diagnostics import verification_result
 FIELDS = ("sceneId", "prefix", "userId", "userUserId", "verifyType", "region",
           "userCertifyId", "apiGetLib", "userAgent", "u_atoken", "u_asig")
 REQUIRED = ("sceneId", "prefix")
+INIT_ACTIONS = {"InitCaptcha", "InitCaptchaV2"}
+VERIFY_ACTIONS = {"VerifyCaptcha", "VerifyCaptchaV2"}
 READ_PAGE = """() => {
     const info = typeof requestInfo === 'object' && requestInfo !== null ? requestInfo : {};
     const result = {};
@@ -95,12 +97,13 @@ class CaptchaContext:
                 return
             data = request_fields(request.post_data or urlsplit(request.url).query)
             action = data.get("Action")
-            if action not in {"InitCaptcha", "VerifyCaptcha"}:
+            if action not in INIT_ACTIONS | VERIFY_ACTIONS:
                 return
-            if action == "InitCaptcha":
+            if action in INIT_ACTIONS:
                 self.reset()
                 for key, name in (("SceneId", "sceneId"), ("CaptchaSceneId", "sceneId"),
-                                  ("sId", "sceneId"), ("UserId", "userId")):
+                                  ("sId", "sceneId"), ("UserId", "userId"),
+                                  ("UserUserId", "userUserId"), ("UserCertifyId", "userCertifyId")):
                     self.put(name, data.get(key), "init_request")
                 host = urlsplit(request.url).hostname
                 match = re.fullmatch(r"([^.]+)\.captcha-open(?:-[a-z0-9-]+)?\.aliyuncs\.com", host)
@@ -126,7 +129,7 @@ class CaptchaContext:
         epoch, action = identity
         try:
             payload = await response.json()
-            if action == "InitCaptcha":
+            if action in INIT_ACTIONS:
                 if epoch != self.epoch:
                     return  # A late response must not revive a previous challenge.
                 if isinstance(payload, dict):
@@ -163,7 +166,8 @@ class CaptchaContext:
         if library:
             parsed = urlsplit(library)
             host = parsed.hostname or ""
-            if parsed.scheme == "https" and (host.endswith(".echemi.com") or host.endswith(".aliyuncs.com")):
+            if parsed.scheme == "https" and any(host.endswith(suffix) for suffix in
+                                                (".echemi.com", ".aliyuncs.com", ".alicdn.com")):
                 self.put("apiGetLib", library, "script_src")
         return self.initialized and not self.conflicts and all(self._values.get(key) for key in REQUIRED)
 

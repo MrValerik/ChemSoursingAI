@@ -15,6 +15,29 @@ def module(name):
     return value
 
 
+def test_new_job_uses_one_active_tab_without_clearing_profile():
+    calls = []
+    class Page:
+        def __init__(self, name, closed=False): self.name, self.closed = name, closed
+        def is_closed(self): return self.closed
+        async def close(self, **kwargs):
+            assert kwargs == {"run_before_unload": False}
+            self.closed = True
+            calls.append(self.name)
+        async def set_viewport_size(self, viewport): assert viewport == {"width": 1280, "height": 900}
+        async def bring_to_front(self): calls.append("front")
+    restored = [Page("old1"), Page("already_closed", True), Page("old2")]
+    fresh = Page("fresh")
+    async def new_page():
+        calls.append("new")
+        return fresh
+    context = SimpleNamespace(pages=restored, new_page=new_page)
+    actual = asyncio.run(module("chrome_runtime").new_job_page(context))
+    assert actual is fresh and not fresh.closed
+    assert all(page.closed for page in restored)
+    assert calls == ["new", "old1", "old2", "front"]
+
+
 @pytest.mark.parametrize("consumer_fails", [False, True])
 def test_cdp_context_cleans_process_on_success_and_error(tmp_path, monkeypatch, consumer_fails):
     runtime = module("chrome_runtime")

@@ -8,6 +8,18 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 
+async def new_job_page(context):
+    """Keep cookies but discard tabs restored by this service's own Chrome profile."""
+    restored = list(context.pages)
+    page = await context.new_page()
+    await page.set_viewport_size({"width": 1280, "height": 900})
+    for old in restored:
+        if not old.is_closed():
+            await old.close(run_before_unload=False)
+    await page.bring_to_front()
+    return page
+
+
 @asynccontextmanager
 async def open_chrome(playwright, profile):
     directory = Path(profile)

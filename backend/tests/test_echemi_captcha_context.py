@@ -97,13 +97,23 @@ def test_reload_drops_tokens_and_ignores_late_init_response(modules):
 def test_regional_endpoint_and_top_level_init_certify_id_observed_on_echemi(modules):
     async def run():
         context = modules[0].CaptchaContext(Page(), {})
-        req = Request(url="https://synthetic.captcha-open-southeast.aliyuncs.com/")
+        req = Request("InitCaptchaV2", url="https://synthetic.captcha-open-southeast.aliyuncs.com/")
+        req.post_data += "&UserUserId=SECRET_USER2&UserCertifyId=SECRET_TRACE"
         context.on_request(req)
         await context.on_response(Response(req, {"CertifyId": "SECRET_CERTIFY", "Success": True,
                                                  "Code": "Success", "DeviceConfig": "SECRET_DEVICE"}))
         assert await context.capture()
         assert context._values["prefix"] == "synthetic"
         assert "DeviceConfig" not in context._values
+        verify = Request("VerifyCaptchaV2")
+        context.on_request(verify)
+        await context.on_response(Response(verify, {"Result": {"VerifyCode": "F001", "VerifyResult": False}}))
+        assert context.outcome(context.epoch, 0)["verify_result"] is False
+        context.page.values = {"apiGetLib": "https://o.alicdn.com/captcha-frontend/aliyunCaptcha/AliyunCaptcha.js?t=1"}
+        assert await context.capture()
+        assert context._values["userUserId"] == "SECRET_USER2"
+        assert context._sources["userCertifyId"] == "init_request"
+        assert context._values["apiGetLib"].startswith("https://o.alicdn.com/")
     asyncio.run(run())
 
 
