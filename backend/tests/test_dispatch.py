@@ -94,6 +94,8 @@ def test_followup_requests_price_for_original_quantity_when_supplier_quotes_moq(
     )
     assert "requested quantity of 500 kg" in body
     assert "production and delivery lead time" in body
+    assert "Best regards" not in body
+    assert "Your Name" not in body
 
 
 def test_followup_falls_back_when_llm_mixes_english_and_russian(monkeypatch):
@@ -126,6 +128,39 @@ def test_followup_falls_back_when_llm_mixes_english_and_russian(monkeypatch):
 
     assert body == _fallback_followup(rfq, ["price", "lead_time"])
     assert "цену" not in body
+
+
+def test_followup_removes_placeholder_signature_from_llm(monkeypatch):
+    rfq = SimpleNamespace(
+        id=53,
+        name="Ascorbic acid",
+        cas="50-81-7",
+        volume="100 kg",
+        verification=None,
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.get_rfq_prompt_context",
+        lambda *args, **kwargs: ("system prompt", ""),
+    )
+
+    class PlaceholderSignatureLlm:
+        def generate_text(self, **kwargs):
+            return (
+                "Dear Supplier,\n\nThank you for the quotation. "
+                "Could you confirm the lead time?\n\nBest regards,\n[Your Name]"
+            )
+
+    body = _render_followup(
+        None,
+        rfq,
+        ["lead_time"],
+        llm=PlaceholderSignatureLlm(),
+    )
+
+    assert body == (
+        "Dear Supplier,\n\nThank you for the quotation. "
+        "Could you confirm the lead time?"
+    )
 
 
 def test_add_supplier_manually(client):
@@ -1186,7 +1221,7 @@ def test_live_whatsapp_dispatch_requires_confirmation(client, monkeypatch):
     assert history[0].idempotency_key == f"dispatch-{selected[0]['id']}"
 
 
-def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
+def test_seen_imap_reply_is_sent_automatically_in_send_mode(client, monkeypatch):
     headers = _login(client)
     supplier = client.post(
         "/suppliers",
@@ -1204,6 +1239,7 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
 
     class FakeConnector:
         seen: list[str] = []
+        sent: list[dict] = []
 
         def fetch_recent(self, limit=100, *, seen_only=False):
             assert seen_only is False
@@ -1220,7 +1256,8 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
             ]
 
         def send(self, **kwargs):
-            raise AssertionError("Backfill must not send an external follow-up")
+            self.sent.append(kwargs)
+            return "<auto-followup-500@buyer.example>"
 
         def mark_seen(self, uids):
             self.seen.extend(uids)
@@ -1281,12 +1318,15 @@ def test_imap_reply_creates_quote_and_followup_draft(client, monkeypatch):
 
     assert result.processed == 1
     assert result.quotations_created == 1
-    assert result.followups_drafted == 1
-    assert result.followups_sent == 0
+    assert result.followups_drafted == 0
+    assert result.followups_sent == 1
     assert result.backfilled_seen == 1
     assert connector.seen == ["500"]
+    assert len(connector.sent) == 1
+    assert connector.sent[0]["to_address"] == "reply@supplier.example"
     history = _communications(rfq["id"])
-    assert [item.status for item in history] == ["received", "draft"]
+    assert [item.status for item in history] == ["received", "sent"]
+    assert history[1].external_id == "<auto-followup-500@buyer.example>"
     overview = client.get(
         f"/rfq/{rfq['id']}/communications", headers=headers
     ).json()

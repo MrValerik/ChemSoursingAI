@@ -61,6 +61,7 @@ from app.services.communication_language import (
     message_language_matches as _message_language_matches,
 )
 from app.services.communication_reply_quality import REPLY_DISCIPLINE, grounded_reply_issue, reply_focus
+from app.services.communication_text import plain_text_supplier_message
 from app.services.document_storage import store_document
 from app.services.document_text import apply_extraction
 from app.services.prompt_service import get_active_prompt_text
@@ -216,47 +217,6 @@ _IDENTITY_GATE_SCHEMA = {
     "required": ["route", "category", "explanation"],
 }
 
-_MARKDOWN_HEADING_RE = re.compile(r"(?m)^[ \t]{0,3}#{1,6}[ \t]+")
-_MARKDOWN_BULLET_RE = re.compile(r"(?m)^[ \t]*[*+][ \t]+")
-_MARKDOWN_BOLD_RE = re.compile(r"(\*\*|__)(?=\S)(.*?\S)\1", re.DOTALL)
-_MARKDOWN_ITALIC_RE = re.compile(r"(?<!\w)([*_])(?=\S)([^\n]*?\S)\1(?!\w)")
-_EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
-_LEADING_SUBJECT_RE = re.compile(
-    r"\A[ \t]*(?:subject(?: line)?|тема(?: письма)?|主题)"
-    r"[ \t]*(?:[:：]|[-–—])[ \t]*[^\n]*(?:\n+|\Z)",
-    re.IGNORECASE,
-)
-_TRAILING_TEST_NOTE_RE = re.compile(
-    r"(?:\s*(?:(?:please\s+note\s+that|note|обратите\s+внимание|примечание)"
-    r"\s*[:：-]?\s*)?(?:"
-    r"this\s+is\s+(?:a\s+)?test(?:ing)?\s+message|"
-    r"this\s+is\s+(?:a\s+)?simulated\s+(?:message|conversation)|"
-    r"this\s+message\s+(?:is|was)\s+(?:generated|created)\s+"
-    r"(?:for\s+testing(?:\s+purposes)?|in\s+test\s+mode)|"
-    r"for\s+testing\s+purposes\s+only|"
-    r"это\s+тестовое\s+сообщение|"
-    r"это\s+(?:только\s+)?(?:тест|симуляция)(?:\s+переписки)?|"
-    r"(?:это\s+)?сообщение\s+(?:создано|сгенерировано|предназначено)\s+"
-    r"(?:только\s+)?(?:для\s+тестирования|в\s+тестовом\s+режиме)|"
-    r"сообщение\s+не\s+будет\s+отправлено|"
-    r"这是(?:一条)?测试消息|本消息仅用于测试"
-    r")[.!。]*\s*)+\Z",
-    re.IGNORECASE,
-)
-_TRAILING_SIGNATURE_RE = re.compile(
-    r"(?:\n+|[ \t]+)(?:best|kind|warm)\s+regards[,!]?"
-    r"(?:[ \t]*\n+[ \t]*|[ \t]+)?"
-    r"(?:procurement(?:\s+(?:team|department|specialist))?)?[.!]?[ \t]*\Z|"
-    r"(?:\n+|[ \t]+)sincerely[,]?"
-    r"(?:[ \t]*\n+[ \t]*|[ \t]+)?"
-    r"(?:procurement(?:\s+(?:team|department|specialist))?)?[.!]?[ \t]*\Z",
-    re.IGNORECASE,
-)
-_TRAILING_EMPTY_COURTESY_RE = re.compile(
-    r"(?:\s+(?:thank\s+you|thanks|looking\s+forward\s+to\s+your\s+"
-    r"(?:prompt\s+)?(?:reply|response)))[.!]?[ \t]*\Z",
-    re.IGNORECASE,
-)
 class CommunicationTestError(RuntimeError):
     """Безопасная ошибка теста, пригодная для показа администратору."""
 
@@ -289,20 +249,8 @@ def _communication_test_llm_client() -> LLMClient:
 
 
 def _plain_text_message(value: str) -> str:
-    """Удаляет разметку и тестовые служебные пометки из сообщения."""
-    text = value.strip().replace("```", "").replace("`", "")
-    text = _MARKDOWN_HEADING_RE.sub("", text)
-    text = _MARKDOWN_BULLET_RE.sub("", text)
-    text = _MARKDOWN_BOLD_RE.sub(r"\2", text)
-    text = _MARKDOWN_ITALIC_RE.sub(r"\2", text)
-    text = text.replace("*", "")
-    text = "\n".join(line.rstrip() for line in text.splitlines())
-    text = _EXCESS_BLANK_LINES_RE.sub("\n\n", text).strip()
-    text = _LEADING_SUBJECT_RE.sub("", text).strip()
-    text = _TRAILING_TEST_NOTE_RE.sub("", text).strip()
-    text = _TRAILING_SIGNATURE_RE.sub("", text).strip()
-    text = _TRAILING_EMPTY_COURTESY_RE.sub("", text).strip()
-    return _EXCESS_BLANK_LINES_RE.sub("\n\n", text).strip()
+    """Совместимый внутренний alias общей нормализации сообщений."""
+    return plain_text_supplier_message(value)
 
 
 def _load_run(db: Session, run_id: int) -> CommunicationTestRun | None:

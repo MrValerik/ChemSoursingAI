@@ -40,6 +40,7 @@ from app.services.communication_links import link_communication_to_rfqs
 from app.services.communication_llm import communication_llm_client
 from app.services.communication_language import message_language_matches
 from app.services.communication_test_email import is_communication_test_reply
+from app.services.communication_text import plain_text_supplier_message
 from app.services.communication_profiles import (
     budget_escalation_note,
     finalize_usage,
@@ -231,7 +232,7 @@ def _fallback_followup(rfq: RFQ, missing: list[str]) -> str:
         f"Thank you for your reply regarding {_subject_label(rfq)}. "
         f"To complete our evaluation, could you please provide: {fields}?\n\n"
         "Please keep the previously requested product, grade and delivery "
-        "requirements unchanged.\n\nBest regards,\nProcurement Department"
+        "requirements unchanged."
     )
 
 
@@ -262,22 +263,24 @@ def _render_followup(
                 "китайские символы, переведи либо транслитерируй названия. "
                 "Не добавляй новые требования. "
                 "Запрашивай только перечисленные недостающие данные и не "
-                "повторяй уже полученные условия. Письмо обязательно должно "
-                "содержать вежливое обращение, благодарность и подпись. "
+                "повторяй уже полученные условия. Письмо должно содержать "
+                "вежливое обращение и благодарность. Закончи после полезного "
+                "запроса: не добавляй подпись, имя, должность, компанию или "
+                "плейсхолдеры вроде [Your Name]. "
                 + (saved_instructions or "")
                 + (f"\n\n{profile_instructions}" if profile_instructions else "")
             ),
             max_tokens=256,
         )
+        generated = plain_text_supplier_message(generated)
         normalized = generated.casefold()
         if not (
             message_language_matches(generated, "en")
             and re.search(r"\b(?:dear|hello)\b", normalized)
             and "thank" in normalized
-            and re.search(r"\b(?:best|kind) regards\b", normalized)
         ):
             return fallback
-        return generated.strip()
+        return generated
     except LLMUnavailableError:
         return fallback
 
@@ -348,7 +351,6 @@ def _create_followup(
     llm: LLMClient | None = None,
     profile_instructions: str = "",
     body_override: str | None = None,
-    force_draft: bool = False,
 ) -> str | None:
     if db.scalar(
         select(PurchaseDecision.id).where(PurchaseDecision.rfq_id == rfq.id)
@@ -361,10 +363,6 @@ def _create_followup(
     mode = runtime.auto_followup_mode.strip().lower()
     if mode == "off" or (not missing and body_override is None):
         return None
-    if force_draft and mode == "send":
-        # Ранее прочитанное письмо могло лежать в Gmail несколько дней. При
-        # восстановлении истории нельзя неожиданно отправлять старый дозапрос.
-        mode = "draft"
     if body_override is not None:
         body = body_override
     elif mode == "send":
@@ -1028,7 +1026,6 @@ def sync_inbox(
                 llm=client,
                 profile_instructions=profile_prompt_instructions(audit_start.profile),
                 body_override=handoff,
-                force_draft=message.was_seen,
             )
             if handoff is not None:
                 audit_start.audit.policy_route = "handoff"

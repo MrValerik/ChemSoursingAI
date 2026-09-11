@@ -166,6 +166,15 @@ def test_plain_text_message_removes_subject_and_trailing_test_note(
             "Hello. Please confirm the price.",
         ),
         (
+            "Hello. Please confirm the price.\n\nBest regards,\n[Your Name]",
+            "Hello. Please confirm the price.",
+        ),
+        (
+            "Hello. Please confirm the price.\n\nSincerely,\n"
+            "<Your Name>\n<Your Position>",
+            "Hello. Please confirm the price.",
+        ),
+        (
             "Hello. Please confirm the price. Looking forward to your prompt response.",
             "Hello. Please confirm the price.",
         ),
