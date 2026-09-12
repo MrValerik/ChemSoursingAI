@@ -199,6 +199,21 @@ export default function SuppliersTab({
     () => new Map(recipients.map((item) => [item.supplier_id, item])),
     [recipients],
   );
+  const unselectedAvailableSuppliers = useMemo(
+    () =>
+      forThisRequest.filter((supplier) => {
+        const link = (supplier.linked_requests ?? []).find(
+          (item) => item.rfq_id === rfqId,
+        );
+        return (
+          supplier.channels.length > 0 &&
+          supplier.qualification_status !== "rejected" &&
+          !link?.excluded &&
+          !recipientBySupplier.has(supplier.id)
+        );
+      }),
+    [forThisRequest, recipientBySupplier, rfqId],
+  );
 
   const sorted = useMemo(() => {
     const status = (id: number) => {
@@ -299,6 +314,31 @@ export default function SuppliersTab({
           "Получатель добавлен. В «Общении» проверьте RFQ и подтвердите отправку.",
         );
       }
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectAll = async () => {
+    if (readOnly || busy || unselectedAvailableSuppliers.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.selectRecipients(
+        rfqId,
+        unselectedAvailableSuppliers.map((supplier) => ({
+          supplier_id: supplier.id,
+          channel: supplier.channels[0],
+        })),
+      );
+      setNotice(
+        `Добавлено получателей: ${unselectedAvailableSuppliers.length}. ` +
+          "В «Общении» проверьте RFQ и подтвердите отправку.",
+      );
       await load();
     } catch (e) {
       setError(String(e));
@@ -410,6 +450,15 @@ export default function SuppliersTab({
           <button className="secondary" onClick={() => void load()}>
             Обновить поиск
           </button>
+          {!readOnly && (
+            <button
+              className="secondary"
+              onClick={() => void selectAll()}
+              disabled={busy || unselectedAvailableSuppliers.length === 0}
+            >
+              Выбрать все
+            </button>
+          )}
           {!readOnly && (
             <button className="secondary" onClick={() => setAddOpen((v) => !v)}>
               Добавить вручную
