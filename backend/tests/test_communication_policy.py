@@ -1,7 +1,10 @@
 """Регрессии policy-gate перед автоматическим ответом поставщику."""
 
 from app.extraction.llm_client import LLMUnavailableError
-from app.services.communication_policy import classify_supplier_message
+from app.services.communication_policy import (
+    classify_email_transport_event,
+    classify_supplier_message,
+)
 
 
 class FakeLlm:
@@ -111,6 +114,95 @@ def test_analogue_offer_is_escalated_without_calling_llm():
     assert decision.category == "identity_or_custom_synthesis"
     assert decision.method == "rule"
     assert llm.calls == []
+
+
+def test_terminal_refusal_stops_without_quote_or_escalation():
+    llm = FakeLlm(error=AssertionError("LLM must not be called"))
+
+    decision = classify_supplier_message(
+        "Thank you, but we do not supply this product.",
+        rfq_name="Substance X",
+        rfq_cas="123-45-6",
+        llm=llm,
+    )
+
+    assert decision.route == "stop"
+    assert decision.auto_reply_allowed is False
+    assert decision.category == "supplier_refusal"
+    assert llm.calls == []
+
+
+def test_quantity_limitation_requests_available_capacity():
+    llm = FakeLlm(error=AssertionError("LLM must not be called"))
+
+    decision = classify_supplier_message(
+        "Sorry, we cannot supply such big quantity.",
+        rfq_name="Substance X",
+        rfq_cas="123-45-6",
+        llm=llm,
+    )
+
+    assert decision.route == "auto_reply"
+    assert decision.auto_reply_allowed is True
+    assert decision.category == "capacity_limitation"
+    assert llm.calls == []
+
+
+def test_supplier_referral_waits_for_new_contact():
+    llm = FakeLlm(error=AssertionError("LLM must not be called"))
+
+    decision = classify_supplier_message(
+        "Our colleague Martin will contact you with the price tomorrow.",
+        rfq_name="Substance X",
+        rfq_cas="123-45-6",
+        llm=llm,
+    )
+
+    assert decision.route == "wait"
+    assert decision.category == "supplier_referral"
+    assert llm.calls == []
+
+
+def test_buyer_identity_request_has_specific_escalation_category():
+    llm = FakeLlm(error=AssertionError("LLM must not be called"))
+
+    decision = classify_supplier_message(
+        "Please send your company name, company address and GST number.",
+        rfq_name="Substance X",
+        rfq_cas="123-45-6",
+        llm=llm,
+    )
+
+    assert decision.route == "escalate"
+    assert decision.category == "buyer_identity_required"
+    assert llm.calls == []
+
+
+def test_delivery_failure_is_not_treated_as_unknown_supplier():
+    decision = classify_email_transport_event(
+        from_address="mailer-daemon@googlemail.com",
+        subject="Delivery Status Notification (Failure)",
+        text="Address not found. The message could not be delivered.",
+    )
+
+    assert decision is not None
+    assert decision.route == "delivery_error"
+    assert decision.category == "delivery_failure"
+
+
+def test_automatic_acknowledgement_waits_without_false_custom_synthesis_alarm():
+    decision = classify_email_transport_event(
+        from_address="sales@supplier.example",
+        subject="Re: RFQ",
+        text=(
+            "Thank you for contacting us. This is an automatic reply. "
+            "Our catalogue includes Custom Synthesis services."
+        ),
+    )
+
+    assert decision is not None
+    assert decision.route == "wait"
+    assert decision.category == "automatic_reply"
 
 
 def test_negated_crypto_and_analogue_terms_do_not_trigger_broad_keyword_rules():

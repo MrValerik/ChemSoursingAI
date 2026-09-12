@@ -1889,6 +1889,269 @@ def test_live_auto_followup_uses_rfq_identity_without_llm_draft(
     assert connector.seen == ["auto-followup-1"]
 
 
+def test_email_refusal_stops_without_empty_quote_or_followup(client, monkeypatch):
+    headers = _login(client)
+    client.post(
+        "/suppliers",
+        json={
+            "company": "Refusal Supplier",
+            "email": "refusal@supplier.example",
+        },
+        headers=headers,
+    )
+    rfq_response = client.post(
+        "/rfq?verify=false",
+        json={
+            "cas": "64-19-7",
+            "name": "Acetic acid",
+            "volume": "1 MT",
+            "incoterms": ["CIP"],
+        },
+        headers=headers,
+    )
+    assert rfq_response.status_code == 201, rfq_response.text
+    rfq = rfq_response.json()
+
+    class FakeConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="send",
+            email_delivery_mode="live",
+            email_from="buyer@example.com",
+        )
+        sent = []
+
+        def fetch_unseen(self, limit=20):
+            return [
+                IncomingEmail(
+                    uid="refusal-1",
+                    message_id="<refusal-1@supplier.example>",
+                    subject=f"Re: [RFQ-{rfq['id']}] Acetic acid",
+                    from_address="refusal@supplier.example",
+                    to_addresses=["buyer@example.com"],
+                    text="Thank you, but we do not supply this product.",
+                )
+            ]
+
+        def mark_seen(self, uids):
+            self.seen = uids
+
+        def send(self, **kwargs):
+            self.sent.append(kwargs)
+            raise AssertionError("A refusal must not receive an automatic reply")
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("A refusal must not be parsed as a quotation")
+        ),
+    )
+    connector = FakeConnector()
+    with SessionLocal() as db:
+        result = sync_inbox(db, connector=connector)
+        audit = db.scalar(
+            select(CommunicationPolicyAudit).where(
+                CommunicationPolicyAudit.communication_id.is_not(None)
+            ).order_by(CommunicationPolicyAudit.id.desc())
+        )
+        quote_count = len(
+            db.scalars(select(Quotation).where(Quotation.rfq_id == rfq["id"])).all()
+        )
+        escalation_count = len(
+            db.scalars(select(Escalation).where(Escalation.rfq_id == rfq["id"])).all()
+        )
+
+    assert result.processed == 1
+    assert result.quotations_created == 0
+    assert result.followups_sent == 0
+    assert result.escalations_created == 0
+    assert quote_count == 0
+    assert escalation_count == 0
+    assert connector.sent == []
+    assert audit.policy_route == "stop"
+    assert audit.policy_category == "supplier_refusal"
+
+
+def test_email_question_answers_known_rfq_details_without_empty_quote(
+    client, monkeypatch
+):
+    headers = _login(client)
+    client.post(
+        "/suppliers",
+        json={
+            "company": "Question Supplier",
+            "email": "questions@supplier.example",
+        },
+        headers=headers,
+    )
+    rfq_response = client.post(
+        "/rfq?verify=false",
+        json={
+            "cas": "64-19-7",
+            "name": "Acetic acid",
+            "volume": "1 MT",
+            "purity": "99.8%",
+            "application": "Industrial synthesis",
+            "incoterms": ["CIP"],
+        },
+        headers=headers,
+    )
+    assert rfq_response.status_code == 201, rfq_response.text
+    rfq = rfq_response.json()
+
+    class FakeConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="send",
+            email_delivery_mode="live",
+            email_from="buyer@example.com",
+        )
+
+        def __init__(self):
+            self.sent = []
+
+        def fetch_unseen(self, limit=20):
+            return [
+                IncomingEmail(
+                    uid="question-1",
+                    message_id="<question-1@supplier.example>",
+                    subject=f"Re: [RFQ-{rfq['id']}] Acetic acid",
+                    from_address="questions@supplier.example",
+                    to_addresses=["buyer@example.com"],
+                    text=(
+                        "Please confirm the full product name, CAS, quantity, "
+                        "grade and application."
+                    ),
+                )
+            ]
+
+        def mark_seen(self, uids):
+            self.seen = uids
+
+        def send(self, **kwargs):
+            self.sent.append(kwargs)
+            return "<contextual-answer@buyer.example>"
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="The supplier asks for known RFQ details.",
+            method="test",
+            route="auto_reply",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: ExtractedQuote(method="test"),
+    )
+    connector = FakeConnector()
+    with SessionLocal() as db:
+        result = sync_inbox(db, connector=connector)
+        quote_count = len(
+            db.scalars(select(Quotation).where(Quotation.rfq_id == rfq["id"])).all()
+        )
+
+    assert result.quotations_created == 0
+    assert result.followups_sent == 1
+    assert quote_count == 0
+    assert len(connector.sent) == 1
+    body = connector.sent[0]["body"]
+    assert "Product: Acetic acid" in body
+    assert "CAS: 64-19-7" in body
+    assert "Requested quantity: 1 MT" in body
+    assert "Required grade/purity: 99.8%" in body
+    assert "Application: Industrial synthesis" in body
+
+
+def test_delivery_failure_is_recorded_as_channel_error_not_supplier_identity(
+    client, monkeypatch
+):
+    headers = _login(client)
+    supplier = client.post(
+        "/suppliers",
+        json={
+            "company": "Bounce Supplier",
+            "email": "wrong@supplier.invalid",
+        },
+        headers=headers,
+    ).json()
+    rfq_response = client.post(
+        "/rfq?verify=false",
+        json={"cas": "64-19-7", "name": "Acetic acid", "incoterms": ["CIP"]},
+        headers=headers,
+    )
+    assert rfq_response.status_code == 201, rfq_response.text
+    rfq = rfq_response.json()
+    with SessionLocal() as db:
+        manager = db.scalar(
+            select(Manager).where(Manager.supplier_id == supplier["id"])
+        )
+        db.add(
+            Communication(
+                rfq_id=rfq["id"],
+                manager_id=manager.id,
+                direction=CommDirection.OUTBOUND,
+                channel=Channel.EMAIL,
+                subject=f"[RFQ-{rfq['id']}] Acetic acid",
+                body="RFQ",
+                to_address="wrong@supplier.invalid",
+                status="sent",
+                external_id="<original-rfq@buyer.example>",
+            )
+        )
+        db.commit()
+
+    class FakeConnector:
+        sent = []
+
+        def fetch_unseen(self, limit=20):
+            return [
+                IncomingEmail(
+                    uid="bounce-1",
+                    message_id="<bounce-1@googlemail.com>",
+                    subject="Delivery Status Notification (Failure) "
+                    f"[RFQ-{rfq['id']}]",
+                    from_address="mailer-daemon@googlemail.com",
+                    to_addresses=["buyer@example.com"],
+                    text="Address not found. The message could not be delivered.",
+                    in_reply_to="<original-rfq@buyer.example>",
+                )
+            ]
+
+        def mark_seen(self, uids):
+            self.seen = uids
+
+        def send(self, **kwargs):
+            raise AssertionError("A mail delivery report must never be answered")
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("A bounce must not be parsed as a quotation")
+        ),
+    )
+    connector = FakeConnector()
+    with SessionLocal() as db:
+        result = sync_inbox(db, connector=connector)
+        audit = db.scalar(
+            select(CommunicationPolicyAudit).where(
+                CommunicationPolicyAudit.event_key == "email:<bounce-1@googlemail.com>"
+            )
+        )
+        escalation = db.scalar(
+            select(Escalation).where(Escalation.rfq_id == rfq["id"])
+        )
+
+    assert result.quotations_created == 0
+    assert result.followups_sent == 0
+    assert result.escalations_created == 1
+    assert audit.policy_route == "delivery_error"
+    assert audit.policy_category == "delivery_failure"
+    assert escalation.manager_id is not None
+    assert "Email не доставлен" in escalation.note
+    assert "Отправитель первого письма" not in escalation.note
+
+
 def test_email_sync_is_available_to_buyer_and_admin(client, monkeypatch):
     monkeypatch.setattr(
         "app.api.communications.sync_inbox",

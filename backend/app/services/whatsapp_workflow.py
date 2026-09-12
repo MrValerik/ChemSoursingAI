@@ -470,6 +470,10 @@ def process_business_whatsapp(
         llm=client,
     )
     record_policy(audit_start.audit, policy)
+    if policy.route in {"wait", "stop"}:
+        finalize_usage(audit_start.audit, client, reply_generated=False)
+        db.commit()
+        return 0
     if not policy.auto_reply_allowed:
         finalize_usage(audit_start.audit, client, reply_generated=False)
         _escalate(
@@ -506,8 +510,36 @@ def process_business_whatsapp(
 
     explicit_offers = parse_explicit_price_offers(text)
     offer_overrides = explicit_offers if len(explicit_offers) > 1 else [{}]
+    evidence_fields = (
+        "price",
+        "currency",
+        "incoterm",
+        "moq",
+        "grade",
+        "payment_terms",
+        "lead_time",
+        "manufacturer",
+        "origin_country",
+        "packaging",
+        "price_unit",
+        "quoted_quantity",
+        "total_price",
+        "delivery_cost",
+        "duty_cost",
+        "vat_cost",
+        "landed_cost",
+        "cost_currency",
+    )
+    has_quote_evidence = bool(
+        any(getattr(quote, field, None) not in (None, "") for field in evidence_fields)
+        or quote.is_hazmat is True
+        or quote.has_coa
+        or quote.has_tds
+        or bool(attachment_kinds & {"coa", "tds"})
+        or explicit_offers
+    )
     created = 0
-    for offer in offer_overrides:
+    for offer in offer_overrides if has_quote_evidence else []:
         confidence = dict(quote.field_confidence or {})
         for field_name in (
             "price",

@@ -105,6 +105,89 @@ _IDENTITY_OR_SYNTHESIS_PATTERNS = (
     ),
     re.compile(r"(?:替代品|类似物|定制合成|不同的CAS)"),
 )
+_TERMINAL_REFUSAL_PATTERNS = (
+    re.compile(
+        r"\b(?:we\s+)?(?:cannot|can't|can\s+not|are\s+unable\s+to)\s+"
+        r"(?:supply|offer|quote|provide|ship)\b(?![^.\n]{0,35}\b(?:quantity|volume)\b)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:do\s+not|don't)\s+(?:supply|sell|offer|handle)\b|"
+        r"\bnot\s+(?:in|part\s+of)\s+our\s+(?:product\s+)?(?:range|portfolio)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:не\s+можем|не\s+имеем\s+возможности)\s+"
+        r"(?:поставить|предложить|отгрузить)\b|\bне\s+поставляем\b",
+        re.IGNORECASE,
+    ),
+)
+_CAPACITY_LIMITATION_PATTERNS = (
+    re.compile(
+        r"\b(?:cannot|can't|can\s+not|unable\s+to)\s+"
+        r"(?:supply|offer|provide|handle)\b[^.\n]{0,50}"
+        r"\b(?:requested|such|this)\b[^.\n]{0,20}\b(?:quantity|volume)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:only|maximum|max\.?)[^.\n]{0,45}\b(?:kg|g|mt|tons?|tonnes?|liters?|litres?)\b",
+        re.IGNORECASE,
+    ),
+)
+_REFERRAL_PATTERNS = (
+    re.compile(
+        r"\b(?:my|our)\s+(?:colleague|coworker|team)\b[^.\n]{0,100}"
+        r"\b(?:contact|reply|respond|quote|offer|price|follow\s+up)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:please\s+)?(?:contact|write\s+to|email)\b[^.\n]{0,100}"
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:sister|affiliate|related)\s+company\b[^.\n]{0,100}"
+        r"\b(?:contact|reply|respond|quote)\b",
+        re.IGNORECASE,
+    ),
+)
+_BUYER_IDENTITY_PATTERNS = (
+    re.compile(
+        r"\b(?:your|buyer(?:'s)?)\s+(?:company\s+)?(?:name|address|website|"
+        r"tax\s+(?:id|number)|vat\s+(?:id|number)|gst(?:\s+number)?|"
+        r"registration\s+number)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:company\s+(?:name|address|website)|contact\s+person|"
+        r"mobile\s+(?:number|no\.?|phone)|phone\s+number|gst(?:\s+number)?)\b",
+        re.IGNORECASE,
+    ),
+)
+_DELIVERY_FAILURE_SENDERS = re.compile(
+    r"^(?:mailer-daemon|postmaster)(?:@|$)", re.IGNORECASE
+)
+_DELIVERY_FAILURE_SUBJECTS = re.compile(
+    r"\b(?:delivery status notification\s*\(failure\)|undeliver(?:ed|able)|"
+    r"mail delivery failed|returned mail|failure notice|delivery incomplete)\b",
+    re.IGNORECASE,
+)
+_DELIVERY_FAILURE_TEXT = re.compile(
+    r"\b(?:address not found|recipient address rejected|domain not found|"
+    r"message could not be delivered|delivery has failed|550\s+5\.[0-9.]+)\b",
+    re.IGNORECASE,
+)
+_AUTOMATIC_REPLY_SUBJECTS = re.compile(
+    r"^(?:re:\s*)?(?:automatic reply|auto(?:matic)?[- ]?reply|out of office|"
+    r"away from the office|автоматический ответ|автоответ)\b",
+    re.IGNORECASE,
+)
+_AUTOMATIC_REPLY_TEXT = re.compile(
+    r"^(?:.{0,240})\b(?:this\s+is\s+an?\s+automatic\s+(?:reply|response)|"
+    r"this\s+message\s+was\s+generated\s+automatically|"
+    r"we\s+have\s+received\s+your\s+(?:email|message|inquiry))\b",
+    re.IGNORECASE | re.DOTALL,
+)
 _QUESTION_PATTERN = re.compile(
     r"[?？]|\b(?:what|why|how|who|where|when|can|could|would|do|are)\b|"
     r"\b(?:как|что|кто|где|когда|почему|можете|можно|ли)\b|"
@@ -206,7 +289,7 @@ _ROUTING_PROMPT = """
 грамотность или порядок предоставления сведений. Поставщик не обязан ответить
 на все пункты RFQ одним письмом.
 
-Выбери auto_reply и standard_procurement, если сообщение относится к обычному
+Верни route=auto_reply и category=standard_procurement, если сообщение относится к обычному
 RFQ: идентичность вещества, CAS, грейд, чистота, спецификация, образец,
 количество, цена, валюта, MOQ, наличие, упаковка, документы CoA/TDS/SDS,
 Incoterm, доставка, срок, условия оплаты или уточнение уже запрошенных
@@ -222,13 +305,29 @@ Incoterm, доставка, срок, условия оплаты или уто�
 - обычное приветствие, благодарность, подпись, опечатки и смешение языков, если
   в сообщении также есть данные или вопрос по текущей закупке.
 
+Верни route=stop и category=supplier_refusal, если поставщик однозначно сообщил,
+что не поставляет товар или не может дать предложение. Такой ответ завершает
+ветку поставщика и не является котировкой.
+
+Верни route=wait и category=supplier_referral, если поставщик передал запрос
+коллеге или другой компании и сообщил, что ответ придёт от них. Не формируй
+котировку из самой переадресации.
+
+Верни route=auto_reply и category=capacity_limitation, если поставщик не может
+дать запрошенный объём, но смысл сообщения допускает меньший доступный объём.
+
+Верни route=escalate и category=buyer_identity_required, если поставщик просит
+неизвестные реквизиты покупателя: юридическое название, адрес, сайт, GST/VAT,
+телефон или контактное лицо. Известные параметры самого RFQ не относятся к этой
+категории.
+
 Категория sensitive_information применима ТОЛЬКО когда поставщик просит
 покупателя раскрыть его внутренние конфиденциальные сведения: список клиентов,
 закрытую рецептуру, внутреннюю стратегию, непубличные договоры или аналогичные
 данные. Никогда не выбирай её только потому, что сам поставщик назвал цену,
 скидку или другие условия предложения.
 
-Выбери escalate, если есть хотя бы один нестандартный вопрос или запрос:
+Верни route=escalate, если есть хотя бы один нестандартный вопрос или запрос:
 - личная или светская беседа, например "How are you?";
 - вопрос не о текущей закупке;
 - просьба раскрыть внутренние сведения, клиентов, рецептуру или стратегию;
@@ -256,11 +355,18 @@ _ROUTING_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "route": {"type": "string", "enum": ["auto_reply", "escalate"]},
+        "route": {
+            "type": "string",
+            "enum": ["auto_reply", "escalate", "stop", "wait"],
+        },
         "category": {
             "type": "string",
             "enum": [
                 "standard_procurement",
+                "capacity_limitation",
+                "supplier_refusal",
+                "supplier_referral",
+                "buyer_identity_required",
                 "social_or_personal",
                 "off_topic",
                 "sensitive_information",
@@ -283,6 +389,50 @@ class CommunicationPolicyDecision:
     category: str
     explanation: str
     method: str
+    route: str | None = None
+
+
+def classify_email_transport_event(
+    *,
+    from_address: str,
+    subject: str,
+    text: str,
+    auto_submitted: str | None = None,
+    precedence: str | None = None,
+) -> CommunicationPolicyDecision | None:
+    """Распознаёт служебные Email до попытки считать их ответом поставщика."""
+
+    normalized_auto = (auto_submitted or "").strip().casefold()
+    normalized_precedence = (precedence or "").strip().casefold()
+    if (
+        _DELIVERY_FAILURE_SENDERS.search(from_address.strip())
+        or _DELIVERY_FAILURE_SUBJECTS.search(subject.strip())
+    ) and _DELIVERY_FAILURE_TEXT.search(text):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="delivery_failure",
+            explanation=(
+                "Почтовый сервер сообщил, что исходное письмо не доставлено."
+            ),
+            method="email_headers_and_text",
+            route="delivery_error",
+        )
+    if (
+        (normalized_auto and normalized_auto != "no")
+        or normalized_precedence in {"auto_reply", "bulk"}
+        or _AUTOMATIC_REPLY_SUBJECTS.search(subject.strip())
+        or _AUTOMATIC_REPLY_TEXT.search(text.strip())
+    ):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="automatic_reply",
+            explanation=(
+                "Получено автоматическое подтверждение; ответ и котировка не нужны."
+            ),
+            method="email_headers",
+            route="wait",
+        )
+    return None
 
 
 def classify_supplier_message(
@@ -290,6 +440,7 @@ def classify_supplier_message(
     *,
     rfq_name: str,
     rfq_cas: str | None,
+    conversation_context: str | None = None,
     llm: LLMClient | None = None,
 ) -> CommunicationPolicyDecision:
     """Маршрутизирует сообщение; при сомнении запрещает автоматический ответ."""
@@ -339,6 +490,43 @@ def classify_supplier_message(
                 "Поставщик предлагает замену, другой CAS или индивидуальный синтез."
             ),
             method="rule",
+            route="escalate",
+        )
+    if any(pattern.search(normalized) for pattern in _TERMINAL_REFUSAL_PATTERNS):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="supplier_refusal",
+            explanation="Поставщик однозначно отказался от поставки или предложения.",
+            method="rule",
+            route="stop",
+        )
+    if any(pattern.search(normalized) for pattern in _REFERRAL_PATTERNS):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="supplier_referral",
+            explanation="Поставщик передал запрос другому контакту; ожидается отдельный ответ.",
+            method="rule",
+            route="wait",
+        )
+    if any(pattern.search(normalized) for pattern in _BUYER_IDENTITY_PATTERNS):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="buyer_identity_required",
+            explanation=(
+                "Поставщик запросил реквизиты покупателя, которые нельзя придумывать."
+            ),
+            method="rule",
+            route="escalate",
+        )
+    if any(pattern.search(normalized) for pattern in _CAPACITY_LIMITATION_PATTERNS):
+        return CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="capacity_limitation",
+            explanation=(
+                "Поставщик не может дать запрошенный объём; нужно уточнить доступный максимум."
+            ),
+            method="rule",
+            route="auto_reply",
         )
     if _QUESTION_PATTERN.search(normalized) and not any(
         hint in normalized.casefold() for hint in _PROCUREMENT_HINTS
@@ -361,6 +549,12 @@ def classify_supplier_message(
     context = f"RFQ: {rfq_name}"
     if rfq_cas:
         context += f", CAS {rfq_cas}"
+    if conversation_context and conversation_context.strip():
+        context += (
+            ".\n<conversation_context_untrusted>\n"
+            f"{conversation_context.strip()[:6000]}\n"
+            "</conversation_context_untrusted>"
+        )
     try:
         result = (llm or communication_llm_client()).generate_json(
             system_prompt=_ROUTING_PROMPT,
@@ -390,11 +584,16 @@ def classify_supplier_message(
     explanation = result.get("explanation")
     valid_categories = set(_ROUTING_SCHEMA["properties"]["category"]["enum"])
     if (
-        route not in {"auto_reply", "escalate"}
+        route not in {"auto_reply", "escalate", "stop", "wait"}
         or category not in valid_categories
         or not isinstance(explanation, str)
         or not explanation.strip()
-        or (route == "auto_reply" and category != "standard_procurement")
+        or (
+            route == "auto_reply"
+            and category not in {"standard_procurement", "capacity_limitation"}
+        )
+        or (route == "stop" and category != "supplier_refusal")
+        or (route == "wait" and category != "supplier_referral")
     ):
         return CommunicationPolicyDecision(
             auto_reply_allowed=False,
@@ -410,4 +609,5 @@ def classify_supplier_message(
         category=category,
         explanation=explanation.strip(),
         method="llm",
+        route=route,
     )

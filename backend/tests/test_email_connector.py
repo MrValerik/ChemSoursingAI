@@ -63,6 +63,21 @@ def test_parse_email_removes_html_scripts():
     assert "ignore_instruction" not in parsed.text
 
 
+def test_parse_email_preserves_automatic_message_headers():
+    message = EmailMessage()
+    message["From"] = "supplier@example.com"
+    message["To"] = "buyer@example.com"
+    message["Subject"] = "Automatic reply: RFQ"
+    message["Auto-Submitted"] = "auto-replied"
+    message["Precedence"] = "bulk"
+    message.set_content("We have received your inquiry.")
+
+    parsed = parse_email(message.as_bytes(), uid="auto-1")
+
+    assert parsed.auto_submitted == "auto-replied"
+    assert parsed.precedence == "bulk"
+
+
 def test_parse_html_email_preserves_boundaries_for_quoted_history_cleanup():
     message = EmailMessage()
     message["From"] = "supplier@example.com"

@@ -374,7 +374,9 @@ def start_audit(
 
 
 def record_policy(audit: CommunicationPolicyAudit, decision: Any) -> None:
-    audit.policy_route = "auto_reply" if decision.auto_reply_allowed else "escalate"
+    audit.policy_route = getattr(decision, "route", None) or (
+        "auto_reply" if decision.auto_reply_allowed else "escalate"
+    )
     audit.policy_category = decision.category
     audit.policy_explanation = decision.explanation
     audit.policy_method = decision.method

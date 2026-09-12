@@ -42,6 +42,10 @@ class IncomingEmail:
     references: list[str] = field(default_factory=list)
     attachments: list[dict] = field(default_factory=list)
     message_at: datetime | None = None
+    # Служебные RFC-заголовки нужны workflow, чтобы автоответ или bounce не
+    # считались коммерческим ответом поставщика.
+    auto_submitted: str | None = None
+    precedence: str | None = None
     # Письмо могло быть открыто в веб-интерфейсе до синхронизации ChemSource AI.
     # Такие ответы тоже импортируются, но не должны запускать автоотправку задним числом.
     was_seen: bool = False
@@ -166,6 +170,8 @@ def parse_email(raw: bytes, uid: str) -> IncomingEmail:
         references=references,
         attachments=attachments,
         message_at=message_at,
+        auto_submitted=str(message.get("Auto-Submitted") or "").strip() or None,
+        precedence=str(message.get("Precedence") or "").strip() or None,
     )
 
 
