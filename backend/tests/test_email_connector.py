@@ -4,6 +4,7 @@ from email.message import EmailMessage
 from types import SimpleNamespace
 
 from app.connectors.email import EmailConnector, parse_email
+from app.extraction.email_text import latest_reply_text
 
 
 def test_parse_email_extracts_safe_text_and_attachments():
@@ -60,6 +61,27 @@ def test_parse_email_removes_html_scripts():
 
     assert "Price: USD 10/kg" in parsed.text
     assert "ignore_instruction" not in parsed.text
+
+
+def test_parse_html_email_preserves_boundaries_for_quoted_history_cleanup():
+    message = EmailMessage()
+    message["From"] = "supplier@example.com"
+    message["To"] = "buyer@example.com"
+    message["Subject"] = "Re: [RFQ-7] Quote"
+    message.set_content(
+        "<div>Price: USD 10/kg</div>"
+        "<div class='gmail_quote'>"
+        "On Fri, 11 Sep 2026 at 10:15, ChemSource "
+        "&lt;buyer@example.com&gt; wrote:<br>"
+        "Please provide your price."
+        "</div>",
+        subtype="html",
+    )
+
+    parsed = parse_email(message.as_bytes(), uid="html-quoted")
+
+    assert "\n" in parsed.text
+    assert latest_reply_text(parsed.text) == "Price: USD 10/kg"
 
 
 def test_parse_email_ignores_hidden_inline_images_but_keeps_attached_png():

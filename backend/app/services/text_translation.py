@@ -1,10 +1,14 @@
-"""Надёжный перевод внутреннего текста через настроенную модель общения."""
+"""Надёжный внутренний перевод через Google с резервной моделью общения."""
 
 from __future__ import annotations
 
 import re
 from collections import Counter
 
+from app.connectors.google_translate import (
+    GoogleTranslateConnector,
+    GoogleTranslateError,
+)
 from app.extraction.llm_client import LLMClient, LLMUnavailableError
 from app.services.communication_llm import communication_llm_client
 
@@ -87,6 +91,10 @@ def _russian_translation_issue(source: str, translated: str) -> str | None:
     source_normalized = " ".join(source.casefold().split())
     result_normalized = " ".join(result.casefold().split())
     if source_normalized == result_normalized:
+        # Уже русский исходник переводить не требуется. Это часто встречается
+        # в смешанных цепочках с российскими поставщиками.
+        if len(_CYRILLIC_RE.findall(source)) >= 3:
+            return None
         return "модель скопировала исходный текст без перевода"
 
     result_words = [word.casefold() for word in _LATIN_WORD_RE.findall(result)]
@@ -131,10 +139,19 @@ def _english_translation_issue(source: str, translated: str) -> str | None:
 
 
 class LLMTranslationConnector:
-    """Переводит текст, не позволяя содержимому управлять моделью."""
+    """Переводит на русский через Google, при сбое использует настроенную LLM."""
 
-    def __init__(self, llm: LLMClient | None = None) -> None:
+    def __init__(
+        self,
+        llm: LLMClient | None = None,
+        google: GoogleTranslateConnector | None = None,
+    ) -> None:
         self.llm = llm or communication_llm_client()
+        # Явно переданная LLM означает изолированный вызов (в том числе в
+        # тестах). В обычном runtime Google включается автоматически.
+        self.google = google if google is not None else (
+            None if llm is not None else GoogleTranslateConnector()
+        )
 
     def translate(
         self,
@@ -150,6 +167,21 @@ class LLMTranslationConnector:
             raise TranslationError(
                 "Поддерживается перевод только на русский или английский язык"
             )
+
+        if target_language == "ru" and self.google is not None:
+            try:
+                google_result = self.google.translate(
+                    source,
+                    source_language=source_language,
+                    target_language="ru",
+                ).strip()
+                if _russian_translation_issue(source, google_result) is None:
+                    return google_result
+            except GoogleTranslateError:
+                # Перевод — внутреннее представление, поэтому временная ошибка
+                # Google не должна ломать экран: ниже остаётся проверенный LLM
+                # fallback. Оригинал сообщения в любом случае не меняется.
+                pass
 
         source_instruction = (
             "самостоятельно определи язык исходного текста"

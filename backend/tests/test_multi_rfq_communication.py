@@ -90,6 +90,52 @@ def test_shared_message_is_visible_and_translatable_from_each_linked_rfq() -> No
             assert translations[0].translation_ru.startswith("RU:")
 
 
+def test_inbound_email_hides_quoted_buyer_message_but_keeps_original() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        rfq = RFQ(name="Aspirin")
+        supplier = Supplier(company="Quoted Reply Supplier")
+        manager = Manager(
+            full_name="Sales",
+            email="sales@quoted-reply.example",
+            supplier=supplier,
+        )
+        db.add_all([rfq, manager])
+        db.flush()
+        original = (
+            "Price is USD 10/kg.\n\n"
+            "On Fri, 11 Sep 2026 at 10:15, ChemSource "
+            "<buyer@example.com> wrote:\n"
+            "Please provide your price and lead time."
+        )
+        message = Communication(
+            rfq_id=rfq.id,
+            manager_id=manager.id,
+            direction=CommDirection.INBOUND,
+            channel=Channel.EMAIL,
+            subject="Re: RFQ",
+            body=original,
+            from_address=manager.email,
+            to_address="buyer@example.com",
+            status="received",
+        )
+        db.add(message)
+        db.commit()
+
+        overview = list_communication_overview(db, rfq.id)
+        translations = translate_communication_messages(
+            db,
+            rfq_id=rfq.id,
+            message_ids=[message.id],
+            translator=FakeTranslator(),
+        )
+
+        assert overview.conversations[0].messages[0].body == "Price is USD 10/kg."
+        assert translations[0].translation_ru == "RU: Price is USD 10/kg."
+        assert db.get(Communication, message.id).body == original
+
+
 def test_link_requires_an_explicit_rfq_selection() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

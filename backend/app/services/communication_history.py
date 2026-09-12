@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.extraction.email_text import latest_reply_text
 from app.models import Communication, Escalation, Quotation, RFQ, RfqRecipient, Supplier
 from app.models.enums import Channel, CommDirection, DispatchStatus, EscalationStatus
 from app.models.manager import Manager
@@ -28,6 +29,16 @@ def _message_contact(message: Communication) -> str | None:
     if message.direction == CommDirection.INBOUND:
         return message.from_address
     return message.to_address
+
+
+def _message_body_for_display(message: Communication) -> str:
+    """Скрывает цитату старой Email-цепочки, не меняя оригинал в БД."""
+    if (
+        message.direction == CommDirection.INBOUND
+        and message.channel == Channel.EMAIL
+    ):
+        return latest_reply_text(message.body)
+    return message.body
 
 
 def _contact_key(channel: Channel, value: str | None) -> tuple[str, str, str]:
@@ -199,7 +210,7 @@ def list_communication_overview(
                 direction=message.direction,
                 channel=message.channel,
                 subject=message.subject,
-                body=message.body,
+                body=_message_body_for_display(message),
                 status=message.status,
                 from_address=message.from_address,
                 to_address=message.to_address,
@@ -246,7 +257,9 @@ def list_communication_overview(
             assignee=escalation.assignee,
             note=escalation.note,
             communication_id=escalation.communication_id,
-            message_body=communication.body if communication else None,
+            message_body=(
+                _message_body_for_display(communication) if communication else None
+            ),
             created_at=escalation.created_at,
         )
         if communication is None:

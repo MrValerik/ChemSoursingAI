@@ -12,8 +12,18 @@ import re
 
 _QUOTED_HISTORY_MARKERS = (
     re.compile(r"(?im)^\s*-{2,}\s*original message\s*-{2,}\s*$"),
+    re.compile(r"(?im)^\s*-{2,}\s*forwarded message\s*-{2,}\s*$"),
+    re.compile(r"(?m)^\s*_{5,}\s*$"),
     re.compile(r"(?im)^\s*on\s+.+\s+wrote:\s*$"),
-    re.compile(r"(?im)^\s*(?:from|sent|to|subject)\s*:\s*.+$"),
+    re.compile(r"(?ims)^\s*on\s+[^\n]*(?:\n[^\n]*){0,3}\bwrote:\s*$"),
+    re.compile(
+        r"(?im)^\s*.*<[^>\n]+>\s+"
+        r"(?:wrote|написал(?:а|и)?|написал\(а\))\s*:\s*$"
+    ),
+    re.compile(
+        r"(?im)^\s*(?:from|sent|to|subject|от|отправлено|кому|тема)"
+        r"\s*:\s*.+$"
+    ),
     re.compile(r"(?im)^\s*(?:发件人|发送时间|收件人|主题)\s*[：:]\s*.+$"),
 )
 

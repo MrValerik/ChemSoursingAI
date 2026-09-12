@@ -3,10 +3,21 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.extraction.email_text import latest_reply_text
 from app.models import Communication
+from app.models.enums import Channel, CommDirection
 from app.schemas.communication import CommunicationMessageTranslationRead
 from app.services.communication_links import communication_linked_to_rfq
 from app.services.text_translation import LLMTranslationConnector
+
+
+def _message_body_for_translation(message: Communication) -> str:
+    if (
+        message.direction == CommDirection.INBOUND
+        and message.channel == Channel.EMAIL
+    ):
+        return latest_reply_text(message.body)
+    return message.body
 
 
 def translate_communication_messages(
@@ -36,11 +47,11 @@ def translate_communication_messages(
         CommunicationMessageTranslationRead(
             message_id=message.id,
             translation_ru=translation.translate(
-                message.body,
+                _message_body_for_translation(message),
                 source_language="auto",
                 target_language="ru",
             ),
         )
         for message in messages
-        if message.body and message.body.strip()
+        if _message_body_for_translation(message).strip()
     ]

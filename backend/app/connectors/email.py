@@ -89,7 +89,21 @@ def _plain_text(message) -> str:
         raw_html,
         flags=re.IGNORECASE | re.DOTALL,
     )
-    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", raw_html)).split())
+    # Границы HTML-блоков важны: Gmail/Outlook помещают заголовок старой
+    # цепочки в отдельный div/blockquote. Если схлопнуть всё в одну строку,
+    # позднее невозможно отделить новый ответ поставщика от цитируемого RFQ.
+    raw_html = re.sub(
+        r"(?i)<br\s*/?>|</?(?:blockquote|div|li|ol|p|table|tbody|td|th|tr|ul)\b[^>]*>",
+        "\n",
+        raw_html,
+    )
+    text = html.unescape(re.sub(r"<[^>]+>", " ", raw_html))
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    normalized: list[str] = []
+    for line in lines:
+        if line or (normalized and normalized[-1]):
+            normalized.append(line)
+    return "\n".join(normalized).strip()
 
 
 def parse_email(raw: bytes, uid: str) -> IncomingEmail:

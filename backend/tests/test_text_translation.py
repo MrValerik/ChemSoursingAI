@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.connectors.google_translate import GoogleTranslateError
 from app.extraction.llm_client import LLMUnavailableError
 from app.services.text_translation import LLMTranslationConnector, TranslationError
 
@@ -15,6 +16,44 @@ class FakeLlm:
         self.calls.append(kwargs)
         index = min(len(self.calls) - 1, len(self.results) - 1)
         return self.results[index]
+
+
+class FakeGoogle:
+    def __init__(self, result: str | Exception) -> None:
+        self.result = result
+        self.calls: list[dict] = []
+
+    def translate(self, text: str, **kwargs) -> str:
+        self.calls.append({"text": text, **kwargs})
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def test_russian_translation_uses_google_before_llm():
+    google = FakeGoogle("Цена составляет 10 USD/кг.")
+    llm = FakeLlm("Резервный результат")
+
+    result = LLMTranslationConnector(llm=llm, google=google).translate(
+        "Price is USD 10/kg."
+    )
+
+    assert result == "Цена составляет 10 USD/кг."
+    assert google.calls[0]["source_language"] == "auto"
+    assert llm.calls == []
+
+
+def test_russian_translation_falls_back_to_llm_when_google_is_unavailable():
+    google = FakeGoogle(GoogleTranslateError("HTTP 503"))
+    llm = FakeLlm("Цена составляет 10 USD/кг.")
+
+    result = LLMTranslationConnector(llm=llm, google=google).translate(
+        "Price is USD 10/kg."
+    )
+
+    assert result == "Цена составляет 10 USD/кг."
+    assert len(google.calls) == 1
+    assert len(llm.calls) == 1
 
 
 def test_llm_translation_preserves_source_as_untrusted_user_text():
