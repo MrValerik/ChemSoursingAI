@@ -2,7 +2,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.communication_reply_quality import grounded_reply_issue, reply_focus
+from app.services.communication_reply_quality import (
+    grounded_reply_issue,
+    reply_focus,
+    safe_reply_fallback,
+)
 
 
 def issue(
@@ -176,6 +180,85 @@ def test_shortness_gate_is_only_for_followups():
     long_reply = "Please provide the missing information. " * 30
     assert issue(long_reply)
     assert issue(long_reply, stage="initial") is None
+
+
+def test_complete_offer_allows_only_short_internal_review_acknowledgement():
+    supplier = (
+        "Caffeine CAS 58-08-2, USP grade. USD 16/kg EXW for 200 kg; "
+        "MOQ 20 kg. Payment: 100% T/T in advance only. "
+        "Dispatch within 9 working days after payment. CoA and TDS attached."
+    )
+
+    assert "quotation is complete" in reply_focus("Quantity: 200 kg", supplier)
+    assert issue(
+        "Thank you for the complete quotation. We will review it internally.",
+        supplier=supplier,
+    ) is None
+    assert issue(
+        "Thank you. Could you confirm the currency and MOQ?",
+        supplier=supplier,
+    )
+    assert issue(
+        "Thank you for the quotation. "
+        + "We have noted every commercial term in your detailed offer. " * 6
+        + "We will review it internally.",
+        supplier=supplier,
+    )
+    assert issue("Thank you for the quotation.", supplier=supplier)
+
+
+def test_capacity_shortfall_requires_maximum_quantity_and_scoped_price():
+    supplier = (
+        "We can supply USP caffeine, but we cannot supply the requested "
+        "quantity this month."
+    )
+
+    focus = reply_focus("Quantity: 200 kg", supplier)
+    assert "maximum quantity" in focus
+    assert "unit price and currency" in focus
+    assert issue("Thank you for clarifying the limitation.", supplier=supplier)
+    assert issue(
+        "What is the maximum quantity you can supply?",
+        supplier=supplier,
+    )
+    assert issue(
+        "What is the maximum quantity you can supply, and what unit price "
+        "and currency apply to it?",
+        supplier=supplier,
+    ) is None
+
+
+def test_capacity_shortfall_does_not_repeat_already_supplied_maximum_or_price():
+    supplier_with_maximum = (
+        "We can supply USP caffeine, but only 80 kg is available this month."
+    )
+    assert issue(
+        "What unit price and currency apply to the available 80 kg?",
+        supplier=supplier_with_maximum,
+    ) is None
+    supplier_with_full_alternative = (
+        "We can supply USP caffeine, but only 80 kg is available at USD 20/kg."
+    )
+    assert issue(
+        "Thank you, the available quantity and price are noted.",
+        supplier=supplier_with_full_alternative,
+    ) is None
+
+
+def test_safe_fallback_is_limited_to_complete_offer_and_capacity_shortfall():
+    complete = (
+        "Caffeine USP. USD 16/kg EXW, MOQ 20 kg. Payment: T/T in advance. "
+        "Lead time: 9 days. CoA attached."
+    )
+    capacity = "We supply USP grade, but cannot supply the requested quantity."
+
+    assert safe_reply_fallback(complete) == (
+        "Thank you for the quotation and documents. "
+        "We will review them internally."
+    )
+    assert "maximum quantity" in safe_reply_fallback(capacity)
+    assert "unit price and currency" in safe_reply_fallback(capacity)
+    assert safe_reply_fallback("USD 16/kg EXW, but MOQ is unknown.") is None
 
 
 @pytest.mark.parametrize("repeat_bad", [False, True])

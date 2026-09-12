@@ -60,7 +60,12 @@ from app.services.communication_language import (
     english_text_uses_latin_script,
     message_language_matches as _message_language_matches,
 )
-from app.services.communication_reply_quality import REPLY_DISCIPLINE, grounded_reply_issue, reply_focus
+from app.services.communication_reply_quality import (
+    REPLY_DISCIPLINE,
+    grounded_reply_issue,
+    reply_focus,
+    safe_reply_fallback,
+)
 from app.services.communication_text import plain_text_supplier_message
 from app.services.document_storage import store_document
 from app.services.document_text import apply_extraction
@@ -1192,13 +1197,25 @@ def _generate_reply(
                 raise CommunicationTestError(run.error)
             repeated_issue = _reply_quality_issue(run, reply, stage=stage)
             if repeated_issue:
-                run.status = "llm_error"
-                run.error = (
-                    "Нейросеть дважды нарушила проверяемые правила общения: "
-                    f"{repeated_issue} Отправка остановлена."
+                supplier_messages = [
+                    message.content
+                    for message in run.messages
+                    if message.sender_role == "supplier"
+                ]
+                fallback = safe_reply_fallback(
+                    "\n".join(supplier_messages),
+                    supplier_messages[-1] if supplier_messages else "",
                 )
-                db.commit()
-                raise CommunicationTestError(run.error)
+                if fallback and _reply_quality_issue(run, fallback, stage=stage) is None:
+                    reply = fallback
+                else:
+                    run.status = "llm_error"
+                    run.error = (
+                        "Нейросеть дважды нарушила проверяемые правила общения: "
+                        f"{repeated_issue} Отправка остановлена."
+                    )
+                    db.commit()
+                    raise CommunicationTestError(run.error)
     except LLMUnavailableError as exc:
         run.status = "llm_error"
         run.error = (

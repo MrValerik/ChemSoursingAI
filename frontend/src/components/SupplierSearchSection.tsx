@@ -8,7 +8,7 @@ import type {
   CountryEvidenceStatus,
   EvidenceStatus,
   MarketplaceSeller,
-  QualifiedSupplierType,
+  QualifiedSupplierResult,
   RFQRead,
   SearchRunListItem,
   SearchRunTrace,
@@ -27,12 +27,6 @@ import {
   type SearchModeKey,
 } from "./searchModes";
 import { HelpTip, Icon, Input, Select, Textarea, Toast } from "./ui";
-
-const TYPE_LABELS: Record<QualifiedSupplierType, string> = {
-  manufacturer: "Производитель",
-  distributor: "Дистрибьютор",
-  unknown: "Не определено",
-};
 
 // Род страницы словами закупщика. Страница обзора или статьи компанию не
 // представляет вовсе, и написать про неё «роль не определена» — значит
@@ -56,7 +50,7 @@ type RoleBadge = { text: string; tone: string; hint: string };
 // Решающее поле supplier_type не трогаем: на нём держатся балл и короткий
 // список. Здесь только подпись, и она обязана говорить, что именно
 // известно и чего не хватает.
-function roleBadge(result: QualificationResult): RoleBadge {
+function roleBadge(result: QualifiedSupplierResult): RoleBadge {
   const proof = result.role_proof ?? null;
   const claimed = result.role_claimed ?? null;
 

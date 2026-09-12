@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-REPLY_POLICY_VERSION = "reply_quality.v4"
+REPLY_POLICY_VERSION = "reply_quality.v5"
 REPLY_DISCIPLINE = """
 Before writing the next reply, silently check the latest supplier question and
 all earlier supplier facts. Reply to that question first; do not restart the RFQ.
@@ -51,6 +51,8 @@ Complete quote and attached documents ->
 'Thank you for the quotation and documents. We will review them internally.'
 Everything supplied except dispatch deadline and validity ->
 'Could you confirm when the goods would be ready for collection and how long the price is valid?'
+Requested quantity is unavailable and the supplier did not state an alternative ->
+'What is the maximum quantity you can supply, and what unit price and currency apply to it?'
 Buyer specified packaging and supplier asks which packaging -> give the specified
 packaging and ask only price/currency, Incoterm and MOQ now. Other gaps can wait.
 """.strip()
@@ -95,6 +97,57 @@ _PRICE_AMOUNT_RE = re.compile(
     r"\b(?:USD|CNY|EUR|RMB)\s*(\d+(?:[.,]\d+)?)"
     r"|\b(\d+(?:[.,]\d+)?)\s*(?:USD|CNY|EUR|RMB)\b",
     re.I,
+)
+_INCOTERM_RE = re.compile(
+    r"\b(?:EXW|FCA|FAS|FOB|CFR|CIF|CPT|CIP|DAP|DPU|DDP)\b",
+    re.I,
+)
+_MOQ_RE = re.compile(r"\bMOQ\b|minimum\s+order|минимальн\w*\s+(?:заказ|парти)", re.I)
+_LEAD_TIME_RE = re.compile(
+    r"\blead\s+time\s*(?::|is\b|=)|\bdispatch\s+within\b|"
+    r"\b(?:goods?|order|production|shipment)\b[^.!?\n]{0,80}"
+    r"\b(?:ready|produced|shipped|dispatched)\b[^.!?\n]{0,40}\b\d+\s*"
+    r"(?:working\s+|business\s+)?(?:days?|weeks?)\b|"
+    r"(?:срок\s+(?:производства|поставки|отгрузки)|готов\w*\s+к\s+отгрузке)"
+    r"[^.!?\n]{0,50}\d+\s*(?:дн|недел)",
+    re.I,
+)
+_SUPPLIED_DOCUMENT_RE = re.compile(
+    r"(?:\b(?:CoA|certificate\s+of\s+analysis|TDS|technical\s+data\s+sheet)\b"
+    r"[^.!?\n]{0,80}\b(?:attached|enclosed|sent|provided|included)\b|"
+    r"\b(?:attached|enclosed|sent|provided|included)\b[^.!?\n]{0,80}"
+    r"\b(?:CoA|certificate\s+of\s+analysis|TDS|technical\s+data\s+sheet)\b|"
+    r"\b(?:CoA|TDS)\b[^.!?\n]{0,50}(?:прилож|отправ|предостав))",
+    re.I,
+)
+_CAPACITY_LIMITATION_RE = re.compile(
+    r"(?:\b(?:cannot|can['’]?t|unable\s+to|not\s+able\s+to)\b"
+    r"[^.!?\n]{0,100}\b(?:supply|offer|provide|produce|requested\s+quantity)\b|"
+    r"\brequested\s+quantity\b[^.!?\n]{0,80}\b(?:unavailable|not\s+available)\b|"
+    r"\bonly\s+\d+(?:[.,]\d+)?\s*(?:kg|mt|tons?|tonnes?|l|litres?|liters?)\b"
+    r"[^.!?\n]{0,50}\b(?:available|possible|can\s+be\s+supplied)\b|"
+    r"(?:не\s+(?:можем|готовы)\s+(?:поставить|предложить)|"
+    r"запрошенн\w*\s+(?:об[ъь]?[её]м|количеств\w*)\s+не\s+доступ))",
+    re.I,
+)
+_MAX_AVAILABLE_RE = re.compile(
+    r"(?:\b(?:maximum|max\.?|up\s+to|only)\s+\d+(?:[.,]\d+)?\s*"
+    r"(?:kg|mt|tons?|tonnes?|l|litres?|liters?)\b|"
+    r"\b\d+(?:[.,]\d+)?\s*(?:kg|mt|tons?|tonnes?|l|litres?|liters?)\b"
+    r"[^.!?\n]{0,50}\b(?:available|maximum|can\s+(?:supply|offer|provide))\b|"
+    r"(?:максим\w*|только|до)\s+\d+(?:[.,]\d+)?\s*(?:кг|л|тонн))",
+    re.I,
+)
+_MAX_QUANTITY_REQUEST_RE = re.compile(
+    r"\b(?:maximum|max(?:imum)?\s+available|available)\s+quantity\b|"
+    r"\b(?:maximum|max\.?)\b[^.!?\n]{0,45}\b(?:kg|mt|quantity|volume|supply)\b|"
+    r"\bquantity\b[^.!?\n]{0,60}\b(?:can|could|are\s+able\s+to)\s+"
+    r"(?:supply|offer|provide)\b",
+    re.I,
+)
+_PRICE_REQUEST_RE = re.compile(r"\b(?:unit\s+price|price|quotation|quote)\b", re.I)
+_CURRENCY_REQUEST_RE = re.compile(
+    r"\b(?:currency|USD|CNY|EUR|RMB|GBP|RUB)\b", re.I
 )
 
 
@@ -202,11 +255,99 @@ def _needs_moq(supplier_text: str) -> bool:
                 and not re.search(r"\bMOQ\b|minimum\s+order|минимальн.*(?:заказ|парти)", supplier_text, re.I))
 
 
+def _supplier_offer_complete(supplier_text: str) -> bool:
+    """Require literal evidence for every field that closes an RFQ dialogue."""
+
+    has_grade = bool(
+        _affirmed_grade_codes(supplier_text)
+        or re.search(
+            r"\b(?:grade|purity)\s*(?::|is\b|=)\s*(?!not\b|unavailable\b)"
+            r"[^.!?\n]{1,50}|\b\d+(?:[.,]\d+)?\s*%\s*(?:purity|pure)\b|"
+            r"(?:грейд|чистот\w*)\s*(?::|—|-|составляет)",
+            supplier_text,
+            re.I,
+        )
+    )
+    return all(
+        (
+            _PRICE_AMOUNT_RE.search(supplier_text),
+            _INCOTERM_RE.search(supplier_text),
+            _MOQ_RE.search(supplier_text),
+            has_grade,
+            _PAYMENT_DECLARATION.search(supplier_text),
+            _LEAD_TIME_RE.search(supplier_text),
+            _SUPPLIED_DOCUMENT_RE.search(supplier_text),
+        )
+    )
+
+
+def _capacity_reply_issue(latest_supplier_text: str, reply: str) -> str | None:
+    """Keep capacity shortfalls actionable instead of acknowledging them vaguely."""
+
+    if not _CAPACITY_LIMITATION_RE.search(latest_supplier_text):
+        return None
+    if not _MAX_AVAILABLE_RE.search(latest_supplier_text) and not _MAX_QUANTITY_REQUEST_RE.search(reply):
+        return (
+            "Запрошенный объём недоступен, но поставщик не назвал доступный "
+            "максимум. Явно спроси максимальное количество, которое он может поставить."
+        )
+    if not _PRICE_AMOUNT_RE.search(latest_supplier_text):
+        if not (_PRICE_REQUEST_RE.search(reply) and _CURRENCY_REQUEST_RE.search(reply)):
+            return (
+                "Для доступного объёма не названа цена. Запроси соответствующую "
+                "цену за единицу и валюту в той же короткой реплике."
+            )
+    return None
+
+
+def safe_reply_fallback(
+    supplier_text: str,
+    latest_supplier_text: str | None = None,
+) -> str | None:
+    """Return a narrow deterministic reply only for fully understood safe states."""
+
+    if _supplier_offer_complete(supplier_text):
+        return (
+            "Thank you for the quotation and documents. "
+            "We will review them internally."
+        )
+    latest = supplier_text if latest_supplier_text is None else latest_supplier_text
+    if not _CAPACITY_LIMITATION_RE.search(latest):
+        return None
+    requests = []
+    if not _MAX_AVAILABLE_RE.search(latest):
+        requests.append("the maximum quantity you can supply")
+    if not _PRICE_AMOUNT_RE.search(latest):
+        requests.append("the corresponding unit price and currency")
+    if not requests:
+        return None
+    return "Could you please confirm " + " and ".join(requests) + "?"
+
+
 def reply_focus(context: str, supplier_text: str, latest_supplier_text: str | None = None) -> str:
     """Hints from literal evidence only, not invented commercial values."""
     blocker = _buyer_blocker(context, supplier_text if latest_supplier_text is None else latest_supplier_text)
     if blocker:
         return f"PRIORITY: supplier awaits our {blocker}, which the operator has not provided. Reply only that internal confirmation is needed. No quotation request or checklist until this prerequisite is resolved."
+    latest = supplier_text if latest_supplier_text is None else latest_supplier_text
+    if _supplier_offer_complete(supplier_text):
+        return (
+            "PRIORITY: the quotation is complete. Reply in no more than 45 words, "
+            "ask no questions, do not recap its fields, and say only that the "
+            "quotation and documents will be reviewed internally."
+        )
+    if _CAPACITY_LIMITATION_RE.search(latest):
+        missing_requests = []
+        if not _MAX_AVAILABLE_RE.search(latest):
+            missing_requests.append("the maximum quantity the supplier can supply")
+        if not _PRICE_AMOUNT_RE.search(latest):
+            missing_requests.append("the corresponding unit price and currency")
+        if missing_requests:
+            return (
+                "PRIORITY: the requested quantity is unavailable. Ask only for "
+                + " and ".join(missing_requests)
+                + ". Do not merely acknowledge the limitation and do not add the remaining checklist now."
+            )
     hints = []
     earlier_price = _earlier_scoped_price(
         context,
@@ -250,6 +391,31 @@ def grounded_reply_issue(*, context: str, supplier_text: str, reply: str, stage:
     if len(re.findall(r"\b[\w'-]+\b", reply)) > 130 or reply.count("?") > 3:
         return "Реплика слишком длинная: ответь на последний вопрос и задай не более трёх связанных вопросов без повторения всего RFQ."
     latest = supplier_text if latest_supplier_text is None else latest_supplier_text
+    if _supplier_offer_complete(supplier_text):
+        if len(re.findall(r"\b[\w'-]+\b", reply)) > 45:
+            return (
+                "Котировка уже полная. Не пересказывай её: поблагодари и кратко "
+                "сообщи только о внутренней проверке, не более 45 слов."
+            )
+        if "?" in reply or re.search(
+            r"\b(?:please|could|would|can)\s+(?:you\s+)?"
+            r"(?:confirm|clarify|provide|share|send|advise|quote)\b",
+            reply,
+            re.I,
+        ):
+            return (
+                "Все обязательные условия уже получены. Не задавай новых или "
+                "повторных вопросов; сообщи только о внутренней проверке."
+            )
+        if not re.search(r"\b(?:internal|internally|review)\b", reply, re.I):
+            return (
+                "После полной котировки нужно кратко сообщить, что предложение "
+                "и документы будут проверены внутри компании."
+            )
+        return None
+    capacity_issue = _capacity_reply_issue(latest, reply)
+    if capacity_issue:
+        return capacity_issue
     if _buyer_blocker(context, latest) and ("?" in reply or re.search(r"\b(?:please|could|can)\s+(?:you\s+)?(?:provide|quote|confirm|send)", reply, re.I)):
         return "Поставщик ждёт данные покупателя для котировки. Сначала внутреннее уточнение, без повторного запроса цены и анкеты."
     if (_needs_moq(supplier_text) and not _buyer_blocker(context, latest)

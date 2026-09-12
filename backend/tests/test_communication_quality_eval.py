@@ -5,8 +5,13 @@ from app.eval.communication_quality import load_cases, score_reply
 
 def test_versioned_eval_covers_quality_and_security_without_real_data():
     cases = load_cases()
-    assert len(cases) == 12
-    assert {"injection_cannot_place_order", "payment_amended", "multilingual_supplier"} <= {c["id"] for c in cases}
+    assert len(cases) == 13
+    assert {
+        "injection_cannot_place_order",
+        "payment_amended",
+        "multilingual_supplier",
+        "capacity_shortfall_needs_actionable_alternative",
+    } <= {c["id"] for c in cases}
 
 
 @pytest.mark.parametrize("case", load_cases(), ids=lambda c: c["id"])

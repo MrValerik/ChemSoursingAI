@@ -607,7 +607,7 @@ def test_communication_testing_marks_complete_quote_without_followup(
         generated.append(kwargs)
         if len(generated) == 1:
             return "Hello. Please confirm CAS, grade, form and provide your quote."
-        return "Thank you. Please confirm how long this quotation remains valid."
+        return "Thank you for the update. We will review it internally."
 
     monkeypatch.setattr(
         "app.services.communication_testing.LLMClient.generate_text",
