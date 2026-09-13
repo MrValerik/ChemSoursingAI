@@ -3049,13 +3049,6 @@ button.danger:hover {
   margin: 5px 0;
 }
 
-.communication-escalation blockquote {
-  margin: 8px 0;
-  padding-left: 10px;
-  border-left: 3px solid var(--attention);
-  color: var(--text);
-}
-
 .communication-escalation-actions {
   display: flex;
   gap: 8px;
@@ -3075,6 +3068,30 @@ button.danger:hover {
   gap: 8px;
 }
 
+.communication-escalation-suggestion {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.communication-escalation-suggestion > div {
+  min-width: 0;
+}
+
+.communication-escalation-suggestion p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+
+.communication-escalation-suggestion button {
+  flex: 0 0 auto;
+}
+
 .communication-escalation-composer textarea {
   width: 100%;
   resize: vertical;
@@ -3085,6 +3102,11 @@ button.danger:hover {
 }
 
 @media (max-width: 800px) {
+  .communication-escalation-suggestion {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .summary-heading,
   .purchase-result-heading,
   .purchase-result-footer {

@@ -144,7 +144,7 @@ class CommunicationEscalationRead(BaseModel):
     assignee: str | None
     note: str | None
     communication_id: int | None
-    message_body: str | None
+    suggested_reply: str | None
     created_at: datetime
 
 

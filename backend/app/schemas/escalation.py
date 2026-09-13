@@ -18,6 +18,7 @@ class EscalationRead(BaseModel):
     status: EscalationStatus
     assignee: str | None
     note: str | None
+    suggested_reply: str | None
     created_at: datetime
 
     # Сведения о запросе для очереди «Ручной разбор» (раздел 13).

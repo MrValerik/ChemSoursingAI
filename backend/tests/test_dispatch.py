@@ -1773,6 +1773,10 @@ def test_nonstandard_supplier_question_creates_escalation_without_reply(
             AssertionError("Nonstandard message must not be extracted or answered")
         ),
     )
+    monkeypatch.setattr(
+        "app.services.email_workflow.prepare_escalation_reply",
+        lambda **kwargs: "Thank you for asking. I am well. We will continue shortly.",
+    )
     connector = FakeConnector()
     with SessionLocal() as db:
         result = sync_inbox(db, connector=connector)
@@ -1790,6 +1794,9 @@ def test_nonstandard_supplier_question_creates_escalation_without_reply(
     assert escalation.communication_id is not None
     assert escalation.manager_id is not None
     assert "Автоответ остановлен" in escalation.note
+    assert escalation.suggested_reply == (
+        "Thank you for asking. I am well. We will continue shortly."
+    )
 
     overview = client.get(
         f"/rfq/{rfq['id']}/communications", headers=headers
@@ -1801,6 +1808,10 @@ def test_nonstandard_supplier_question_creates_escalation_without_reply(
     assert conversations[0]["supplier_company"] == "Escalation Supplier"
     assert conversations[0]["messages"][0]["body"] == "Hello, how are you?"
     assert conversations[0]["escalations"][0]["status"] == "open"
+    assert conversations[0]["escalations"][0]["suggested_reply"].startswith(
+        "Thank you for asking"
+    )
+    assert "message_body" not in conversations[0]["escalations"][0]
     assert client.get(f"/rfq/{rfq['id']}", headers=headers).json()["status"] == "escalated"
 
 
@@ -2258,6 +2269,10 @@ def test_email_reply_joins_by_domain_and_company_mention_without_rfq_terms(
             method="test",
         ),
     )
+    monkeypatch.setattr(
+        "app.services.email_workflow.prepare_escalation_reply",
+        lambda **kwargs: "Thank you for your message. We will review it internally.",
+    )
     connector = FakeConnector()
     with SessionLocal() as db:
         result = sync_inbox(db, connector=connector)
@@ -2421,6 +2436,10 @@ def test_email_identity_uses_explicit_company_signature(client, monkeypatch):
             explanation="Нестандартный вопрос.",
             method="test",
         ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.prepare_escalation_reply",
+        lambda **kwargs: "Thank you for your message. We will review it internally.",
     )
     with SessionLocal() as db:
         result = sync_inbox(db, connector=FakeConnector())

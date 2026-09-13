@@ -39,6 +39,7 @@ class Escalation(Base, TimestampMixin):
     )
     assignee: Mapped[str | None] = mapped_column(String(255))
     note: Mapped[str | None] = mapped_column(Text)
+    suggested_reply: Mapped[str | None] = mapped_column(Text, default=None)
 
     rfq: Mapped["RFQ"] = relationship(back_populates="escalations")
     communication: Mapped["Communication | None"] = relationship()

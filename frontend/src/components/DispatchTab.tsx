@@ -1097,9 +1097,6 @@ function EscalationNotice({
       <div>
         <strong>Нужен ответ сотрудника</strong>
         <p>{escalation.note ?? "Автоматический ответ остановлен."}</p>
-        {escalation.message_body && (
-          <blockquote>{escalation.message_body}</blockquote>
-        )}
         <span className="note">
           {escalation.assignee
             ? `Ответственный: ${escalation.assignee}`
@@ -1110,9 +1107,28 @@ function EscalationNotice({
         <div className="communication-escalation-actions">
           {canReply && (
             <div className="communication-escalation-composer">
+              {escalation.suggested_reply && (
+                <div className="communication-escalation-suggestion">
+                  <div>
+                    <strong>Предлагаемый ответ ИИ</strong>
+                    <p>{escalation.suggested_reply}</p>
+                  </div>
+                  <button
+                    className="secondary btn-small"
+                    disabled={busy}
+                    onClick={() => {
+                      setReplyBody(escalation.suggested_reply ?? "");
+                      setReplyActionId(createActionId());
+                    }}
+                    type="button"
+                  >
+                    Использовать ответ ИИ
+                  </button>
+                </div>
+              )}
               <Textarea
                 rows={3}
-                placeholder="Напишите ручной ответ поставщику"
+                placeholder="Напишите ответ или выберите предложенный ИИ"
                 value={replyBody}
                 onChange={(event) => {
                   setReplyBody(event.target.value);

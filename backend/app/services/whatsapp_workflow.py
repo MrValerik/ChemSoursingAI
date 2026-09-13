@@ -42,6 +42,10 @@ from app.services.communication_profiles import (
 )
 from app.services.document_agent import verify_document
 from app.services.document_intake import store_incoming_attachments
+from app.services.escalation_reply import (
+    prepare_escalation_reply,
+    safe_escalation_reply,
+)
 from app.services.prompt_service import get_rfq_prompt_context
 from app.services.quotation_service import create_quotation
 
@@ -372,7 +376,12 @@ def _verify_documents(
 
 
 def _escalate(
-    db: Session, *, inbound: Communication, rfq: RFQ, note: str
+    db: Session,
+    *,
+    inbound: Communication,
+    rfq: RFQ,
+    note: str,
+    suggested_reply: str | None = None,
 ) -> None:
     db.add(
         Escalation(
@@ -382,6 +391,7 @@ def _escalate(
             reason=EscalationReason.OTHER,
             status=EscalationStatus.OPEN,
             note=note,
+            suggested_reply=suggested_reply,
         )
     )
     rfq.status = RFQStatus.ESCALATED
@@ -458,6 +468,7 @@ def process_business_whatsapp(
             inbound=inbound,
             rfq=rfq,
             note=budget_escalation_note(audit_start.audit),
+            suggested_reply=safe_escalation_reply(rfq),
         )
         db.commit()
         return 0
@@ -475,15 +486,23 @@ def process_business_whatsapp(
         db.commit()
         return 0
     if not policy.auto_reply_allowed:
+        escalation_note = (
+            "Автоматическая обработка WhatsApp остановлена: "
+            f"{policy.explanation} Категория: {policy.category}."
+        )
+        suggested_reply = prepare_escalation_reply(
+            rfq=rfq,
+            supplier_text=text,
+            escalation_note=escalation_note,
+            llm=client,
+        )
         finalize_usage(audit_start.audit, client, reply_generated=False)
         _escalate(
             db,
             inbound=inbound,
             rfq=rfq,
-            note=(
-                "Автоматическая обработка WhatsApp остановлена: "
-                f"{policy.explanation} Категория: {policy.category}."
-            ),
+            note=escalation_note,
+            suggested_reply=suggested_reply,
         )
         db.commit()
         return 0

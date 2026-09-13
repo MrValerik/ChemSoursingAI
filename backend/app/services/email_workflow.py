@@ -61,6 +61,10 @@ from app.services.email_identity import (
     reconcile_unlinked_email_contacts,
     resolve_sender_manager,
 )
+from app.services.escalation_reply import (
+    prepare_escalation_reply,
+    safe_escalation_reply,
+)
 from app.services.integration_settings import effective_email_settings
 from app.services.prompt_service import get_rfq_prompt_context
 from app.services.quotation_service import create_quotation
@@ -794,8 +798,11 @@ def _process_multi_rfq_reply(
         )
         _record_sender_resolution(audit_start.audit, resolution, message=message)
         escalation_note: str | None = None
+        suggested_reply: str | None = None
         if not audit_start.budget.allowed:
             escalation_note = budget_escalation_note(audit_start.audit)
+            if manager is not None:
+                suggested_reply = safe_escalation_reply(rfq)
         elif manager is None:
             audit_start.audit.policy_route = "escalate"
             audit_start.audit.policy_category = "sender_identity_unknown"
@@ -847,6 +854,17 @@ def _process_multi_rfq_reply(
                     "Авторазбор позиции остановлен: "
                     f"{policy.explanation} Категория: {policy.category}."
                 )
+                suggested_reply = prepare_escalation_reply(
+                    rfq=rfq,
+                    supplier_text=section,
+                    escalation_note=escalation_note,
+                    conversation_context=_conversation_context(
+                        db,
+                        rfq=rfq,
+                        manager=manager,
+                    ),
+                    llm=client,
+                )
             else:
                 created = _multi_position_quote(
                     db,
@@ -867,6 +885,7 @@ def _process_multi_rfq_reply(
                     reason=EscalationReason.OTHER,
                     status=EscalationStatus.OPEN,
                     note=escalation_note,
+                    suggested_reply=suggested_reply,
                 )
             )
             rfq.status = RFQStatus.ESCALATED
@@ -1031,6 +1050,7 @@ def sync_inbox(
                 message=message,
             )
             if not audit_start.budget.allowed:
+                escalation_note = budget_escalation_note(audit_start.audit)
                 db.add(
                     Escalation(
                         rfq_id=rfq.id,
@@ -1038,7 +1058,12 @@ def sync_inbox(
                         manager_id=manager.id if manager else None,
                         reason=EscalationReason.OTHER,
                         status=EscalationStatus.OPEN,
-                        note=budget_escalation_note(audit_start.audit),
+                        note=escalation_note,
+                        suggested_reply=(
+                            safe_escalation_reply(rfq)
+                            if manager is not None
+                            else None
+                        ),
                     )
                 )
                 rfq.status = RFQStatus.ESCALATED
@@ -1160,6 +1185,18 @@ def sync_inbox(
                 seen_uids.append(message.uid)
                 continue
             if not policy.auto_reply_allowed:
+                escalation_note = (
+                    "Автоответ остановлен: "
+                    f"{policy.explanation} "
+                    f"Категория: {policy.category}."
+                )
+                suggested_reply = prepare_escalation_reply(
+                    rfq=rfq,
+                    supplier_text=interpretation_text,
+                    escalation_note=escalation_note,
+                    conversation_context=routing_context,
+                    llm=client,
+                )
                 finalize_usage(audit_start.audit, client, reply_generated=False)
                 db.add(
                     Escalation(
@@ -1168,11 +1205,8 @@ def sync_inbox(
                         manager_id=manager.id if manager else None,
                         reason=EscalationReason.OTHER,
                         status=EscalationStatus.OPEN,
-                        note=(
-                            "Автоответ остановлен: "
-                            f"{policy.explanation} "
-                            f"Категория: {policy.category}."
-                        ),
+                        note=escalation_note,
+                        suggested_reply=suggested_reply,
                     )
                 )
                 rfq.status = RFQStatus.ESCALATED

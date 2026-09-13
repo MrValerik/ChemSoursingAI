@@ -256,3 +256,53 @@ def test_standard_reply_is_extracted_into_quotation(
         assert quote.manager_id == manager.id
         assert float(quote.price) == 12
         assert db.get(RFQ, rfq.id).status == RFQStatus.PARSED
+
+
+def test_nonstandard_reply_stores_ai_suggestion_without_sending(
+    session_factory, monkeypatch
+) -> None:
+    class FakeLLM:
+        def generate_text(self, **_kwargs):
+            return "Thank you for asking. I am well. We will continue shortly."
+
+        def take_usage(self):
+            return 0, 0
+
+    monkeypatch.setattr(
+        "app.services.whatsapp_workflow.communication_llm_client", lambda: FakeLLM()
+    )
+    monkeypatch.setattr(
+        "app.services.whatsapp_workflow.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=False,
+            category="social_or_personal",
+            explanation="Нестандартный вопрос.",
+            method="test",
+        ),
+    )
+
+    with session_factory() as db:
+        rfq, _, outbound = _conversation(db, message_id="outbound-social")
+        result = accept_business_whatsapp(
+            db,
+            message_id="incoming-social",
+            from_number="79005550102",
+            body="How are you today?",
+            timestamp=1_800_000_005,
+            quoted_message_id=outbound.external_id,
+        )
+
+        assert process_business_whatsapp(
+            db, communication_id=result.communication_id
+        ) == 0
+        escalation = db.scalar(
+            select(Escalation).where(
+                Escalation.communication_id == result.communication_id
+            )
+        )
+
+        assert escalation is not None
+        assert escalation.rfq_id == rfq.id
+        assert escalation.suggested_reply == (
+            "Thank you for asking. I am well. We will continue shortly."
+        )

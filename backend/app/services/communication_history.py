@@ -257,9 +257,7 @@ def list_communication_overview(
             assignee=escalation.assignee,
             note=escalation.note,
             communication_id=escalation.communication_id,
-            message_body=(
-                _message_body_for_display(communication) if communication else None
-            ),
+            suggested_reply=escalation.suggested_reply,
             created_at=escalation.created_at,
         )
         if communication is None:

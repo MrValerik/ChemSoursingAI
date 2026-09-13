@@ -436,6 +436,7 @@ export interface EscalationRead {
   status: string;
   assignee: string | null;
   note: string | null;
+  suggested_reply: string | null;
   created_at: string;
   rfq_name: string | null;
   rfq_cas: string | null;
@@ -639,7 +640,7 @@ export interface CommunicationEscalationRead {
   assignee: string | null;
   note: string | null;
   communication_id: number | null;
-  message_body: string | null;
+  suggested_reply: string | null;
   created_at: string;
 }
 
