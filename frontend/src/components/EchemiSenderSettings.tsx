@@ -10,7 +10,9 @@ export default function EchemiSenderSettings() {
   const [message, setMessage] = useState("");
   function populate(value: EchemiSender) {
     setForm({ email: value.email, company_name: value.company_name,
-      contact_name: value.contact_name, phone: value.phone, country: value.country });
+      contact_name: value.contact_name, phone: value.phone, country: value.country,
+      city: value.city, region: value.region, address: value.address, postal_code: value.postal_code,
+      job_title: value.job_title, website: value.website, whatsapp: value.whatsapp, wechat: value.wechat });
   }
   useEffect(() => {
     let alive = true;
@@ -35,7 +37,7 @@ export default function EchemiSenderSettings() {
   }
   return <section className="panel" aria-labelledby="echemi-sender-heading">
     <h2 id="echemi-sender-heading">Echemi — данные отправителя</h2>
-    <p className="muted">Общие контактные данные для обращений через форму Echemi. При отправке их увидит поставщик. Сохранение настроек не отправляет сообщения.</p>
+    <p className="muted">Контакты для форм Echemi. Закупщик сохраняет свой профиль; администратор — профиль компании. При отправке их увидит поставщик. Сохранение настроек не отправляет сообщения.</p>
     {error && <p role="alert" className="error">{error}</p>}
     {!form && !error && <p role="status">Загружаем данные отправителя…</p>}
     {form && <form onSubmit={save}>
@@ -47,7 +49,7 @@ export default function EchemiSenderSettings() {
             maxLength={120} value={form.company_name} onChange={e => change("company_name", e.target.value)} /></Field>
         </div>
         <div className="row">
-          <Field label="Контактное лицо"><Input id="echemi-sender-contact" autoComplete="name"
+          <Field label="Имя и фамилия"><Input id="echemi-sender-contact" autoComplete="name"
             maxLength={100} value={form.contact_name} onChange={e => change("contact_name", e.target.value)} /></Field>
           <Field label="Телефон с кодом страны"><Input id="echemi-sender-phone" type="tel" autoComplete="tel"
             maxLength={40} placeholder="+7 …" value={form.phone} onChange={e => change("phone", e.target.value)} /></Field>
@@ -58,7 +60,21 @@ export default function EchemiSenderSettings() {
               <option value="IN">Индия</option><option value="NL">Нидерланды</option></datalist>
           </Field>
         </div>
-        <p className="muted">{Object.values(form).every(value => value.trim()) ? "Все контактные поля заполнены." : "Перед отправкой заполните все пять полей."}</p>
+        <div className="row" style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 12}}>
+          {([
+            ["city", "Город", "address-level2", 100],
+            ["region", "Регион / область", "address-level1", 100],
+            ["address", "Адрес", "street-address", 200],
+            ["postal_code", "Почтовый индекс", "postal-code", 20],
+            ["job_title", "Должность", "organization-title", 100],
+            ["website", "Сайт компании", "url", 200],
+            ["whatsapp", "WhatsApp с кодом страны", "tel", 40],
+            ["wechat", "WeChat ID", "off", 100],
+          ] as const).map(([key, label, autoComplete, maxLength]) =>
+            <Field key={key} label={label}><Input id={"echemi-sender-" + key} autoComplete={autoComplete}
+              maxLength={maxLength} value={form[key]} onChange={e => change(key, e.target.value)} /></Field>)}
+        </div>
+        <p className="muted">Для отправки нужны email, компания, имя, телефон и страна. Остальные поля используются, когда их запрашивает форма. Имя, компанию и адрес указывайте латиницей.</p>
         <div className="actions"><button type="submit">{busy ? "Сохраняем…" : "Сохранить отправителя Echemi"}</button></div>
       </fieldset>
     </form>}

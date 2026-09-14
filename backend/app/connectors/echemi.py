@@ -6,6 +6,38 @@ class EchemiBrowserBusy(Exception):
     """The browser declined the job before starting it; retry is safe."""
 
 
+def submit_inquiry(job_id: int, product_url: str, payload: dict) -> dict:
+    with httpx.Client(timeout=180, trust_env=False) as client:
+        response = client.post(get_settings().echemi_browser_url.rstrip("/") + "/inquiry",
+            json={"job_id": job_id, "product_url": product_url,
+                  "sender": payload["sender"], "message": payload["message"],
+                  "seller_name": payload["seller_name"]})
+        if response.status_code == 409:
+            return {"status": "blocked", "message": "Браузер занят. Форма не отправлялась."}
+        response.raise_for_status()
+        result = response.json()
+    if not isinstance(result, dict) or result.get("status") not in {"sent", "blocked", "unknown"}:
+        raise ValueError("Invalid inquiry response")
+    # Only connector-owned explanations enter public delivery history.
+    messages = {
+        "sent": "Echemi подтвердил отправку обращения.",
+        "unknown": "После отправки нет подтверждения. Проверьте историю Echemi; автоматический повтор отключён.",
+        "blocked": "Форма не отправлена: нужна проверка CAPTCHA, вход или ручное заполнение.",
+    }
+    reason = result.get("reason")
+    if result["status"] == "blocked" and reason in {
+        "form_unavailable", "missing_fields", "verification_required", "unsupported_fields", "recipient_changed"
+    }:
+        messages["blocked"] = {
+            "form_unavailable": "Форма обращения недоступна на карточке товара.",
+            "missing_fields": "В настройках не хватает данных для обязательных полей формы.",
+            "verification_required": "Echemi требует CAPTCHA или вход в аккаунт. Форма не отправлена.",
+            "unsupported_fields": "В форме появились неподдерживаемые поля; требуется ручное заполнение.",
+            "recipient_changed": "Карточка или получатель изменились; отправка остановлена.",
+        }[reason]
+    return {"status": result["status"], "message": messages[result["status"]]}
+
+
 def search_echemi(query: str, search_id: int) -> dict:
     settings = get_settings()
     with httpx.Client(timeout=930, trust_env=False) as client:

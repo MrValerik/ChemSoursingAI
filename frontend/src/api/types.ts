@@ -1664,6 +1664,19 @@ export interface EchemiSenderFields {
   contact_name: string;
   phone: string;
   country: string;
+  city: string;
+  region: string;
+  address: string;
+  postal_code: string;
+  job_title: string;
+  website: string;
+  whatsapp: string;
+  wechat: string;
+}
+
+export interface EchemiDelivery {
+  id: number; search_id: number; product_url: string; seller_name: string;
+  status: string; message: string | null; created_at: string; finished_at: string | null;
 }
 
 export interface EchemiSender extends EchemiSenderFields {
@@ -1674,4 +1687,9 @@ export interface EchemiSender extends EchemiSenderFields {
 
 export interface UserPreferences {
   auto_dispatch_after_search: boolean;
+}
+export interface SerperBalance {
+  status: "ok" | "not_configured" | "unavailable";
+  remaining_credits: number | null;
+  checked_at: string | null;
 }

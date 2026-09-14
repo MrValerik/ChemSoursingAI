@@ -87,7 +87,7 @@ def test_field_boundaries(setup):
         assert response.status_code == 200
 
 
-@pytest.mark.parametrize("role", [UserRole.BUYER, UserRole.HEAD, UserRole.AUDITOR, None])
+@pytest.mark.parametrize("role", [UserRole.HEAD, UserRole.AUDITOR, UserRole.GUEST, None])
 def test_only_admin_can_read_or_write(setup, role):
     client, db, app = setup
     if role is None:
@@ -107,3 +107,24 @@ def test_corrupt_storage_returns_generic_error(setup):
     for response in (client.get(PATH), client.put(PATH, json=PROFILE)):
         assert response.status_code == 503
         assert "broken-private-value" not in response.text
+
+
+def test_buyer_profiles_are_private_and_other_integrations_stay_admin_only(setup):
+    client, db, app = setup
+    client.put(PATH, json=PROFILE)
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=43, role=UserRole.BUYER)
+    assert client.get(PATH).json()["email"] == ""
+    values = {**PROFILE, "city": "Boston", "address": "1 Example Street", "postal_code": "02101"}
+    assert client.put(PATH, json=values).status_code == 200
+    assert client.get(PATH).json()["city"] == "Boston"
+    assert client.get("/settings/integrations/email").status_code == 403
+    assert client.put("/settings/integrations/email", json={}).status_code == 403
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=44, role=UserRole.BUYER)
+    assert client.get(PATH).json()["city"] == ""
+    assert len(db.scalars(select(IntegrationSetting)).all()) == 2
+
+
+@pytest.mark.parametrize("field,value", [("city", "a" * 101), ("address", "x\ny"),
+                                        ("postal_code", "x" * 21), ("whatsapp", "123")])
+def test_extended_fields_validate(setup, field, value):
+    assert setup[0].put(PATH, json={**PROFILE, field: value}).status_code == 422

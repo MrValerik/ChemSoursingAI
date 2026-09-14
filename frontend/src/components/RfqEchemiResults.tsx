@@ -4,6 +4,7 @@ import { getEchemiSearch, listEchemiSearches, startRfqEchemiSearch, userErrorMes
 import type { EchemiSearch, EchemiSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { EchemiResults } from "./EchemiResults";
+import EchemiOutreach from "./EchemiOutreach";
 
 export default function RfqEchemiResults({ rfqId }: { rfqId: number }) {
   const { user } = useAuth();
@@ -65,5 +66,7 @@ export default function RfqEchemiResults({ rfqId }: { rfqId: number }) {
     </div>
     {!loading && !error && !selected && <p>Поиск Echemi для этого запроса ещё не запускался.</p>}
     {selected && <EchemiResults selected={selected} allowVerification={canSearch} />}
+    {selected && <EchemiOutreach key={rfqId + ":" + selected.id} rfqId={rfqId} search={selected}
+      canSend={user?.role === "admin" || user?.role === "buyer"} />}
   </section>;
 }

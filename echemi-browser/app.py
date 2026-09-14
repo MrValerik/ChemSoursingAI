@@ -40,6 +40,41 @@ class Search(BaseModel):
     captcha_manual_fallback: bool = Field(default=False, strict=True)
 
 
+class Inquiry(BaseModel):
+    job_id: int = Field(gt=0)
+    product_url: str = Field(max_length=1000)
+    sender: dict[str, str | bool | None]  # Backend sends the validated snapshot.
+    message: str = Field(min_length=20, max_length=5000)
+    seller_name: str = Field(min_length=1, max_length=500)
+
+
+@app.post("/inquiry")
+async def inquiry(payload: Inquiry):
+    if product_url(payload.product_url) != payload.product_url:
+        raise HTTPException(422, "Invalid product URL")
+    if busy.locked():
+        raise HTTPException(409, "Browser busy")
+    async with busy:
+        from inquiry import submit
+        async with async_playwright() as p, open_chrome(p, PROFILE) as context:
+            page = await new_job_page(context)
+            page.set_default_timeout(10000)
+            async def restrict_submission(route):
+                host = urlsplit(route.request.url).hostname
+                if route.request.method not in {"GET", "HEAD", "OPTIONS"} and host not in {"www.echemi.com", "i.echemi.com"}:
+                    await route.abort()
+                else:
+                    await route.continue_()
+            await page.route("**/*", restrict_submission)
+            try:
+                return await asyncio.wait_for(submit(page, payload.product_url, payload.sender, payload.message,
+                                                    seller_name=payload.seller_name), 150)
+            except asyncio.TimeoutError:
+                return {"status": "unknown"}
+            finally:
+                await page.close()
+
+
 class Mouse:
     def __init__(self, page):
         self.page, self.x, self.y = page, 0., 0.

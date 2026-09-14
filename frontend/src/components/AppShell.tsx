@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { LogoMark, LogoWord } from "./Logo";
+import SerperBalance from "./SerperBalance";
 import { applyTheme, readTheme, type Theme } from "../theme";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import type { UserRole } from "../api/types";
@@ -186,6 +187,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <div className="topbar-right">
+            {user.role === "admin" && <SerperBalance key={user.id} />}
             <IconButton
               className="icon-btn"
               icon={theme === "dark" ? "sun" : "moon"}
