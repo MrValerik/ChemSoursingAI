@@ -8,6 +8,7 @@
 // сервером ближайшее действие, а не бейдж статуса.
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api/client";
 import type {
   CommunicationOverviewRead,
@@ -36,7 +37,7 @@ type QuickFilter =
   | "undispatched"
   | "decide";
 type ScopeFilter = "mine" | "all";
-type SortKey = "id" | "name" | "action" | "dispatched_at" | "owner_name";
+type SortKey = "id" | "name" | "action" | "created_at" | "owner_name";
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString("ru-RU");
 
@@ -48,11 +49,6 @@ const formatMoment = (value: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
-
-// «3 сент.» вместо «03.09.2026»: в колонке сроков важен порядок дней, а не
-// точность до года, и короткая форма оставляет место второй строке.
-const formatShortDate = (value: string) =>
-  new Date(value).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 
 const daysSince = (value: string) => {
   const diff = Date.now() - new Date(value).getTime();
@@ -141,6 +137,30 @@ export default function RequestsTable({
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RFQListItem | null>(null);
 
+  const [menu, setMenu] = useState<{ row: RFQListItem; left: number; top: number; trigger: HTMLButtonElement } | null>(null);
+  const [escalatingId, setEscalatingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Element && !event.target.closest("[data-request-menu]")) close();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { close(); menu.trigger.focus(); }
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
+
   // Раскрытая строка догружает переписку по требованию: список остаётся
   // одним запросом, а «с кем именно идёт диалог» видно, не уходя из него.
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -207,14 +227,6 @@ export default function RequestsTable({
         // Внутри одной срочности первым идёт то, что ждёт дольше.
         const byWait = (b.waiting_days ?? -1) - (a.waiting_days ?? -1);
         return (byUrgency || byWait || b.id - a.id) * dir;
-      }
-      if (sortKey === "dispatched_at") {
-        // Неразосланные заявки уходят в конец при любом направлении: даты
-        // у них нет, и подмешивать их к самым свежим бессмысленно.
-        if (!a.dispatched_at && !b.dispatched_at) return b.id - a.id;
-        if (!a.dispatched_at) return 1;
-        if (!b.dispatched_at) return -1;
-        return (a.dispatched_at < b.dispatched_at ? -1 : 1) * dir;
       }
       const av = a[sortKey] ?? "";
       const bv = b[sortKey] ?? "";
@@ -335,7 +347,7 @@ export default function RequestsTable({
   };
 
   const arrow = (key: SortKey) => (sortKey === key ? (sortAsc ? " ↑" : " ↓") : "");
-  const showDeleteAction = Boolean(user && (user.role !== "auditor" && user.role !== "guest"));
+  const showActions = Boolean(user && (user.role !== "auditor" && user.role !== "guest"));
 
   const canDelete = (request: RFQListItem) =>
     user?.role === "head" ||
@@ -355,6 +367,24 @@ export default function RequestsTable({
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const escalateRequest = async (request: RFQListItem) => {
+    setMenu(null);
+    setEscalatingId(request.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.escalateRfq(request.id, "other", null);
+      setRows((current) => current.map((row) => row.id === request.id
+        ? { ...row, status: "escalated", has_open_escalation: true, next_action: "escalation", escalation_reasons: ["other"] }
+        : row));
+      setNotice(`Запрос №${request.id} отправлен на ручной разбор.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setEscalatingId(null);
     }
   };
 
@@ -413,41 +443,10 @@ export default function RequestsTable({
     );
   };
 
-  const timelineCell = (r: RFQListItem) => {
-    if (!r.dispatched_at) {
-      return (
-        <span className="muted" title={`Заведён ${formatMoment(r.created_at)}`}>
-          заведён {formatShortDate(r.created_at)}
-        </span>
-      );
-    }
-    return (
-      <div className="request-timeline">
-        <span title={`Первая отправка: ${formatMoment(r.dispatched_at)}`}>
-          разослано {formatShortDate(r.dispatched_at)}
-        </span>
-        {r.last_inbound_at ? (
-          <span
-            className="muted"
-            title={`Последний ответ: ${formatMoment(r.last_inbound_at)}`}
-          >
-            ответ {agoLabel(r.last_inbound_at)}
-          </span>
-        ) : (
-          <span className={r.next_action === "silence" ? "silent" : "muted"}>
-            {r.waiting_days === null
-              ? "ответов нет"
-              : `тишина ${days(r.waiting_days)}`}
-          </span>
-        )}
-      </div>
-    );
-  };
-
   const dialogueRow = (r: RFQListItem) => {
     const conversations = dialogues[r.id];
     const failure = dialogueError[r.id];
-    const columns = 5 + (showOwner ? 1 : 0) + (showDeleteAction ? 1 : 0);
+    const columns = 5 + (showOwner ? 1 : 0) + (showActions ? 1 : 0);
     return (
       <tr className="dialogue-row" key={`${r.id}-dialogue`}>
         <td colSpan={columns}>
@@ -489,7 +488,7 @@ export default function RequestsTable({
       <div className="requests-header">
         <h1>Запросы</h1>
         <div className="requests-actions">
-          {showDeleteAction && <button onClick={onNew}>+ Создать новый запрос</button>}
+          {showActions && <button onClick={onNew}>+ Создать новый запрос</button>}
           <button className="secondary" onClick={exportCsv} disabled={filtered.length === 0}>
             Экспорт CSV
           </button>
@@ -596,15 +595,17 @@ export default function RequestsTable({
                 </th>
                 <th onClick={() => toggleSort("action")}>Что сделать{arrow("action")}</th>
                 <th>Переписка</th>
-                <th onClick={() => toggleSort("dispatched_at")}>
-                  Сроки{arrow("dispatched_at")}
+                <th aria-sort={sortKey === "created_at" ? (sortAsc ? "ascending" : "descending") : "none"}>
+                  <button className="table-sort" type="button" onClick={() => toggleSort("created_at")}>
+                    Дата создания{arrow("created_at")}
+                  </button>
                 </th>
                 {showOwner && (
                   <th onClick={() => toggleSort("owner_name")}>
                     Ответственный{arrow("owner_name")}
                   </th>
                 )}
-                {showDeleteAction && <th className="request-actions-column">Действия</th>}
+                {showActions && <th className="request-actions-column" aria-label="Действия" />}
               </tr>
             </thead>
             <tbody>
@@ -652,27 +653,31 @@ export default function RequestsTable({
                         )}
                       </div>
                     </td>
-                    <td className="request-date" data-label="Сроки">
-                      {timelineCell(r)}
+                    <td className="request-date" data-label="Дата создания">
+                      <time dateTime={r.created_at} title={formatMoment(r.created_at)}>{formatDate(r.created_at)}</time>
                     </td>
                     {showOwner && <td data-label="Ответственный">{r.owner_name ?? "—"}</td>}
-                    {showDeleteAction && (
-                      <td className="request-actions-column" data-label="Действия">
-                        {canDelete(r) && (
-                          <button
-                            aria-label={`Удалить запрос №${r.id}`}
-                            className="ui-icon-button request-delete-button"
-                            disabled={deletingId === r.id}
-                            title="Удалить запрос"
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setPendingDelete(r);
-                            }}
-                          >
-                            <Icon name="trash" size={16} />
-                          </button>
-                        )}
+                    {showActions && (
+                      <td className="request-actions-column" onClick={(event) => event.stopPropagation()}>
+                        <button
+                          data-request-menu
+                          aria-label={`Действия с запросом №${r.id}`}
+                          aria-expanded={menu?.row.id === r.id}
+                          aria-controls={menu?.row.id === r.id ? "request-row-actions" : undefined}
+                          className="ui-icon-button row-menu-button"
+                          disabled={deletingId !== null || escalatingId !== null}
+                          title="Действия с запросом"
+                          type="button"
+                          onClick={(event) => {
+                            const trigger = event.currentTarget;
+                            const rect = trigger.getBoundingClientRect();
+                            setMenu(menu?.row.id === r.id ? null : {
+                              row: r, trigger,
+                              left: Math.max(8, Math.min(rect.right - 272, window.innerWidth - 280)),
+                              top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 120)),
+                            });
+                          }}
+                        >⋮</button>
                       </td>
                     )}
                   </tr>
@@ -682,6 +687,36 @@ export default function RequestsTable({
             </tbody>
           </table>
         </div>
+      )}
+      {menu && createPortal(
+        <div
+          id="request-row-actions"
+          data-request-menu
+          role="group"
+          aria-label={`Действия с запросом №${menu.row.id}`}
+          className="dropdown request-row-dropdown"
+          style={{ left: menu.left, top: menu.top }}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setMenu(null);
+          }}
+        >
+          <button
+            autoFocus={!menu.row.has_open_escalation && menu.row.status !== "escalated"}
+            className="dropdown-item"
+            type="button"
+            disabled={menu.row.has_open_escalation || menu.row.status === "escalated"}
+            title={menu.row.has_open_escalation ? "Запрос уже на ручном разборе" : undefined}
+            onClick={() => { menu.trigger.focus(); void escalateRequest(menu.row); }}
+          >Отправить на ручной разбор</button>
+          <button
+            className="dropdown-item is-danger"
+            autoFocus={menu.row.has_open_escalation || menu.row.status === "escalated"}
+            type="button"
+            disabled={!canDelete(menu.row)}
+            title={!canDelete(menu.row) ? "Удалять запрос может его владелец или руководитель" : undefined}
+            onClick={() => { setPendingDelete(menu.row); setMenu(null); }}
+          >Удалить</button>
+        </div>, document.body,
       )}
       {pendingDelete && (
         <div

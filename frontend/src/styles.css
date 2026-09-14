@@ -5987,3 +5987,6 @@ button.substance-list-item.active {
   background: var(--panel-2);
 }
 .manufacturer-lead .note { margin: 4px 0 0; }
+
+/* Портал меню запросов не обрезается прокруткой таблицы. */
+.request-row-dropdown { position: fixed; width: 272px; max-width: calc(100vw - 16px); z-index: 1000; }

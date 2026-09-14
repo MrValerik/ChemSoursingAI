@@ -655,7 +655,7 @@ button.shell-nav-toggle,
      переписки уезжали бы влево, к подписи. */
   table.mobile-cards td[data-label="Что сделать"],
   table.mobile-cards td[data-label="Переписка"],
-  table.mobile-cards td[data-label="Сроки"] {
+  table.mobile-cards td[data-label="Дата создания"] {
     align-items: flex-start;
   }
   table.mobile-cards .action-cell,
