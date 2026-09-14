@@ -178,7 +178,6 @@ export default function DispatchTab({
   const [error, setError] = useState<string | null>(null);
   const [testLoadError, setTestLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
   const [escalationBusy, setEscalationBusy] = useState<number | null>(null);
   const [messageBody, setMessageBody] = useState("");
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
@@ -192,8 +191,6 @@ export default function DispatchTab({
   >({});
   const [translationRevealed, setTranslationRevealed] = useState(false);
   const [translationBusy, setTranslationBusy] = useState(false);
-  const canSyncEmail =
-    user?.role === "buyer" || user?.role === "head" || user?.role === "admin";
   const focusSignature = [
     focusedSupplierId ?? "",
     focusedManagerId ?? "",
@@ -352,31 +349,6 @@ export default function DispatchTab({
       item.supplier_id !== null &&
       item.manager_id !== null,
   );
-
-  const syncEmail = async () => {
-    setSyncing(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await api.syncEmailCommunications();
-      const syncErrors = result.errors;
-      setNotice(
-        `Проверено писем: ${result.fetched}. Обработано: ${result.processed}. ` +
-          `Восстановлено ранее прочитанных: ${result.backfilled_seen}. ` +
-          `Связано новых адресов: ${result.contacts_linked}. ` +
-          `Новых эскалаций: ${result.escalations_created}.`,
-      );
-      await load();
-      if (syncErrors.length > 0) {
-        setError(syncErrors.join("; "));
-      }
-      onStatusChanged();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const sendMessage = async () => {
     if (
@@ -654,15 +626,6 @@ export default function DispatchTab({
                   Начать новый тестовый диалог
                 </button>
               )}
-              {canSyncEmail && (
-                <button
-                  className="secondary"
-                  disabled={syncing}
-                  onClick={() => void syncEmail()}
-                >
-                  {syncing ? "Проверка…" : "Проверить входящие Email"}
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -676,18 +639,6 @@ export default function DispatchTab({
           </p>
         )}
 
-        {!compact &&
-          overview.unassigned_escalations
-            .filter((item) => item.status !== "resolved")
-            .map((item) => (
-              <EscalationNotice
-                key={item.id}
-                escalation={item}
-                busy={escalationBusy === item.id}
-                readOnly={readOnly}
-                onAction={updateEscalation}
-              />
-            ))}
 
         {!compact &&
         overview.conversations.length === 0 &&
@@ -717,6 +668,7 @@ export default function DispatchTab({
                     className={`conversation-supplier ${
                       conversationKey(item) === selectedKey ? "active" : ""
                     }`}
+                    aria-pressed={conversationKey(item) === selectedKey}
                     key={conversationKey(item)}
                     onClick={() => setSelectedKey(conversationKey(item))}
                     type="button"
@@ -758,6 +710,7 @@ export default function DispatchTab({
                       className={`conversation-supplier ${
                         selectedKey === testConversationKey(run.id) ? "active" : ""
                       }`}
+                      aria-pressed={selectedKey === testConversationKey(run.id)}
                       key={testConversationKey(run.id)}
                       onClick={() => setSelectedKey(testConversationKey(run.id))}
                       type="button"
@@ -841,22 +794,13 @@ export default function DispatchTab({
                       </p>
                     )}
 
-                  {selectedConversation.escalations
-                    .filter((item) => item.status !== "resolved")
-                    .map((item) => (
-                      <EscalationNotice
-                        key={item.id}
-                        escalation={item}
-                        busy={escalationBusy === item.id}
-                        readOnly={readOnly}
-                        onAction={updateEscalation}
-                        conversation={selectedConversation}
-                        supplierCandidates={emailSupplierCandidates}
-                        onReply={replyToEscalation}
-                      />
-                    ))}
 
-                  <div className="conversation-messages">
+                  <div
+                    className="conversation-messages"
+                    role="region"
+                    aria-label="История переписки с поставщиком"
+                    tabIndex={0}
+                  >
                     {selectedConversation.messages.length === 0 ? (
                       <p className="note">Сообщения ещё не сохранены.</p>
                     ) : (
@@ -1001,7 +945,8 @@ export default function DispatchTab({
                               </svg>
                             </button>
                             <Textarea
-                              rows={4}
+                              rows={3}
+                              aria-label="Сообщение поставщику"
                               placeholder="Напишите сообщение поставщику"
                               value={messageBody}
                               onChange={(event) => {
@@ -1066,6 +1011,21 @@ export default function DispatchTab({
                       )}
                     </div>
                   )}
+
+                  {selectedConversation.escalations
+                    .filter((item) => item.status !== "resolved")
+                    .map((item) => (
+                      <EscalationNotice
+                        key={item.id}
+                        escalation={item}
+                        busy={escalationBusy === item.id}
+                        readOnly={readOnly}
+                        onAction={updateEscalation}
+                        conversation={selectedConversation}
+                        supplierCandidates={emailSupplierCandidates}
+                        onReply={replyToEscalation}
+                      />
+                    ))}
                 </>
               )}
               {compact &&
@@ -1078,6 +1038,19 @@ export default function DispatchTab({
             </div>
           </div>
         )}
+
+        {!compact &&
+          overview.unassigned_escalations
+            .filter((item) => item.status !== "resolved")
+            .map((item) => (
+              <EscalationNotice
+                key={item.id}
+                escalation={item}
+                busy={escalationBusy === item.id}
+                readOnly={readOnly}
+                onAction={updateEscalation}
+              />
+            ))}
       </div>
 
     </div>
@@ -1200,15 +1173,19 @@ function EscalationNotice({
                   </button>
                 </div>
               )}
-              <Textarea
-                rows={3}
-                placeholder="Напишите ответ или выберите предложенный ИИ"
-                value={replyBody}
-                onChange={(event) => {
-                  setReplyBody(event.target.value);
-                  setReplyActionId(createActionId());
-                }}
-              />
+              <label className="communication-escalation-reply-label">
+                Ваш ответ поставщику
+                <Textarea
+                  rows={5}
+                  disabled={busy}
+                  placeholder="Напишите ответ или выберите предложенный ИИ"
+                  value={replyBody}
+                  onChange={(event) => {
+                    setReplyBody(event.target.value);
+                    setReplyActionId(createActionId());
+                  }}
+                />
+              </label>
               <button
                 disabled={
                   busy ||
@@ -1222,24 +1199,26 @@ function EscalationNotice({
               </button>
             </div>
           )}
-          {!escalation.assignee && (
+          <div className="communication-escalation-resolution">
+            {!escalation.assignee && (
+              <button
+                className="secondary btn-small"
+                disabled={busy}
+                onClick={() => void onAction(escalation, "take")}
+                type="button"
+              >
+                Взять в работу
+              </button>
+            )}
             <button
               className="secondary btn-small"
               disabled={busy}
-              onClick={() => void onAction(escalation, "take")}
+              onClick={() => void onAction(escalation, "resolve")}
               type="button"
             >
-              Взять в работу
+              Отметить решённой
             </button>
-          )}
-          <button
-            className="secondary btn-small"
-            disabled={busy}
-            onClick={() => void onAction(escalation, "resolve")}
-            type="button"
-          >
-            Отметить решённой
-          </button>
+          </div>
         </div>
       )}
     </section>

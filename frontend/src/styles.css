@@ -2639,6 +2639,9 @@ button.danger:hover {
 }
 
 .conversation-suppliers {
+  max-height: 760px;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   border-right: 1px solid var(--border);
   background: var(--bg);
   overflow-y: auto;
@@ -2701,11 +2704,18 @@ button.danger:hover {
 }
 
 .conversation-thread-header {
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 
 .conversation-messages {
+  height: clamp(240px, 52vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  padding: 4px 8px 12px 4px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2713,6 +2723,8 @@ button.danger:hover {
 }
 
 .conversation-message {
+  flex-shrink: 0;
+  overflow-wrap: anywhere;
   width: min(82%, 680px);
   padding: 11px 13px;
   border: 1px solid var(--border);
@@ -3009,6 +3021,10 @@ button.danger:hover {
 }
 
 .communication-escalation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  overflow-wrap: anywhere;
   margin: 12px 0;
   padding: 13px;
   border: 1px solid var(--attention);
@@ -3021,16 +3037,23 @@ button.danger:hover {
 }
 
 .communication-escalation-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-  flex: 1 1 360px;
-  justify-content: flex-end;
+  display: grid;
+  gap: 16px;
+  min-width: 0;
 }
 
-.communication-escalation > div:first-child {
-  flex: 1 1 300px;
+.communication-escalation-resolution {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.communication-escalation-reply-label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
 }
 
 .communication-escalation-composer {
@@ -3040,9 +3063,8 @@ button.danger:hover {
 }
 
 .communication-escalation-suggestion {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 10px;
   border: 1px solid var(--border);
@@ -3064,12 +3086,13 @@ button.danger:hover {
 }
 
 .communication-escalation-composer textarea {
+  font-weight: 400;
   width: 100%;
   resize: vertical;
 }
 
 .communication-escalation-composer button {
-  justify-self: end;
+  justify-self: start;
 }
 
 @media (max-width: 800px) {
