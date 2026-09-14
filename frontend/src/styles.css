@@ -2877,6 +2877,11 @@ button.danger:hover {
   min-height: 0;
 }
 
+.embedded-test-thread > .communication-messages {
+  max-height: none;
+  overflow: visible;
+}
+
 .embedded-test-actions {
   align-items: center;
 }
