@@ -103,7 +103,7 @@ def test_manual_control_starts_only_after_automatic_attempts(browser, monkeypatc
                 raise TimeoutError("private upstream detail")
             return result
 
-        async def human(*args):
+        async def human(*args, **kwargs):
             calls.append("manual")
             return True
 
