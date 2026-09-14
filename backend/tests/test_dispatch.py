@@ -28,9 +28,17 @@ from app.models import (
 )
 from app.models.communication import Communication
 from app.models.escalation import Escalation
-from app.models.enums import Channel, CommDirection, UserRole
+from app.models.enums import (
+    Channel,
+    CommDirection,
+    EscalationReason,
+    EscalationStatus,
+    RFQStatus,
+    UserRole,
+)
 from app.core.security import hash_password
 from app.services.communication_policy import CommunicationPolicyDecision
+from app.services.communication_profiles import start_audit
 from app.services.email_workflow import (
     _fallback_followup,
     _price_scope_needs_confirmation,
@@ -2559,6 +2567,196 @@ def test_saved_unmatched_email_is_reconciled_by_quoted_recipient(client):
     assert alias.supplier_id == expected_supplier_id
     assert audit is not None
     assert audit.policy_method == "quoted_thread_recipient"
+
+
+def test_email_sync_resolves_all_stale_sender_identity_escalations(client):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="sales@stale-identity.example",
+    )
+    identity_note = (
+        "Отправитель первого письма не сопоставлен с ранее выбранным "
+        "поставщиком. Автоматический ответ остановлен, чтобы не объединить "
+        "чужие переписки. Причина: прежняя проверка не нашла компанию."
+    )
+    with SessionLocal() as db:
+        manager = db.get(Manager, first.manager_id)
+        stored_rfq = db.get(RFQ, rfq["id"])
+        stored_rfq.status = RFQStatus.ESCALATED
+        message_ids: list[int] = []
+        escalation_ids: list[int] = []
+        for index, status in enumerate(
+            [EscalationStatus.OPEN, EscalationStatus.IN_PROGRESS],
+            start=1,
+        ):
+            message = Communication(
+                rfq_id=stored_rfq.id,
+                manager_id=manager.id,
+                direction=CommDirection.INBOUND,
+                channel=Channel.EMAIL,
+                subject=f"Re: [RFQ-{stored_rfq.id}] Ethanol",
+                body=f"Historical supplier reply {index}.",
+                from_address="linked.manager@gmail.com",
+                to_address="buyer@example.com",
+                status="received",
+                external_id=f"<stale-identity-{index}@gmail.com>",
+            )
+            db.add(message)
+            db.flush()
+            audit = start_audit(
+                db,
+                event_key=f"stale-identity-audit-{index}",
+                text=message.body,
+                rfq_id=stored_rfq.id,
+                communication_id=message.id,
+                actor_id=stored_rfq.owner_id,
+                prompt_kind="extraction",
+            ).audit
+            audit.policy_route = "escalate"
+            audit.policy_category = "sender_identity_unknown"
+            audit.policy_method = "ai_unresolved"
+            audit.budget_snapshot = {
+                **(audit.budget_snapshot or {}),
+                "sender_identity": {
+                    "method": "quoted_thread_recipient",
+                    "confidence": 1.0,
+                    "explanation": "Quoted recipient matched exactly.",
+                },
+            }
+            escalation = Escalation(
+                rfq_id=stored_rfq.id,
+                communication_id=message.id,
+                manager_id=manager.id,
+                reason=EscalationReason.OTHER,
+                status=status,
+                assignee="Администратор" if index == 2 else None,
+                note=identity_note,
+                suggested_reply="Thank you. We will review your message.",
+            )
+            db.add(escalation)
+            db.flush()
+            message_ids.append(message.id)
+            escalation_ids.append(escalation.id)
+        db.commit()
+
+    class EmptyConnector:
+        def fetch_unseen(self, limit=20):
+            return []
+
+        def mark_seen(self, uids):
+            self.seen = uids
+
+    with SessionLocal() as db:
+        result = sync_inbox(db, connector=EmptyConnector())
+        escalations = list(
+            db.scalars(
+                select(Escalation)
+                .where(Escalation.id.in_(escalation_ids))
+                .order_by(Escalation.id)
+            ).all()
+        )
+        audits = list(
+            db.scalars(
+                select(CommunicationPolicyAudit)
+                .where(CommunicationPolicyAudit.communication_id.in_(message_ids))
+                .order_by(CommunicationPolicyAudit.communication_id)
+            ).all()
+        )
+        updated_rfq = db.get(RFQ, rfq["id"])
+
+    assert result.contacts_linked == 0
+    assert [item.status for item in escalations] == [
+        EscalationStatus.RESOLVED,
+        EscalationStatus.RESOLVED,
+    ]
+    assert all(item.manager_id == first.manager_id for item in escalations)
+    assert all(audit.policy_route == "linked" for audit in audits)
+    assert all(audit.policy_category == "sender_identity_linked" for audit in audits)
+    assert all(audit.policy_method == "quoted_thread_recipient" for audit in audits)
+    assert updated_rfq.status == RFQStatus.COLLECTING
+
+
+def test_sender_identity_cleanup_keeps_unrelated_escalation_open(client):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="sales@identity-risk-boundary.example",
+    )
+    with SessionLocal() as db:
+        manager = db.get(Manager, first.manager_id)
+        stored_rfq = db.get(RFQ, rfq["id"])
+        stored_rfq.status = RFQStatus.ESCALATED
+        message = Communication(
+            rfq_id=stored_rfq.id,
+            manager_id=manager.id,
+            direction=CommDirection.INBOUND,
+            channel=Channel.EMAIL,
+            subject=f"Re: [RFQ-{stored_rfq.id}] Ethanol",
+            body="A linked message with a separate logistics risk.",
+            from_address="risk.manager@gmail.com",
+            to_address="buyer@example.com",
+            status="received",
+            external_id="<identity-risk-boundary@gmail.com>",
+        )
+        db.add(message)
+        db.flush()
+        audit = start_audit(
+            db,
+            event_key="identity-risk-boundary-audit",
+            text=message.body,
+            rfq_id=stored_rfq.id,
+            communication_id=message.id,
+            actor_id=stored_rfq.owner_id,
+            prompt_kind="extraction",
+        ).audit
+        audit.policy_route = "escalate"
+        audit.policy_category = "sender_identity_unknown"
+        identity_escalation = Escalation(
+            rfq_id=stored_rfq.id,
+            communication_id=message.id,
+            manager_id=manager.id,
+            reason=EscalationReason.OTHER,
+            status=EscalationStatus.OPEN,
+            note=(
+                "Отправитель первого письма не сопоставлен с ранее выбранным "
+                "поставщиком. Автоматический ответ остановлен, чтобы не "
+                "объединить чужие переписки. Причина: старая проверка."
+            ),
+        )
+        logistics_escalation = Escalation(
+            rfq_id=stored_rfq.id,
+            communication_id=message.id,
+            manager_id=manager.id,
+            reason=EscalationReason.LOGISTICS,
+            status=EscalationStatus.OPEN,
+            note="Требуется ручная проверка опасной логистики.",
+        )
+        db.add_all([identity_escalation, logistics_escalation])
+        db.commit()
+        identity_id = identity_escalation.id
+        logistics_id = logistics_escalation.id
+
+    class EmptyConnector:
+        def fetch_unseen(self, limit=20):
+            return []
+
+        def mark_seen(self, uids):
+            self.seen = uids
+
+    with SessionLocal() as db:
+        sync_inbox(db, connector=EmptyConnector())
+        resolved_identity = db.get(Escalation, identity_id)
+        preserved_logistics = db.get(Escalation, logistics_id)
+        updated_rfq = db.get(RFQ, rfq["id"])
+
+    assert resolved_identity.status == EscalationStatus.RESOLVED
+    assert preserved_logistics.status == EscalationStatus.OPEN
+    assert updated_rfq.status == RFQStatus.ESCALATED
 
 
 def test_email_reply_joins_by_domain_and_company_mention_without_rfq_terms(

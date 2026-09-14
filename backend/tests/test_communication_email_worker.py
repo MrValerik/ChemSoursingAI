@@ -129,6 +129,11 @@ def test_regular_sync_leaves_test_reply_for_test_processor(monkeypatch):
     )
     monkeypatch.setattr(
         email_workflow,
+        "reconcile_linked_sender_escalations",
+        lambda db: 0,
+    )
+    monkeypatch.setattr(
+        email_workflow,
         "is_communication_test_reply",
         lambda db, incoming: True,
     )

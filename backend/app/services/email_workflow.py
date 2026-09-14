@@ -58,6 +58,7 @@ from app.services.document_agent import verify_document
 from app.services.email_identity import (
     SenderResolution,
     link_address_history,
+    reconcile_linked_sender_escalations,
     reconcile_unlinked_email_contacts,
     resolve_sender_manager,
 )
@@ -913,7 +914,8 @@ def sync_inbox(
     summary = EmailSyncSummary()
     try:
         summary.contacts_linked = reconcile_unlinked_email_contacts(db)
-        if summary.contacts_linked:
+        resolved_identity_escalations = reconcile_linked_sender_escalations(db)
+        if summary.contacts_linked or resolved_identity_escalations:
             db.commit()
     except Exception as exc:
         db.rollback()

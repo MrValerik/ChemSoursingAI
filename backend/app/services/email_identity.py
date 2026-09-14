@@ -34,7 +34,12 @@ from app.models import (
     Supplier,
     SupplierDocument,
 )
-from app.models.enums import Channel, CommDirection
+from app.models.enums import (
+    Channel,
+    CommDirection,
+    EscalationStatus,
+    RFQStatus,
+)
 from app.services.communication_profiles import finalize_usage, start_audit
 from app.services.communication_llm import communication_llm_client
 from app.services.communication_links import communication_linked_to_rfq
@@ -42,6 +47,9 @@ from app.services.communication_policy import classify_email_transport_event
 
 _PRIOR_OUTBOUND_STATUSES = {"sent", "demo"}
 _IDENTITY_CHECK_VERSION = 4
+_UNKNOWN_SENDER_ESCALATION_PREFIX = (
+    "Отправитель первого письма не сопоставлен с ранее выбранным поставщиком."
+)
 _MESSAGE_ID_PATTERN = re.compile(r"<[^<>\s\r\n]+>")
 _EMAIL_IN_TEXT_PATTERN = re.compile(
     r"(?<![A-Z0-9._%+\-])"
@@ -694,8 +702,129 @@ def link_address_history(
         identity_payload.update(resolution.audit_payload())
         snapshot["sender_identity"] = identity_payload
         audit.budget_snapshot = snapshot
+    # Ручной endpoint сам закрывает текущую эскалацию после подтверждённой
+    # SMTP-отправки. Остальные карточки этого адреса подхватит следующий
+    # идемпотентный reconcile; до этого повтор запроса с тем же ключом должен
+    # пройти прежнюю проверку и вернуть уже сохранённый результат отправки.
+    if resolution.method != "manual_escalation_confirmation":
+        _resolve_linked_sender_escalations(
+            db,
+            rfq_id=rfq_id,
+            message_ids=message_ids,
+            manager=manager,
+            resolution=resolution,
+        )
     db.flush()
     return len(messages)
+
+
+def _restore_rfq_after_resolved_escalations(
+    db: Session,
+    *,
+    rfq_ids: set[int],
+) -> None:
+    db.flush()
+    for rfq_id in rfq_ids:
+        rfq = db.get(RFQ, rfq_id)
+        if rfq is None or rfq.status != RFQStatus.ESCALATED:
+            continue
+        open_left = db.scalar(
+            select(Escalation.id)
+            .where(
+                Escalation.rfq_id == rfq_id,
+                Escalation.status != EscalationStatus.RESOLVED,
+            )
+            .limit(1)
+        )
+        if open_left is None:
+            rfq.status = RFQStatus.COLLECTING
+
+
+def _resolve_linked_sender_escalations(
+    db: Session,
+    *,
+    rfq_id: int,
+    message_ids: list[int],
+    manager: Manager,
+    resolution: SenderResolution | None = None,
+) -> int:
+    """Закрывает только эскалации, созданные из-за неизвестного отправителя."""
+
+    if not message_ids:
+        return 0
+    escalations = list(
+        db.scalars(
+            select(Escalation).where(
+                Escalation.rfq_id == rfq_id,
+                Escalation.communication_id.in_(message_ids),
+                Escalation.status != EscalationStatus.RESOLVED,
+                Escalation.note.startswith(_UNKNOWN_SENDER_ESCALATION_PREFIX),
+            )
+        ).all()
+    )
+    if not escalations:
+        return 0
+    escalated_message_ids = {
+        escalation.communication_id
+        for escalation in escalations
+        if escalation.communication_id is not None
+    }
+    for escalation in escalations:
+        escalation.manager_id = manager.id
+        escalation.status = EscalationStatus.RESOLVED
+    for audit in db.scalars(
+        select(CommunicationPolicyAudit).where(
+            CommunicationPolicyAudit.rfq_id == rfq_id,
+            CommunicationPolicyAudit.communication_id.in_(escalated_message_ids),
+        )
+    ).all():
+        audit.manager_id = manager.id
+        if audit.policy_category != "sender_identity_unknown":
+            continue
+        identity = (audit.budget_snapshot or {}).get("sender_identity") or {}
+        audit.policy_route = "linked"
+        audit.policy_category = "sender_identity_linked"
+        audit.policy_method = (
+            resolution.method if resolution is not None else identity.get("method")
+        ) or audit.policy_method
+        audit.policy_explanation = (
+            resolution.explanation
+            if resolution is not None
+            else identity.get("explanation") or audit.policy_explanation
+        )
+    _restore_rfq_after_resolved_escalations(db, rfq_ids={rfq_id})
+    return len(escalations)
+
+
+def reconcile_linked_sender_escalations(db: Session) -> int:
+    """Идемпотентно закрывает старые identity-эскалации во всех RFQ."""
+
+    rows = db.execute(
+        select(Escalation, Communication, Manager)
+        .join(Communication, Escalation.communication_id == Communication.id)
+        .join(Manager, Communication.manager_id == Manager.id)
+        .where(
+            Escalation.status != EscalationStatus.RESOLVED,
+            Escalation.note.startswith(_UNKNOWN_SENDER_ESCALATION_PREFIX),
+        )
+        .order_by(Escalation.id)
+        .limit(500)
+    ).all()
+    grouped: dict[tuple[int, int], tuple[Manager, list[int]]] = {}
+    for escalation, communication, manager in rows:
+        key = (escalation.rfq_id, manager.id)
+        if key not in grouped:
+            grouped[key] = (manager, [])
+        grouped[key][1].append(communication.id)
+    resolved = 0
+    for (rfq_id, _), (manager, message_ids) in grouped.items():
+        resolved += _resolve_linked_sender_escalations(
+            db,
+            rfq_id=rfq_id,
+            message_ids=message_ids,
+            manager=manager,
+        )
+    return resolved
 
 
 def validate_sender_manager_approval(
