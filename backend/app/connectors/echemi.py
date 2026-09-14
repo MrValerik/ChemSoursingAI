@@ -10,7 +10,9 @@ def search_echemi(query: str, search_id: int) -> dict:
     settings = get_settings()
     with httpx.Client(timeout=930, trust_env=False) as client:
         response = client.post(settings.echemi_browser_url.rstrip("/") + "/search",
-                               json={"query": query, "search_id": search_id})
+                               json={"query": query, "search_id": search_id,
+                                     "captcha_probe_attempts": settings.echemi_captcha_auto_attempts,
+                                     "captcha_manual_fallback": True})
         if response.status_code == 409:
             raise EchemiBrowserBusy()
         response.raise_for_status()

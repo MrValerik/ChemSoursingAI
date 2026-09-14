@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     echemi_browser_url: str = Field(default='http://echemi-browser:8080')
     echemi_busy_retries: int = Field(default=20, ge=1, le=300)
     echemi_progress_poll_seconds: float = Field(default=3, ge=0.5, le=30)
+    echemi_captcha_auto_attempts: int = Field(default=3, ge=0, le=3)
 
     # --- Приложение ---
     app_env: str = Field(default="development")
