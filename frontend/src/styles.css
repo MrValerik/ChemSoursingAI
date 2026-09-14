@@ -5610,6 +5610,7 @@ button.substance-list-item.active {
   gap: 12px;
 }
 .search-modes .search-mode {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -5631,9 +5632,17 @@ button.substance-list-item.active {
 }
 .search-mode input {
   position: absolute;
+  top: 10px;
+  left: 12px;
   width: 1px;
   height: 1px;
+  margin: 0;
+  padding: 0;
   opacity: 0;
+}
+.search-mode:has(input:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 .search-mode-label {
   font-weight: 600;
