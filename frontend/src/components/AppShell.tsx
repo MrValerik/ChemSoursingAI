@@ -62,7 +62,7 @@ const NAV_ITEMS: NavItem[] = [
 // Раздел из адресной строки может не подойти текущей роли — например, ссылку
 // на «Настройки» открыл закупщик. Матрица доступа одна и живёт здесь.
 export function isSectionAllowed(section: SectionKey, role: UserRole) {
-  return NAV_ITEMS.some((item) => item.key === section && item.roles.includes(role));
+  return NAV_ITEMS.some((item) => item.key === section && item.roles.includes(role === "guest" ? "buyer" : role));
 }
 
 // Замок ставится по самой матрице, а не списком ключей: добавится раздел с
@@ -119,7 +119,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [navOpen]);
 
   if (!user) return null;
-  const visible = NAV_ITEMS.filter((i) => i.roles.includes(user.role));
+  const visible = NAV_ITEMS.filter((i) => i.roles.includes(user.role === "guest" ? "buyer" : user.role));
 
   return (
     <div className={`shell${navOpen ? " is-nav-open" : ""}`}>
@@ -258,10 +258,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         <div className="shell-content">
-          {user.role === "guest" && <aside className="panel" role="note" style={{ margin: "16px 24px" }}>
-            <strong>Гость · Только просмотр</strong>
-            <p className="note">Вы в обычном интерфейсе ChemSource AI. Запросы, компании, переписка и цены в этой сессии — учебные. Изменение данных и отправка сообщений недоступны.</p>
-          </aside>}
           {children}
         </div>
       </div>

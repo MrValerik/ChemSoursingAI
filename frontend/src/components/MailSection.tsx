@@ -110,7 +110,7 @@ function MailThreadMessage({ message, expanded, onReply, onDownload, downloadBus
 
 export default function MailSection() {
   const { user } = useAuth();
-  const canWrite = user?.role !== "auditor";
+  const canWrite = (user?.role !== "auditor" && user?.role !== "guest");
   const [folder, setFolder] = useState<MailboxFolder>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");

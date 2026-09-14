@@ -60,7 +60,7 @@ export default function EchemiSearchSection() {
   return <section className="echemi-section">
     <h1>Поиск в Echemi</h1>
     <p>Поиск товаров по названию или CAS. Каждый запуск сохраняется отдельным запросом.</p>
-    {user?.role !== "auditor" && <form onSubmit={submit} className="echemi-form">
+    {(user?.role !== "auditor" && user?.role !== "guest") && <form onSubmit={submit} className="echemi-form">
       <label htmlFor="echemi-query">Название товара или CAS</label>
       <div><input id="echemi-query" value={query} onChange={e=>setQuery(e.target.value)}
         maxLength={200} required placeholder="Например, Aspirin или 50-78-2" />
@@ -79,6 +79,6 @@ export default function EchemiSearchSection() {
         </span></td><td>{r.result_count}</td></tr>)}</tbody></table></div>}
     <div className="echemi-pages"><button disabled={!offset} onClick={()=>setOffset(Math.max(0,offset-50))}>Назад</button>
       <button disabled={rows.length<50} onClick={()=>setOffset(offset+50)}>Далее</button></div>
-    {selected && <EchemiResults selected={selected} allowVerification={user?.role !== "auditor"} />}
+    {selected && <EchemiResults selected={selected} allowVerification={(user?.role !== "auditor" && user?.role !== "guest")} />}
   </section>;
 }

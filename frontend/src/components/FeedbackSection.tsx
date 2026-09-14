@@ -71,7 +71,7 @@ export default function FeedbackSection() {
   }, []);
 
   const send = async () => {
-    if (!text.trim() || busy) return;
+    if (user?.role === "guest" || !text.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -112,6 +112,7 @@ export default function FeedbackSection() {
         <label>
           О каком разделе речь
           <select
+            disabled={user?.role === "guest"}
             value={origin}
             onChange={(event) => {
               setOrigin(event.target.value);
@@ -128,6 +129,7 @@ export default function FeedbackSection() {
         <label>
           Сообщение
           <textarea
+            disabled={user?.role === "guest"}
             rows={6}
             value={text}
             maxLength={4000}
@@ -142,7 +144,7 @@ export default function FeedbackSection() {
           <button
             type="button"
             onClick={() => void send()}
-            disabled={busy || !text.trim()}
+            disabled={user?.role === "guest" || busy || !text.trim()}
             title={!text.trim() ? "Сначала напишите сообщение" : undefined}
           >
             Отправить

@@ -14,7 +14,7 @@ export default function RfqEchemiResults({ rfqId }: { rfqId: number }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const canSearch = user?.role !== "auditor";
+  const canSearch = (user?.role !== "auditor" && user?.role !== "guest");
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;

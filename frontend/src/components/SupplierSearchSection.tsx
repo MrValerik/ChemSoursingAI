@@ -2944,7 +2944,7 @@ export default function SupplierSearchSection({
           )}
         </div>
       )}
-      {user?.role !== "guest" && <RfqEchemiResults key={rfq.id} rfqId={rfq.id} />}
+      <RfqEchemiResults key={rfq.id} rfqId={rfq.id} />
       {(data || candidateResults.length > 0) && (
         <div className="panel">
           <div className="search-results-header">

@@ -92,7 +92,7 @@ export default function SettingsSection() {
         <h1>Настройки</h1>
       </div>
       {error && <p className="error">{error}</p>}
-      <UserPreferencesPanel key={me?.id} />
+      <UserPreferencesPanel key={me?.id} readOnly={me?.role === "guest"} />
 
       {me?.role === "admin" && <>
       <div className="panel">

@@ -50,7 +50,7 @@ const MANUFACTURER_MATCH_LABELS: Record<string, string> = {
 
 export default function DocumentsSection({ rfqId }: { rfqId: number }) {
   const { user } = useAuth();
-  const readOnly = user?.role === "auditor";
+  const readOnly = (user?.role === "auditor" || user?.role === "guest");
   const [documents, setDocuments] = useState<SupplierDocumentRead[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [downloadBusyId, setDownloadBusyId] = useState<number | null>(null);

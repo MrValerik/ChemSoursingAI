@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { UserPreferences } from "../api/types";
 
-export default function UserPreferencesPanel() {
+export default function UserPreferencesPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export default function UserPreferencesPanel() {
     <h2>Личные настройки</h2>
     <div className="settings-checks"><label>
       <input type="checkbox" checked={preferences?.auto_dispatch_after_search ?? false}
-        disabled={!preferences || busy} onChange={(e) => void save(e.target.checked)} />
+        disabled={readOnly || !preferences || busy} onChange={(e) => void save(e.target.checked)} />
       Автоматическая отправка рассылки компаниям после завершения поиска
     </label></div>
     <p className="note">Применяется к поискам, которые запускаете вы. После завершения

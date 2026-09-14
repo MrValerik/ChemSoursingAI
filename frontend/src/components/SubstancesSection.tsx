@@ -132,7 +132,7 @@ export default function SubstancesSection() {
   const navigate = useNavigate();
   const focusId = substanceId ? Number(substanceId) : null;
   const { user } = useAuth();
-  const canEdit = user?.role !== "auditor";
+  const canEdit = (user?.role !== "auditor" && user?.role !== "guest");
   const [items, setItems] = useState<SubstanceRecord[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(focusId ?? null);
   const [search, setSearch] = useState("");

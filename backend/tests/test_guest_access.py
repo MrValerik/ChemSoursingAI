@@ -57,7 +57,9 @@ def test_guest_reads_standard_workspace_without_production_access(client, monkey
                 "/rfq/1/communications", "/rfq/1/quotations", "/rfq/1/summary",
                 "/rfq/1/purchase-decision", "/rfq/1/purchase-history",
                 "/search-runs", "/search-runs/1", "/search-runs/1?merge_country=true",
-                "/rfq/2", "/rfq/3", "/substances/price-history?cas=50-78-2"]:
+                "/substances", "/intermediaries", "/mail/messages", "/mail/threads",
+                "/feedback", "/escalations", "/settings/preferences", "/echemi-searches",
+                "/rfq/1/documents", "/rfq/1/escalations", "/rfq/2", "/rfq/3", "/substances/price-history?cas=50-78-2"]:
         response = client.get(url, headers=headers)
         assert response.status_code == 200, (url, response.text)
         assert "CONFIDENTIAL" not in response.text
@@ -72,7 +74,9 @@ def test_guest_reads_standard_workspace_without_production_access(client, monkey
     ("POST", "/quotations"), ("PUT", "/rfq/1/purchase-decision"),
     ("POST", "/suppliers"), ("POST", "/search-runs/1/restart"),
     ("PUT", "/settings/preferences"), ("GET", "/settings/integrations/email"),
-    ("GET", "/users"), ("GET", "/mail/messages"), ("GET", "/documents/1/download"),
+    ("GET", "/users"), ("POST", "/mail/messages"), ("POST", "/feedback"),
+    ("PATCH", "/escalations/1"), ("POST", "/echemi-searches"),
+    ("GET", "/echemi-searches/1/manual"), ("GET", "/documents/1/file"), ("GET", "/documents/1/download"),
     ("GET", "/substances/verify?cas=50-78-2"), ("GET", "/health/llm"),
     ("POST", "/auth/login"), ("GET", "/not-yet-reviewed-endpoint"),
 ])

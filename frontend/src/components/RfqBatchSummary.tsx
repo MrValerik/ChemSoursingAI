@@ -271,7 +271,7 @@ export default function RfqBatchSummary({ batchId, onOpenRfq, onBack }: Props) {
                       <label key={position.rfq_id}>
                         <input
                           checked={selected.includes(position.rfq_id)}
-                          disabled={busyKey === key || user?.role === "auditor"}
+                          disabled={busyKey === key || (user?.role === "auditor" || user?.role === "guest")}
                           type="checkbox"
                           onChange={() => togglePosition(key, position.rfq_id)}
                         />
@@ -283,7 +283,7 @@ export default function RfqBatchSummary({ batchId, onOpenRfq, onBack }: Props) {
                       </label>
                     ))}
                   </div>
-                  {user?.role !== "auditor" && (
+                  {(user?.role !== "auditor" && user?.role !== "guest") && (
                     <button
                       className="secondary"
                       disabled={selected.length < 2 || busyKey === key}

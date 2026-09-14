@@ -37,7 +37,7 @@ const KIND_HINTS: Record<IntermediaryKind, string> = {
 
 export default function IntermediariesSection() {
   const { user } = useAuth();
-  const canEdit = user?.role !== "auditor";
+  const canEdit = (user?.role !== "auditor" && user?.role !== "guest");
 
   const [items, setItems] = useState<IntermediaryRead[]>([]);
   const [loading, setLoading] = useState(true);

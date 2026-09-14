@@ -27,7 +27,7 @@ export default function ReviewQueue() {
   const onOpenRfq = (id: number) => navigate(`/requests/${id}`);
   const { user } = useAuth();
   const canAssign = user?.role === "head" || user?.role === "admin";
-  const readOnly = user?.role === "auditor";
+  const readOnly = (user?.role === "auditor" || user?.role === "guest");
 
   const [items, setItems] = useState<EscalationRead[]>([]);
   const [users, setUsers] = useState<UserAdminRead[]>([]);

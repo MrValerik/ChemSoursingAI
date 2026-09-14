@@ -21,7 +21,9 @@ _init_lock = Lock()
 # Explicitly reviewed local reads. New endpoints are denied until reviewed;
 # even GET can run a network lookup or disclose installation configuration.
 _READ_PATHS = re.compile(
-    r"(?:/auth/me|/rfq(?:/\d+(?:/(?:quotations|summary|recipients|communications|purchase-decision|purchase-history|analogs))?)?"
+    r"(?:/auth/me|/rfq(?:/\d+(?:/(?:quotations|summary|recipients|communications|purchase-decision|purchase-history|analogs|documents|escalations))?)?"
+    r"|/feedback|/escalations|/settings/preferences|/echemi-searches(?:/\d+)?"
+    r"|/intermediaries(?:/\d+/purchase-history)?|/mail/(?:threads|messages(?:/\d+/thread)?)"
     r"|/search-runs(?:/\d+)?|/suppliers(?:/\d+/purchase-history)?"
     r"|/substances(?:/price-history|/\d+(?:/(?:requests|price-history|history|purchase-history))?)?)"
 )
