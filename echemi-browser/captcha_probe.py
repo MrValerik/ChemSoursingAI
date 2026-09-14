@@ -1,4 +1,4 @@
-"""Bounded server experiment using the page's own Alibaba SDK and fresh context."""
+"""Bounded CAPTCHA attempts using the page's own Alibaba SDK and fresh context."""
 import asyncio
 import json
 import time
@@ -61,12 +61,14 @@ async def drag(page, mouse, context, epoch):
 class CaptchaProbe:
     def __init__(self, context, attempts):
         self.context = context
-        self.remaining = min(3, max(0, attempts))
+        self.limit = min(3, max(0, attempts))
+        self.remaining = self.limit
 
     async def run(self, page, mouse, events):
         while self.remaining:
             self.remaining -= 1
-            event = {"mode": "automatic_probe", "status": "preparing", "slider_attempted": False}
+            event = {"mode": "automatic_probe", "status": "preparing", "slider_attempted": False,
+                     "attempt": self.limit - self.remaining, "attempt_limit": self.limit}
             events.append(event)
             began = time.monotonic()
             try:

@@ -246,6 +246,7 @@ services:
       APP_ENV: production
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-chemsource}:${POSTGRES_PASSWORD:-change_me}@db:5432/${POSTGRES_DB:-chemsource}
       ECHEMI_BROWSER_URL: http://echemi-browser:8080
+      ECHEMI_CAPTCHA_AUTO_ATTEMPTS: ${ECHEMI_CAPTCHA_AUTO_ATTEMPTS:-3}
     depends_on:
       backend:
         condition: service_healthy

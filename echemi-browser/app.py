@@ -34,6 +34,7 @@ class Search(BaseModel):
     search_id: int = Field(gt=0)
     query: str = Field(min_length=1, max_length=200)
     captcha_probe_attempts: int = Field(default=0, ge=0, le=3, strict=True)
+    captcha_manual_fallback: bool = Field(default=False, strict=True)
 
 
 class Mouse:
@@ -52,11 +53,20 @@ class Mouse:
         self.x, self.y = x, y
 
 
-async def ready(page, mouse, events, context=None, probe=None):
+async def ready(page, mouse, events, context=None, probe=None, manual_fallback=False):
     if not await needs_verification(page):
         return True
     if probe is not None:
-        return await probe.run(page, mouse, events)
+        try:
+            if await probe.run(page, mouse, events):
+                return True
+        except Exception as exc:
+            events.append({"mode": "automatic_probe", "status": "failed",
+                           "error_type": type(exc).__name__})
+        if not manual_fallback:
+            return False
+        events.append({"mode": "automatic_fallback", "status": "manual_required",
+                       "reason": "attempts_exhausted" if not probe.remaining else "not_confirmed"})
     if context is not None:
         try:
             await context.capture()
@@ -65,7 +75,7 @@ async def ready(page, mouse, events, context=None, probe=None):
             events.append({"mode": "context_observation", "status": "unavailable"})
     return await wait_for_human(page, events)
 
-async def collect(query, output, captcha_probe_attempts=0):
+async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallback=False):
     async with async_playwright() as p, open_chrome(p, PROFILE) as context:
         challenge = None
         try:
@@ -76,13 +86,14 @@ async def collect(query, output, captcha_probe_attempts=0):
             challenge = CaptchaContext(page, output['diagnostics'])
             probe = CaptchaProbe(challenge, captcha_probe_attempts) if captcha_probe_attempts else None
             output['diagnostics']['captcha_probe_attempts'] = captcha_probe_attempts
+            output['diagnostics']['captcha_manual_fallback'] = captcha_manual_fallback
             mouse = Mouse(page)
             await page.goto("https://www.echemi.com/",wait_until="domcontentloaded",timeout=60000)
             await asyncio.sleep(8)
             await mouse.go(230,270,2)
             await mouse.go(580,400,2.4)
             await mouse.go(790,290,1.8)
-            if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe):
+            if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback):
                 output.update(status="blocked",message="Echemi не пропустил проверку на главной странице.")
                 return
             field = page.locator("#topSearchKeywords")
@@ -94,7 +105,7 @@ async def collect(query, output, captcha_probe_attempts=0):
             await asyncio.sleep(2)
             await field.press("Enter")
             await asyncio.sleep(10)
-            if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe):
+            if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback):
                 output.update(status="blocked",message="Echemi не пропустил проверку в поисковой выдаче.")
                 return
             blocks = await page.evaluate(_BLOCKS)
@@ -118,7 +129,7 @@ async def collect(query, output, captcha_probe_attempts=0):
                     await asyncio.sleep(random.uniform(PAUSE_MIN,PAUSE_MAX))
                     await page.goto(url,wait_until="domcontentloaded",timeout=60000)
                     await asyncio.sleep(5)
-                    if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe):
+                    if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback):
                         row["detail_status"] = "blocked"
                         if probe is not None:
                             break
@@ -127,7 +138,7 @@ async def collect(query, output, captcha_probe_attempts=0):
                         await mouse.go(random.uniform(700,950),random.uniform(300,550))
                         await page.mouse.wheel(0,random.randint(350,600))
                         await asyncio.sleep(random.uniform(1,2))
-                    if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe):
+                    if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback):
                         row["detail_status"] = "blocked"
                         if probe is not None:
                             break
@@ -166,8 +177,18 @@ async def progress(search_id: int):
     if active.get("id") != search_id or output is None:
         raise HTTPException(404, "No active search")
     snapshot = deepcopy(output)
+    events = snapshot["diagnostics"].get("captcha", [])
+    snapshot.setdefault("message", "Открываем Echemi и читаем карточки. Это может занять несколько минут.")
     if active.get("waiting"):
-        snapshot["message"] = "Нужна ручная проверка Echemi. Найденные товары уже сохранены."
+        fallback = any(e.get("mode") == "automatic_fallback" for e in events)
+        snapshot["message"] = ("Автоматическая проверка Echemi не завершилась. Доступна ручная проверка."
+                               if fallback else "Нужна ручная проверка Echemi.")
+        if snapshot["results"]:
+            snapshot["message"] += " Найденные товары уже сохранены."
+    elif events and events[-1].get("mode") == "automatic_probe" and events[-1].get("status") in {"preparing", "dragging"}:
+        event = events[-1]
+        snapshot["message"] = (f"Автоматически проходим проверку Echemi: попытка {event['attempt']} "
+                               f"из {event['attempt_limit']}. Поиск продолжится автоматически.")
     return {"search_id": search_id, **snapshot}
 
 
@@ -182,7 +203,8 @@ async def search(request: Search, connection: Request):
         active['id'] = request.search_id
         active['output'] = output
         try:
-            await run_connected(connection, collect(request.query.strip(),output,request.captcha_probe_attempts), timeout=900)
+            await run_connected(connection, collect(request.query.strip(),output,request.captcha_probe_attempts,
+                                                     request.captcha_manual_fallback), timeout=900)
         except Exception as exc:
             output.update(status="partial" if output["results"] else "failed",
                           message="Сбор прерван по времени или из-за ошибки браузера.")
