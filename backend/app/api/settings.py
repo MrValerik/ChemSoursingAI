@@ -52,7 +52,8 @@ router = APIRouter(
 admin_router = APIRouter(dependencies=[Depends(require_roles(UserRole.ADMIN))])
 
 
-@router.get("/integrations/serper/balance", response_model=SerperBalanceRead)
+@router.get("/integrations/serper/balance", response_model=SerperBalanceRead,
+            dependencies=[Depends(require_roles(UserRole.ADMIN))])
 def get_serper_balance(response: Response):
     response.headers["Cache-Control"] = "no-store"
     return read_balance()
