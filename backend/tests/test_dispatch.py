@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import app
-from app.connectors.email import IncomingEmail
+from app.connectors.email import EmailDeliveryError, IncomingEmail
 from app.connectors.whatsapp import WhatsAppDeliveryError
 from app.core.db import SessionLocal
 from app.extraction.llm_client import LLMUnavailableError
@@ -2466,7 +2466,7 @@ def test_email_identity_uses_explicit_company_signature(client, monkeypatch):
 
 def test_email_identity_failure_escalates_without_guessing(client, monkeypatch):
     headers = _login(client)
-    rfq, _first = _started_conversation(
+    rfq, first = _started_conversation(
         client,
         headers,
         channel="email",
@@ -2563,6 +2563,180 @@ def test_email_identity_failure_escalates_without_guessing(client, monkeypatch):
     assert unmatched["manager_id"] is None
     assert unmatched["escalations"][0]["communication_id"] == message.id
     assert unmatched["escalations"][0]["suggested_reply"] == suggested_reply
+
+    delivery_settings = SimpleNamespace(
+        email_delivery_mode="live",
+        email_from="buyer@example.com",
+    )
+    monkeypatch.setattr(
+        "app.services.mailbox.effective_email_settings",
+        lambda db: (delivery_settings, True, "database"),
+    )
+    manual_sent: list[dict] = []
+
+    def send_manual_reply(self, **kwargs):
+        manual_sent.append(kwargs)
+        return "<manual-approved@buyer.example>"
+
+    monkeypatch.setattr(
+        "app.services.mailbox.EmailConnector.send",
+        send_manual_reply,
+    )
+    with SessionLocal() as db:
+        original_manager = db.get(Manager, first.manager_id)
+        unrelated_manager = db.scalar(
+            select(Manager)
+            .where(Manager.supplier_id != original_manager.supplier_id)
+            .order_by(Manager.id)
+        )
+    assert unrelated_manager is not None
+    rejected = client.post(
+        f"/escalations/{escalation.id}/email-reply",
+        headers=headers,
+        json={
+            "manager_id": unrelated_manager.id,
+            "body": suggested_reply,
+            "idempotency_key": "128595de-98c2-4bb0-946f-f97525687a7d",
+            "confirm_external_send": True,
+        },
+    )
+    assert rejected.status_code == 422
+    assert manual_sent == []
+
+    def fail_manual_reply(self, **kwargs):
+        raise EmailDeliveryError("Synthetic SMTP failure")
+
+    monkeypatch.setattr(
+        "app.services.mailbox.EmailConnector.send",
+        fail_manual_reply,
+    )
+    delivery_failed = client.post(
+        f"/escalations/{escalation.id}/email-reply",
+        headers=headers,
+        json={
+            "manager_id": first.manager_id,
+            "body": suggested_reply,
+            "idempotency_key": "76cb15cc-b836-46a6-aa9e-28aee28bf7e0",
+            "confirm_external_send": True,
+        },
+    )
+    assert delivery_failed.status_code == 503
+    with SessionLocal() as db:
+        failed_source = db.get(Communication, message.id)
+        failed_escalation = db.get(Escalation, escalation.id)
+    assert failed_source is not None and failed_source.manager_id is None
+    assert failed_escalation is not None and failed_escalation.manager_id is None
+
+    monkeypatch.setattr(
+        "app.services.mailbox.EmailConnector.send",
+        send_manual_reply,
+    )
+    approved = client.post(
+        f"/escalations/{escalation.id}/email-reply",
+        headers=headers,
+        json={
+            "manager_id": first.manager_id,
+            "body": suggested_reply,
+            "idempotency_key": "7672e564-1ca8-467b-a490-49b11aa3eeba",
+            "confirm_external_send": True,
+        },
+    )
+    replayed = client.post(
+        f"/escalations/{escalation.id}/email-reply",
+        headers=headers,
+        json={
+            "manager_id": first.manager_id,
+            "body": suggested_reply,
+            "idempotency_key": "7672e564-1ca8-467b-a490-49b11aa3eeba",
+            "confirm_external_send": True,
+        },
+    )
+    assert approved.status_code == 200, approved.text
+    assert replayed.status_code == 200, replayed.text
+    assert approved.json()["status"] == "resolved"
+    assert len(manual_sent) == 1
+    assert manual_sent[0]["to_address"] == "unknown@unknown.example"
+
+    with SessionLocal() as db:
+        linked_message = db.get(Communication, message.id)
+        linked_escalation = db.get(Escalation, escalation.id)
+        linked_manager = db.get(Manager, linked_message.manager_id)
+        original_manager = db.get(Manager, first.manager_id)
+        audit = db.scalar(
+            select(CommunicationPolicyAudit).where(
+                CommunicationPolicyAudit.communication_id == message.id
+            )
+        )
+    assert linked_message is not None and linked_message.manager_id is not None
+    assert linked_escalation is not None
+    assert linked_escalation.manager_id == linked_message.manager_id
+    assert linked_manager is not None and original_manager is not None
+    assert linked_manager.supplier_id == original_manager.supplier_id
+    assert audit is not None
+    assert audit.budget_snapshot["sender_identity"]["method"] == (
+        "manual_escalation_confirmation"
+    )
+
+    class ContinuationConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="send",
+            email_delivery_mode="live",
+            email_from="buyer@example.com",
+        )
+        sent: list[dict] = []
+
+        def fetch_unseen(self, limit=20):
+            return [
+                IncomingEmail(
+                    uid="approved-followup-1",
+                    message_id="<approved-followup-1@unknown.example>",
+                    subject=f"Re: [RFQ-{rfq['id']}] Ethanol",
+                    from_address="unknown@unknown.example",
+                    to_addresses=["buyer@example.com"],
+                    text="Our indicative price is USD 10/kg.",
+                )
+            ]
+
+        def mark_seen(self, uids):
+            self.seen = uids
+
+        def send(self, **kwargs):
+            self.sent.append(kwargs)
+            return "<approved-followup-out@buyer.example>"
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Standard partial quotation.",
+            method="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: ExtractedQuote(
+            price=10,
+            currency="USD",
+            field_confidence={"price": 0.95, "currency": 0.95},
+            method="test",
+        ),
+    )
+    continuation = ContinuationConnector()
+    with SessionLocal() as db:
+        continued = sync_inbox(db, connector=continuation)
+        next_inbound = db.scalar(
+            select(Communication).where(
+                Communication.external_id
+                == "<approved-followup-1@unknown.example>"
+            )
+        )
+
+    assert continued.escalations_created == 0
+    assert continued.followups_sent == 1
+    assert len(continuation.sent) == 1
+    assert next_inbound is not None
+    assert next_inbound.manager_id == linked_message.manager_id
 
 
 def test_email_identity_rejects_mismatched_company_despite_domain_and_rfq(

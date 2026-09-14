@@ -11,7 +11,17 @@ from app.models import User
 from app.models.enums import EscalationReason, EscalationStatus, RFQStatus, UserRole
 from app.models.escalation import Escalation
 from app.models.rfq import RFQ
-from app.schemas.escalation import EscalationRead, EscalationUpdate
+from app.schemas.escalation import (
+    EscalationEmailReplyCreate,
+    EscalationRead,
+    EscalationUpdate,
+)
+from app.services.communication_delivery import CommunicationSendError
+from app.services.email_identity import (
+    approve_sender_manager,
+    validate_sender_manager_approval,
+)
+from app.services.mailbox import send_mailbox_message
 
 router = APIRouter(tags=["escalations"], dependencies=[Depends(get_current_user)])
 
@@ -117,6 +127,88 @@ def update_escalation(
         if open_left is None and esc.rfq.status == RFQStatus.ESCALATED:
             esc.rfq.status = RFQStatus.COLLECTING
 
+    db.commit()
+    db.refresh(esc)
+    return _to_read(esc)
+
+
+@router.post(
+    "/escalations/{escalation_id}/email-reply",
+    response_model=EscalationRead,
+)
+def reply_to_unmatched_email(
+    escalation_id: int,
+    payload: EscalationEmailReplyCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> EscalationRead:
+    """Подтверждает поставщика, отвечает новому адресу и возобновляет ИИ-контур."""
+
+    if user.role == UserRole.AUDITOR:
+        raise HTTPException(status_code=403, detail="Аудитор — только чтение")
+    esc = db.get(
+        Escalation,
+        escalation_id,
+        options=[
+            joinedload(Escalation.rfq).joinedload(RFQ.owner),
+            joinedload(Escalation.communication),
+        ],
+    )
+    if esc is None or esc.rfq is None or esc.rfq.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Задача ручной проверки не найдена")
+    if user.role == UserRole.BUYER and esc.rfq.owner_id not in (None, user.id):
+        raise HTTPException(status_code=403, detail="Чужой запрос")
+    if esc.communication is None:
+        raise HTTPException(
+            status_code=422,
+            detail="У эскалации отсутствует исходное письмо для ответа",
+        )
+
+    try:
+        validate_sender_manager_approval(
+            db,
+            rfq=esc.rfq,
+            communication=esc.communication,
+            selected_manager_id=payload.manager_id,
+        )
+        source_subject = (esc.communication.subject or f"[RFQ-{esc.rfq.id}]").strip()
+        reply_subject = (
+            source_subject
+            if source_subject.casefold().startswith("re:")
+            else f"Re: {source_subject}"
+        )
+        send_mailbox_message(
+            db,
+            to_address=esc.communication.from_address or "",
+            subject=reply_subject,
+            body=payload.body,
+            idempotency_key=str(payload.idempotency_key),
+            reply_to_message_id=esc.communication.id,
+        )
+        approve_sender_manager(
+            db,
+            rfq=esc.rfq,
+            communication=esc.communication,
+            selected_manager_id=payload.manager_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except CommunicationSendError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    esc.assignee = esc.assignee or user.full_name
+    esc.status = EscalationStatus.RESOLVED
+    open_left = db.scalar(
+        select(Escalation.id)
+        .where(
+            Escalation.rfq_id == esc.rfq_id,
+            Escalation.id != esc.id,
+            Escalation.status != EscalationStatus.RESOLVED,
+        )
+        .limit(1)
+    )
+    if open_left is None and esc.rfq.status == RFQStatus.ESCALATED:
+        esc.rfq.status = RFQStatus.COLLECTING
     db.commit()
     db.refresh(esc)
     return _to_read(esc)

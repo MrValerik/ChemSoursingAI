@@ -13,7 +13,7 @@ import type {
 import { useAuth } from "../auth/AuthContext";
 import RfqDispatchPreparation from "./RfqDispatchPreparation";
 import CommunicationTesting from "./CommunicationTesting";
-import { Textarea } from "./ui";
+import { Select, Textarea } from "./ui";
 
 const EMPTY_OVERVIEW: CommunicationOverviewRead = {
   conversations: [],
@@ -346,6 +346,12 @@ export default function DispatchTab({
     ...overview.unassigned_escalations,
     ...overview.conversations.flatMap((item) => item.escalations),
   ].filter((item) => item.status !== "resolved");
+  const emailSupplierCandidates = overview.conversations.filter(
+    (item) =>
+      item.channel === "email" &&
+      item.supplier_id !== null &&
+      item.manager_id !== null,
+  );
 
   const syncEmail = async () => {
     setSyncing(true);
@@ -521,6 +527,7 @@ export default function DispatchTab({
     conversation: SupplierConversationRead,
     body: string,
     idempotencyKey: string,
+    approvedManagerId: number | null,
   ): Promise<boolean> => {
     const repliesToUnmatchedEmail = Boolean(
       !conversation.manager_id &&
@@ -533,12 +540,18 @@ export default function DispatchTab({
     if (!conversation.manager_id && !repliesToUnmatchedEmail) {
       return false;
     }
+    if (repliesToUnmatchedEmail && !approvedManagerId) {
+      return false;
+    }
     const channelLabel = conversation.channel === "email" ? "Email" : "WhatsApp";
+    const approvedSupplier = emailSupplierCandidates.find(
+      (item) => item.manager_id === approvedManagerId,
+    );
     if (
       !window.confirm(
         `Реально отправить ручной ответ через ${channelLabel} контакту ${conversation.contact} и закрыть эскалацию?` +
           (repliesToUnmatchedEmail
-            ? " Адрес не сопоставлен с ранее выбранным поставщиком: ответ уйдёт строго отправителю исходного письма."
+            ? ` Адрес будет закреплён за поставщиком «${approvedSupplier?.supplier_company ?? "выбранный поставщик"}», после чего ИИ продолжит стандартный диалог.`
             : ""),
       )
     ) {
@@ -549,7 +562,14 @@ export default function DispatchTab({
     setError(null);
     setNotice(null);
     try {
-      if (conversation.manager_id) {
+      if (repliesToUnmatchedEmail && approvedManagerId) {
+        await api.replyToUnmatchedEmailEscalation(escalation.id, {
+          manager_id: approvedManagerId,
+          body: body.trim(),
+          idempotency_key: idempotencyKey,
+          confirm_external_send: true,
+        });
+      } else if (conversation.manager_id) {
         await api.sendCommunicationMessage(rfqId, {
           manager_id: conversation.manager_id,
           channel: conversation.channel,
@@ -557,27 +577,18 @@ export default function DispatchTab({
           idempotency_key: idempotencyKey,
           confirm_external_send: true,
         });
-      } else {
-        const sourceMessage = conversation.messages.find(
-          (message) => message.id === escalation.communication_id,
-        );
-        const sourceSubject = sourceMessage?.subject?.trim() || `[RFQ-${rfqId}]`;
-        await api.sendMailboxMessage({
-          to_address: conversation.contact,
-          subject: /^re:/i.test(sourceSubject)
-            ? sourceSubject
-            : `Re: ${sourceSubject}`,
-          body: body.trim(),
-          idempotency_key: idempotencyKey,
-          reply_to_message_id: escalation.communication_id,
-          confirm_external_send: true,
+      }
+      if (!repliesToUnmatchedEmail) {
+        await api.updateEscalation(escalation.id, {
+          assignee: escalation.assignee ?? user.full_name,
+          status: "resolved",
         });
       }
-      await api.updateEscalation(escalation.id, {
-        assignee: escalation.assignee ?? user.full_name,
-        status: "resolved",
-      });
-      setNotice(`Ответ отправлен через ${channelLabel}, эскалация закрыта.`);
+      setNotice(
+        repliesToUnmatchedEmail
+          ? "Ответ отправлен, контакт подтверждён. Следующие стандартные письма продолжит ИИ."
+          : `Ответ отправлен через ${channelLabel}, эскалация закрыта.`,
+      );
       await load();
       onStatusChanged();
       return true;
@@ -840,6 +851,7 @@ export default function DispatchTab({
                         readOnly={readOnly}
                         onAction={updateEscalation}
                         conversation={selectedConversation}
+                        supplierCandidates={emailSupplierCandidates}
                         onReply={replyToEscalation}
                       />
                     ))}
@@ -1078,12 +1090,14 @@ function EscalationNotice({
   readOnly,
   onAction,
   conversation,
+  supplierCandidates = [],
   onReply,
 }: {
   escalation: CommunicationEscalationRead;
   busy: boolean;
   readOnly: boolean;
   conversation?: SupplierConversationRead;
+  supplierCandidates?: SupplierConversationRead[];
   onAction: (
     escalation: CommunicationEscalationRead,
     action: "take" | "resolve",
@@ -1093,15 +1107,23 @@ function EscalationNotice({
     conversation: SupplierConversationRead,
     body: string,
     idempotencyKey: string,
+    approvedManagerId: number | null,
   ) => Promise<boolean>;
 }) {
   const [replyBody, setReplyBody] = useState("");
   const [replyActionId, setReplyActionId] = useState(createActionId);
+  const [approvedManagerId, setApprovedManagerId] = useState("");
+  const isUnmatchedEmail = Boolean(
+    conversation &&
+      !conversation.manager_id &&
+      conversation.channel === "email" &&
+      escalation.communication_id,
+  );
   const canReply = Boolean(
     conversation?.contact &&
       onReply &&
       (conversation.manager_id ||
-        (conversation.channel === "email" && escalation.communication_id)),
+        (isUnmatchedEmail && supplierCandidates.length > 0)),
   );
 
   const submitReply = async () => {
@@ -1111,6 +1133,7 @@ function EscalationNotice({
       conversation,
       replyBody.trim(),
       replyActionId,
+      Number(approvedManagerId) || null,
     );
     if (sent) {
       setReplyBody("");
@@ -1133,6 +1156,31 @@ function EscalationNotice({
         <div className="communication-escalation-actions">
           {canReply && (
             <div className="communication-escalation-composer">
+              {isUnmatchedEmail && (
+                <div>
+                  <strong>Подтвердите поставщика</strong>
+                  <p className="note">
+                    После отправки этот Email станет контактом выбранной компании,
+                    и ИИ сможет продолжить стандартный диалог.
+                  </p>
+                  <Select
+                    ariaLabel="Поставщик для нового Email-адреса"
+                    disabled={busy}
+                    value={approvedManagerId}
+                    options={[
+                      { value: "", label: "Выберите поставщика…" },
+                      ...supplierCandidates.map((item) => ({
+                        value: String(item.manager_id),
+                        label: item.supplier_company,
+                      })),
+                    ]}
+                    onChange={(value) => {
+                      setApprovedManagerId(value);
+                      setReplyActionId(createActionId());
+                    }}
+                  />
+                </div>
+              )}
               {escalation.suggested_reply && (
                 <div className="communication-escalation-suggestion">
                   <div>
@@ -1162,7 +1210,11 @@ function EscalationNotice({
                 }}
               />
               <button
-                disabled={busy || !replyBody.trim()}
+                disabled={
+                  busy ||
+                  !replyBody.trim() ||
+                  (isUnmatchedEmail && !approvedManagerId)
+                }
                 onClick={() => void submitReply()}
                 type="button"
               >

@@ -543,6 +543,108 @@ def link_address_history(
     return len(messages)
 
 
+def validate_sender_manager_approval(
+    db: Session,
+    *,
+    rfq: RFQ,
+    communication: Communication,
+    selected_manager_id: int,
+) -> Manager:
+    """Проверяет ручной выбор ранее отправленного получателя этого RFQ."""
+
+    if (
+        communication.direction != CommDirection.INBOUND
+        or communication.channel != Channel.EMAIL
+        or not communication.from_address
+    ):
+        raise ValueError("Эскалация не связана с подходящим входящим Email")
+    linked = db.scalar(
+        select(Communication.id)
+        .where(
+            Communication.id == communication.id,
+            communication_linked_to_rfq(rfq.id),
+        )
+        .limit(1)
+    )
+    if linked is None:
+        raise ValueError("Письмо не относится к выбранному запросу")
+    identity_audit = db.scalar(
+        select(CommunicationPolicyAudit.id)
+        .where(
+            CommunicationPolicyAudit.communication_id == communication.id,
+            CommunicationPolicyAudit.policy_category == "sender_identity_unknown",
+        )
+        .order_by(CommunicationPolicyAudit.id.desc())
+        .limit(1)
+    )
+    if identity_audit is None:
+        raise ValueError(
+            "Ручная привязка доступна только для эскалации неизвестного отправителя"
+        )
+
+    selected_manager = db.get(Manager, selected_manager_id)
+    if selected_manager is None:
+        raise ValueError("Выбранный контакт поставщика не найден")
+    eligible_supplier_ids = {
+        candidate.supplier_id for candidate in _rfq_candidates(db, rfq.id)
+    }
+    if selected_manager.supplier_id not in eligible_supplier_ids:
+        raise ValueError(
+            "Можно выбрать только поставщика, которому ранее отправлялся этот RFQ"
+        )
+
+    address = communication.from_address.strip().casefold()
+    existing = _exact_manager(db, address)
+    if (
+        existing is not None
+        and existing.supplier_id != selected_manager.supplier_id
+    ):
+        raise ValueError("Этот Email уже связан с другим поставщиком")
+    return selected_manager
+
+
+def approve_sender_manager(
+    db: Session,
+    *,
+    rfq: RFQ,
+    communication: Communication,
+    selected_manager_id: int,
+) -> Manager:
+    """Связывает новый адрес с явно выбранным получателем этого RFQ."""
+
+    selected_manager = validate_sender_manager_approval(
+        db,
+        rfq=rfq,
+        communication=communication,
+        selected_manager_id=selected_manager_id,
+    )
+    address = communication.from_address.strip().casefold()
+    existing = _exact_manager(db, address)
+    manager = existing or _manager_for_new_address(
+        db,
+        supplier_id=selected_manager.supplier_id,
+        address=address,
+        rfq=rfq,
+    )
+    resolution = SenderResolution(
+        manager=manager,
+        method="manual_escalation_confirmation",
+        confidence=1.0,
+        explanation=(
+            "Сотрудник явно выбрал ранее отправленного получателя RFQ перед "
+            "ручным ответом новому Email-адресу."
+        ),
+        evidence_quote=None,
+    )
+    link_address_history(
+        db,
+        rfq_id=rfq.id,
+        address=address,
+        resolution=resolution,
+    )
+    return manager
+
+
 def reconcile_unlinked_email_contacts(db: Session) -> int:
     """Один раз повторяет двойную проверку для старых непривязанных писем."""
     messages = list(

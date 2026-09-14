@@ -864,6 +864,20 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  replyToUnmatchedEmailEscalation: (
+    id: number,
+    payload: {
+      manager_id: number;
+      body: string;
+      idempotency_key: string;
+      confirm_external_send: boolean;
+    },
+  ) =>
+    request<EscalationRead>(`/escalations/${id}/email-reply`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   listUsers: () => request<UserAdminRead[]>(`/users`),
 
   listCommunicationProfiles: () =>

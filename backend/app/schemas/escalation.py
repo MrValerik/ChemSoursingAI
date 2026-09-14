@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import EscalationReason, EscalationStatus
 
@@ -33,3 +34,23 @@ class EscalationUpdate(BaseModel):
     assignee: str | None = None
     status: EscalationStatus | None = None
     note: str | None = None
+
+
+class EscalationEmailReplyCreate(BaseModel):
+    """Подтверждённый ответ после ручного выбора поставщика."""
+
+    manager_id: int = Field(gt=0)
+    body: str = Field(min_length=1, max_length=12_000)
+    idempotency_key: UUID
+    confirm_external_send: bool = False
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def clean_body(cls, value: object) -> str:
+        return str(value or "").strip()
+
+    @model_validator(mode="after")
+    def require_confirmation(self) -> "EscalationEmailReplyCreate":
+        if not self.confirm_external_send:
+            raise ValueError("Подтвердите реальную внешнюю отправку")
+        return self
