@@ -77,7 +77,7 @@ const EMPTY_FORM: SupplierForm = {
 
 export default function SuppliersSection() {
   const { user } = useAuth();
-  const canEdit = user?.role !== "auditor";
+  const canEdit = (user?.role !== "auditor" && user?.role !== "guest");
   const navigate = useNavigate();
   const onOpenRfq = (id: number) => navigate(`/requests/${id}`);
   const [suppliers, setSuppliers] = useState<SupplierRead[]>([]);

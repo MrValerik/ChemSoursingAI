@@ -65,6 +65,7 @@ class UserRole(str, enum.Enum):
     HEAD = "head"          # руководитель отдела: видит все, переназначает
     ADMIN = "admin"        # администратор: пользователи, роли, каналы
     AUDITOR = "auditor"    # аудитор: только чтение всех данных
+    GUEST = "guest"        # публичный просмотр изолированных учебных данных
 
 
 class EscalationStatus(str, enum.Enum):

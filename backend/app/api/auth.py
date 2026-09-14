@@ -13,6 +13,20 @@ from app.schemas.auth import LoginRequest, TokenResponse, UserRead
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+@router.post("/guest", response_model=TokenResponse)
+def guest_login() -> TokenResponse:
+    from app.core.config import get_settings
+    from app.core.guest import GUEST_USERNAME
+    from app.models.enums import UserRole
+
+    if not get_settings().guest_access_enabled:
+        raise HTTPException(status_code=403, detail="Гостевой вход отключён администратором")
+    return TokenResponse(
+        access_token=create_access_token(subject=GUEST_USERNAME, role=UserRole.GUEST.value),
+        user=UserRead(id=1, username=GUEST_USERNAME, full_name="Гость", role=UserRole.GUEST),
+    )
+
+
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     user = db.scalar(select(User).where(User.username == payload.username))

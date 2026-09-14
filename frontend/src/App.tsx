@@ -1,7 +1,6 @@
 import EchemiSearchSection from "./components/EchemiSearchSection";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import GuestWorkspace from "./components/GuestWorkspace";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import AppShell, { isSectionAllowed, type SectionKey } from "./components/AppShell";
 import SplashScreen from "./components/Logo";
@@ -73,6 +72,7 @@ const REQUEST_PATHS = [
 const SPLASH_MIN_MS = 1700;
 
 function Sections() {
+  const { pathname } = useLocation();
   const { user, loading } = useAuth();
   const [splashHeld, setSplashHeld] = useState(true);
   const initialHoldDone = useRef(false);
@@ -111,6 +111,9 @@ function Sections() {
     return <Login />;
   }
 
+  if (pathname === "/demo" || pathname.startsWith("/demo/")) return <Navigate to="/requests" replace />;
+  if (user.role === "guest" && pathname === "/requests/new") return <Navigate to="/requests" replace />;
+
   return (
     <AppShell>
       <Routes>
@@ -133,9 +136,6 @@ function Sections() {
 }
 
 export default function App() {
-  const { pathname } = useLocation();
-  // Public synthetic preview mounts neither authentication nor production screens.
-  if (pathname === "/demo" || pathname.startsWith("/demo/")) return <GuestWorkspace />;
   return (
     <AuthProvider>
       <ActivityReporter />

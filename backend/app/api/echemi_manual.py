@@ -48,6 +48,9 @@ async def manual_control(ws: WebSocket, search_id: int, db: Session = Depends(ge
         if payload is None:
             await ws.close(code=4401)
             return
+        if payload.get("role") == UserRole.GUEST.value:
+            await ws.close(code=4403)
+            return
         user = db.scalar(select(User).where(User.username == payload.get("sub")))
         if user is None or not user.is_active or not allowed(db, search_id, user):
             await ws.close(code=4403)

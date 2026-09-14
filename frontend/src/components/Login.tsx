@@ -1,12 +1,13 @@
 // Экран входа (раздел 3 UI/UX-плана). SSO/LDAP — опционально, позже.
 
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { LogoMark, LogoWord } from "./Logo";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, loginGuest } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +34,12 @@ export default function Login() {
           <LogoWord />
         </div>
         <p className="note">Поиск и проверка поставщиков химического сырья</p>
-        <Link className="guest-entry" to="/demo">Войти как гость</Link>
+        <button type="button" className="secondary" disabled={busy} onClick={async () => {
+          setBusy(true); setError(null);
+          try { await loginGuest(); navigate("/requests"); }
+          catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+          finally { setBusy(false); }
+        }}>Войти как гость</button>
         <p className="note">Без регистрации · Учебные запросы, поставщики и предложения</p>
 
         <div className="field">

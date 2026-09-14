@@ -131,7 +131,7 @@ export default function SettingsSection() {
               <div className="field">
                 <label>Роль</label>
                 <select value={newRole} onChange={(e) => setNewRole(e.target.value)}>
-                  {Object.entries(ROLE_LABELS).map(([k, v]) => (
+                  {Object.entries(ROLE_LABELS).filter(([k]) => k !== "guest").map(([k, v]) => (
                     <option key={k} value={k}>
                       {v}
                     </option>
@@ -183,7 +183,7 @@ export default function SettingsSection() {
                       disabled={busy || u.id === me?.id}
                       onChange={(e) => void patchUser(u.id, { role: e.target.value })}
                     >
-                      {Object.entries(ROLE_LABELS).map(([k, v]) => (
+                      {Object.entries(ROLE_LABELS).filter(([k]) => k !== "guest").map(([k, v]) => (
                         <option key={k} value={k}>
                           {v}
                         </option>

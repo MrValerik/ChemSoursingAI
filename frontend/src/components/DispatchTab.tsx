@@ -168,7 +168,7 @@ export default function DispatchTab({
 }) {
   const rfqId = rfq.id;
   const { user } = useAuth();
-  const readOnly = user?.role === "auditor";
+  const readOnly = (user?.role === "auditor" || user?.role === "guest");
   const canTestCommunication =
     user?.role === "admin" || user?.role === "buyer";
 
@@ -797,7 +797,7 @@ export default function DispatchTab({
                       </div>
                     </div>
                     <div className="stack-inline">
-                      {selectedConversation.messages.some((message) =>
+                      {user?.role !== "guest" && selectedConversation.messages.some((message) =>
                         message.body?.trim(),
                       ) && (
                         <button

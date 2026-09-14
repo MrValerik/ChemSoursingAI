@@ -34,10 +34,10 @@ interface NavItem {
 
 // Видимость разделов по ролям (раздел 4 плана: матрица доступа).
 const NAV_ITEMS: NavItem[] = [
-  { key: "requests", label: "Запросы", roles: ["buyer", "head", "admin", "auditor"] },
+  { key: "requests", label: "Запросы", roles: ["buyer", "head", "admin", "auditor", "guest"] },
   { key: "echemi", label: "Поиск в Echemi", roles: ["buyer", "head", "admin", "auditor"] },
   { key: "substances", label: "Химические вещества", roles: ["buyer", "head", "admin", "auditor"] },
-  { key: "suppliers", label: "Поставщики", roles: ["buyer", "head", "admin", "auditor"] },
+  { key: "suppliers", label: "Поставщики", roles: ["buyer", "head", "admin", "auditor", "guest"] },
   {
     key: "intermediaries",
     label: "Посредники",
@@ -257,7 +257,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <div className="shell-content">{children}</div>
+        <div className="shell-content">
+          {user.role === "guest" && <aside className="panel" role="note" style={{ margin: "16px 24px" }}>
+            <strong>Гость · Только просмотр</strong>
+            <p className="note">Вы в обычном интерфейсе ChemSource AI. Запросы, компании, переписка и цены в этой сессии — учебные. Изменение данных и отправка сообщений недоступны.</p>
+          </aside>}
+          {children}
+        </div>
       </div>
     </div>
   );

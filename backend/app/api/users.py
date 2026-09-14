@@ -59,6 +59,8 @@ def create_user(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.ADMIN)),
 ) -> User:
+    if data.role == UserRole.GUEST:
+        raise HTTPException(status_code=422, detail="Роль гостя доступна только через гостевой вход")
     if db.scalar(select(User).where(User.username == data.username.strip())):
         raise HTTPException(status_code=409, detail="Логин уже занят")
     user = User(
@@ -80,6 +82,8 @@ def update_user(
     db: Session = Depends(get_db),
     admin: User = Depends(require_roles(UserRole.ADMIN)),
 ) -> User:
+    if data.role == UserRole.GUEST:
+        raise HTTPException(status_code=422, detail="Роль гостя доступна только через гостевой вход")
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Пользователь не найден")

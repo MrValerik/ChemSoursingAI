@@ -135,7 +135,7 @@ export default function RfqDetail({
   const [escBusy, setEscBusy] = useState(false);
   const [escError, setEscError] = useState<string | null>(null);
 
-  const canEscalate = user?.role !== "auditor" && rfq.status !== "escalated";
+  const canEscalate = (user?.role !== "auditor" && user?.role !== "guest") && rfq.status !== "escalated";
   const doneStages = STAGE_BY_STATUS[rfq.status] ?? 0;
 
   useEffect(() => {

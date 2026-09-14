@@ -280,7 +280,9 @@ def get_search_run(
     item.is_stale = _is_stale(search_run)
     item.can_restart = _can_restart(search_run)
     item.can_resume = _can_resume(search_run)
-    if merge_country and search_run.rfq_id is not None:
+    # The guest fixture is one completed multi-country example, not a queue
+    # of separate country searches to merge.
+    if merge_country and user.role != UserRole.GUEST and search_run.rfq_id is not None:
         country = run_country(search_run)
         if country:
             related_runs = [

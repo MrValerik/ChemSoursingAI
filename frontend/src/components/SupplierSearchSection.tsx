@@ -2146,7 +2146,7 @@ export default function SupplierSearchSection({
 }) {
   const { user } = useAuth();
   // Решения принимает человек с правом записи: аудитор смотрит.
-  const canDecide = user?.role !== "auditor";
+  const canDecide = (user?.role !== "auditor" && user?.role !== "guest");
   const supportedRfqCountries = (rfq.search_countries ?? []).filter((country) =>
     COUNTRY_OPTIONS.includes(country),
   );
@@ -2564,6 +2564,7 @@ export default function SupplierSearchSection({
               <HelpTip text="Выберите страну, чтобы увидеть статус и результаты соответствующей задачи поиска." />
             </div>
             <button
+              disabled={!canDecide}
               aria-controls="repeat-search-settings"
               aria-expanded={repeatSearchOpen}
               className="secondary repeat-search-toggle"
@@ -2624,7 +2625,7 @@ export default function SupplierSearchSection({
             </div>
           )
         )}
-        {repeatSearchOpen && (
+        {canDecide && repeatSearchOpen && (
           <section
             aria-label="Настроить повторный поиск"
             className="repeat-search-settings"
@@ -2833,7 +2834,7 @@ export default function SupplierSearchSection({
                     )}
                   </div>
                 )}
-                {user?.role !== "auditor" && (
+                {(user?.role !== "auditor" && user?.role !== "guest") && (
                   <div className="identity-actions">
                     <button
                       disabled={decisionBusy}
@@ -2943,7 +2944,7 @@ export default function SupplierSearchSection({
           )}
         </div>
       )}
-      <RfqEchemiResults key={rfq.id} rfqId={rfq.id} />
+      {user?.role !== "guest" && <RfqEchemiResults key={rfq.id} rfqId={rfq.id} />}
       {(data || candidateResults.length > 0) && (
         <div className="panel">
           <div className="search-results-header">

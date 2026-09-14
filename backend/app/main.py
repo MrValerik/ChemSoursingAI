@@ -9,6 +9,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.api import (
@@ -67,6 +68,21 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def guest_access(request, call_next):
+        from app.core.guest import GUEST_USERNAME, guest_read_allowed
+        from app.core.security import decode_access_token
+
+        scheme, _, token = request.headers.get("authorization", "").partition(" ")
+        payload = decode_access_token(token) if scheme.lower() == "bearer" else None
+        request.state.guest = bool(payload and payload.get("role") == "guest")
+        if request.state.guest:
+            if not get_settings().guest_access_enabled or payload.get("sub") != GUEST_USERNAME:
+                return JSONResponse(status_code=401, content={"detail": "Гостевой вход отключён"})
+            if not guest_read_allowed(request.method, request.url.path):
+                return JSONResponse(status_code=403, content={"detail": "Гость может только просматривать учебные запросы и поставщиков"})
+        return await call_next(request)
 
     app.include_router(echemi_search.router)
     app.include_router(health.router)

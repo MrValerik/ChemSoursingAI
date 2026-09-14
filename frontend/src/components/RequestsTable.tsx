@@ -132,7 +132,7 @@ export default function RequestsTable({
   onNew: () => void;
 }) {
   const { user } = useAuth();
-  const showOwner = user?.role === "head" || user?.role === "admin" || user?.role === "auditor";
+  const showOwner = user?.role === "head" || user?.role === "admin" || (user?.role === "auditor" || user?.role === "guest");
 
   const [rows, setRows] = useState<RFQListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -335,7 +335,7 @@ export default function RequestsTable({
   };
 
   const arrow = (key: SortKey) => (sortKey === key ? (sortAsc ? " ↑" : " ↓") : "");
-  const showDeleteAction = Boolean(user && user.role !== "auditor");
+  const showDeleteAction = Boolean(user && (user.role !== "auditor" && user.role !== "guest"));
 
   const canDelete = (request: RFQListItem) =>
     user?.role === "head" ||
@@ -489,7 +489,7 @@ export default function RequestsTable({
       <div className="requests-header">
         <h1>Запросы</h1>
         <div className="requests-actions">
-          <button onClick={onNew}>+ Создать новый запрос</button>
+          {showDeleteAction && <button onClick={onNew}>+ Создать новый запрос</button>}
           <button className="secondary" onClick={exportCsv} disabled={filtered.length === 0}>
             Экспорт CSV
           </button>

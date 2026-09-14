@@ -295,7 +295,7 @@ const exportColumnValue = (
 
 export default function Summary({ rfq, refreshKey = 0 }: Props) {
   const { user } = useAuth();
-  const readOnly = user?.role === "auditor";
+  const readOnly = (user?.role === "auditor" || user?.role === "guest");
   const [rows, setRows] = useState<SummaryRow[]>([]);
   const [decision, setDecision] = useState<PurchaseDecisionRead | null>(null);
   const [selectedQuotationId, setSelectedQuotationId] = useState<number | null>(

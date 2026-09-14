@@ -14,6 +14,7 @@ interface AuthState {
   user: UserRead | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
+  loginGuest: () => Promise<void>;
   logout: () => void;
 }
 
@@ -48,8 +49,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(resp.user);
   };
 
+  const loginGuest = async () => {
+    const resp = await api.loginGuest();
+    setToken(resp.access_token);
+    setUser(resp.user);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, loginGuest, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -66,4 +73,5 @@ export const ROLE_LABELS: Record<string, string> = {
   head: "Руководитель",
   admin: "Администратор",
   auditor: "Аудитор",
+  guest: "Гость · Только просмотр",
 };

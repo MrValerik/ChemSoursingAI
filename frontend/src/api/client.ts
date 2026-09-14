@@ -287,6 +287,7 @@ export const api = {
     }),
 
   me: () => request<UserRead>(`/auth/me`),
+  loginGuest: () => request<TokenResponse>("/auth/guest", { method: "POST" }),
 
   // --- Вещества и RFQ ---
   verifyCas: (cas: string) =>

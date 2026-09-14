@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: Session = Depends(get_db),
 ) -> User:
@@ -37,7 +38,9 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     user = db.scalar(select(User).where(User.username == payload.get("sub")))
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or (
+        user.role == UserRole.GUEST and not getattr(request.state, "guest", False)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Пользователь не найден или отключён",

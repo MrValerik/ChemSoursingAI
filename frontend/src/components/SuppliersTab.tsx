@@ -105,7 +105,7 @@ export default function SuppliersTab({
   onGoToDispatch: () => void;
 }) {
   const { user } = useAuth();
-  const readOnly = user?.role === "auditor";
+  const readOnly = (user?.role === "auditor" || user?.role === "guest");
 
   const [suppliers, setSuppliers] = useState<SupplierRead[]>([]);
   const [recipients, setRecipients] = useState<RecipientRead[]>([]);

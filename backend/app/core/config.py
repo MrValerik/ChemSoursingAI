@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # Готовый синтетический сценарий для демонстрационного стенда. В обычном
     # запуске выключен; Docker Compose включает его явно для текущего демо.
     demo_workspace_enabled: bool = Field(default=False)
+    guest_access_enabled: bool = Field(default=True)
 
     # --- База данных ---
     postgres_host: str = Field(default="localhost")

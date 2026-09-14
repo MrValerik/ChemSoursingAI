@@ -445,7 +445,7 @@ export interface EscalationRead {
 
 // --- Аутентификация (шаг 1 UI/UX-плана) ---
 
-export type UserRole = "buyer" | "head" | "admin" | "auditor";
+export type UserRole = "buyer" | "head" | "admin" | "auditor" | "guest";
 
 export interface UserRead {
   id: number;

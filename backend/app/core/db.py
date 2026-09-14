@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from starlette.requests import HTTPConnection
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -605,9 +606,13 @@ def _apply_light_migrations() -> None:
                     )
 
 
-def get_db() -> Iterator[Session]:
+def get_db(request: HTTPConnection) -> Iterator[Session]:
     """FastAPI-зависимость: сессия на запрос с гарантированным закрытием."""
-    db = SessionLocal()
+    if getattr(request.state, "guest", False):
+        from app.core.guest import guest_session
+        db = guest_session()
+    else:
+        db = SessionLocal()
     try:
         yield db
     finally:
