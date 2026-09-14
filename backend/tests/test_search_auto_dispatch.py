@@ -101,7 +101,7 @@ def test_default_off_and_demo_send_once(scenario):
     assert run.status == "completed"
 
 
-@pytest.mark.parametrize("block", ["failed", "cancelled", "running", "replay", "auditor", "inactive", "excluded", "rejected", "no_email", "unverified", "other_owner", "deleted", "analog"])
+@pytest.mark.parametrize("block", ["failed", "cancelled", "running", "replay", "auditor", "inactive", "excluded", "rejected", "no_email", "invalid_email", "unlinked", "other_owner", "deleted", "analog"])
 def test_unsafe_or_incomplete_search_does_not_send(scenario, block):
     db, user, supplier, manager, rfq, run, link = scenario
     user.auto_dispatch_after_search = True
@@ -112,13 +112,60 @@ def test_unsafe_or_incomplete_search_does_not_send(scenario, block):
     if block == "excluded": link.status = "excluded"
     if block == "rejected": supplier.qualification_status = "rejected"
     if block == "no_email": manager.email = None
+    if block == "invalid_email": manager.email = "invalid-address"
+    if block == "unlinked": db.delete(link)
     if block == "other_owner": rfq.owner_id = 999
     if block == "deleted": rfq.deleted_at = datetime.now(timezone.utc)
     if block == "analog": rfq.identification_method = "analog"
     db.commit()
-    execute(scenario, eligible=block != "unverified")
+    execute(scenario)
     assert db.scalar(select(Communication)) is None
     assert db.scalar(select(RfqRecipient)) is None
+
+
+@pytest.mark.parametrize("verification", [None, "needs_review", "rejected", "confirmed"])
+def test_table_candidates_receive_rfq_without_shortlist_confirmation(scenario, verification):
+    db, user, supplier, _, _, run, _ = scenario
+    user.auto_dispatch_after_search = True
+    db.commit()
+    search_auto_dispatch.auto_dispatch_after_search(
+        db, search_run=run,
+        results=[{"result_index": 0, "shortlist_eligible": False,
+                  "verification": {"status": verification}}],
+        registry_links=[{"result_index": 0, "supplier_id": supplier.id}],
+    )
+    assert db.scalar(select(RfqRecipient)).supplier_id == supplier.id
+    assert db.scalar(select(Communication)).status == "demo"
+    assert supplier.qualification_status == "candidate"
+    assert run.input_payload["auto_dispatch"] == {"status": "completed", "sent": 1, "errors": 0}
+
+
+def test_dispatch_uses_entire_rfq_table_and_does_not_repeat_on_new_search(scenario):
+    db, user, supplier, _, rfq, run, _ = scenario
+    user.auto_dispatch_after_search = True
+    manual = Supplier(company="Manually added candidate")
+    unrelated = Supplier(company="Other request supplier")
+    db.add_all([manual, unrelated])
+    db.flush()
+    db.add_all([
+        Manager(supplier_id=manual.id, email="manual@example.test"),
+        Manager(supplier_id=unrelated.id, email="unrelated@example.test"),
+        RfqSupplierLink(rfq_id=rfq.id, supplier_id=manual.id),
+    ])
+    db.commit()
+    # A subsequent search has no new registry links, but the table still has
+    # the earlier candidate and the manually added company.
+    for _ in range(2):
+        next_run = SearchRun(owner_id=user.id, rfq_id=rfq.id, status="completed",
+                             input_payload={}, started_at=datetime.now(timezone.utc))
+        db.add(next_run)
+        db.commit()
+        search_auto_dispatch.auto_dispatch_after_search(
+            db, search_run=next_run, results=[], registry_links=[],
+        )
+    assert set(db.scalars(select(RfqRecipient.supplier_id))) == {supplier.id, manual.id}
+    assert len(list(db.scalars(select(Communication)))) == 2
+    assert next_run.input_payload["auto_dispatch"]["sent"] == 0
 
 
 @pytest.mark.parametrize("failure", [False, True])
