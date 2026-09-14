@@ -66,6 +66,7 @@ async def inquiry(payload: Inquiry):
                 if allowed_request(route.request):
                     await route.continue_()
                 else:
+                    verification.blocked(route.request)
                     await route.abort()
             await page.route("**/*", restrict_submission)
             try:

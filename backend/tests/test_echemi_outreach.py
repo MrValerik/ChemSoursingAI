@@ -300,7 +300,7 @@ def inquiry_verification(monkeypatch):
 @pytest.mark.parametrize("url,action,expected", [
     ("https://synthetic.captcha-open.aliyuncs.com/", "InitCaptchaV2", True),
     ("https://synthetic.captcha-open-southeast.aliyuncs.com/", "VerifyCaptcha", True),
-    ("https://synthetic.captcha-open.aliyuncs.com/", "Upload", False),
+    ("https://upload.captcha-open.aliyuncs.com/", "Upload", True),
     ("https://synthetic.captcha-open.aliyuncs.com.evil.test/", "VerifyCaptcha", False),
     ("http://synthetic.captcha-open.aliyuncs.com/", "VerifyCaptcha", False),
     ("https://evil.test/", "VerifyCaptcha", False),
@@ -329,4 +329,42 @@ def test_inquiry_verification_outcome(inquiry_verification, monkeypatch, passed,
     monkeypatch.setattr(inquiry_verification, "needs_verification", AsyncMock(return_value=True))
     assert asyncio.run(gate.check("form_open")) == expected
     gate.probe.run.assert_awaited_once()
+    asyncio.run(gate.close())
+
+
+@pytest.mark.parametrize("host", [
+    "cloudauth-device.aliyuncs.com", "cn-shanghai.device.saf.aliyuncs.com",
+    "cloudauth-device.ap-southeast-1.aliyuncs.com", "ap-southeast-1.device.saf.aliyuncs.com",
+    "ap-southeast-1-ga.device.saf.aliyuncs.com", "cloudauth-device-dualstack.cn-shanghai.aliyuncs.com",
+    "cloudauth-device-dualstack.ap-southeast-1.aliyuncs.com", "upload.captcha-open-ga-web-b.aliyuncs.com",
+    "synthetic-verify.captcha-open-southeast-dual-b.aliyuncs.com",
+])
+def test_required_sdk_network_hosts(inquiry_verification, host):
+    from types import SimpleNamespace
+    req = SimpleNamespace(url="https://"+host+"/", method="POST", post_data="opaque-sdk-data")
+    assert inquiry_verification.allowed_request(req)
+
+
+@pytest.mark.parametrize("url", [
+    "https://evil.aliyuncs.com/", "https://cloudauth-device.aliyuncs.com.evil.test/",
+    "http://cloudauth-device.aliyuncs.com/", "https://upload.captcha-open-unknown.aliyuncs.com/",
+    "https://upload.captcha-open.aliyuncs.com:8443/", "https://user:pass@upload.captcha-open.aliyuncs.com/",
+])
+def test_sdk_allowlist_rejects_unrelated_destinations(inquiry_verification, url):
+    from types import SimpleNamespace
+    assert not inquiry_verification.allowed_request(SimpleNamespace(url=url,method="POST"))
+
+
+def test_network_diagnostics_exclude_secrets_and_navigation_abort(inquiry_verification, caplog):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    gate = inquiry_verification.InquiryVerification(Mock(), Mock(), 1)
+    req = SimpleNamespace(url="https://synthetic.captcha-open.aliyuncs.com/private?token=secret", failure="net::ERR_ABORTED")
+    gate.failed(req)
+    assert not gate.network_failed
+    req.failure = "net::ERR_CONNECTION_TIMED_OUT"
+    gate.failed(req)
+    assert gate.network_failed
+    assert "ERR_CONNECTION_TIMED_OUT" in caplog.text
+    assert "secret" not in caplog.text and "private" not in caplog.text
     asyncio.run(gate.close())
