@@ -168,7 +168,7 @@ def test_connector_validates_status_and_hides_raw_response(monkeypatch, status, 
     def respond(request):
         captured.append(request)
         return httpx.Response(200, json={"status": status, "message": "private upstream content"})
-    monkeypatch.setattr(echemi, "get_settings", lambda: SimpleNamespace(echemi_browser_url="http://synthetic"))
+    monkeypatch.setattr(echemi, "get_settings", lambda: SimpleNamespace(echemi_browser_url="http://synthetic", echemi_captcha_auto_attempts=2))
     monkeypatch.setattr(echemi.httpx, "Client", lambda **kw: original(transport=httpx.MockTransport(respond), **kw))
     payload = {"sender": PROFILE, "message": "Please quote synthetic product.", "seller_name": "Demo Chemicals"}
     if result:
@@ -247,7 +247,9 @@ def test_browser_fills_profile_and_requires_new_success_confirmation(browser_for
     monkeypatch.setattr(browser_form, "needs_verification", AsyncMock(return_value=False))
     monkeypatch.setattr(browser_form.asyncio, "sleep", AsyncMock())
     message = "Please quote this synthetic product."
-    result = asyncio.run(browser_form.submit(page, URL, {**PROFILE, "city": "Boston"}, message, seller_name="Demo Chemicals"))
+    verify = AsyncMock(return_value=None)
+    result = asyncio.run(browser_form.submit(page, URL, {**PROFILE, "city": "Boston"}, message, seller_name="Demo Chemicals", verify=verify))
+    assert verify.await_count == 2
     assert result["status"] == ("sent" if confirmed else "unknown")
     controls["0"].fill.assert_awaited_once_with(PROFILE["email"])
     controls["1"].fill.assert_awaited_once_with(message)
@@ -269,3 +271,62 @@ def test_decryption_failure_blocks_before_network(prepared, monkeypatch):
     assert "private" not in result.text
     assert not echemi_delivery.run_one(sessions)
     assert client.post(path, json=payload).json()[0]["status"] == "queued"
+
+
+def test_inquiry_uses_verification_callback_before_form(browser_form):
+    page = AsyncMock()
+    verify = AsyncMock(return_value="captcha_network_error")
+    result = asyncio.run(browser_form.submit(page, URL, PROFILE, "Please quote this product", verify=verify))
+    assert result == {"status": "blocked", "reason": "captcha_network_error"}
+    verify.assert_awaited_once_with("navigation")
+    page.evaluate.assert_not_called()
+
+
+def test_inquiry_navigation_exception_is_not_missing_form(browser_form):
+    page = AsyncMock()
+    page.goto.side_effect = TimeoutError("private url and token")
+    result = asyncio.run(browser_form.submit(page, URL, PROFILE, "Please quote this product"))
+    assert result == {"status": "blocked", "reason": "page_load_failed"}
+
+
+@pytest.fixture
+def inquiry_verification(monkeypatch):
+    import sys
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "echemi-browser"))
+    import inquiry_verification
+    return inquiry_verification
+
+
+@pytest.mark.parametrize("url,action,expected", [
+    ("https://synthetic.captcha-open.aliyuncs.com/", "InitCaptchaV2", True),
+    ("https://synthetic.captcha-open-southeast.aliyuncs.com/", "VerifyCaptcha", True),
+    ("https://synthetic.captcha-open.aliyuncs.com/", "Upload", False),
+    ("https://synthetic.captcha-open.aliyuncs.com.evil.test/", "VerifyCaptcha", False),
+    ("http://synthetic.captcha-open.aliyuncs.com/", "VerifyCaptcha", False),
+    ("https://evil.test/", "VerifyCaptcha", False),
+    ("https://www.echemi.com/inquiry", "Send", True),
+])
+def test_inquiry_network_allowlist(inquiry_verification, url, action, expected):
+    from types import SimpleNamespace
+    request = SimpleNamespace(url=url, method="POST", post_data="Action=" + action)
+    assert inquiry_verification.allowed_request(request) is expected
+
+
+@pytest.mark.parametrize("passed,network,rejected,expected", [
+    (True, False, False, None),
+    (False, True, False, "captcha_network_error"),
+    (False, False, True, "captcha_rejected"),
+    (False, False, False, "verification_required"),
+])
+def test_inquiry_verification_outcome(inquiry_verification, monkeypatch, passed, network, rejected, expected):
+    from unittest.mock import Mock
+    page = Mock()
+    gate = inquiry_verification.InquiryVerification(page, Mock(), 1)
+    gate.network_failed = network
+    if rejected:
+        gate.events.append({"verification": {"verify_result": False}})
+    gate.probe.run = AsyncMock(return_value=passed)
+    monkeypatch.setattr(inquiry_verification, "needs_verification", AsyncMock(return_value=True))
+    assert asyncio.run(gate.check("form_open")) == expected
+    gate.probe.run.assert_awaited_once()
+    asyncio.run(gate.close())

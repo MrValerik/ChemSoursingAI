@@ -46,6 +46,7 @@ class Inquiry(BaseModel):
     sender: dict[str, str | bool | None]  # Backend sends the validated snapshot.
     message: str = Field(min_length=20, max_length=5000)
     seller_name: str = Field(min_length=1, max_length=500)
+    captcha_probe_attempts: int = Field(default=0, ge=0, le=3, strict=True)
 
 
 @app.post("/inquiry")
@@ -59,19 +60,21 @@ async def inquiry(payload: Inquiry):
         async with async_playwright() as p, open_chrome(p, PROFILE) as context:
             page = await new_job_page(context)
             page.set_default_timeout(10000)
+            from inquiry_verification import InquiryVerification, allowed_request
+            verification = InquiryVerification(page, Mouse(page), payload.captcha_probe_attempts)
             async def restrict_submission(route):
-                host = urlsplit(route.request.url).hostname
-                if route.request.method not in {"GET", "HEAD", "OPTIONS"} and host not in {"www.echemi.com", "i.echemi.com"}:
-                    await route.abort()
-                else:
+                if allowed_request(route.request):
                     await route.continue_()
+                else:
+                    await route.abort()
             await page.route("**/*", restrict_submission)
             try:
                 return await asyncio.wait_for(submit(page, payload.product_url, payload.sender, payload.message,
-                                                    seller_name=payload.seller_name), 150)
+                                                    seller_name=payload.seller_name, verify=verification.check), 300)
             except asyncio.TimeoutError:
                 return {"status": "unknown"}
             finally:
+                await verification.close()
                 await page.close()
 
 

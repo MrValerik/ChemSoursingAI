@@ -92,12 +92,17 @@ FORM = r"""() => {
 SUCCESS = re.compile(r"^(?:your )?(?:inquiry|message) (?:has been )?(?:sent|submitted) successfully[.!]?$", re.I)
 
 
-async def submit(page, url, sender, message, *, seller_name=None):
+async def submit(page, url, sender, message, *, seller_name=None, verify=None):
     attempted = False
+    stage = "navigation"
+    async def check(stage):
+        if verify is not None:
+            return await verify(stage)
+        return "verification_required" if await needs_verification(page) else None
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        if await needs_verification(page):
-            return {"status": "blocked", "reason": "verification_required"}
+        if reason := await check(stage):
+            return {"status": "blocked", "reason": reason}
         if product_url(page.url) != url:
             return {"status": "blocked", "reason": "recipient_changed"}
         if seller_name:
@@ -109,6 +114,7 @@ async def submit(page, url, sender, message, *, seller_name=None):
                     matched = True
             if not matched:
                 return {"status": "blocked", "reason": "recipient_changed"}
+        stage = "form_open"
         fields = await page.evaluate(FORM)
         if fields is None:
             # This opens the product's own price inquiry, never related rows.
@@ -117,14 +123,15 @@ async def submit(page, url, sender, message, *, seller_name=None):
                 return {"status": "blocked", "reason": "form_unavailable"}
             await opener.click(timeout=10000)
             await asyncio.sleep(1)
-            if await needs_verification(page):
-                return {"status": "blocked", "reason": "verification_required"}
+            if reason := await check(stage):
+                return {"status": "blocked", "reason": reason}
             fields = await page.evaluate(FORM)
         if fields is None:
             return {"status": "blocked", "reason": "form_unavailable"}
         plan, reason = plan_fields(fields, sender, message)
         if reason:
             return {"status": "blocked", "reason": reason}
+        stage = "form_fill"
         for index, key, value, kind in plan:
             field = page.locator(f'[data-chemsource-field="{index}"]')
             if kind == "select":
@@ -144,9 +151,10 @@ async def submit(page, url, sender, message, *, seller_name=None):
                 await field.fill(value)
         if product_url(page.url) != url:
             return {"status": "blocked", "reason": "recipient_changed"}
+        stage = "pre_submit"
         root = page.locator('[data-chemsource-inquiry="current"]')
-        if await needs_verification(page):
-            return {"status": "blocked", "reason": "verification_required"}
+        if reason := await check(stage):
+            return {"status": "blocked", "reason": reason}
         valid = await root.evaluate("(r)=>[...r.querySelectorAll('input,select,textarea')].every(e=>!e.willValidate||e.checkValidity())")
         if not valid:
             return {"status": "blocked", "reason": "missing_fields"}
@@ -163,4 +171,7 @@ async def submit(page, url, sender, message, *, seller_name=None):
             await asyncio.sleep(1)
         return {"status": "unknown"}
     except Exception:
-        return {"status": "unknown"} if attempted else {"status": "blocked", "reason": "form_unavailable"}
+        return {"status": "unknown"} if attempted else {"status": "blocked", "reason": {
+            "navigation": "page_load_failed", "form_open": "form_open_failed",
+            "form_fill": "form_fill_failed", "pre_submit": "form_validation_failed",
+        }[stage]}

@@ -7,11 +7,12 @@ class EchemiBrowserBusy(Exception):
 
 
 def submit_inquiry(job_id: int, product_url: str, payload: dict) -> dict:
-    with httpx.Client(timeout=180, trust_env=False) as client:
+    with httpx.Client(timeout=330, trust_env=False) as client:
         response = client.post(get_settings().echemi_browser_url.rstrip("/") + "/inquiry",
             json={"job_id": job_id, "product_url": product_url,
                   "sender": payload["sender"], "message": payload["message"],
-                  "seller_name": payload["seller_name"]})
+                  "seller_name": payload["seller_name"],
+                  "captcha_probe_attempts": get_settings().echemi_captcha_auto_attempts})
         if response.status_code == 409:
             return {"status": "blocked", "message": "Браузер занят. Форма не отправлялась."}
         response.raise_for_status()
@@ -26,9 +27,16 @@ def submit_inquiry(job_id: int, product_url: str, payload: dict) -> dict:
     }
     reason = result.get("reason")
     if result["status"] == "blocked" and reason in {
-        "form_unavailable", "missing_fields", "verification_required", "unsupported_fields", "recipient_changed"
+        "form_unavailable", "missing_fields", "verification_required", "unsupported_fields", "recipient_changed",
+        "captcha_network_error", "captcha_rejected", "page_load_failed", "form_open_failed", "form_fill_failed", "form_validation_failed"
     }:
         messages["blocked"] = {
+            "captcha_network_error": "Сервис CAPTCHA недоступен: сетевая ошибка. Форма не отправлена.",
+            "captcha_rejected": "Echemi отклонил CAPTCHA. Форма не отправлена.",
+            "page_load_failed": "Не удалось загрузить карточку Echemi. Форма не отправлена.",
+            "form_open_failed": "Ошибка открытия формы Echemi. Форма не отправлена.",
+            "form_fill_failed": "Ошибка заполнения полей Echemi. Форма не отправлена.",
+            "form_validation_failed": "Ошибка проверки заполненной формы Echemi. Форма не отправлена.",
             "form_unavailable": "Форма обращения недоступна на карточке товара.",
             "missing_fields": "В настройках не хватает данных для обязательных полей формы.",
             "verification_required": "Echemi требует CAPTCHA или вход в аккаунт. Форма не отправлена.",
