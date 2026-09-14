@@ -1,9 +1,10 @@
 """Безопасная привязка нового Email-адреса к получателю конкретного RFQ.
 
 Поставщик нередко получает RFQ на общий ящик, а отвечает с личного адреса
-менеджера. Новый адрес принимается только после двух согласованных проверок:
-его корпоративный домен должен совпасть с доменом получателя RFQ, а в первом
-письме должно быть однозначно упомянуто название компании-получателя.
+менеджера. Приоритетный детерминированный сигнал — сохранённая Email-цепочка:
+технические References или ровно один исходный адресат RFQ в явно отделённой
+цитируемой истории. Без такого сигнала остаётся прежняя двойная проверка домена
+и однозначного упоминания компании.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.connectors.email import IncomingEmail
+from app.extraction.email_text import quoted_history_text
 from app.extraction.llm_client import (
     LLMClient,
     LLMOutputTruncatedError,
@@ -36,9 +38,17 @@ from app.models.enums import Channel, CommDirection
 from app.services.communication_profiles import finalize_usage, start_audit
 from app.services.communication_llm import communication_llm_client
 from app.services.communication_links import communication_linked_to_rfq
+from app.services.communication_policy import classify_email_transport_event
 
 _PRIOR_OUTBOUND_STATUSES = {"sent", "demo"}
-_IDENTITY_CHECK_VERSION = 3
+_IDENTITY_CHECK_VERSION = 4
+_MESSAGE_ID_PATTERN = re.compile(r"<[^<>\s\r\n]+>")
+_EMAIL_IN_TEXT_PATTERN = re.compile(
+    r"(?<![A-Z0-9._%+\-])"
+    r"([A-Z0-9._%+\-]{1,64}@[A-Z0-9.\-]{1,253}\.[A-Z]{2,63})"
+    r"(?![A-Z0-9._%+\-])",
+    re.IGNORECASE,
+)
 _PUBLIC_EMAIL_DOMAINS = {
     "126.com",
     "163.com",
@@ -137,6 +147,142 @@ def _exact_manager(db: Session, address: str) -> Manager | None:
         .order_by(Manager.id)
         .limit(1)
     )
+
+
+def _message_thread_references(message: IncomingEmail) -> list[str]:
+    references: list[str] = []
+    for raw_value in [message.in_reply_to, *message.references]:
+        if not raw_value:
+            continue
+        references.extend(_MESSAGE_ID_PATTERN.findall(raw_value))
+    return list(dict.fromkeys(references))[-50:]
+
+
+def resolve_sender_from_thread(
+    db: Session,
+    *,
+    rfq: RFQ,
+    message: IncomingEmail,
+) -> SenderResolution | None:
+    """Связывает новый адрес только по однозначной сохранённой цепочке."""
+
+    if classify_email_transport_event(
+        from_address=message.from_address,
+        subject=message.subject,
+        text=message.text,
+        auto_submitted=message.auto_submitted,
+        precedence=message.precedence,
+    ) is not None:
+        return None
+
+    candidates = _rfq_candidates(db, rfq.id)
+    candidate_supplier_ids_by_email: dict[str, set[int]] = {}
+    for candidate in candidates:
+        for email in candidate.emails:
+            candidate_supplier_ids_by_email.setdefault(email, set()).add(
+                candidate.supplier_id
+            )
+    references = _message_thread_references(message)
+    referenced_supplier_ids: set[int] = set()
+    if references:
+        referenced_supplier_ids = set(
+            db.scalars(
+                select(Manager.supplier_id)
+                .join(Communication, Communication.manager_id == Manager.id)
+                .where(
+                    Communication.external_id.in_(references),
+                    communication_linked_to_rfq(rfq.id),
+                    Communication.direction == CommDirection.OUTBOUND,
+                    Communication.channel == Channel.EMAIL,
+                    Communication.status.in_(_PRIOR_OUTBOUND_STATUSES),
+                )
+            ).all()
+        )
+
+    quoted_source = quoted_history_text(message.text) if references else ""
+    quoted_addresses = {
+        match.group(1).casefold()
+        for match in _EMAIL_IN_TEXT_PATTERN.finditer(quoted_source)
+    }
+    quoted_candidates = {
+        supplier_id: address
+        for address in quoted_addresses
+        for supplier_id in candidate_supplier_ids_by_email.get(address, set())
+    }
+    supplier_ids = referenced_supplier_ids | set(quoted_candidates)
+    if len(supplier_ids) > 1:
+        return SenderResolution(
+            None,
+            "message_thread_ambiguous",
+            0.0,
+            (
+                "В технической или цитируемой Email-цепочке найдены адресаты "
+                "нескольких поставщиков этого RFQ. Автопривязка запрещена."
+            ),
+        )
+    if not supplier_ids:
+        return None
+
+    supplier_id = next(iter(supplier_ids))
+    address = message.from_address.strip().casefold()
+    existing = _exact_manager(db, address)
+    if existing is not None and existing.supplier_id != supplier_id:
+        return SenderResolution(
+            None,
+            "message_thread_conflict",
+            0.0,
+            (
+                "Email-цепочка указывает на одного поставщика, но адрес уже "
+                "закреплён за другой компанией. Автопривязка запрещена."
+            ),
+        )
+    manager = existing or _manager_for_new_address(
+        db,
+        supplier_id=supplier_id,
+        address=address,
+        rfq=rfq,
+    )
+    matched_reference = next(
+        (
+            reference
+            for reference in references
+            if db.scalar(
+                select(Communication.id)
+                .join(Manager, Communication.manager_id == Manager.id)
+                .where(
+                    Communication.external_id == reference,
+                    Manager.supplier_id == supplier_id,
+                    communication_linked_to_rfq(rfq.id),
+                )
+                .limit(1)
+            )
+            is not None
+        ),
+        None,
+    )
+    quoted_recipient = quoted_candidates.get(supplier_id)
+    if matched_reference and quoted_recipient:
+        method = "message_thread_reference_and_recipient"
+        explanation = (
+            "References совпал с исходящим письмом, а цитируемая история "
+            "содержит того же единственного адресата RFQ."
+        )
+        evidence = f"References + {quoted_recipient}"
+    elif matched_reference:
+        method = "message_thread_reference"
+        explanation = (
+            "References однозначно указывает на исходящее письмо этому "
+            "поставщику в рамках RFQ."
+        )
+        evidence = matched_reference
+    else:
+        method = "quoted_thread_recipient"
+        explanation = (
+            "Письмо содержит reply-заголовок, а в явно отделённой цитируемой "
+            "истории найден ровно один точный Email-адресат этого RFQ."
+        )
+        evidence = quoted_recipient
+    return SenderResolution(manager, method, 1.0, explanation, evidence)
 
 
 def _rfq_candidates(db: Session, rfq_id: int) -> list[SupplierCandidate]:
@@ -370,6 +516,15 @@ def resolve_sender_manager(
             "Адрес уже зарегистрирован у поставщика.",
             address,
         )
+
+    if allow_ai:
+        thread_resolution = resolve_sender_from_thread(
+            db,
+            rfq=rfq,
+            message=message,
+        )
+        if thread_resolution is not None:
+            return thread_resolution
 
     candidates = _rfq_candidates(db, rfq.id)
     domain = email_domain(address)
@@ -693,23 +848,6 @@ def reconcile_unlinked_email_contacts(db: Session) -> int:
             if audit
             else None
         )
-        incoming = IncomingEmail(
-            uid=f"stored-{communication.id}",
-            message_id=communication.external_id or f"stored-{communication.id}",
-            subject=communication.subject or "",
-            from_address=communication.from_address or "",
-            to_addresses=[],
-            text=communication.body or "",
-            from_name=(previous_identity or {}).get("sender_display_name"),
-        )
-        domain_resolution = resolve_sender_manager(
-            db,
-            rfq=rfq,
-            message=incoming,
-            allow_ai=False,
-        )
-        if domain_resolution.method != "domain_pending_message_check":
-            continue
         if audit is None or audit.stop_reason is not None:
             continue
         if (
@@ -720,14 +858,44 @@ def reconcile_unlinked_email_contacts(db: Session) -> int:
         ):
             checked_addresses.add(key)
             continue
-        client = communication_llm_client()
-        resolution = resolve_sender_manager(
+        incoming = IncomingEmail(
+            uid=f"stored-{communication.id}",
+            message_id=communication.external_id or f"stored-{communication.id}",
+            subject=communication.subject or "",
+            from_address=communication.from_address or "",
+            to_addresses=[],
+            text=communication.body or "",
+            from_name=(previous_identity or {}).get("sender_display_name"),
+            in_reply_to=communication.thread_id,
+        )
+        thread_resolution = resolve_sender_from_thread(
             db,
             rfq=rfq,
             message=incoming,
-            llm=client,
-            allow_ai=True,
         )
+        domain_resolution = resolve_sender_manager(
+            db,
+            rfq=rfq,
+            message=incoming,
+            allow_ai=False,
+        )
+        if (
+            thread_resolution is None
+            and domain_resolution.method != "domain_pending_message_check"
+        ):
+            continue
+        client = None
+        if thread_resolution is not None:
+            resolution = thread_resolution
+        else:
+            client = communication_llm_client()
+            resolution = resolve_sender_manager(
+                db,
+                rfq=rfq,
+                message=incoming,
+                llm=client,
+                allow_ai=True,
+            )
         snapshot = dict(audit.budget_snapshot or {})
         identity_payload = resolution.audit_payload()
         identity_payload["rechecked"] = True

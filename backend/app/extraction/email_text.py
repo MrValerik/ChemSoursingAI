@@ -26,16 +26,81 @@ _QUOTED_HISTORY_MARKERS = (
     ),
     re.compile(r"(?im)^\s*(?:发件人|发送时间|收件人|主题)\s*[：:]\s*.+$"),
 )
+_STRONG_QUOTED_HISTORY_MARKERS = _QUOTED_HISTORY_MARKERS[:6]
+_QUOTED_HEADER_PATTERN = re.compile(
+    r"(?im)^\s*(from|sent|to|subject|от|отправлено|кому|тема|"
+    r"发件人|发送时间|收件人|主题)\s*[：:]\s*.+$"
+)
+_PARTICIPANT_HEADER_NAMES = {"from", "to", "от", "кому", "发件人", "收件人"}
+
+
+def _normalized_email_text(text: str) -> str:
+    return (text or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _quoted_history_start(source: str) -> int | None:
+    starts = [
+        match.start()
+        for marker in _QUOTED_HISTORY_MARKERS
+        if (match := marker.search(source)) is not None
+    ]
+    return min(starts) if starts else None
+
+
+def _strict_quoted_history_start(source: str) -> int | None:
+    starts = [
+        match.start()
+        for marker in _STRONG_QUOTED_HISTORY_MARKERS
+        if (match := marker.search(source)) is not None
+    ]
+    header_matches = list(_QUOTED_HEADER_PATTERN.finditer(source))
+    for first in header_matches:
+        nearby = [
+            match
+            for match in header_matches
+            if first.start() <= match.start() <= first.start() + 1200
+        ]
+        names = {match.group(1).casefold() for match in nearby}
+        if len(names) >= 2 and names & _PARTICIPANT_HEADER_NAMES:
+            starts.append(first.start())
+    return min(starts) if starts else None
+
+
+def quoted_history_text(text: str) -> str:
+    """Возвращает только явно отделённую цитируемую Email-историю."""
+
+    source = _normalized_email_text(text)
+    start = _strict_quoted_history_start(source)
+    if start is not None:
+        return source[start:].strip()
+
+    # Некоторые мобильные клиенты оставляют только хвост из строк ``>`` без
+    # заголовка ``On ... wrote``. Считаем историей лишь непрерывный хвост,
+    # чтобы адрес из новой реплики не стал сигналом идентичности.
+    lines = source.splitlines()
+    index = len(lines) - 1
+    saw_quoted_line = False
+    while index >= 0:
+        stripped = lines[index].lstrip()
+        if stripped.startswith(">"):
+            saw_quoted_line = True
+            index -= 1
+            continue
+        if not stripped and saw_quoted_line:
+            index -= 1
+            continue
+        break
+    if not saw_quoted_line:
+        return ""
+    return "\n".join(lines[index + 1 :]).strip()
 
 
 def latest_reply_text(text: str) -> str:
     """Возвращает только новую верхнюю реплику, не меняя сохранённый оригинал."""
-    source = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    cut_at = len(source)
-    for marker in _QUOTED_HISTORY_MARKERS:
-        match = marker.search(source)
-        if match is not None:
-            cut_at = min(cut_at, match.start())
+    source = _normalized_email_text(text)
+    cut_at = _quoted_history_start(source)
+    if cut_at is None:
+        cut_at = len(source)
 
     latest = source[:cut_at].strip()
     if not latest:
