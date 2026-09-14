@@ -48,7 +48,8 @@ def test_round_trip_normalizes_encrypts_and_audits(setup):
                                      "country": "us", "contact_name": " Test Buyer "})
     assert response.status_code == 200
     result = response.json()
-    assert all(result[k] == v for k, v in PROFILE.items())
+    assert all(result[k] == v for k, v in PROFILE.items() if k != "email")
+    assert result["email"] == "default@example.test"
     assert result["configured"] and result["updated_at"]
     assert result["source"] == "database"
     assert response.headers["cache-control"] == "no-store"
@@ -61,7 +62,7 @@ def test_round_trip_normalizes_encrypts_and_audits(setup):
     assert len(db.scalars(select(IntegrationSetting)).all()) == 1
     assert client.put(PATH, json={}).status_code == 200
     cleared = client.get(PATH).json()
-    assert not cleared["configured"] and cleared["email"] == ""
+    assert not cleared["configured"] and cleared["email"] == "default@example.test"
     assert len(db.scalars(select(IntegrationSetting)).all()) == 1
 
 
@@ -113,7 +114,7 @@ def test_buyer_profiles_are_private_and_other_integrations_stay_admin_only(setup
     client, db, app = setup
     client.put(PATH, json=PROFILE)
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=43, role=UserRole.BUYER)
-    assert client.get(PATH).json()["email"] == ""
+    assert client.get(PATH).json()["email"] == "default@example.test"
     values = {**PROFILE, "city": "Boston", "address": "1 Example Street", "postal_code": "02101"}
     assert client.put(PATH, json=values).status_code == 200
     assert client.get(PATH).json()["city"] == "Boston"
@@ -128,3 +129,23 @@ def test_buyer_profiles_are_private_and_other_integrations_stay_admin_only(setup
                                         ("postal_code", "x" * 21), ("whatsapp", "123")])
 def test_extended_fields_validate(setup, field, value):
     assert setup[0].put(PATH, json={**PROFILE, field: value}).status_code == 422
+
+
+@pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.BUYER])
+def test_reply_email_always_follows_mail_settings_including_legacy_profiles(setup, monkeypatch, role):
+    from app.services.integration_settings import save_setting, _decrypt
+    client, db, app = setup
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=42, role=role)
+    channel = "echemi_sender_42" if role == UserRole.BUYER else "echemi_sender"
+    save_setting(db, channel=channel, enabled=False, payload=PROFILE, actor_id=42)
+    assert client.get(PATH).json()["email"] == "default@example.test"
+    response = client.put(PATH, json={**PROFILE, "email": "override@example.test"})
+    assert response.status_code == 200
+    assert response.json()["email"] == "default@example.test"
+    assert "email" not in _decrypt(db.scalar(select(IntegrationSetting)).encrypted_config)
+    for address in ("changed@example.test", ""):
+        monkeypatch.setattr(echemi_sender, "effective_email_settings", lambda db: (
+            SimpleNamespace(email_from=address, email_from_name="Demo"), False, "database"))
+        result = client.get(PATH).json()
+        assert result["email"] == address
+        assert result["configured"] == bool(address)

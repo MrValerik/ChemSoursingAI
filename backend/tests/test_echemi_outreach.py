@@ -12,7 +12,7 @@ from app.models.enums import UserRole
 from app.schemas.echemi_sender import EchemiSenderUpdate
 from app.services.echemi_sender import update_sender
 from app.services import echemi_delivery
-from app.services.integration_settings import _decrypt
+from app.services.integration_settings import _decrypt, save_setting
 from tests.test_echemi_search import env
 from tests.test_echemi_rfq import rfq
 from tests.test_echemi_sender import PROFILE
@@ -31,6 +31,8 @@ def prepared(env):
             results=[{"product_url": URL, "seller_name": "Demo Chemicals", "cas_numbers": ["50-78-2"]}])
         db.add(search)
         db.commit()
+        save_setting(db, channel="email", enabled=False,
+                     payload={"email_from": "office@example.test"}, actor_id=42)
         update_sender(db, EchemiSenderUpdate(**PROFILE, city="Boston"), 42, personal=True)
         rid, sid = row.id, search.id
     path = f"/rfq/{rid}/echemi-outreach"
@@ -50,6 +52,8 @@ def test_snapshot_encrypted_and_double_click_deduplicated(prepared, monkeypatch)
         row = db.scalar(select(EchemiOutreach))
         assert PROFILE["email"] not in row.encrypted_payload
         assert _decrypt(row.encrypted_payload)["sender"]["city"] == "Boston"
+        from app.services.integration_settings import effective_email_settings
+        assert _decrypt(row.encrypted_payload)["sender"]["email"] == effective_email_settings(db)[0].email_from
     calls = []
     def send(job, url, data):
         with sessions() as db:

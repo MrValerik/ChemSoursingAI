@@ -44,7 +44,9 @@ export default function EchemiSenderSettings() {
       <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
         <div className="row">
           <Field label="Email для ответа"><Input id="echemi-sender-email" type="email" autoComplete="email"
-            maxLength={80} value={form.email} onChange={e => change("email", e.target.value)} /></Field>
+            maxLength={80} value={form.email} disabled readOnly
+            aria-describedby="echemi-email-source" />
+            <small id="echemi-email-source">Используется адрес из настроек нашей почты.</small></Field>
           <Field label="Компания"><Input id="echemi-sender-company" autoComplete="organization"
             maxLength={120} value={form.company_name} onChange={e => change("company_name", e.target.value)} /></Field>
         </div>
