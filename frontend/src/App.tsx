@@ -1,6 +1,7 @@
 import EchemiSearchSection from "./components/EchemiSearchSection";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import GuestWorkspace from "./components/GuestWorkspace";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import AppShell, { isSectionAllowed, type SectionKey } from "./components/AppShell";
 import SplashScreen from "./components/Logo";
@@ -132,6 +133,9 @@ function Sections() {
 }
 
 export default function App() {
+  const { pathname } = useLocation();
+  // Public synthetic preview mounts neither authentication nor production screens.
+  if (pathname === "/demo" || pathname.startsWith("/demo/")) return <GuestWorkspace />;
   return (
     <AuthProvider>
       <ActivityReporter />

@@ -1,6 +1,7 @@
 // Экран входа (раздел 3 UI/UX-плана). SSO/LDAP — опционально, позже.
 
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { LogoMark, LogoWord } from "./Logo";
 
@@ -32,6 +33,8 @@ export default function Login() {
           <LogoWord />
         </div>
         <p className="note">Поиск и проверка поставщиков химического сырья</p>
+        <Link className="guest-entry" to="/demo">Войти как гость</Link>
+        <p className="note">Без регистрации · Учебные запросы, поставщики и предложения</p>
 
         <div className="field">
           <label htmlFor="login-username">Логин</label>
