@@ -809,6 +809,12 @@ def _process_multi_rfq_reply(
             audit_start.audit.policy_explanation = resolution.explanation
             audit_start.audit.policy_method = resolution.method
             escalation_note = _unresolved_sender_note(resolution)
+            suggested_reply = prepare_escalation_reply(
+                rfq=rfq,
+                supplier_text=latest_reply_text(section or message.text),
+                escalation_note=escalation_note,
+                llm=client,
+            )
         elif rfq.id in duplicate_markers:
             audit_start.audit.policy_route = "escalate"
             audit_start.audit.policy_category = "ambiguous_position_sections"
@@ -1139,6 +1145,13 @@ def sync_inbox(
                     audit_start.audit.policy_category = "sender_identity_unknown"
                     audit_start.audit.policy_explanation = resolution.explanation
                     audit_start.audit.policy_method = resolution.method
+                    escalation_note = _unresolved_sender_note(resolution)
+                    suggested_reply = prepare_escalation_reply(
+                        rfq=rfq,
+                        supplier_text=latest_reply_text(message.text),
+                        escalation_note=escalation_note,
+                        llm=client,
+                    )
                     finalize_usage(
                         audit_start.audit,
                         client,
@@ -1151,7 +1164,8 @@ def sync_inbox(
                             manager_id=None,
                             reason=EscalationReason.OTHER,
                             status=EscalationStatus.OPEN,
-                            note=_unresolved_sender_note(resolution),
+                            note=escalation_note,
+                            suggested_reply=suggested_reply,
                         )
                     )
                     rfq.status = RFQStatus.ESCALATED

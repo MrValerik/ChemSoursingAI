@@ -522,18 +522,24 @@ export default function DispatchTab({
     body: string,
     idempotencyKey: string,
   ): Promise<boolean> => {
-    if (
-      !user ||
-      !conversation.manager_id ||
-      !conversation.contact ||
-      !body.trim()
-    ) {
+    const repliesToUnmatchedEmail = Boolean(
+      !conversation.manager_id &&
+        conversation.channel === "email" &&
+        escalation.communication_id,
+    );
+    if (!user || !conversation.contact || !body.trim()) {
+      return false;
+    }
+    if (!conversation.manager_id && !repliesToUnmatchedEmail) {
       return false;
     }
     const channelLabel = conversation.channel === "email" ? "Email" : "WhatsApp";
     if (
       !window.confirm(
-        `Реально отправить ручной ответ через ${channelLabel} контакту ${conversation.contact} и закрыть эскалацию?`,
+        `Реально отправить ручной ответ через ${channelLabel} контакту ${conversation.contact} и закрыть эскалацию?` +
+          (repliesToUnmatchedEmail
+            ? " Адрес не сопоставлен с ранее выбранным поставщиком: ответ уйдёт строго отправителю исходного письма."
+            : ""),
       )
     ) {
       return false;
@@ -543,13 +549,30 @@ export default function DispatchTab({
     setError(null);
     setNotice(null);
     try {
-      await api.sendCommunicationMessage(rfqId, {
-        manager_id: conversation.manager_id,
-        channel: conversation.channel,
-        body: body.trim(),
-        idempotency_key: idempotencyKey,
-        confirm_external_send: true,
-      });
+      if (conversation.manager_id) {
+        await api.sendCommunicationMessage(rfqId, {
+          manager_id: conversation.manager_id,
+          channel: conversation.channel,
+          body: body.trim(),
+          idempotency_key: idempotencyKey,
+          confirm_external_send: true,
+        });
+      } else {
+        const sourceMessage = conversation.messages.find(
+          (message) => message.id === escalation.communication_id,
+        );
+        const sourceSubject = sourceMessage?.subject?.trim() || `[RFQ-${rfqId}]`;
+        await api.sendMailboxMessage({
+          to_address: conversation.contact,
+          subject: /^re:/i.test(sourceSubject)
+            ? sourceSubject
+            : `Re: ${sourceSubject}`,
+          body: body.trim(),
+          idempotency_key: idempotencyKey,
+          reply_to_message_id: escalation.communication_id,
+          confirm_external_send: true,
+        });
+      }
       await api.updateEscalation(escalation.id, {
         assignee: escalation.assignee ?? user.full_name,
         status: "resolved",
@@ -1075,7 +1098,10 @@ function EscalationNotice({
   const [replyBody, setReplyBody] = useState("");
   const [replyActionId, setReplyActionId] = useState(createActionId);
   const canReply = Boolean(
-    conversation?.manager_id && conversation.contact && onReply,
+    conversation?.contact &&
+      onReply &&
+      (conversation.manager_id ||
+        (conversation.channel === "email" && escalation.communication_id)),
   );
 
   const submitReply = async () => {
