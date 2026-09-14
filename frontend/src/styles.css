@@ -1813,35 +1813,6 @@ tr.clickable { cursor: pointer; }
 .dialogue-parts .silent { color: var(--warn); }
 .dialogue-error { font-size: 12px; color: var(--err); }
 .dialogue-empty { font-size: 12px; color: var(--muted); }
-.dialogue-toggle {
-  margin-top: 4px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--brand);
-  font-size: 12px;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.dialogue-toggle:hover { color: var(--brand-dark); background: none; }
-
-/* Раскрытая строка: с кем именно идёт диалог. */
-tr.dialogue-row > td { background: var(--bg); padding: 10px 14px; }
-.dialogue-list { list-style: none; margin: 0; padding: 0; }
-.dialogue-list li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-.dialogue-list li:last-child { border-bottom: none; }
-.dialogue-company { font-weight: 500; }
-.dialogue-channel { color: var(--muted); font-size: 12px; }
-.dialogue-when { color: var(--muted); font-size: 12px; margin-left: auto; }
-
 /* Даты в колонке сроков: когда разослали и когда последний раз отвечали. */
 .request-timeline { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .request-timeline .muted { color: var(--muted); font-size: 12px; }
