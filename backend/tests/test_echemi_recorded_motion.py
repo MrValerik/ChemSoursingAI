@@ -34,9 +34,24 @@ def test_load_and_translate_without_stretching(module, tmp_path):
     trace = traces[0]
     mapped = module.mapped_events(trace, dict(trace['handle'], y=200), dict(trace['track'], y=200),
                                   {'w': 1280, 'h': 900})
-    assert len(digest) == 16 and [p['y'] for p in mapped] == [220] * 4
+    assert len(digest) == 16 and [p['y'] for p in mapped] == [420, 220, 220, 220]
     assert [p['t'] for p in mapped] == [p['t'] for p in trace['events']]
     assert trace['events'][0]['y'] == 420
+
+
+def test_standalone_widget_keeps_top_edge_entry_inside_viewport(module):
+    trace = library()['traces'][0]
+    trace['events'].insert(0, {'type':'move', 't':0, 'x':450, 'y':0})
+    mapped = module.mapped_events(trace, dict(trace['handle'], y=200), dict(trace['track'], y=200),
+                                  {'w':1280, 'h':900})
+    assert mapped[0]['y'] == 0
+    assert all(0 <= p['y'] < 900 for p in mapped)
+    assert [(p['x'],p['y'],p['t']) for p in mapped[-3:]] == [(420,220,.001),(700,220,.002),(700,220,.003)]
+
+
+def test_unchanged_widget_preserves_all_recorded_coordinates(module):
+    trace = library()['traces'][0]
+    assert module.mapped_events(trace, trace['handle'], trace['track'], {'w':1280,'h':900}) == trace['events']
 
 
 @pytest.mark.parametrize('case', ['nan', 'order', 'double_press', 'no_release', 'off_handle', 'too_long',

@@ -73,7 +73,7 @@ def load_recordings(path):
 
 
 def mapped_events(trace, handle, track, viewport):
-    # Translate only. Stretching a recorded drag silently changes its velocity.
+    # Translate the held stroke only. Its geometry and timing must not be stretched.
     for actual, original in ((handle, trace['handle']), (track, trace['track'])):
         if any(abs(actual[k] - original[k]) > 3 for k in ('width', 'height')):
             raise ValueError('Recording does not match slider dimensions')
@@ -81,7 +81,23 @@ def mapped_events(trace, handle, track, viewport):
            for k in ('x', 'y')):
         raise ValueError('Recording does not match slider alignment')
     dx, dy = handle['x'] - trace['handle']['x'], handle['y'] - trace['handle']['y']
-    mapped = [dict(event, x=event['x'] + dx, y=event['y'] + dy) for event in trace['events']]
+    press = next(event for event in trace['events'] if event['type'] == 'down')
+    start = trace['events'][0]['t']
+    approach_seconds = press['t'] - start
+    mapped = []
+    held = False
+    for event in trace['events']:
+        held = held or event['type'] == 'down'
+        if held:
+            x, y = event['x'] + dx, event['y'] + dy
+        else:
+            # A person may enter at y=0; shifting that entry upward would leave the
+            # viewport when a popup is replaced by the higher standalone widget.
+            u = min(1, max(0, (event['t'] - start) / approach_seconds)) if approach_seconds else 1
+            blend = u * u * (3 - 2 * u)
+            x = min(viewport['w'] - 1, max(0, event['x'] + dx * blend))
+            y = min(viewport['h'] - 1, max(0, event['y'] + dy * blend))
+        mapped.append(dict(event, x=x, y=y))
     if any(not (0 <= event['x'] < viewport['w'] and 0 <= event['y'] < viewport['h']) for event in mapped):
         raise ValueError('Recorded gesture outside viewport')
     return mapped
