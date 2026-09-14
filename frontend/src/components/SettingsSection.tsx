@@ -93,6 +93,7 @@ export default function SettingsSection() {
       </div>
       {error && <p className="error">{error}</p>}
       <UserPreferencesPanel key={me?.id} readOnly={me?.role === "guest"} />
+      {(me?.role === "admin" || me?.role === "buyer") && <EchemiSenderSettings key={me.id} />}
 
       {me?.role === "admin" && <>
       <div className="panel">
@@ -233,7 +234,6 @@ export default function SettingsSection() {
         </div>
       </div>
 
-      <EchemiSenderSettings />
       <IntegrationSettingsPanel />
       </>}
     </div>

@@ -81,3 +81,4 @@ __all__ = [
 ]
 
 from app.models.echemi_search import EchemiSearch
+from app.models.echemi_outreach import EchemiOutreach
