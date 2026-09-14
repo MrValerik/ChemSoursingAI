@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from app.models import EchemiOutreach, RFQ, User
 from app.models.enums import UserRole
-from app.services.integration_settings import _decrypt
+from app.services.integration_settings import _decrypt, IntegrationSettingsError
 from app.connectors.echemi import submit_inquiry
 
 
@@ -34,10 +34,14 @@ def run_one(sessions):
         db.commit()  # Persist BEFORE the network call.
     try:
         payload = _decrypt(encrypted)
+    except IntegrationSettingsError:
+        result = {"status": "blocked", "message": "Не удалось расшифровать данные отправителя. Проверьте ключ шифрования обработчика Echemi. Форма не отправлена."}
+    else:
         payload["seller_name"] = seller_name
-        result = submit_inquiry(job_id, url, payload)
-    except Exception:
-        result = {"status": "unknown", "message": "Результат не подтверждён. Проверьте историю Echemi; автоматический повтор отключён."}
+        try:
+            result = submit_inquiry(job_id, url, payload)
+        except Exception:
+            result = {"status": "unknown", "message": "Результат не подтверждён. Проверьте историю Echemi; автоматический повтор отключён."}
     with sessions() as db:
         row = db.get(EchemiOutreach, job_id)
         if row is not None:

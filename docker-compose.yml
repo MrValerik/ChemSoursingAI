@@ -249,6 +249,8 @@ services:
     command: ["python", "-m", "app.echemi_worker"]
     environment:
       APP_ENV: production
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-dev-secret-change-in-prod}
+      INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-chemsource}:${POSTGRES_PASSWORD:-change_me}@db:5432/${POSTGRES_DB:-chemsource}
       ECHEMI_BROWSER_URL: http://echemi-browser:8080
       ECHEMI_CAPTCHA_AUTO_ATTEMPTS: ${ECHEMI_CAPTCHA_AUTO_ATTEMPTS:-3}

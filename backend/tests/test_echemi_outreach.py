@@ -253,3 +253,19 @@ def test_browser_fills_profile_and_requires_new_success_confirmation(browser_for
     controls["1"].fill.assert_awaited_once_with(message)
     controls["2"].fill.assert_awaited_once_with("Boston")
     submit.click.assert_awaited_once()
+
+
+def test_decryption_failure_blocks_before_network(prepared, monkeypatch):
+    client, _, sessions, path, payload, _ = prepared
+    client.post(path, json=payload)
+    from app.services.integration_settings import IntegrationSettingsError
+    def fail_decrypt(value):
+        raise IntegrationSettingsError("private encryption details")
+    monkeypatch.setattr(echemi_delivery, "_decrypt", fail_decrypt)
+    monkeypatch.setattr(echemi_delivery, "submit_inquiry", lambda *a: pytest.fail("Must not send"))
+    assert echemi_delivery.run_one(sessions)
+    result = client.get(path)
+    assert result.json()[0]["status"] == "blocked"
+    assert "private" not in result.text
+    assert not echemi_delivery.run_one(sessions)
+    assert client.post(path, json=payload).json()[0]["status"] == "queued"
