@@ -60,7 +60,7 @@ export default function EchemiSenderSettings() {
               <option value="IN">Индия</option><option value="NL">Нидерланды</option></datalist>
           </Field>
         </div>
-        <div className="row">
+        <div className="row" style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 12}}>
           {([
             ["city", "Город", "address-level2", 100],
             ["region", "Регион / область", "address-level1", 100],
