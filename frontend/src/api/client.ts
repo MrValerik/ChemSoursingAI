@@ -1284,6 +1284,12 @@ export function openEchemiManual(id: number): WebSocket {
 }
 
 export const getEchemiSender = () => request<EchemiSender>("/settings/integrations/echemi");
+export const getEchemiOutreachPreview = (id: number) =>
+  request<{message: string; sender: EchemiSender; sender_version: string}>(`/rfq/${id}/echemi-outreach/preview`);
+export const getEchemiDeliveries = (id: number) =>
+  request<import("./types").EchemiDelivery[]>(`/rfq/${id}/echemi-outreach`);
+export const sendEchemiOutreach = (id: number, payload: {search_id: number; product_urls: string[]; message: string; confirmed: boolean; sender_version: string}) =>
+  request<import("./types").EchemiDelivery[]>(`/rfq/${id}/echemi-outreach`, {method: "POST", body: JSON.stringify(payload)});
 export const updateEchemiSender = (payload: EchemiSenderFields) =>
   request<EchemiSender>("/settings/integrations/echemi", {
     method: "PUT", body: JSON.stringify(payload),

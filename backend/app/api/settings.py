@@ -48,8 +48,8 @@ from pydantic import ValidationError
 router = APIRouter(
     prefix="/settings",
     tags=["settings"],
-    dependencies=[Depends(require_roles(UserRole.ADMIN))],
 )
+admin_router = APIRouter(dependencies=[Depends(require_roles(UserRole.ADMIN))])
 
 
 @router.get("/integrations/serper/balance", response_model=SerperBalanceRead)
@@ -59,10 +59,11 @@ def get_serper_balance(response: Response):
 
 
 @router.get("/integrations/echemi", response_model=EchemiSenderRead)
-def get_echemi_sender(response: Response, db: Session = Depends(get_db)):
+def get_echemi_sender(response: Response, db: Session = Depends(get_db),
+                     user: User = Depends(require_roles(UserRole.ADMIN, UserRole.BUYER))):
     response.headers["Cache-Control"] = "no-store"
     try:
-        return read_sender(db)
+        return read_sender(db, user.id if user.role == UserRole.BUYER else None)
     except (IntegrationSettingsError, ValidationError):
         raise HTTPException(503, "Не удалось прочитать настройки отправителя Echemi.")
 
@@ -70,10 +71,10 @@ def get_echemi_sender(response: Response, db: Session = Depends(get_db)):
 @router.put("/integrations/echemi", response_model=EchemiSenderRead)
 def put_echemi_sender(payload: EchemiSenderUpdate, response: Response,
                       db: Session = Depends(get_db),
-                      user: User = Depends(require_roles(UserRole.ADMIN))):
+                      user: User = Depends(require_roles(UserRole.ADMIN, UserRole.BUYER))):
     response.headers["Cache-Control"] = "no-store"
     try:
-        return update_sender(db, payload, user.id)
+        return update_sender(db, payload, user.id, personal=user.role == UserRole.BUYER)
     except IntegrationSettingsError:
         raise HTTPException(503, "Не удалось сохранить настройки отправителя Echemi.")
 
@@ -123,7 +124,7 @@ def _whatsapp_read(db: Session) -> WhatsAppIntegrationRead:
     )
 
 
-@router.get("/channels")
+@admin_router.get("/channels")
 def channels_status(db: Session = Depends(get_db)) -> list[dict]:
     """Показывает состояние без возврата паролей и токенов."""
     email = _email_read(db)
@@ -184,12 +185,12 @@ def channels_status(db: Session = Depends(get_db)) -> list[dict]:
     ]
 
 
-@router.get("/integrations/email", response_model=EmailIntegrationRead)
+@admin_router.get("/integrations/email", response_model=EmailIntegrationRead)
 def get_email_integration(db: Session = Depends(get_db)) -> EmailIntegrationRead:
     return _email_read(db)
 
 
-@router.put("/integrations/email", response_model=EmailIntegrationRead)
+@admin_router.put("/integrations/email", response_model=EmailIntegrationRead)
 def update_email_integration(
     payload: EmailIntegrationUpdate,
     db: Session = Depends(get_db),
@@ -261,7 +262,7 @@ def update_email_integration(
     return _email_read(db)
 
 
-@router.post(
+@admin_router.post(
     "/integrations/email/check", response_model=IntegrationConnectionRead
 )
 def check_email_integration(
@@ -280,14 +281,14 @@ def check_email_integration(
     )
 
 
-@router.get("/integrations/whatsapp", response_model=WhatsAppIntegrationRead)
+@admin_router.get("/integrations/whatsapp", response_model=WhatsAppIntegrationRead)
 def get_whatsapp_integration(
     db: Session = Depends(get_db),
 ) -> WhatsAppIntegrationRead:
     return _whatsapp_read(db)
 
 
-@router.put(
+@admin_router.put(
     "/integrations/whatsapp", response_model=WhatsAppIntegrationRead
 )
 def update_whatsapp_integration(
@@ -332,7 +333,7 @@ def update_whatsapp_integration(
     return _whatsapp_read(db)
 
 
-@router.post(
+@admin_router.post(
     "/integrations/whatsapp/check", response_model=IntegrationConnectionRead
 )
 def check_whatsapp_integration(
@@ -367,7 +368,7 @@ def _web_connector(db: Session) -> WhatsAppConnector:
     return connector
 
 
-@router.get(
+@admin_router.get(
     "/integrations/whatsapp/web/status", response_model=WhatsAppWebStatusRead
 )
 def whatsapp_web_status(db: Session = Depends(get_db)) -> dict:
@@ -377,7 +378,7 @@ def whatsapp_web_status(db: Session = Depends(get_db)) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.post(
+@admin_router.post(
     "/integrations/whatsapp/web/connect", response_model=WhatsAppWebStatusRead
 )
 def whatsapp_web_connect(db: Session = Depends(get_db)) -> dict:
@@ -387,7 +388,7 @@ def whatsapp_web_connect(db: Session = Depends(get_db)) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.get("/integrations/whatsapp/web/qr", response_model=WhatsAppWebQrRead)
+@admin_router.get("/integrations/whatsapp/web/qr", response_model=WhatsAppWebQrRead)
 def whatsapp_web_qr(
     response: Response, db: Session = Depends(get_db)
 ) -> WhatsAppWebQrRead:
@@ -398,7 +399,7 @@ def whatsapp_web_qr(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.post(
+@admin_router.post(
     "/integrations/whatsapp/web/pairing-code",
     response_model=WhatsAppWebPairingCodeRead,
 )
@@ -414,7 +415,7 @@ def whatsapp_web_pairing_code(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.post(
+@admin_router.post(
     "/integrations/whatsapp/web/pairing-code/cancel",
     response_model=WhatsAppWebStatusRead,
 )
@@ -425,7 +426,7 @@ def whatsapp_web_cancel_pairing_code(db: Session = Depends(get_db)) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.post(
+@admin_router.post(
     "/integrations/whatsapp/web/disconnect", response_model=WhatsAppWebStatusRead
 )
 def whatsapp_web_disconnect(db: Session = Depends(get_db)) -> dict:
@@ -433,3 +434,6 @@ def whatsapp_web_disconnect(db: Session = Depends(get_db)) -> dict:
         return _web_connector(db).web_disconnect()
     except (WhatsAppConfigurationError, WhatsAppDeliveryError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+router.include_router(admin_router)

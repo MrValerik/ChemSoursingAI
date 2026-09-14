@@ -101,12 +101,15 @@ def main():
             if not acquired:
                 raise RuntimeError("Echemi worker already running")
         with SessionLocal() as db:
+            from app.services.echemi_delivery import recover
+            recover(db)
             db.execute(update(EchemiSearch).where(EchemiSearch.status == "running").values(
                 status="failed", message="Поиск прерван перезапуском сервиса. Создайте новый запрос.",
                 finished_at=datetime.now(timezone.utc)))
             db.commit()
         while True:
-            if not run_one():
+            from app.services.echemi_delivery import run_one as deliver_one
+            if not deliver_one(SessionLocal) and not run_one():
                 time.sleep(3)
 
 

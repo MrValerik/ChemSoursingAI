@@ -106,6 +106,8 @@ def create_app() -> FastAPI:
     app.include_router(users.router)
     app.include_router(templates.router)
     app.include_router(settings_api.router)
+    from app.api.echemi_outreach import router as echemi_outreach_router
+    app.include_router(echemi_outreach_router)
     app.include_router(user_preferences.router)
     app.include_router(whatsapp_web.router)
 
