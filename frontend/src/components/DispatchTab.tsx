@@ -1,4 +1,4 @@
-// Вкладка «Общение»: история диалогов с поставщиками и очередь эскалаций.
+// Вкладка «Общение»: история диалогов с компаниями и очередь эскалаций.
 
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
@@ -179,8 +179,13 @@ export default function DispatchTab({
   const [testLoadError, setTestLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [escalationBusy, setEscalationBusy] = useState<number | null>(null);
+  const [messageSendError, setMessageSendError] = useState<string | null>(null);
   const [messageBody, setMessageBody] = useState("");
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const [replyEscalationId, setReplyEscalationId] = useState<number | null>(null);
+  const [approvedManagerId, setApprovedManagerId] = useState("");
   const messageFileInputRef = useRef<HTMLInputElement>(null);
   const [messageActionId, setMessageActionId] = useState(createActionId);
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -292,10 +297,14 @@ export default function DispatchTab({
   }, [rfqId, canTestCommunication, compact, focusSignature]);
 
   useEffect(() => {
-    // Текст одного поставщика нельзя случайно перенести в другой диалог.
+    // Текст одной компании нельзя случайно перенести в другой диалог.
+    setMessageSendError(null);
     setMessageBody("");
     setMessageFiles([]);
+    setReplyEscalationId(null);
+    setApprovedManagerId("");
     setMessageActionId(createActionId());
+    if (historyRef.current) historyRef.current.scrollTop = historyRef.current.scrollHeight;
   }, [selectedKey]);
 
   const selectedConversation =
@@ -350,7 +359,45 @@ export default function DispatchTab({
       item.manager_id !== null,
   );
 
+  const openConversationEscalations = selectedConversation?.escalations.filter(
+    (item) => item.status !== "resolved",
+  ) ?? [];
+  const replyEscalation = openConversationEscalations.find(
+    (item) => item.id === replyEscalationId,
+  ) ?? openConversationEscalations[0];
+  const isUnmatchedEmailReply = Boolean(
+    selectedConversation && !selectedConversation.manager_id &&
+    selectedConversation.channel === "email" && replyEscalation?.communication_id,
+  );
+  const composerBusy = sendingMessage || escalationBusy !== null;
+  const canCompose = Boolean(selectedConversation?.contact && (
+    selectedConversation.manager_id ||
+    (isUnmatchedEmailReply && emailSupplierCandidates.length > 0)
+  ));
+  const prepareReply = (escalation: CommunicationEscalationRead, suggested = false) => {
+    setReplyEscalationId(escalation.id);
+    setApprovedManagerId("");
+    if (suggested) setMessageBody(escalation.suggested_reply ?? "");
+    setMessageActionId(createActionId());
+    messageInputRef.current?.focus();
+  };
+
   const sendMessage = async () => {
+    if (composerBusy) return;
+    if (replyEscalation && selectedConversation) {
+      const sent = await replyToEscalation(
+        replyEscalation, selectedConversation, messageBody, messageActionId,
+        Number(approvedManagerId) || null, messageFiles,
+      );
+      if (sent) {
+        setMessageBody("");
+        setMessageFiles([]);
+        setMessageActionId(createActionId());
+        setApprovedManagerId("");
+        setReplyEscalationId(null);
+      }
+      return;
+    }
     if (
       !selectedConversation?.manager_id ||
       !selectedConversation.contact ||
@@ -372,6 +419,7 @@ export default function DispatchTab({
     }
     setSendingMessage(true);
     setError(null);
+    setMessageSendError(null);
     setNotice(null);
     try {
       const payload = {
@@ -396,7 +444,7 @@ export default function DispatchTab({
       await load();
       onStatusChanged();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setMessageSendError(caught instanceof Error ? caught.message : String(caught));
       await load();
     } finally {
       setSendingMessage(false);
@@ -431,7 +479,7 @@ export default function DispatchTab({
   };
 
   const sendDraft = async (communicationId: number) => {
-    if (!window.confirm("Реально отправить этот Email-черновик поставщику?")) {
+    if (!window.confirm("Реально отправить этот Email-черновик компании?")) {
       return;
     }
     setDraftBusy(communicationId);
@@ -500,6 +548,7 @@ export default function DispatchTab({
     body: string,
     idempotencyKey: string,
     approvedManagerId: number | null,
+    files: File[],
   ): Promise<boolean> => {
     const repliesToUnmatchedEmail = Boolean(
       !conversation.manager_id &&
@@ -512,7 +561,7 @@ export default function DispatchTab({
     if (!conversation.manager_id && !repliesToUnmatchedEmail) {
       return false;
     }
-    if (repliesToUnmatchedEmail && !approvedManagerId) {
+    if (repliesToUnmatchedEmail && (!approvedManagerId || files.length > 0)) {
       return false;
     }
     const channelLabel = conversation.channel === "email" ? "Email" : "WhatsApp";
@@ -522,8 +571,9 @@ export default function DispatchTab({
     if (
       !window.confirm(
         `Реально отправить ручной ответ через ${channelLabel} контакту ${conversation.contact} и закрыть эскалацию?` +
+          (files.length > 0 ? ` Вложений: ${files.length}.` : "") +
           (repliesToUnmatchedEmail
-            ? ` Адрес будет закреплён за поставщиком «${approvedSupplier?.supplier_company ?? "выбранный поставщик"}», после чего ИИ продолжит стандартный диалог.`
+            ? ` Адрес будет закреплён за компанией «${approvedSupplier?.supplier_company ?? "выбранная компания"}», после чего ИИ продолжит стандартный диалог.`
             : ""),
       )
     ) {
@@ -532,6 +582,7 @@ export default function DispatchTab({
 
     setEscalationBusy(escalation.id);
     setError(null);
+    setMessageSendError(null);
     setNotice(null);
     try {
       if (repliesToUnmatchedEmail && approvedManagerId) {
@@ -542,13 +593,18 @@ export default function DispatchTab({
           confirm_external_send: true,
         });
       } else if (conversation.manager_id) {
-        await api.sendCommunicationMessage(rfqId, {
+        const payload = {
           manager_id: conversation.manager_id,
           channel: conversation.channel,
           body: body.trim(),
           idempotency_key: idempotencyKey,
           confirm_external_send: true,
-        });
+        };
+        if (files.length > 0) {
+          await api.sendCommunicationMessageWithAttachments(rfqId, { ...payload, files });
+        } else {
+          await api.sendCommunicationMessage(rfqId, payload);
+        }
       }
       if (!repliesToUnmatchedEmail) {
         await api.updateEscalation(escalation.id, {
@@ -565,7 +621,7 @@ export default function DispatchTab({
       onStatusChanged();
       return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setMessageSendError(caught instanceof Error ? caught.message : String(caught));
       await load();
       return false;
     } finally {
@@ -603,7 +659,7 @@ export default function DispatchTab({
       >
         <div className="tab-toolbar">
           <div>
-            <h2>{compact ? "Диалог с поставщиком" : "Диалоги с поставщиками"}</h2>
+            <h2>{compact ? "Диалог с компанией" : "Диалоги с компаниями"}</h2>
             <p className="note">
               {compact
                 ? "Переписка, из которой получены условия выбранного предложения."
@@ -645,7 +701,7 @@ export default function DispatchTab({
         !canTestCommunication ? (
           <p className="note">
             Диалогов пока нет. После отправки запроса или получения ответа
-            поставщик появится здесь.
+            компания появится здесь.
           </p>
         ) : (
           <div
@@ -654,7 +710,7 @@ export default function DispatchTab({
             }`}
           >
             {!compact && (
-              <div className="conversation-suppliers" aria-label="Поставщики">
+              <div className="conversation-suppliers" aria-label="Компании">
                 {overview.conversations.map((item) => {
                 const openCount = item.escalations.filter(
                   (entry) => entry.status !== "resolved",
@@ -716,7 +772,7 @@ export default function DispatchTab({
                       type="button"
                     >
                       <span className="conversation-supplier-title">
-                        Тестовый поставщик
+                        Тестовая компания
                       </span>
                       <span className="conversation-supplier-meta">
                         Тестовый диалог · {formatMoment(run.created_at)}
@@ -796,9 +852,10 @@ export default function DispatchTab({
 
 
                   <div
+                    ref={historyRef}
                     className="conversation-messages"
                     role="region"
-                    aria-label="История переписки с поставщиком"
+                    aria-label="История переписки с компанией"
                     tabIndex={0}
                   >
                     {selectedConversation.messages.length === 0 ? (
@@ -812,7 +869,7 @@ export default function DispatchTab({
                           <div className="conversation-message-meta">
                             <strong>
                               {message.direction === "inbound"
-                                ? "Поставщик"
+                                ? "Компания"
                                 : "Мы"}
                             </strong>
                             <span>{formatMoment(message.created_at)}</span>
@@ -924,18 +981,71 @@ export default function DispatchTab({
                         </article>
                       ))
                     )}
+                    {openConversationEscalations.map((item) => (
+                      <EscalationNotice
+                        key={item.id}
+                        escalation={item}
+                        busy={composerBusy}
+                        readOnly={readOnly}
+                        onAction={updateEscalation}
+                        onPrepareReply={canCompose ? prepareReply : undefined}
+                      />
+                    ))}
                   </div>
 
                   {!readOnly && (
                     <div className="conversation-composer">
-                      {selectedConversation.manager_id &&
-                      selectedConversation.contact ? (
+                      {messageSendError && <p className="error" role="alert">{messageSendError}</p>}
+                      {canCompose ? (
                         <>
+                          {replyEscalation && (
+                            <div className="conversation-reply-context">
+                              <strong>Ответ сотрудника · {selectedConversation.supplier_company}</strong>
+                              {openConversationEscalations.length > 1 && (
+                                <Select
+                                  ariaLabel="Вопрос, на который отвечаем"
+                                  disabled={composerBusy}
+                                  value={String(replyEscalation.id)}
+                                  options={openConversationEscalations.map((item) => ({
+                                    value: String(item.id), label: `Вопрос #${item.id}: ${item.note ?? "Нужен ответ"}`,
+                                  }))}
+                                  onChange={(value) => {
+                                    setReplyEscalationId(Number(value));
+                                    setApprovedManagerId("");
+                                    setMessageActionId(createActionId());
+                                  }}
+                                />
+                              )}
+                              <p className="note">{replyEscalation.note ?? "Автоматический ответ остановлен."}</p>
+                              <span className="note">После отправки выбранный вопрос будет отмечен решённым.</span>
+                            </div>
+                          )}
+                          {isUnmatchedEmailReply && (
+                            <div className="conversation-reply-context">
+                              <strong>Подтвердите компанию</strong>
+                              <p className="note">После отправки этот Email станет контактом выбранной компании. Файлы можно отправить после подтверждения контакта.</p>
+                              <Select
+                                ariaLabel="Компания для нового Email-адреса"
+                                disabled={composerBusy}
+                                value={approvedManagerId}
+                                options={[
+                                  { value: "", label: "Выберите компанию…" },
+                                  ...emailSupplierCandidates.map((item) => ({
+                                    value: String(item.manager_id), label: item.supplier_company,
+                                  })),
+                                ]}
+                                onChange={(value) => {
+                                  setApprovedManagerId(value);
+                                  setMessageActionId(createActionId());
+                                }}
+                              />
+                            </div>
+                          )}
                           <div className="conversation-composer-input">
                             <button
                               aria-label="Прикрепить файл"
                               className="conversation-attach-button secondary"
-                              disabled={sendingMessage}
+                              disabled={composerBusy || isUnmatchedEmailReply}
                               onClick={() => messageFileInputRef.current?.click()}
                               title="Прикрепить файл"
                               type="button"
@@ -945,9 +1055,11 @@ export default function DispatchTab({
                               </svg>
                             </button>
                             <Textarea
+                              ref={messageInputRef}
+                              disabled={composerBusy}
                               rows={3}
-                              aria-label="Сообщение поставщику"
-                              placeholder="Напишите сообщение поставщику"
+                              aria-label="Сообщение компании"
+                              placeholder="Напишите сообщение компании"
                               value={messageBody}
                               onChange={(event) => {
                                 setMessageBody(event.target.value);
@@ -976,7 +1088,7 @@ export default function DispatchTab({
                                   {file.name} · {formatAttachmentSize(file.size)}
                                   <button
                                     aria-label={`Убрать файл ${file.name}`}
-                                    disabled={sendingMessage}
+                                    disabled={composerBusy}
                                     onClick={() => removeMessageFile(index)}
                                     type="button"
                                   >
@@ -994,38 +1106,26 @@ export default function DispatchTab({
                             </span>
                             <button
                               disabled={
-                                sendingMessage ||
-                                (!messageBody.trim() && messageFiles.length === 0)
+                                composerBusy ||
+                                (replyEscalation ? !messageBody.trim() : (!messageBody.trim() && messageFiles.length === 0)) ||
+                                (isUnmatchedEmailReply && (!approvedManagerId || messageFiles.length > 0))
                               }
                               onClick={() => void sendMessage()}
                               type="button"
                             >
-                              {sendingMessage ? "Отправка…" : "Отправить"}
+                              {composerBusy ? "Отправка…" : replyEscalation ? "Отправить ответ" : "Отправить"}
                             </button>
                           </div>
                         </>
                       ) : (
                         <p className="note">
-                          Для ответа свяжите диалог с контактом поставщика.
+                          Для ответа свяжите диалог с контактом компании.
                         </p>
                       )}
                     </div>
                   )}
 
-                  {selectedConversation.escalations
-                    .filter((item) => item.status !== "resolved")
-                    .map((item) => (
-                      <EscalationNotice
-                        key={item.id}
-                        escalation={item}
-                        busy={escalationBusy === item.id}
-                        readOnly={readOnly}
-                        onAction={updateEscalation}
-                        conversation={selectedConversation}
-                        supplierCandidates={emailSupplierCandidates}
-                        onReply={replyToEscalation}
-                      />
-                    ))}
+
                 </>
               )}
               {compact &&
@@ -1058,167 +1158,53 @@ export default function DispatchTab({
 }
 
 function EscalationNotice({
-  escalation,
-  busy,
-  readOnly,
-  onAction,
-  conversation,
-  supplierCandidates = [],
-  onReply,
+  escalation, busy, readOnly, onAction, onPrepareReply,
 }: {
   escalation: CommunicationEscalationRead;
   busy: boolean;
   readOnly: boolean;
-  conversation?: SupplierConversationRead;
-  supplierCandidates?: SupplierConversationRead[];
-  onAction: (
-    escalation: CommunicationEscalationRead,
-    action: "take" | "resolve",
-  ) => Promise<void>;
-  onReply?: (
-    escalation: CommunicationEscalationRead,
-    conversation: SupplierConversationRead,
-    body: string,
-    idempotencyKey: string,
-    approvedManagerId: number | null,
-  ) => Promise<boolean>;
+  onAction: (escalation: CommunicationEscalationRead, action: "take" | "resolve") => Promise<void>;
+  onPrepareReply?: (escalation: CommunicationEscalationRead, suggested?: boolean) => void;
 }) {
-  const [replyBody, setReplyBody] = useState("");
-  const [replyActionId, setReplyActionId] = useState(createActionId);
-  const [approvedManagerId, setApprovedManagerId] = useState("");
-  const isUnmatchedEmail = Boolean(
-    conversation &&
-      !conversation.manager_id &&
-      conversation.channel === "email" &&
-      escalation.communication_id,
-  );
-  const canReply = Boolean(
-    conversation?.contact &&
-      onReply &&
-      (conversation.manager_id ||
-        (isUnmatchedEmail && supplierCandidates.length > 0)),
-  );
-
-  const submitReply = async () => {
-    if (!conversation || !onReply || !replyBody.trim()) return;
-    const sent = await onReply(
-      escalation,
-      conversation,
-      replyBody.trim(),
-      replyActionId,
-      Number(approvedManagerId) || null,
-    );
-    if (sent) {
-      setReplyBody("");
-      setReplyActionId(createActionId());
-    }
-  };
-
   return (
     <section className="communication-escalation" role="alert">
       <div>
         <strong>Нужен ответ сотрудника</strong>
         <p>{escalation.note ?? "Автоматический ответ остановлен."}</p>
         <span className="note">
-          {escalation.assignee
-            ? `Ответственный: ${escalation.assignee}`
-            : "Ответственный ещё не назначен"}
+          {escalation.assignee ? `Ответственный: ${escalation.assignee}` : "Ответственный ещё не назначен"}
         </span>
       </div>
-      {!readOnly && (
-        <div className="communication-escalation-actions">
-          {canReply && (
-            <div className="communication-escalation-composer">
-              {isUnmatchedEmail && (
-                <div>
-                  <strong>Подтвердите поставщика</strong>
-                  <p className="note">
-                    После отправки этот Email станет контактом выбранной компании,
-                    и ИИ сможет продолжить стандартный диалог.
-                  </p>
-                  <Select
-                    ariaLabel="Поставщик для нового Email-адреса"
-                    disabled={busy}
-                    value={approvedManagerId}
-                    options={[
-                      { value: "", label: "Выберите поставщика…" },
-                      ...supplierCandidates.map((item) => ({
-                        value: String(item.manager_id),
-                        label: item.supplier_company,
-                      })),
-                    ]}
-                    onChange={(value) => {
-                      setApprovedManagerId(value);
-                      setReplyActionId(createActionId());
-                    }}
-                  />
-                </div>
-              )}
-              {escalation.suggested_reply && (
-                <div className="communication-escalation-suggestion">
-                  <div>
-                    <strong>Предлагаемый ответ ИИ</strong>
-                    <p>{escalation.suggested_reply}</p>
-                  </div>
-                  <button
-                    className="secondary btn-small"
-                    disabled={busy}
-                    onClick={() => {
-                      setReplyBody(escalation.suggested_reply ?? "");
-                      setReplyActionId(createActionId());
-                    }}
-                    type="button"
-                  >
-                    Использовать ответ ИИ
-                  </button>
-                </div>
-              )}
-              <label className="communication-escalation-reply-label">
-                Ваш ответ поставщику
-                <Textarea
-                  rows={5}
-                  disabled={busy}
-                  placeholder="Напишите ответ или выберите предложенный ИИ"
-                  value={replyBody}
-                  onChange={(event) => {
-                    setReplyBody(event.target.value);
-                    setReplyActionId(createActionId());
-                  }}
-                />
-              </label>
-              <button
-                disabled={
-                  busy ||
-                  !replyBody.trim() ||
-                  (isUnmatchedEmail && !approvedManagerId)
-                }
-                onClick={() => void submitReply()}
-                type="button"
-              >
-                {busy ? "Отправка…" : "Ответить поставщику"}
-              </button>
-            </div>
-          )}
-          <div className="communication-escalation-resolution">
-            {!escalation.assignee && (
-              <button
-                className="secondary btn-small"
-                disabled={busy}
-                onClick={() => void onAction(escalation, "take")}
-                type="button"
-              >
-                Взять в работу
-              </button>
-            )}
-            <button
-              className="secondary btn-small"
-              disabled={busy}
-              onClick={() => void onAction(escalation, "resolve")}
-              type="button"
-            >
-              Отметить решённой
+      {escalation.suggested_reply && (
+        <div className="communication-escalation-suggestion">
+          <strong>Предлагаемый ответ ИИ</strong>
+          <p>{escalation.suggested_reply}</p>
+          {!readOnly && onPrepareReply && (
+            <button className="secondary btn-small" disabled={busy}
+              onClick={() => onPrepareReply(escalation, true)} type="button">
+              Использовать ответ ИИ
             </button>
-          </div>
+          )}
+        </div>
+      )}
+      {!readOnly && (
+        <div className="communication-escalation-resolution">
+          {onPrepareReply && (
+            <button className="secondary btn-small" disabled={busy}
+              onClick={() => onPrepareReply(escalation)} type="button">
+              Ответить в поле сообщения
+            </button>
+          )}
+          {!escalation.assignee && (
+            <button className="secondary btn-small" disabled={busy}
+              onClick={() => void onAction(escalation, "take")} type="button">
+              Взять в работу
+            </button>
+          )}
+          <button className="secondary btn-small" disabled={busy}
+            onClick={() => void onAction(escalation, "resolve")} type="button">
+            Отметить решённой
+          </button>
         </div>
       )}
     </section>

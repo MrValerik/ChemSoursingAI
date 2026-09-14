@@ -10,7 +10,7 @@ import type {
 import { Field, Input, Select, Textarea } from "./ui";
 
 const STATUS_LABELS: Record<string, string> = {
-  classifying: "Проверка ответа поставщика",
+  classifying: "Проверка ответа компании",
   generating: "Нейросеть формирует сообщение",
   previewed: "Диалог активен",
   sending: "Отправка сообщения",
@@ -646,11 +646,11 @@ function EmbeddedCommunicationTesting({
     <div className="communication-testing communication-testing-embedded">
       <div className="requests-header">
         <div>
-          <h3>Диалог с тестовым поставщиком</h3>
+          <h3>Диалог с тестовой компанией</h3>
           <p className="note">
             Первое сообщение — сохранённый RFQ текущего запроса. Сообщения никуда
             не отправляются. Найденные в ответах цены и условия добавляются в
-            сводную таблицу как котировка «Тестовый поставщик».
+            сводную таблицу как котировка «Тестовая компания».
           </p>
         </div>
       </div>
@@ -710,7 +710,7 @@ function EmbeddedCommunicationTesting({
                     ? message.delivery_status === "manual"
                       ? "Сотрудник · покупатель"
                       : "Нейросеть · покупатель"
-                    : "Тестовый поставщик"}
+                    : "Тестовая компания"}
                 </span>
                 <div className="communication-message-original">
                   <span>
@@ -741,7 +741,7 @@ function EmbeddedCommunicationTesting({
                   ? active.status === "complete"
                     ? "Данные собраны — переписку можно продолжить."
                     : "Данные собраны — диалог продолжается."
-                  : "Проверка ответа поставщика"}
+                  : "Проверка ответа компании"}
               </strong>
               <span>
                 Цена: {active.quote_assessment.price ?? "не указана"}
@@ -780,7 +780,7 @@ function EmbeddedCommunicationTesting({
 
           {active.status === "escalated" && (
             <div className="communication-reply communication-escalation-reply">
-              <Field label="Ответ сотрудника поставщику">
+              <Field label="Ответ сотрудника компании">
                 <Textarea
                   rows={4}
                   placeholder="Введите ручной ответ — нейросеть не будет отвечать на эскалированный вопрос"
@@ -800,10 +800,10 @@ function EmbeddedCommunicationTesting({
 
           {canContinue && (
             <div className="communication-reply">
-              <Field label="Ваш ответ на RFQ от лица поставщика">
+              <Field label="Ваш ответ на RFQ от лица компании">
                 <Textarea
                   rows={4}
-                  placeholder="Введите ответ поставщика на английском"
+                  placeholder="Введите ответ компании на английском"
                   value={supplierMessage}
                   onChange={(event) => setSupplierMessage(event.target.value)}
                 />
@@ -1005,7 +1005,7 @@ function FullCommunicationTesting({
     if (
       live &&
       !window.confirm(
-        "Сохранить введённый ответ как сообщение поставщика и реально отправить следующий ответ нейросети?",
+        "Сохранить введённый ответ как сообщение компании и реально отправить следующий ответ нейросети?",
       )
     ) {
       return;
@@ -1119,11 +1119,11 @@ function FullCommunicationTesting({
     >
       <div className="requests-header">
         <div>
-          {embedded ? <h3>Диалог с тестовым поставщиком</h3> : <h1>Тестирование общения</h1>}
+          {embedded ? <h3>Диалог с тестовой компанией</h3> : <h1>Тестирование общения</h1>}
           <p className="note">
             {embedded
               ? "Выберите готовый ответ или ручной режим. Сообщения никуда не отправляются."
-              : "Администраторская песочница: выберите, будет ли нейросеть покупателем или поставщиком. В обоих случаях используется вся история диалога; это только симуляция без внешней отправки. Оригинал — на английском, для сотрудника показывается русский перевод."}
+              : "Администраторская песочница: выберите, будет ли нейросеть покупателем или представителем компании. В обоих случаях используется вся история диалога; это только симуляция без внешней отправки. Оригинал — на английском, для сотрудника показывается русский перевод."}
           </p>
         </div>
       </div>
@@ -1176,7 +1176,7 @@ function FullCommunicationTesting({
                 }}
                 options={[
                   { value: "buyer_ai", label: "Покупатель" },
-                  { value: "supplier_ai", label: "Поставщик" },
+                  { value: "supplier_ai", label: "Компания" },
                 ]}
               />
             </Field>
@@ -1220,7 +1220,7 @@ function FullCommunicationTesting({
           {simulationMode === "supplier_ai" && (
             <Field
               label="Первое сообщение покупателя"
-              hint="Нейросеть ответит в роли поставщика. Только симуляция, без отправки."
+              hint="Нейросеть ответит в роли компании. Только симуляция, без отправки."
             >
               <Textarea
                 rows={3}
@@ -1229,7 +1229,7 @@ function FullCommunicationTesting({
                 onChange={(event) => setBuyerMessage(event.target.value)}
               />
               {simulationMode === "supplier_ai" && deliveryMode === "send" && (
-                <p className="note">Для нейросети-поставщика доступна только симуляция.</p>
+                <p className="note">Для ИИ в роли представителя компании доступна только симуляция.</p>
               )}
             </Field>
           )}
@@ -1246,7 +1246,7 @@ function FullCommunicationTesting({
           </Field>
           {embedded && (
             <div className="communication-test-examples">
-              <strong>Примеры ответа поставщика</strong>
+              <strong>Примеры ответа компании</strong>
               <span>
                 Запускают тестовый диалог одним нажатием. Внешняя отправка не
                 выполняется.
@@ -1336,8 +1336,8 @@ function FullCommunicationTesting({
                           ? "Вы · покупатель"
                         : active.channel === "email" &&
                             active.delivery_mode === "send"
-                          ? "Поставщик · Email"
-                          : "Тестовый поставщик"}
+                          ? "Компания · Email"
+                          : "Тестовая компания"}
                     </span>
                     <div className="communication-message-original">
                       <span>
@@ -1347,7 +1347,7 @@ function FullCommunicationTesting({
                             ? "Английский оригинал"
                             : message.sender_role === "buyer"
                               ? "Оригинал покупателя"
-                              : "Оригинал поставщика"}
+                              : "Оригинал компании"}
                       </span>
                       <div>
                         {translationRevealed && message.translation_ru
@@ -1370,7 +1370,7 @@ function FullCommunicationTesting({
                       ? active.status === "complete"
                         ? "Данные собраны — переписку можно продолжить."
                         : "Данные собраны — диалог продолжается."
-                      : "Проверка ответа поставщика"}
+                      : "Проверка ответа компании"}
                   </strong>
                   <span>
                     Цена: {active.quote_assessment.price ?? "не указана"}
@@ -1408,10 +1408,10 @@ function FullCommunicationTesting({
               {active.status === "escalated" &&
                 active.simulation_mode === "buyer_ai" && (
                   <div className="communication-reply communication-escalation-reply">
-                    <Field label="Ответ сотрудника поставщику">
+                    <Field label="Ответ сотрудника компании">
                       <Textarea
                         rows={4}
-                        placeholder="Введите ручной ответ поставщику"
+                        placeholder="Введите ручной ответ компании"
                         value={humanMessage}
                         onChange={(event) => setHumanMessage(event.target.value)}
                       />
@@ -1431,15 +1431,15 @@ function FullCommunicationTesting({
                     label={
                       active.simulation_mode === "supplier_ai"
                         ? "Следующее сообщение покупателя"
-                        : "Ответ поставщика (оригинал)"
+                        : "Ответ компании (оригинал)"
                     }
                   >
                     <Textarea
                       rows={4}
                       placeholder={
                         active.simulation_mode === "supplier_ai"
-                          ? "Напишите покупателю — нейросеть ответит как поставщик"
-                          : "Введите английский ответ поставщика — нейросеть продолжит диалог"
+                          ? "Напишите покупателю — нейросеть ответит от лица компании"
+                          : "Введите английский ответ компании — нейросеть продолжит диалог"
                       }
                       value={
                         active.simulation_mode === "supplier_ai"

@@ -3021,6 +3021,7 @@ button.danger:hover {
 }
 
 .communication-escalation {
+  flex-shrink: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
@@ -3036,12 +3037,6 @@ button.danger:hover {
   margin: 5px 0;
 }
 
-.communication-escalation-actions {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
-}
-
 .communication-escalation-resolution {
   display: flex;
   flex-wrap: wrap;
@@ -3050,16 +3045,20 @@ button.danger:hover {
   border-top: 1px solid var(--border);
 }
 
-.communication-escalation-reply-label {
+.conversation-reply-context {
   display: grid;
-  gap: 8px;
-  font-weight: 600;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-left: 3px solid var(--attention);
+  background: var(--warn-soft);
+  border-radius: var(--radius-sm);
 }
 
-.communication-escalation-composer {
-  display: grid;
-  flex: 1 0 100%;
-  gap: 8px;
+.conversation-reply-context .note {
+  margin: 0;
 }
 
 .communication-escalation-suggestion {
@@ -3082,16 +3081,6 @@ button.danger:hover {
 }
 
 .communication-escalation-suggestion button {
-  flex: 0 0 auto;
-}
-
-.communication-escalation-composer textarea {
-  font-weight: 400;
-  width: 100%;
-  resize: vertical;
-}
-
-.communication-escalation-composer button {
   justify-self: start;
 }
 

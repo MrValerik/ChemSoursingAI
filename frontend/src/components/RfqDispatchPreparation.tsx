@@ -227,7 +227,7 @@ export default function RfqDispatchPreparation({
   const dispatch = async () => {
     if (queued.length === 0) return;
     const names = queued
-      .map((item) => item.supplier_company ?? `Поставщик #${item.supplier_id}`)
+      .map((item) => item.supplier_company ?? `Компания #${item.supplier_id}`)
       .join(", ");
     if (
       !window.confirm(
@@ -249,7 +249,7 @@ export default function RfqDispatchPreparation({
           `Не отправлено: ${failed.length}. Проверьте контакты и настройки каналов.`,
         );
       } else {
-        setNotice("RFQ отправлен выбранным поставщикам.");
+        setNotice("RFQ отправлен выбранным компаниям.");
       }
       onChanged();
     } catch (caught) {
@@ -265,7 +265,7 @@ export default function RfqDispatchPreparation({
       <section className="panel">
         <div className="tab-toolbar">
           <div>
-            <h2>Поставщики</h2>
+            <h2>Компании</h2>
             <p className="note">
               Получатели, выбранные на предыдущем этапе. В отправку попадут
               только строки со статусом «ожидает отправки».
@@ -280,10 +280,10 @@ export default function RfqDispatchPreparation({
 
         {recipients.length === 0 ? (
           <div className="rfq-recipient-empty">
-            <p className="note">Поставщики для отправки ещё не выбраны.</p>
+            <p className="note">Компании для отправки ещё не выбраны.</p>
             {!readOnly && (
               <button onClick={onGoToSuppliers} type="button">
-                Выбрать поставщиков
+                Выбрать компании
               </button>
             )}
           </div>
@@ -293,7 +293,7 @@ export default function RfqDispatchPreparation({
               <div className="rfq-recipient-row" key={recipient.id}>
                 <div>
                   <strong>
-                    {recipient.supplier_company ?? `Поставщик #${recipient.supplier_id}`}
+                    {recipient.supplier_company ?? `Компания #${recipient.supplier_id}`}
                   </strong>
                   <span className="note">
                     {recipient.channel === "email" ? "Email" : "WhatsApp"}
@@ -356,7 +356,7 @@ export default function RfqDispatchPreparation({
             <h2>Предпросмотр RFQ</h2>
             <p className="note">
               Это точный английский текст первого сообщения, который получат
-              выбранные поставщики.
+              выбранные компании.
             </p>
           </div>
           <div className="rfq-preview-actions">
