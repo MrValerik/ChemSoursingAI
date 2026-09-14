@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
+from app.connectors.serper_account import read_balance
+from app.schemas.serper import SerperBalanceRead
 from app.connectors.email import (
     EmailConfigurationError,
     EmailConnector,
@@ -48,6 +50,12 @@ router = APIRouter(
     tags=["settings"],
     dependencies=[Depends(require_roles(UserRole.ADMIN))],
 )
+
+
+@router.get("/integrations/serper/balance", response_model=SerperBalanceRead)
+def get_serper_balance(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return read_balance()
 
 
 @router.get("/integrations/echemi", response_model=EchemiSenderRead)

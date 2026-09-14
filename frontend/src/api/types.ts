@@ -1675,3 +1675,8 @@ export interface EchemiSender extends EchemiSenderFields {
 export interface UserPreferences {
   auto_dispatch_after_search: boolean;
 }
+export interface SerperBalance {
+  status: "ok" | "not_configured" | "unavailable";
+  remaining_credits: number | null;
+  checked_at: string | null;
+}

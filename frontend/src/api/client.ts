@@ -1288,3 +1288,5 @@ export const updateEchemiSender = (payload: EchemiSenderFields) =>
   request<EchemiSender>("/settings/integrations/echemi", {
     method: "PUT", body: JSON.stringify(payload),
   });
+export const getSerperBalance = () =>
+  request<import("./types").SerperBalance>("/settings/integrations/serper/balance");

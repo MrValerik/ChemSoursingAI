@@ -226,6 +226,7 @@ class Settings(BaseSettings):
     # секрет живёт только в .env и в коммиты не попадает.
     serper_api_key: str = Field(default="")
     serper_base_url: str = Field(default="https://google.serper.dev")
+    serper_balance_cache_seconds: int = Field(default=60, ge=1, le=3600)
     # Страна и язык выдачи. Производители, которых мы ищем, находятся в Китае
     # и Индии, но их сайты и каталоги англоязычные.
     serper_region: str = Field(default="cn")
