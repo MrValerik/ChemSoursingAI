@@ -20,6 +20,7 @@ from chrome_runtime import open_chrome, new_job_page
 from page_state import needs_verification
 from job_lifecycle import run_connected
 from manual import router as manual_router, active, wait_for_human
+from manual_recording import RecordingBudget
 from captcha_context import CaptchaContext
 from captcha_probe import CaptchaProbe
 
@@ -78,7 +79,7 @@ async def ready(page, mouse, events, context=None, probe=None, manual_fallback=F
             events.append({"mode": "context_observation", "context": context.summary()})
         except Exception:
             events.append({"mode": "context_observation", "status": "unavailable"})
-    return await wait_for_human(page, events)
+    return await wait_for_human(page, events, stage=stage)
 
 async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallback=False):
     async with async_playwright() as p, open_chrome(p, PROFILE) as context:
@@ -219,6 +220,7 @@ async def search(request: Search, connection: Request):
     async with busy:
         active['id'] = request.search_id
         active['output'] = output
+        active['recording_budget'] = RecordingBudget()
         try:
             await run_connected(connection, collect(request.query.strip(),output,request.captcha_probe_attempts,
                                                      request.captcha_manual_fallback), timeout=900)
@@ -227,5 +229,5 @@ async def search(request: Search, connection: Request):
                           message="Сбор прерван по времени или из-за ошибки браузера.")
             output["diagnostics"]["error_type"] = type(exc).__name__
         finally:
-            active.update(id=None, waiting=False, page=None, output=None)
+            active.update(id=None, waiting=False, page=None, output=None, recording_budget=None, manual_event=None)
     return output

@@ -1,5 +1,6 @@
 import type { EchemiSearch } from "../api/types";
 import EchemiVerification from "./EchemiVerification";
+import EchemiRecordings from "./EchemiRecordings";
 import "./echemi.css";
 
 const labels: Record<string,string> = {
@@ -29,6 +30,7 @@ export function EchemiResults({ selected, allowVerification = false }: { selecte
         </div> :
         <p role="status">{labels[selected.status] || selected.status}. {selected.message}</p>}
       <p>Цены опубликованы на площадке и не являются подтверждённой котировкой. Заявленная роль продавца требует проверки.</p>
+      <EchemiRecordings search={selected} />
       {!selected.results.length ? (!["queued","running"].includes(selected.status) && <p>Сохранённых товаров нет.</p>) :
       <div className="echemi-table"><table><thead><tr>
         <th>Товар / компания</th><th>Цена из выдачи</th><th>Характеристики</th><th>Контакты</th><th>Источник и состояние</th>

@@ -74,6 +74,8 @@ def run_one():
                    "diagnostics": {"error_type": type(exc).__name__}}
     with SessionLocal() as db:
         row = db.get(EchemiSearch, search_id)
+        # Preserve the last audit snapshot even when no products were found before a transport failure.
+        payload["diagnostics"] = {**(row.diagnostics or {}), **payload.get("diagnostics", {})}
         if row.results and not payload["results"] and payload["status"] in {"failed", "blocked"}:
             payload = {**payload, "status": "partial", "results": row.results,
                        "message": (payload.get("message") or "Поиск прерван.") + " Ранее найденные данные сохранены.",

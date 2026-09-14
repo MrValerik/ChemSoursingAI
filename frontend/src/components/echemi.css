@@ -15,6 +15,11 @@
 .echemi-table p {margin:6px 0;}
 .echemi-pages {display:flex; gap:10px; margin:12px 0 24px;}
 .echemi-error {color:#b33535;}
+.echemi-recording-status,.echemi-recording-row {display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:12px 0;}
+.echemi-recording-dot {width:9px; height:9px; border-radius:50%; background:#b33535; flex-shrink:0;}
+.echemi-recordings {margin:16px 0; padding:12px; border:1px solid var(--border); border-radius:8px;}
+.echemi-recordings summary {cursor:pointer;}
+.echemi-recording-row {justify-content:space-between;}
 .rfq-echemi small {display:block; margin-top:5px; color:var(--text-soft);}
 .rfq-echemi .echemi-pages {align-items:center; flex-wrap:wrap;}
 

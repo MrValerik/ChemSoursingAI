@@ -1647,6 +1647,17 @@ export interface EchemiSummary { id: number; rfq_id: number | null; query: strin
 export interface EchemiSearch extends Omit<EchemiSummary,"result_count"> { results: EchemiResult[]; diagnostics: Record<string,unknown> }
 
 export interface EchemiManualStatus { waiting: boolean; remaining_seconds: number }
+export interface EchemiPointerRecording {
+  id: string; schema_version: number; started_at: string; ended_at: string | null;
+  stop_reason: string | null; duration_ms: number;
+  viewport: { width: number; height: number }; dropped_events: number; limit_reached: boolean;
+  events: { type: "move" | "down" | "up"; x: number; y: number; client_t_ms: number | null;
+    received_t_ms: number; delivered_t_ms: number | null; delivery: "pending" | "delivered" | "interrupted" }[];
+}
+export interface EchemiManualAudit {
+  mode: "manual"; status: string; stage: string; url: string;
+  recordings: EchemiPointerRecording[]; recordings_omitted?: number;
+}
 export interface EchemiSenderFields {
   email: string;
   company_name: string;
