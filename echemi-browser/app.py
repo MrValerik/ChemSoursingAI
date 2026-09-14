@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from playwright.async_api import async_playwright
 from diagnostics import public_url, verification_result, rejection_message
-from pointer_motion import move_timed
+from pointer_motion import move_continuous, move_timed
 from parsing import parse_detail, _BLOCKS, parse_offer, product_url, is_verification, is_valid_cas
 
 from chrome_runtime import open_chrome, new_job_page
@@ -22,7 +22,7 @@ from job_lifecycle import run_connected
 from manual import router as manual_router, active, wait_for_human
 from manual_recording import RecordingBudget
 from captcha_context import CaptchaContext
-from captcha_probe import CaptchaProbe
+from captcha_probe import CaptchaProbe, MOTION_PROFILE
 
 app = FastAPI()
 app.include_router(manual_router)
@@ -95,7 +95,10 @@ class Mouse:
             points.append((seconds*u, ax+(x-ax)*f, ay+(y-ay)*f+8*math.sin(math.pi*u)))
         def update(px, py):
             self.x, self.y = px, py
-        await move_timed(self.page.mouse, points, update=update)
+        if MOTION_PROFILE == 'smooth_v3':
+            await move_continuous(self.page.mouse, points, max_step=6, update=update)
+        else:
+            await move_timed(self.page.mouse, points, update=update)
 
 
 async def ready(page, mouse, events, context=None, probe=None, manual_fallback=False, stage="unknown"):
@@ -132,7 +135,8 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
                 '({webdriver:navigator.webdriver,language:navigator.language,platform:navigator.platform,'
                 'viewport:[innerWidth,innerHeight]})')
             output['diagnostics']['profile_id'] = hashlib.sha256(PROFILE.encode()).hexdigest()[:16]
-            output['diagnostics']['pointer_playback'] = 'elapsed_time_v1'
+            output['diagnostics']['pointer_playback'] = ('bounded_steps_v1' if MOTION_PROFILE == 'smooth_v3'
+                                                         else 'elapsed_time_v1')
             challenge = CaptchaContext(page, output['diagnostics'])
             probe = CaptchaProbe(challenge, captcha_probe_attempts) if captcha_probe_attempts else None
             output['diagnostics']['captcha_probe_attempts'] = captcha_probe_attempts

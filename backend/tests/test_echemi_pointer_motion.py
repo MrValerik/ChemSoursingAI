@@ -65,6 +65,7 @@ def test_invalid_timeline_never_moves_pointer(motion, points):
 @pytest.mark.parametrize('failure', [ValueError, asyncio.CancelledError])
 def test_drag_always_releases_button_and_keeps_partial_metrics(motion, monkeypatch, failure):
     probe = importlib.import_module('captcha_probe')
+    monkeypatch.setattr(probe, 'MOTION_PROFILE', 'legacy_v1')
     released, pressed = [], []
     h = {'x': 10, 'y': 10, 'width': 40, 'height': 40}
     t = {'x': 10, 'y': 10, 'width': 320, 'height': 40}

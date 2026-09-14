@@ -8,11 +8,11 @@ from urllib.parse import urlsplit
 
 from page_state import needs_verification
 from diagnostics import public_url
-from pointer_motion import move_timed, slider_path
+from pointer_motion import move_continuous, move_timed, slider_path, smooth_slider_path
 from calibrated_motion import calibrated_segments, regrip_segment
 
-MOTION_PROFILE = os.getenv('ECHEMI_CAPTCHA_MOTION_PROFILE', 'calibrated_v2')
-if MOTION_PROFILE not in {'legacy_v1', 'calibrated_v2'}:
+MOTION_PROFILE = os.getenv('ECHEMI_CAPTCHA_MOTION_PROFILE', 'smooth_v3')
+if MOTION_PROFILE not in {'legacy_v1', 'calibrated_v2', 'smooth_v3'}:
     raise ValueError('Invalid ECHEMI_CAPTCHA_MOTION_PROFILE')
 
 
@@ -40,7 +40,9 @@ async def drag(page, mouse, context, epoch, metrics=None):
     if not h or not t or h != await handle.bounding_box() or t != await track.bounding_box():
         raise ValueError("Unstable slider")
     vp = await page.evaluate("({w:innerWidth,h:innerHeight})")
-    if MOTION_PROFILE == 'calibrated_v2':
+    if MOTION_PROFILE == 'smooth_v3':
+        segments = [smooth_slider_path(h, t)]
+    elif MOTION_PROFILE == 'calibrated_v2':
         segments = calibrated_segments(h, t)
     else:
         points = json.loads(Path(__file__).with_name("trajectory.json").read_text(encoding='utf-8'))
@@ -52,7 +54,7 @@ async def drag(page, mouse, context, epoch, metrics=None):
         raise ValueError("Challenge changed before drag")
     metrics.update(profile=MOTION_PROFILE, handle=h, track=t, target=list(segments[-1][-1][1:]),
                    planned_seconds=round(sum(part[-1][0] for part in segments) + .015 * (len(segments)-1), 3),
-                   moves_sent=0, max_move_seconds=0, segments=[], regrips=0)
+                   moves_sent=0, max_move_seconds=0, max_step_pixels=0, segments=[], regrips=0)
     def check():
         if context.epoch != epoch:
             raise ValueError("Challenge changed during drag")
@@ -81,10 +83,12 @@ async def drag(page, mouse, context, epoch, metrics=None):
             part = {}
             metrics['segments'].append(part)
             try:
-                await move_timed(page.mouse, path, check=check, update=update, metrics=part)
+                playback = move_continuous if MOTION_PROFILE == 'smooth_v3' else move_timed
+                await playback(page.mouse, path, check=check, update=update, metrics=part)
             finally:
                 metrics['moves_sent'] += part.get('moves_sent', 0)
                 metrics['max_move_seconds'] = max(metrics['max_move_seconds'], part.get('max_move_seconds', 0))
+                metrics['max_step_pixels'] = max(metrics['max_step_pixels'], part.get('max_step_pixels', 0))
     finally:
         await page.mouse.up()
         metrics['actual_seconds'] = round(time.monotonic() - began, 3)
@@ -160,8 +164,8 @@ class CaptchaProbe:
                 event['slider_attempted'] = event['motion'].get('pressed', False)
                 event["elapsed_seconds"] = round(time.monotonic() - began, 3)
             if self.remaining:
-                await asyncio.sleep(1 if MOTION_PROFILE == 'calibrated_v2' else 3)
-                if MOTION_PROFILE == 'calibrated_v2':
+                await asyncio.sleep(3 if MOTION_PROFILE == 'legacy_v1' else 1)
+                if MOTION_PROFILE != 'legacy_v1':
                     event['retry'] = await refresh_challenge(page, mouse, self.context)
                 else:
                     await page.reload(wait_until="domcontentloaded", timeout=60000)
