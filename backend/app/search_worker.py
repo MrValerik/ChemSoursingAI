@@ -1,8 +1,7 @@
-"""Single-slot durable worker for queued supplier searches.
+"""Durable search workers sharing a queue fairly across substances.
 
-PostgreSQL is the source of truth. A job is claimed with a row lock, so adding
-more worker processes later will not execute the same search twice. Production
-currently runs one worker because the local Qwen server has one inference slot.
+Each process runs one job. PostgreSQL serializes only the short claim
+transaction; searches and LLM calls execute outside that lock in parallel.
 """
 
 from __future__ import annotations
@@ -13,8 +12,8 @@ from collections.abc import Callable
 from time import monotonic, sleep
 
 from fastapi import HTTPException
-from sqlalchemy import and_, or_, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy.orm import Session, aliased, sessionmaker
 
 from app.api.supplier_search import (
     SearchRunCancelled,
@@ -189,10 +188,39 @@ def recover_interrupted_jobs(db: Session, owner: str | None = None) -> int:
     return len(interrupted)
 
 
+def _substance_queue_key(run):
+    # CAS groups countries and repeated RFQs for the same substance. Without
+    # CAS, keep RFQs separate: a name alone is not proof of chemical identity.
+    return func.coalesce(
+        "cas:" + func.nullif(func.trim(run.input_payload["cas"].as_string()), ""),
+        "rfq:" + cast(run.rfq_id, String),
+        "run:" + cast(run.id, String),
+    )
+
+
 def claim_next_job(db: Session, owner: str | None = None) -> tuple[int, int] | None:
     """Забирает задачу и выдаёт аренду. Возвращает (id задачи, поколение)."""
     owner = owner or _worker_id()
+    postgres = db.bind is not None and db.bind.dialect.name == "postgresql"
+    if postgres:
+        # A separate statement ensures the following READ COMMITTED snapshot
+        # sees the previous worker's claim. Row locks alone prevent duplicates,
+        # but simultaneous workers could still all choose the same substance.
+        db.execute(select(func.pg_advisory_xact_lock(739214, 1)))
     now = utc_now()
+    active = aliased(SearchRun)
+    active_for_substance = (
+        select(func.count(active.id))
+        .where(
+            active.mode == "queued_search",
+            active.status.not_in({"completed", "failed", "cancelled"}),
+            active.lease_owner.is_not(None),
+            active.lease_expires_at > now,
+            _substance_queue_key(active) == _substance_queue_key(SearchRun),
+        )
+        .correlate(SearchRun)
+        .scalar_subquery()
+    )
     stmt = (
         select(SearchRun)
         .where(
@@ -211,10 +239,10 @@ def claim_next_job(db: Session, owner: str | None = None) -> tuple[int, int] | N
                 SearchRun.lease_owner == owner,
             ),
         )
-        .order_by(SearchRun.created_at, SearchRun.id)
+        .order_by(active_for_substance, SearchRun.created_at, SearchRun.id)
         .limit(1)
     )
-    if db.bind is not None and db.bind.dialect.name == "postgresql":
+    if postgres:
         stmt = stmt.with_for_update(skip_locked=True)
     run = db.scalar(stmt)
     if run is None:

@@ -596,6 +596,9 @@ def test_queued_claim_is_row_locked_on_postgresql():
     class _SessionProbe:
         bind = _BindProbe()
 
+        def execute(self, statement):
+            assert "pg_advisory_xact_lock" in str(statement)
+
         def scalar(self, statement):
             captured.append(statement)
             return None
