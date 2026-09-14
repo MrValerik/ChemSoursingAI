@@ -1198,19 +1198,37 @@ def _resume_linked_email_dialogues(
                 )
                 record_policy(audit_start.audit, policy)
                 policy_category = policy.category
+                linked_referral_resume = (
+                    policy.route == "wait"
+                    and policy.category == "supplier_referral"
+                )
+                if linked_referral_resume:
+                    audit_start.audit.policy_route = "auto_reply"
+                    audit_start.audit.policy_category = (
+                        "supplier_referral_linked"
+                    )
+                    audit_start.audit.policy_explanation = (
+                        f"{policy.explanation} Новый адрес уже однозначно "
+                        "связан с поставщиком; диалог продолжается по нему."
+                    )
+                    policy_category = "standard_procurement"
                 if policy.route in {"wait", "stop"}:
-                    finalize_usage(
-                        audit_start.audit,
-                        client,
-                        reply_generated=False,
-                    )
-                    _set_dialogue_resume_result(
-                        source_audit,
-                        status="done",
-                        outcome=policy.route,
-                    )
-                    continue
-                if not policy.auto_reply_allowed:
+                    if not linked_referral_resume:
+                        finalize_usage(
+                            audit_start.audit,
+                            client,
+                            reply_generated=False,
+                        )
+                        _set_dialogue_resume_result(
+                            source_audit,
+                            status="done",
+                            outcome=policy.route,
+                        )
+                        continue
+                if (
+                    not policy.auto_reply_allowed
+                    and not linked_referral_resume
+                ):
                     note = (
                         "Автоответ после объединения остановлен: "
                         f"{policy.explanation} Категория: {policy.category}."

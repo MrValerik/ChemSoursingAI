@@ -780,7 +780,26 @@ def request_email_dialogue_resume(
         return False
     snapshot = dict(audit.budget_snapshot or {})
     current = dict(snapshot.get(_DIALOGUE_RESUME_KEY) or {})
-    if current.get("status") in {"pending", "done"}:
+    retry_linked_referral = False
+    if (
+        reason == "sender_identity_linked"
+        and current.get("status") == "done"
+        and current.get("outcome") == "wait"
+    ):
+        retry_linked_referral = db.scalar(
+            select(CommunicationPolicyAudit.id)
+            .where(
+                CommunicationPolicyAudit.rfq_id == rfq_id,
+                CommunicationPolicyAudit.communication_id == communication_id,
+                CommunicationPolicyAudit.event_key.like("email-resume:%"),
+                CommunicationPolicyAudit.policy_category == "supplier_referral",
+            )
+            .order_by(CommunicationPolicyAudit.id.desc())
+            .limit(1)
+        ) is not None
+    if current.get("status") == "pending" or (
+        current.get("status") == "done" and not retry_linked_referral
+    ):
         return False
     if current.get("status") == "blocked" and reason != "human_resolved":
         return False

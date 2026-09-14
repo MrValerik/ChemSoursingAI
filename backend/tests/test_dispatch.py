@@ -45,7 +45,10 @@ from app.services.email_workflow import (
     _render_followup,
     sync_inbox,
 )
-from app.services.email_identity import resolve_sender_from_thread
+from app.services.email_identity import (
+    request_email_dialogue_resume,
+    resolve_sender_from_thread,
+)
 from app.services.quotation_reconciliation import reconcile_email_quotations
 from app.services.text_translation import TranslationError
 
@@ -2667,10 +2670,11 @@ def test_email_sync_resolves_all_stale_sender_identity_escalations(
     monkeypatch.setattr(
         "app.services.email_workflow.classify_supplier_message",
         lambda *args, **kwargs: CommunicationPolicyDecision(
-            auto_reply_allowed=True,
-            category="standard_procurement",
-            explanation="Standard partial quotation.",
+            auto_reply_allowed=False,
+            category="supplier_referral",
+            explanation="The supplier referred the RFQ to this contact.",
             method="test",
+            route="wait",
         ),
     )
     monkeypatch.setattr(
@@ -3055,6 +3059,78 @@ def test_resolved_email_escalation_does_not_duplicate_later_reply(client):
         source_audit.budget_snapshot["dialogue_resume"]["outcome"]
         == "already_continued"
     )
+
+
+def test_linked_supplier_referral_wait_is_requeued_once(client):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="referral-retry@supplier.example",
+    )
+    with SessionLocal() as db:
+        manager = db.get(Manager, first.manager_id)
+        stored_rfq = db.get(RFQ, rfq["id"])
+        inbound = Communication(
+            rfq_id=stored_rfq.id,
+            manager_id=manager.id,
+            direction=CommDirection.INBOUND,
+            channel=Channel.EMAIL,
+            subject=f"Re: [RFQ-{stored_rfq.id}] Ethanol",
+            body="I am the referred contact. Please confirm the CAS number.",
+            from_address=manager.email,
+            to_address="buyer@example.com",
+            status="received",
+            external_id="<referral-retry@supplier.example>",
+        )
+        db.add(inbound)
+        db.flush()
+        source_audit = start_audit(
+            db,
+            event_key="referral-retry-source",
+            text=inbound.body,
+            rfq_id=stored_rfq.id,
+            manager_id=manager.id,
+            communication_id=inbound.id,
+            actor_id=stored_rfq.owner_id,
+            prompt_kind="extraction",
+        ).audit
+        source_audit.policy_category = "sender_identity_linked"
+        source_audit.budget_snapshot = {
+            **(source_audit.budget_snapshot or {}),
+            "dialogue_resume": {
+                "status": "done",
+                "reason": "sender_identity_linked",
+                "outcome": "wait",
+                "request_audit_id": source_audit.id,
+            },
+        }
+        previous_resume = start_audit(
+            db,
+            event_key=f"email-resume:{inbound.id}:{source_audit.id}",
+            text=inbound.body,
+            rfq_id=stored_rfq.id,
+            manager_id=manager.id,
+            communication_id=inbound.id,
+            actor_id=stored_rfq.owner_id,
+            prompt_kind="extraction",
+        ).audit
+        previous_resume.policy_route = "wait"
+        previous_resume.policy_category = "supplier_referral"
+        db.commit()
+        queued = request_email_dialogue_resume(
+            db,
+            rfq_id=stored_rfq.id,
+            communication_id=inbound.id,
+            reason="sender_identity_linked",
+            audit_id=source_audit.id,
+        )
+        db.commit()
+        db.refresh(source_audit)
+
+    assert queued is True
+    assert source_audit.budget_snapshot["dialogue_resume"]["status"] == "pending"
 
 
 def test_email_reply_joins_by_domain_and_company_mention_without_rfq_terms(
