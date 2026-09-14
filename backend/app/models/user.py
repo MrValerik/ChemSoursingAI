@@ -24,6 +24,9 @@ class User(Base, TimestampMixin):
         default=UserRole.BUYER,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_dispatch_after_search: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
     communication_profile_id: Mapped[int | None] = mapped_column(
         ForeignKey("communication_profiles.id", ondelete="SET NULL"),
         default=None,

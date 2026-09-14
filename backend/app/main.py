@@ -33,6 +33,7 @@ from app.api import (
     suppliers,
     templates,
     users,
+    user_preferences,
     whatsapp_web,
 )
 from app.core.config import get_settings
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(users.router)
     app.include_router(templates.router)
     app.include_router(settings_api.router)
+    app.include_router(user_preferences.router)
     app.include_router(whatsapp_web.router)
 
     @app.on_event("startup")

@@ -4750,6 +4750,10 @@ def execute_supplier_qualification(
         )
     finish_search_run(search_run, error=shortfall_error)
     db.commit()
+    from app.services.search_auto_dispatch import auto_dispatch_after_search
+    auto_dispatch_after_search(
+        db, search_run=search_run, results=final_results, registry_links=registry_links,
+    )
     return {
         "search_run_id": search_run.id,
         "results": final_results,

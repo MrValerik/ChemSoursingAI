@@ -1660,3 +1660,7 @@ export interface EchemiSender extends EchemiSenderFields {
   source: string;
   updated_at: string | null;
 }
+
+export interface UserPreferences {
+  auto_dispatch_after_search: boolean;
+}

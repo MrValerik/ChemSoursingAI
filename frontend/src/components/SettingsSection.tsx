@@ -1,5 +1,5 @@
 // Раздел «Настройки» (раздел 14 UI/UX-плана): пользователи и роли (RBAC),
-// статус каналов. Доступен только администратору.
+// Личные настройки доступны всем, пользователи и каналы — администратору.
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -7,6 +7,7 @@ import type { UserAdminRead } from "../api/types";
 import { ROLE_LABELS, useAuth } from "../auth/AuthContext";
 import IntegrationSettingsPanel from "./IntegrationSettingsPanel";
 import EchemiSenderSettings from "./EchemiSenderSettings";
+import UserPreferencesPanel from "./UserPreferencesPanel";
 
 // Разряды у шестизначного расхода: «412030» и «41203» на глаз не
 // различаются, а это разница в десять раз.
@@ -44,8 +45,8 @@ export default function SettingsSection() {
   };
 
   useEffect(() => {
-    void load();
-  }, []);
+    if (me?.role === "admin") void load();
+  }, [me?.role]);
 
   const createUser = async () => {
     setBusy(true);
@@ -91,7 +92,9 @@ export default function SettingsSection() {
         <h1>Настройки</h1>
       </div>
       {error && <p className="error">{error}</p>}
+      <UserPreferencesPanel key={me?.id} />
 
+      {me?.role === "admin" && <>
       <div className="panel">
         <div className="tab-toolbar">
           <h2>Пользователи и роли (RBAC)</h2>
@@ -232,6 +235,7 @@ export default function SettingsSection() {
 
       <EchemiSenderSettings />
       <IntegrationSettingsPanel />
+      </>}
     </div>
   );
 }

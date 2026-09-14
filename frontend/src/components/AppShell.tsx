@@ -56,7 +56,7 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["buyer", "head", "admin", "auditor"],
     atBottom: true,
   },
-  { key: "settings", label: "Настройки", roles: ["admin"], atBottom: true },
+  { key: "settings", label: "Настройки", roles: ["buyer", "head", "admin", "auditor"], atBottom: true },
 ];
 
 // Раздел из адресной строки может не подойти текущей роли — например, ссылку

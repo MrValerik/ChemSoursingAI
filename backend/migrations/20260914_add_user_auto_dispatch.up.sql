@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN auto_dispatch_after_search BOOLEAN NOT NULL DEFAULT FALSE;

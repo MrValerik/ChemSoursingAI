@@ -3,6 +3,7 @@ import type { EchemiManualStatus, EchemiSender, EchemiSenderFields } from "./typ
 // JWT-токен хранится в localStorage и добавляется в Authorization.
 
 import type {
+  UserPreferences,
   AnalogVariation,
   ChannelStatus,
   RfqBatchCreateResult,
@@ -947,6 +948,12 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  getPreferences: () => request<UserPreferences>("/settings/preferences"),
+  savePreferences: (payload: UserPreferences) =>
+    request<UserPreferences>("/settings/preferences", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   channelsStatus: () => request<ChannelStatus[]>(`/settings/channels`),
 
   getEmailIntegration: () =>
