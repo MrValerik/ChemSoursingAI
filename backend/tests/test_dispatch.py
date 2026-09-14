@@ -1,7 +1,7 @@
 """Тесты шага 4: поставщики, выбор получателей, рассылка со статусами."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_dispatch.db")
@@ -2569,7 +2569,9 @@ def test_saved_unmatched_email_is_reconciled_by_quoted_recipient(client):
     assert audit.policy_method == "quoted_thread_recipient"
 
 
-def test_email_sync_resolves_all_stale_sender_identity_escalations(client):
+def test_email_sync_resolves_all_stale_sender_identity_escalations(
+    client, monkeypatch
+):
     headers = _login(client)
     rfq, first = _started_conversation(
         client,
@@ -2588,6 +2590,7 @@ def test_email_sync_resolves_all_stale_sender_identity_escalations(client):
         stored_rfq.status = RFQStatus.ESCALATED
         message_ids: list[int] = []
         escalation_ids: list[int] = []
+        source_audit_ids: list[int] = []
         for index, status in enumerate(
             [EscalationStatus.OPEN, EscalationStatus.IN_PROGRESS],
             start=1,
@@ -2640,17 +2643,49 @@ def test_email_sync_resolves_all_stale_sender_identity_escalations(client):
             db.flush()
             message_ids.append(message.id)
             escalation_ids.append(escalation.id)
+            source_audit_ids.append(audit.id)
         db.commit()
 
     class EmptyConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="send",
+            email_delivery_mode="live",
+            email_from="buyer@example.com",
+        )
+        sent: list[dict] = []
+
         def fetch_unseen(self, limit=20):
             return []
 
         def mark_seen(self, uids):
             self.seen = uids
 
+        def send(self, **kwargs):
+            self.sent.append(kwargs)
+            return "<resumed-identity-followup@buyer.example>"
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.classify_supplier_message",
+        lambda *args, **kwargs: CommunicationPolicyDecision(
+            auto_reply_allowed=True,
+            category="standard_procurement",
+            explanation="Standard partial quotation.",
+            method="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: ExtractedQuote(
+            price=10,
+            currency="USD",
+            field_confidence={"price": 0.95, "currency": 0.95},
+            method="test",
+        ),
+    )
+
+    connector = EmptyConnector()
     with SessionLocal() as db:
-        result = sync_inbox(db, connector=EmptyConnector())
+        result = sync_inbox(db, connector=connector)
         escalations = list(
             db.scalars(
                 select(Escalation)
@@ -2661,13 +2696,16 @@ def test_email_sync_resolves_all_stale_sender_identity_escalations(client):
         audits = list(
             db.scalars(
                 select(CommunicationPolicyAudit)
-                .where(CommunicationPolicyAudit.communication_id.in_(message_ids))
+                .where(CommunicationPolicyAudit.id.in_(source_audit_ids))
                 .order_by(CommunicationPolicyAudit.communication_id)
             ).all()
         )
         updated_rfq = db.get(RFQ, rfq["id"])
 
     assert result.contacts_linked == 0
+    assert result.followups_sent == 1
+    assert len(connector.sent) == 1
+    assert connector.sent[0]["to_address"] == "linked.manager@gmail.com"
     assert [item.status for item in escalations] == [
         EscalationStatus.RESOLVED,
         EscalationStatus.RESOLVED,
@@ -2679,7 +2717,9 @@ def test_email_sync_resolves_all_stale_sender_identity_escalations(client):
     assert updated_rfq.status == RFQStatus.COLLECTING
 
 
-def test_sender_identity_cleanup_keeps_unrelated_escalation_open(client):
+def test_sender_identity_cleanup_waits_for_other_escalation_resolution(
+    client, monkeypatch
+):
     headers = _login(client)
     rfq, first = _started_conversation(
         client,
@@ -2736,20 +2776,43 @@ def test_sender_identity_cleanup_keeps_unrelated_escalation_open(client):
             status=EscalationStatus.OPEN,
             note="Требуется ручная проверка опасной логистики.",
         )
-        db.add_all([identity_escalation, logistics_escalation])
+        documents_escalation = Escalation(
+            rfq_id=stored_rfq.id,
+            communication_id=message.id,
+            manager_id=manager.id,
+            reason=EscalationReason.OTHER,
+            status=EscalationStatus.OPEN,
+            note="Требуется ручная проверка документа.",
+        )
+        db.add_all(
+            [identity_escalation, logistics_escalation, documents_escalation]
+        )
         db.commit()
         identity_id = identity_escalation.id
         logistics_id = logistics_escalation.id
+        documents_id = documents_escalation.id
 
     class EmptyConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="send",
+            email_delivery_mode="live",
+            email_from="buyer@example.com",
+        )
+        sent: list[dict] = []
+
         def fetch_unseen(self, limit=20):
             return []
 
         def mark_seen(self, uids):
             self.seen = uids
 
+        def send(self, **kwargs):
+            self.sent.append(kwargs)
+            return "<identity-risk-resumed@buyer.example>"
+
+    connector = EmptyConnector()
     with SessionLocal() as db:
-        sync_inbox(db, connector=EmptyConnector())
+        first_sync = sync_inbox(db, connector=connector)
         resolved_identity = db.get(Escalation, identity_id)
         preserved_logistics = db.get(Escalation, logistics_id)
         updated_rfq = db.get(RFQ, rfq["id"])
@@ -2757,6 +2820,241 @@ def test_sender_identity_cleanup_keeps_unrelated_escalation_open(client):
     assert resolved_identity.status == EscalationStatus.RESOLVED
     assert preserved_logistics.status == EscalationStatus.OPEN
     assert updated_rfq.status == RFQStatus.ESCALATED
+    assert first_sync.followups_sent == 0
+    assert connector.sent == []
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.classify_supplier_message",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Решение сотрудника разрешает продолжение")
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: ExtractedQuote(
+            price=10,
+            currency="USD",
+            field_confidence={"price": 0.95, "currency": 0.95},
+            method="test",
+        ),
+    )
+    resolved = client.patch(
+        f"/escalations/{logistics_id}",
+        headers=headers,
+        json={"status": "resolved"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    with SessionLocal() as db:
+        still_blocked = sync_inbox(db, connector=connector)
+
+    assert still_blocked.followups_sent == 0
+    assert connector.sent == []
+
+    resolved = client.patch(
+        f"/escalations/{documents_id}",
+        headers=headers,
+        json={"status": "resolved"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    with SessionLocal() as db:
+        resumed = sync_inbox(db, connector=connector)
+
+    assert resumed.followups_sent == 1
+    assert len(connector.sent) == 1
+
+
+def test_resolved_email_escalation_resumes_ai_dialogue_once(client, monkeypatch):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="resume-after-human@supplier.example",
+    )
+    with SessionLocal() as db:
+        manager = db.get(Manager, first.manager_id)
+        stored_rfq = db.get(RFQ, rfq["id"])
+        stored_rfq.status = RFQStatus.ESCALATED
+        inbound = Communication(
+            rfq_id=stored_rfq.id,
+            manager_id=manager.id,
+            direction=CommDirection.INBOUND,
+            channel=Channel.EMAIL,
+            subject=f"Re: [RFQ-{stored_rfq.id}] Ethanol",
+            body="Our indicative price is USD 10/kg.",
+            from_address=manager.email,
+            to_address="buyer@example.com",
+            status="received",
+            external_id="<resume-after-human@supplier.example>",
+        )
+        db.add(inbound)
+        db.flush()
+        audit = start_audit(
+            db,
+            event_key="resume-after-human-source",
+            text=inbound.body,
+            rfq_id=stored_rfq.id,
+            manager_id=manager.id,
+            communication_id=inbound.id,
+            actor_id=stored_rfq.owner_id,
+            prompt_kind="extraction",
+        ).audit
+        audit.policy_route = "escalate"
+        audit.policy_category = "off_topic"
+        escalation = Escalation(
+            rfq_id=stored_rfq.id,
+            communication_id=inbound.id,
+            manager_id=manager.id,
+            reason=EscalationReason.OTHER,
+            status=EscalationStatus.OPEN,
+            note="Сотрудник должен проверить нестандартную реплику.",
+        )
+        db.add(escalation)
+        db.commit()
+        escalation_id = escalation.id
+        source_audit_id = audit.id
+
+    resolved = client.patch(
+        f"/escalations/{escalation_id}",
+        headers=headers,
+        json={"status": "resolved"},
+    )
+    assert resolved.status_code == 200, resolved.text
+
+    class EmptyConnector:
+        settings = SimpleNamespace(
+            auto_followup_mode="send",
+            email_delivery_mode="live",
+            email_from="buyer@example.com",
+        )
+        sent: list[dict] = []
+
+        def fetch_unseen(self, limit=20):
+            return []
+
+        def mark_seen(self, uids):
+            self.seen = uids
+
+        def send(self, **kwargs):
+            self.sent.append(kwargs)
+            return "<resume-after-human-followup@buyer.example>"
+
+    monkeypatch.setattr(
+        "app.services.email_workflow.classify_supplier_message",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Решение сотрудника уже разрешило продолжение")
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.email_workflow.extract_quote",
+        lambda *args, **kwargs: ExtractedQuote(
+            price=10,
+            currency="USD",
+            field_confidence={"price": 0.95, "currency": 0.95},
+            method="test",
+        ),
+    )
+    connector = EmptyConnector()
+    with SessionLocal() as db:
+        first_sync = sync_inbox(db, connector=connector)
+        second_sync = sync_inbox(db, connector=connector)
+        source_audit = db.get(CommunicationPolicyAudit, source_audit_id)
+        resume_audit = db.scalar(
+            select(CommunicationPolicyAudit).where(
+                CommunicationPolicyAudit.event_key.like(
+                    f"email-resume:%:{source_audit_id}"
+                )
+            )
+        )
+
+    assert first_sync.followups_sent == 1
+    assert second_sync.followups_sent == 0
+    assert len(connector.sent) == 1
+    assert source_audit.budget_snapshot["dialogue_resume"]["status"] == "done"
+    assert source_audit.budget_snapshot["dialogue_resume"]["outcome"] == "sent"
+    assert resume_audit is not None
+    assert resume_audit.policy_category == "human_resume_approved"
+    assert resume_audit.reply_generated is True
+
+
+def test_resolved_email_escalation_does_not_duplicate_later_reply(client):
+    headers = _login(client)
+    rfq, first = _started_conversation(
+        client,
+        headers,
+        channel="email",
+        contact="already-continued@supplier.example",
+    )
+    with SessionLocal() as db:
+        manager = db.get(Manager, first.manager_id)
+        stored_rfq = db.get(RFQ, rfq["id"])
+        stored_rfq.status = RFQStatus.ESCALATED
+        inbound = Communication(
+            rfq_id=stored_rfq.id,
+            manager_id=manager.id,
+            direction=CommDirection.INBOUND,
+            channel=Channel.EMAIL,
+            subject=f"Re: [RFQ-{stored_rfq.id}] Ethanol",
+            body="Please confirm the requested delivery basis.",
+            from_address=manager.email,
+            to_address="buyer@example.com",
+            status="received",
+            external_id="<already-continued-inbound@supplier.example>",
+            created_at=datetime.now() - timedelta(minutes=5),
+        )
+        db.add(inbound)
+        db.flush()
+        audit = start_audit(
+            db,
+            event_key="already-continued-source",
+            text=inbound.body,
+            rfq_id=stored_rfq.id,
+            manager_id=manager.id,
+            communication_id=inbound.id,
+            actor_id=stored_rfq.owner_id,
+            prompt_kind="extraction",
+        ).audit
+        db.add(
+            Communication(
+                rfq_id=stored_rfq.id,
+                manager_id=manager.id,
+                direction=CommDirection.OUTBOUND,
+                channel=Channel.EMAIL,
+                subject=inbound.subject,
+                body="We require CIF terms.",
+                from_address="buyer@example.com",
+                to_address=manager.email,
+                status="sent",
+                created_at=datetime.now(),
+            )
+        )
+        escalation = Escalation(
+            rfq_id=stored_rfq.id,
+            communication_id=inbound.id,
+            manager_id=manager.id,
+            reason=EscalationReason.OTHER,
+            status=EscalationStatus.OPEN,
+            note="Сотрудник уже ответил поставщику вручную.",
+        )
+        db.add(escalation)
+        db.commit()
+        escalation_id = escalation.id
+        source_audit_id = audit.id
+
+    resolved = client.patch(
+        f"/escalations/{escalation_id}",
+        headers=headers,
+        json={"status": "resolved"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    with SessionLocal() as db:
+        source_audit = db.get(CommunicationPolicyAudit, source_audit_id)
+
+    assert source_audit.budget_snapshot["dialogue_resume"]["status"] == "done"
+    assert (
+        source_audit.budget_snapshot["dialogue_resume"]["outcome"]
+        == "already_continued"
+    )
 
 
 def test_email_reply_joins_by_domain_and_company_mention_without_rfq_terms(

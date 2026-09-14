@@ -20,6 +20,7 @@ from app.extraction.email_text import latest_reply_text
 from app.extraction.parsers import parse_explicit_price_offers
 from app.extraction.pipeline import extract_quote
 from app.models.communication import Communication
+from app.models.communication_profile import CommunicationPolicyAudit
 from app.models.enums import (
     Channel,
     CommDirection,
@@ -57,6 +58,7 @@ from app.services.document_intake import store_incoming_attachments
 from app.services.document_agent import verify_document
 from app.services.email_identity import (
     SenderResolution,
+    backfill_resolved_sender_resume_requests,
     link_address_history,
     reconcile_linked_sender_escalations,
     reconcile_unlinked_email_contacts,
@@ -548,6 +550,95 @@ def _verify_stored_documents(
     db.flush()
 
 
+def _extract_email_quotation_rows(
+    db: Session,
+    *,
+    rfq: RFQ,
+    manager: Manager,
+    inbound: Communication,
+    interpretation_text: str,
+    stored_attachments: list[dict],
+    client: LLMClient,
+):
+    """Извлекает и сохраняет котировки одинаково для нового и resumed Email."""
+
+    system_prompt, instructions = get_rfq_prompt_context(
+        db, rfq.id, kind="extraction"
+    )
+    quote = extract_quote(
+        interpretation_text,
+        use_llm=True,
+        llm=client,
+        system_prompt=system_prompt,
+        additional_instructions=instructions,
+    )
+    attachment_kinds = {
+        item.get("kind")
+        for item in stored_attachments
+        if item.get("document_id") is not None
+    }
+    _verify_stored_documents(
+        db,
+        rfq=rfq,
+        stored_attachments=stored_attachments,
+        llm=client,
+    )
+    explicit_offers = parse_explicit_price_offers(interpretation_text)
+    offer_overrides = explicit_offers if len(explicit_offers) > 1 else [{}]
+    created_quotations: list[Quotation] = []
+    if _quote_has_evidence(quote, attachment_kinds) or explicit_offers:
+        offers_to_store = offer_overrides
+    else:
+        offers_to_store = []
+    for offer in offers_to_store:
+        confidence = dict(quote.field_confidence or {})
+        for field_name in (
+            "price",
+            "currency",
+            "incoterm",
+            "price_unit",
+            "quoted_quantity",
+        ):
+            if offer.get(field_name) is not None:
+                confidence[field_name] = 0.95
+        created_quotations.append(
+            create_quotation(
+                db,
+                QuotationCreate(
+                    rfq_id=rfq.id,
+                    manager_id=manager.id,
+                    price=offer.get("price", quote.price),
+                    currency=offer.get("currency", quote.currency),
+                    incoterm=offer.get("incoterm", quote.incoterm),
+                    moq=quote.moq,
+                    grade=quote.grade,
+                    payment_terms=quote.payment_terms,
+                    lead_time=quote.lead_time,
+                    manufacturer=quote.manufacturer,
+                    origin_country=quote.origin_country,
+                    packaging=quote.packaging,
+                    price_unit=offer.get("price_unit", quote.price_unit),
+                    quoted_quantity=offer.get(
+                        "quoted_quantity", quote.quoted_quantity
+                    ),
+                    total_price=quote.total_price,
+                    delivery_cost=quote.delivery_cost,
+                    duty_cost=quote.duty_cost,
+                    vat_cost=quote.vat_cost,
+                    landed_cost=quote.landed_cost,
+                    cost_currency=quote.cost_currency,
+                    is_hazmat=quote.is_hazmat,
+                    has_coa=quote.has_coa or "coa" in attachment_kinds,
+                    has_tds=quote.has_tds or "tds" in attachment_kinds,
+                    field_confidence=confidence,
+                    source_text=interpretation_text,
+                ),
+                source_communication_id=inbound.id,
+            )
+        )
+    return quote, created_quotations
+
+
 def _create_followup(
     db: Session,
     *,
@@ -901,6 +992,374 @@ def _process_multi_rfq_reply(
     db.commit()
 
 
+def _set_dialogue_resume_result(
+    audit: CommunicationPolicyAudit,
+    *,
+    status: str,
+    outcome: str,
+) -> None:
+    snapshot = dict(audit.budget_snapshot or {})
+    resume = dict(snapshot.get("dialogue_resume") or {})
+    resume.update({"status": status, "outcome": outcome})
+    snapshot["dialogue_resume"] = resume
+    audit.budget_snapshot = snapshot
+
+
+def _pending_dialogue_resume_audits(
+    db: Session,
+) -> list[CommunicationPolicyAudit]:
+    candidates = list(
+        db.scalars(
+            select(CommunicationPolicyAudit)
+            .where(
+                CommunicationPolicyAudit.communication_id.is_not(None),
+                CommunicationPolicyAudit.budget_snapshot[
+                    "dialogue_resume"
+                ]["status"].as_string()
+                == "pending",
+            )
+            .order_by(CommunicationPolicyAudit.id.desc())
+        ).all()
+    )
+    pending: dict[tuple[int, int], CommunicationPolicyAudit] = {}
+    for audit in candidates:
+        resume = (audit.budget_snapshot or {}).get("dialogue_resume") or {}
+        if resume.get("status") != "pending" or audit.rfq_id is None:
+            continue
+        pending.setdefault((audit.rfq_id, audit.communication_id), audit)
+    return list(reversed(pending.values()))
+
+
+def _resume_linked_email_dialogues(
+    db: Session,
+    *,
+    connector: EmailConnector,
+    summary: EmailSyncSummary,
+) -> int:
+    """Продолжает связанные Email-диалоги после auto/human resolution."""
+
+    pending = _pending_dialogue_resume_audits(db)
+    grouped: dict[tuple[int, int], list[tuple[CommunicationPolicyAudit, Communication]]] = {}
+    for source_audit in pending:
+        communication = db.get(Communication, source_audit.communication_id)
+        if (
+            communication is None
+            or communication.manager_id is None
+            or communication.channel != Channel.EMAIL
+            or communication.direction != CommDirection.INBOUND
+            or not communication.from_address
+        ):
+            _set_dialogue_resume_result(
+                source_audit,
+                status="blocked",
+                outcome="missing_linked_email",
+            )
+            continue
+        grouped.setdefault(
+            (source_audit.rfq_id, communication.manager_id), []
+        ).append((source_audit, communication))
+
+    resumed = 0
+    for (rfq_id, manager_id), rows in grouped.items():
+        rfq = db.get(RFQ, rfq_id)
+        manager = db.get(Manager, manager_id)
+        if rfq is None or rfq.deleted_at is not None or manager is None:
+            for source_audit, _ in rows:
+                _set_dialogue_resume_result(
+                    source_audit,
+                    status="blocked",
+                    outcome="missing_rfq_or_manager",
+                )
+            continue
+        rows.sort(
+            key=lambda item: (
+                item[1].message_at or item[1].created_at,
+                item[1].id,
+            )
+        )
+        latest_communication_id = rows[-1][1].id
+        for source_audit, communication in rows:
+            resume = (source_audit.budget_snapshot or {}).get(
+                "dialogue_resume"
+            ) or {}
+            reason = str(resume.get("reason") or "human_resolved")
+            if db.scalar(
+                select(Escalation.id).where(
+                    Escalation.rfq_id == rfq.id,
+                    Escalation.communication_id == communication.id,
+                    Escalation.status != EscalationStatus.RESOLVED,
+                )
+            ) is not None:
+                _set_dialogue_resume_result(
+                    source_audit,
+                    status="blocked",
+                    outcome="open_escalation",
+                )
+                continue
+            request_audit_id = int(
+                resume.get("request_audit_id") or source_audit.id
+            )
+            interpretation_text = latest_reply_text(communication.body or "")
+            audit_start = start_audit(
+                db,
+                event_key=(
+                    f"email-resume:{communication.id}:{request_audit_id}"
+                ),
+                text=interpretation_text,
+                rfq_id=rfq.id,
+                manager_id=manager.id,
+                communication_id=communication.id,
+                actor_id=rfq.owner_id,
+                prompt_kind="extraction",
+            )
+            if not audit_start.budget.allowed:
+                _set_dialogue_resume_result(
+                    source_audit,
+                    status="blocked",
+                    outcome=audit_start.budget.stop_reason or "budget_limit",
+                )
+                if db.scalar(
+                    select(Escalation.id).where(
+                        Escalation.rfq_id == rfq.id,
+                        Escalation.communication_id == communication.id,
+                        Escalation.status != EscalationStatus.RESOLVED,
+                    )
+                ) is None:
+                    db.add(
+                        Escalation(
+                            rfq_id=rfq.id,
+                            communication_id=communication.id,
+                            manager_id=manager.id,
+                            reason=EscalationReason.OTHER,
+                            status=EscalationStatus.OPEN,
+                            note=budget_escalation_note(audit_start.audit),
+                            suggested_reply=safe_escalation_reply(rfq),
+                        )
+                    )
+                    rfq.status = RFQStatus.ESCALATED
+                    summary.escalations_created += 1
+                continue
+
+            incoming = IncomingEmail(
+                uid=f"resume-{communication.id}",
+                message_id=(
+                    communication.external_id or f"stored-{communication.id}"
+                ),
+                subject=communication.subject or f"[RFQ-{rfq.id}]",
+                from_address=communication.from_address,
+                to_addresses=[communication.to_address]
+                if communication.to_address
+                else [],
+                text=communication.body or "",
+                in_reply_to=communication.thread_id,
+            )
+            transport_policy = classify_email_transport_event(
+                from_address=incoming.from_address,
+                subject=incoming.subject,
+                text=incoming.text,
+                auto_submitted=incoming.auto_submitted,
+                precedence=incoming.precedence,
+            )
+            if transport_policy is not None:
+                record_policy(audit_start.audit, transport_policy)
+                finalize_usage(
+                    audit_start.audit,
+                    None,
+                    reply_generated=False,
+                )
+                _set_dialogue_resume_result(
+                    source_audit,
+                    status="done",
+                    outcome=transport_policy.category,
+                )
+                continue
+
+            client = communication_llm_client()
+            if reason == "human_resolved":
+                audit_start.audit.policy_route = "auto_reply"
+                audit_start.audit.policy_category = "human_resume_approved"
+                audit_start.audit.policy_explanation = (
+                    "Сотрудник решил эскалацию и разрешил продолжить "
+                    "ограниченный автоматический Email-диалог."
+                )
+                audit_start.audit.policy_method = "human_confirmation"
+                policy_category = "standard_procurement"
+            else:
+                policy = classify_supplier_message(
+                    interpretation_text,
+                    rfq_name=rfq.name,
+                    rfq_cas=rfq.cas,
+                    conversation_context=_conversation_context(
+                        db,
+                        rfq=rfq,
+                        manager=manager,
+                    ),
+                    llm=client,
+                )
+                record_policy(audit_start.audit, policy)
+                policy_category = policy.category
+                if policy.route in {"wait", "stop"}:
+                    finalize_usage(
+                        audit_start.audit,
+                        client,
+                        reply_generated=False,
+                    )
+                    _set_dialogue_resume_result(
+                        source_audit,
+                        status="done",
+                        outcome=policy.route,
+                    )
+                    continue
+                if not policy.auto_reply_allowed:
+                    note = (
+                        "Автоответ после объединения остановлен: "
+                        f"{policy.explanation} Категория: {policy.category}."
+                    )
+                    if db.scalar(
+                        select(Escalation.id).where(
+                            Escalation.rfq_id == rfq.id,
+                            Escalation.communication_id == communication.id,
+                            Escalation.status != EscalationStatus.RESOLVED,
+                        )
+                    ) is None:
+                        db.add(
+                            Escalation(
+                                rfq_id=rfq.id,
+                                communication_id=communication.id,
+                                manager_id=manager.id,
+                                reason=EscalationReason.OTHER,
+                                status=EscalationStatus.OPEN,
+                                note=note,
+                                suggested_reply=prepare_escalation_reply(
+                                    rfq=rfq,
+                                    supplier_text=interpretation_text,
+                                    escalation_note=note,
+                                    llm=client,
+                                ),
+                            )
+                        )
+                        rfq.status = RFQStatus.ESCALATED
+                        summary.escalations_created += 1
+                    finalize_usage(
+                        audit_start.audit,
+                        client,
+                        reply_generated=False,
+                    )
+                    _set_dialogue_resume_result(
+                        source_audit,
+                        status="blocked",
+                        outcome=policy.category,
+                    )
+                    continue
+
+            quotations = list(
+                db.scalars(
+                    select(Quotation).where(
+                        Quotation.source_communication_id == communication.id
+                    )
+                ).all()
+            )
+            if quotations:
+                quote = extract_quote(interpretation_text, use_llm=False)
+                created_quotations: list[Quotation] = []
+            else:
+                quote, created_quotations = _extract_email_quotation_rows(
+                    db,
+                    rfq=rfq,
+                    manager=manager,
+                    inbound=communication,
+                    interpretation_text=interpretation_text,
+                    stored_attachments=list(communication.attachments or []),
+                    client=client,
+                )
+                summary.quotations_created += len(created_quotations)
+            if communication.id != latest_communication_id:
+                finalize_usage(
+                    audit_start.audit,
+                    client,
+                    reply_generated=False,
+                )
+                _set_dialogue_resume_result(
+                    source_audit,
+                    status="done",
+                    outcome="facts_collected",
+                )
+                resumed += 1
+                continue
+
+            progress = accumulate_quotations(
+                _supplier_quotations(db, rfq.id, manager)
+            )
+            missing = list(
+                dict.fromkeys(
+                    [
+                        *progress.completeness.missing_fields,
+                        *progress.completeness.low_confidence_fields,
+                    ]
+                )
+            )
+            profile_missing = [
+                field
+                for field in missing
+                if field in set(audit_start.profile.required_fields or [])
+            ]
+            if (
+                audit_start.profile.slug == "buyer"
+                and quote.price is not None
+                and quote.incoterm is None
+            ):
+                profile_missing.append("incoterm")
+            if (
+                audit_start.profile.slug == "buyer"
+                and _price_scope_needs_confirmation(rfq, quote)
+            ):
+                profile_missing.append("requested_quantity_price")
+            profile_missing = list(dict.fromkeys(profile_missing))
+            handoff = (
+                handoff_message(audit_start.profile)
+                if audit_start.profile.slug == "chemist"
+                and profile_goal_reached(audit_start.profile, progress.quote)
+                else None
+            )
+            followup_status = _create_followup(
+                db,
+                rfq=rfq,
+                incoming=incoming,
+                manager=manager,
+                missing=profile_missing,
+                connector=connector,
+                llm=client,
+                profile_instructions=profile_prompt_instructions(
+                    audit_start.profile
+                ),
+                body_override=handoff,
+                conversation_context=_conversation_context(
+                    db,
+                    rfq=rfq,
+                    manager=manager,
+                    accumulated=progress.quote,
+                ),
+                policy_category=policy_category,
+            )
+            finalize_usage(
+                audit_start.audit,
+                client,
+                reply_generated=followup_status in {"draft", "sent"},
+            )
+            _set_dialogue_resume_result(
+                source_audit,
+                status="done",
+                outcome=followup_status or "no_followup_needed",
+            )
+            if followup_status == "draft":
+                summary.followups_drafted += 1
+            elif followup_status == "sent":
+                summary.followups_sent += 1
+            resumed += 1
+        db.commit()
+    return resumed
+
+
 def sync_inbox(
     db: Session,
     connector: EmailConnector | None = None,
@@ -915,12 +1374,28 @@ def sync_inbox(
     try:
         summary.contacts_linked = reconcile_unlinked_email_contacts(db)
         resolved_identity_escalations = reconcile_linked_sender_escalations(db)
-        if summary.contacts_linked or resolved_identity_escalations:
+        resume_requests = backfill_resolved_sender_resume_requests(db)
+        if (
+            summary.contacts_linked
+            or resolved_identity_escalations
+            or resume_requests
+        ):
             db.commit()
     except Exception as exc:
         db.rollback()
         summary.errors.append(
             f"Повторная привязка контактов: {type(exc).__name__}: {exc}"
+        )
+    try:
+        _resume_linked_email_dialogues(
+            db,
+            connector=email,
+            summary=summary,
+        )
+    except Exception as exc:
+        db.rollback()
+        summary.errors.append(
+            f"Возобновление Email-диалога: {type(exc).__name__}: {exc}"
         )
     fetch_recent = getattr(email, "fetch_recent", None)
     if unseen_only:
@@ -1232,81 +1707,15 @@ def sync_inbox(
                 seen_uids.append(message.uid)
                 continue
 
-            system_prompt, instructions = get_rfq_prompt_context(
-                db, rfq.id, kind="extraction"
-            )
-            quote = extract_quote(
-                interpretation_text,
-                use_llm=True,
-                llm=client,
-                system_prompt=system_prompt,
-                additional_instructions=instructions,
-            )
-            attachment_kinds = {
-                item.get("kind")
-                for item in stored_attachments
-                if item.get("document_id") is not None
-            }
-            _verify_stored_documents(
+            quote, created_quotations = _extract_email_quotation_rows(
                 db,
                 rfq=rfq,
+                manager=manager,
+                inbound=inbound,
+                interpretation_text=interpretation_text,
                 stored_attachments=stored_attachments,
-                llm=client,
+                client=client,
             )
-
-            explicit_offers = parse_explicit_price_offers(interpretation_text)
-            offer_overrides = explicit_offers if len(explicit_offers) > 1 else [{}]
-            created_quotations: list[Quotation] = []
-            if _quote_has_evidence(quote, attachment_kinds) or explicit_offers:
-                offers_to_store = offer_overrides
-            else:
-                offers_to_store = []
-            for offer in offers_to_store:
-                confidence = dict(quote.field_confidence or {})
-                for field_name in (
-                    "price",
-                    "currency",
-                    "incoterm",
-                    "price_unit",
-                    "quoted_quantity",
-                ):
-                    if offer.get(field_name) is not None:
-                        confidence[field_name] = 0.95
-                created_quotations.append(
-                    create_quotation(
-                        db,
-                        QuotationCreate(
-                            rfq_id=rfq.id,
-                            manager_id=manager.id if manager else None,
-                            price=offer.get("price", quote.price),
-                            currency=offer.get("currency", quote.currency),
-                            incoterm=offer.get("incoterm", quote.incoterm),
-                            moq=quote.moq,
-                            grade=quote.grade,
-                            payment_terms=quote.payment_terms,
-                            lead_time=quote.lead_time,
-                            manufacturer=quote.manufacturer,
-                            origin_country=quote.origin_country,
-                            packaging=quote.packaging,
-                            price_unit=offer.get("price_unit", quote.price_unit),
-                            quoted_quantity=offer.get(
-                                "quoted_quantity", quote.quoted_quantity
-                            ),
-                            total_price=quote.total_price,
-                            delivery_cost=quote.delivery_cost,
-                            duty_cost=quote.duty_cost,
-                            vat_cost=quote.vat_cost,
-                            landed_cost=quote.landed_cost,
-                            cost_currency=quote.cost_currency,
-                            is_hazmat=quote.is_hazmat,
-                            has_coa=quote.has_coa or "coa" in attachment_kinds,
-                            has_tds=quote.has_tds or "tds" in attachment_kinds,
-                            field_confidence=confidence,
-                            source_text=interpretation_text,
-                        ),
-                        source_communication_id=inbound.id,
-                    )
-                )
             supplier_quotations = _supplier_quotations(db, rfq.id, manager)
             progress = accumulate_quotations(
                 supplier_quotations if supplier_quotations else created_quotations

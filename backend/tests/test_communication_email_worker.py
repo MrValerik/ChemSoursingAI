@@ -134,6 +134,16 @@ def test_regular_sync_leaves_test_reply_for_test_processor(monkeypatch):
     )
     monkeypatch.setattr(
         email_workflow,
+        "backfill_resolved_sender_resume_requests",
+        lambda db: 0,
+    )
+    monkeypatch.setattr(
+        email_workflow,
+        "_resume_linked_email_dialogues",
+        lambda db, **kwargs: 0,
+    )
+    monkeypatch.setattr(
+        email_workflow,
         "is_communication_test_reply",
         lambda db, incoming: True,
     )

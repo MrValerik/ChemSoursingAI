@@ -19,6 +19,7 @@ from app.schemas.escalation import (
 from app.services.communication_delivery import CommunicationSendError
 from app.services.email_identity import (
     approve_sender_manager,
+    request_email_dialogue_resume,
     validate_sender_manager_approval,
 )
 from app.services.mailbox import send_mailbox_message
@@ -115,6 +116,13 @@ def update_escalation(
 
     # Если все кейсы запроса решены — возвращаем RFQ из «ручного разбора».
     if payload.status == EscalationStatus.RESOLVED and esc.rfq is not None:
+        if esc.communication_id is not None:
+            request_email_dialogue_resume(
+                db,
+                rfq_id=esc.rfq_id,
+                communication_id=esc.communication_id,
+                reason="human_resolved",
+            )
         open_left = db.scalar(
             select(Escalation.id)
             .where(

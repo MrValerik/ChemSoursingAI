@@ -50,6 +50,7 @@ _IDENTITY_CHECK_VERSION = 4
 _UNKNOWN_SENDER_ESCALATION_PREFIX = (
     "Отправитель первого письма не сопоставлен с ранее выбранным поставщиком."
 )
+_DIALOGUE_RESUME_KEY = "dialogue_resume"
 _MESSAGE_ID_PATTERN = re.compile(r"<[^<>\s\r\n]+>")
 _EMAIL_IN_TEXT_PATTERN = re.compile(
     r"(?<![A-Z0-9._%+\-])"
@@ -740,6 +741,146 @@ def _restore_rfq_after_resolved_escalations(
             rfq.status = RFQStatus.COLLECTING
 
 
+def request_email_dialogue_resume(
+    db: Session,
+    *,
+    rfq_id: int,
+    communication_id: int,
+    reason: str,
+    audit_id: int | None = None,
+) -> bool:
+    """Ставит связанное входящее письмо в идемпотентную очередь продолжения."""
+
+    communication = db.get(Communication, communication_id)
+    if (
+        communication is None
+        or communication.manager_id is None
+        or communication.channel != Channel.EMAIL
+        or communication.direction != CommDirection.INBOUND
+    ):
+        return False
+    audit = (
+        db.get(CommunicationPolicyAudit, audit_id)
+        if audit_id is not None
+        else db.scalar(
+            select(CommunicationPolicyAudit)
+            .where(
+                CommunicationPolicyAudit.rfq_id == rfq_id,
+                CommunicationPolicyAudit.communication_id == communication_id,
+            )
+            .order_by(CommunicationPolicyAudit.id.desc())
+            .limit(1)
+        )
+    )
+    if (
+        audit is None
+        or audit.rfq_id != rfq_id
+        or audit.communication_id != communication_id
+    ):
+        return False
+    snapshot = dict(audit.budget_snapshot or {})
+    current = dict(snapshot.get(_DIALOGUE_RESUME_KEY) or {})
+    if current.get("status") in {"pending", "done"}:
+        return False
+    if current.get("status") == "blocked" and reason != "human_resolved":
+        return False
+    manager = db.get(Manager, communication.manager_id)
+    if manager is None:
+        return False
+    already_continued = db.scalar(
+        select(Communication.id)
+        .join(Manager, Communication.manager_id == Manager.id)
+        .where(
+            communication_linked_to_rfq(rfq_id),
+            Manager.supplier_id == manager.supplier_id,
+            Communication.direction == CommDirection.OUTBOUND,
+            Communication.channel == Channel.EMAIL,
+            Communication.status.in_(["draft", "sent", "demo"]),
+            Communication.created_at > communication.created_at,
+        )
+        .limit(1)
+    )
+    if already_continued is not None:
+        snapshot[_DIALOGUE_RESUME_KEY] = {
+            "status": "done",
+            "reason": reason,
+            "outcome": "already_continued",
+        }
+        audit.budget_snapshot = snapshot
+        return False
+    for previous in db.scalars(
+        select(CommunicationPolicyAudit).where(
+            CommunicationPolicyAudit.rfq_id == rfq_id,
+            CommunicationPolicyAudit.communication_id == communication_id,
+            CommunicationPolicyAudit.id != audit.id,
+        )
+    ).all():
+        previous_snapshot = dict(previous.budget_snapshot or {})
+        previous_resume = dict(
+            previous_snapshot.get(_DIALOGUE_RESUME_KEY) or {}
+        )
+        if previous_resume.get("status") != "pending":
+            continue
+        previous_resume.update(
+            {"status": "done", "outcome": "superseded"}
+        )
+        previous_snapshot[_DIALOGUE_RESUME_KEY] = previous_resume
+        previous.budget_snapshot = previous_snapshot
+    snapshot[_DIALOGUE_RESUME_KEY] = {
+        "status": "pending",
+        "reason": reason,
+        "request_audit_id": audit.id,
+    }
+    audit.budget_snapshot = snapshot
+    return True
+
+
+def backfill_resolved_sender_resume_requests(db: Session) -> int:
+    """Ставит в очередь старые автозакрытые identity-эскалации."""
+
+    rows = db.execute(
+        select(Escalation, CommunicationPolicyAudit)
+        .join(Communication, Escalation.communication_id == Communication.id)
+        .join(
+            CommunicationPolicyAudit,
+            and_(
+                CommunicationPolicyAudit.rfq_id == Escalation.rfq_id,
+                CommunicationPolicyAudit.communication_id
+                == Escalation.communication_id,
+            ),
+        )
+        .where(
+            Escalation.status == EscalationStatus.RESOLVED,
+            Communication.manager_id.is_not(None),
+            CommunicationPolicyAudit.policy_category.in_(
+                ["sender_identity_unknown", "sender_identity_linked"]
+            ),
+            Escalation.note.startswith(_UNKNOWN_SENDER_ESCALATION_PREFIX),
+        )
+        .order_by(Escalation.id, CommunicationPolicyAudit.id.desc())
+    ).all()
+    requested = 0
+    seen: set[tuple[int, int]] = set()
+    for escalation, audit in rows:
+        key = (escalation.rfq_id, escalation.communication_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        identity = (audit.budget_snapshot or {}).get("sender_identity") or {}
+        if identity.get("method") == "manual_escalation_confirmation":
+            continue
+        requested += int(
+            request_email_dialogue_resume(
+                db,
+                rfq_id=escalation.rfq_id,
+                communication_id=escalation.communication_id,
+                reason="sender_identity_linked",
+                audit_id=audit.id,
+            )
+        )
+    return requested
+
+
 def _resolve_linked_sender_escalations(
     db: Session,
     *,
@@ -772,6 +913,13 @@ def _resolve_linked_sender_escalations(
     for escalation in escalations:
         escalation.manager_id = manager.id
         escalation.status = EscalationStatus.RESOLVED
+        if escalation.communication_id is not None:
+            request_email_dialogue_resume(
+                db,
+                rfq_id=rfq_id,
+                communication_id=escalation.communication_id,
+                reason="sender_identity_linked",
+            )
     for audit in db.scalars(
         select(CommunicationPolicyAudit).where(
             CommunicationPolicyAudit.rfq_id == rfq_id,
