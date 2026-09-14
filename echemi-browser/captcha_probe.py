@@ -6,6 +6,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from page_state import needs_verification
+from diagnostics import public_url
+from pointer_motion import move_timed, slider_path
 
 
 async def protected_content(page):
@@ -21,41 +23,37 @@ def accepted(outcome, content_available):
                 and outcome.get("verify_code") == "T001")
 
 
-async def drag(page, mouse, context, epoch):
+async def drag(page, mouse, context, epoch, metrics=None):
+    metrics = metrics if metrics is not None else {}
     handle = page.locator("#aliyunCaptcha-sliding-slider")
     track = page.locator("#aliyunCaptcha-sliding-body")
     await handle.wait_for(state="visible", timeout=15000)
     await handle.scroll_into_view_if_needed()
     h, t = await handle.bounding_box(), await track.bounding_box()
     await asyncio.sleep(.4)
-    if not h or not t or h != await handle.bounding_box():
+    if not h or not t or h != await handle.bounding_box() or t != await track.bounding_box():
         raise ValueError("Unstable slider")
-    distance = t["width"] - h["width"]
-    if distance <= 0:
-        raise ValueError("Invalid slider geometry")
-    sx, sy = h["x"] + h["width"] / 2, h["y"] + h["height"] / 2
     vp = await page.evaluate("({w:innerWidth,h:innerHeight})")
     points = json.loads(Path(__file__).with_name("trajectory.json").read_text())
-    # The historical recording ends beyond the track; clamp to the measured endpoint.
-    path = [(dt, sx + min(max(x / 280, 0), 1) * distance, sy + y)
-            for dt, x, y in points]
+    path = slider_path(points, h, t)
     if any(not (0 <= x < vp["w"] and 0 <= y < vp["h"]) for _, x, y in path):
         raise ValueError("Trajectory outside viewport")
-    await mouse.go(sx, sy)
+    await mouse.go(*path[0][1:])
     if context.epoch != epoch or not await context.capture():
         raise ValueError("Challenge changed before drag")
-    await page.mouse.down()
-    began = time.monotonic()
+    metrics.update(handle=h, track=t, target=list(path[-1][1:]))
+    def check():
+        if context.epoch != epoch:
+            raise ValueError("Challenge changed during drag")
+    def update(x, y):
+        mouse.x, mouse.y = x, y
     try:
-        for dt, x, y in path[1:]:
-            await asyncio.sleep(max(0, dt - (time.monotonic() - began)))
-            if context.epoch != epoch:
-                raise ValueError("Challenge changed during drag")
-            await page.mouse.move(x, y)
-            mouse.x, mouse.y = x, y
+        await page.mouse.down()
+        metrics['pressed'] = True
+        await move_timed(page.mouse, path, check=check, update=update, metrics=metrics)
     finally:
         await page.mouse.up()
-    return round(time.monotonic() - began, 3)
+    return metrics['actual_seconds']
 
 
 class CaptchaProbe:
@@ -64,11 +62,12 @@ class CaptchaProbe:
         self.limit = min(3, max(0, attempts))
         self.remaining = self.limit
 
-    async def run(self, page, mouse, events):
+    async def run(self, page, mouse, events, stage="unknown"):
         while self.remaining:
             self.remaining -= 1
             event = {"mode": "automatic_probe", "status": "preparing", "slider_attempted": False,
-                     "attempt": self.limit - self.remaining, "attempt_limit": self.limit}
+                     "attempt": self.limit - self.remaining, "attempt_limit": self.limit,
+                     "stage": stage, "page_url": public_url(page.url), "motion": {}}
             events.append(event)
             began = time.monotonic()
             try:
@@ -81,27 +80,26 @@ class CaptchaProbe:
                 epoch = self.context.epoch
                 if not fresh:
                     event["status"] = "context_incomplete"
-                    return False
-                after = len(self.context.responses)
-                event["status"] = "dragging"
-                event["slider_attempted"] = True
-                event["drag_seconds"] = await drag(page, mouse, self.context, epoch)
-                deadline = time.monotonic() + 15
-                while time.monotonic() < deadline:
-                    outcome = self.context.outcome(epoch, after)
-                    if accepted(outcome, await protected_content(page)):
-                        event.update(status="passed", verification=outcome)
-                        return True
-                    if outcome and outcome.get("verify_result") is False:
-                        event.update(status="rejected", verification=outcome)
-                        break
-                    await asyncio.sleep(.25)
                 else:
-                    event["status"] = "not_confirmed"
+                    after = len(self.context.responses)
+                    event["status"] = "dragging"
+                    event["drag_seconds"] = await drag(page, mouse, self.context, epoch, metrics=event['motion'])
+                    deadline = time.monotonic() + 15
+                    while time.monotonic() < deadline:
+                        outcome = self.context.outcome(epoch, after)
+                        if accepted(outcome, await protected_content(page)):
+                            event.update(status="passed", verification=outcome)
+                            return True
+                        if outcome and outcome.get("verify_result") is False:
+                            event.update(status="rejected", verification=outcome)
+                            break
+                        await asyncio.sleep(.25)
+                    else:
+                        event["status"] = "not_confirmed"
             except Exception as exc:
                 event.update(status="failed", error_type=type(exc).__name__)
-                return False
             finally:
+                event['slider_attempted'] = event['motion'].get('pressed', False)
                 event["elapsed_seconds"] = round(time.monotonic() - began, 3)
             if self.remaining:
                 # Reload through the browser. The page SDK creates/signs a new challenge.

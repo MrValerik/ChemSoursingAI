@@ -14,6 +14,7 @@ def modules(monkeypatch):
 
 
 class Page:
+    url = 'https://www.echemi.com/'
     main_frame = object()
     values = {"sceneId": "synthetic-scene", "token": "SECRET_TOKEN", "traceid": "SECRET_TRACE",
               "userId": "SECRET_USER", "userUserId": "SECRET_USER2", "type": "1.0", "region": "sgp",
@@ -182,7 +183,7 @@ def test_probe_stops_after_two_rejections_without_manual_wait(modules, monkeypat
         context = await initialized(modules[0])
         page = context.page
         calls = []
-        async def fake_drag(*args):
+        async def fake_drag(*args, **kwargs):
             calls.append(context.epoch)
             context.responses.append({"context_id": context.epoch, "verify_code": "F001", "verify_result": False})
             return 2.5
@@ -210,7 +211,7 @@ def test_refresh_access_is_not_reported_as_captcha_success(modules, monkeypatch)
     async def run():
         context = await initialized(modules[0])
         checks = iter([False, True])
-        async def fake_drag(*args):
+        async def fake_drag(*args, **kwargs):
             context.responses.append({"context_id": context.epoch, "verify_result": False, "verify_code": "F001"})
             return 2.5
         async def content(*args): return next(checks)
@@ -222,4 +223,34 @@ def test_refresh_access_is_not_reported_as_captcha_success(modules, monkeypatch)
         events = []
         assert await modules[1].CaptchaProbe(context, 2).run(context.page, None, events)
         assert [e["status"] for e in events] == ["rejected", "access_after_reload"]
+    asyncio.run(run())
+
+
+def test_transient_drag_error_reinitializes_and_uses_remaining_budget(modules, monkeypatch):
+    async def run():
+        context = await initialized(modules[0])
+        epochs = []
+        async def drag(*args, metrics):
+            epochs.append(context.epoch)
+            if len(epochs) == 1:
+                raise ValueError('Unstable slider')
+            metrics['pressed'] = True
+            context.responses.append({'context_id': context.epoch, 'verify_result': True, 'verify_code': 'T001'})
+            return 2.4
+        async def reload(**kwargs):
+            request = Request()
+            context.on_request(request)
+            await context.on_response(Response(request, {'Result': {'CertifyId': 'FRESH'}}))
+        async def content(*args): return len(epochs) == 2
+        async def noop(*args): pass
+        context.page.reload = reload
+        monkeypatch.setattr(modules[1], 'drag', drag)
+        monkeypatch.setattr(modules[1], 'protected_content', content)
+        monkeypatch.setattr(modules[1].asyncio, 'sleep', noop)
+        events = []
+        assert await modules[1].CaptchaProbe(context, 2).run(context.page, None, events, stage='home')
+        assert len(epochs) == 2 and epochs[0] != epochs[1]
+        assert [event['status'] for event in events] == ['failed', 'passed']
+        assert not events[0]['slider_attempted'] and events[1]['slider_attempted']
+        assert all(event['stage'] == 'home' for event in events)
     asyncio.run(run())

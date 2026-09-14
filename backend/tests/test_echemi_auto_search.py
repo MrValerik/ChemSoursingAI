@@ -97,7 +97,7 @@ def test_manual_control_starts_only_after_automatic_attempts(browser, monkeypatc
     async def run():
         calls = []
 
-        async def automatic(*args):
+        async def automatic(*args, **kwargs):
             calls.append("automatic")
             if result == "error":
                 raise TimeoutError("private upstream detail")

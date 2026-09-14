@@ -1,5 +1,6 @@
 """Internal Echemi-only browser. No database or mail credentials in this service."""
 import asyncio
+import hashlib
 from copy import deepcopy
 import math
 import os
@@ -11,7 +12,8 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from playwright.async_api import async_playwright
-from diagnostics import public_url, verification_result
+from diagnostics import public_url, verification_result, rejection_message
+from pointer_motion import move_timed
 from parsing import parse_detail, _BLOCKS, parse_offer, product_url, is_verification, is_valid_cas
 
 from chrome_runtime import open_chrome, new_job_page
@@ -42,23 +44,26 @@ class Mouse:
         self.page, self.x, self.y = page, 0., 0.
 
     async def go(self, x, y, seconds=1.6):
+        if not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError("Invalid pointer duration")
         ax, ay = self.x, self.y
-        began = time.monotonic()
-        count = int(seconds * 50)
-        for i in range(1, count + 1):
+        count = max(1, int(seconds * 50))
+        points = []
+        for i in range(count + 1):
             u = i / count
             f = u*u*(3-2*u)
-            await asyncio.sleep(max(0, seconds*u - (time.monotonic()-began)))
-            await self.page.mouse.move(ax+(x-ax)*f, ay+(y-ay)*f+8*math.sin(math.pi*u))
-        self.x, self.y = x, y
+            points.append((seconds*u, ax+(x-ax)*f, ay+(y-ay)*f+8*math.sin(math.pi*u)))
+        def update(px, py):
+            self.x, self.y = px, py
+        await move_timed(self.page.mouse, points, update=update)
 
 
-async def ready(page, mouse, events, context=None, probe=None, manual_fallback=False):
+async def ready(page, mouse, events, context=None, probe=None, manual_fallback=False, stage="unknown"):
     if not await needs_verification(page):
         return True
     if probe is not None:
         try:
-            if await probe.run(page, mouse, events):
+            if await probe.run(page, mouse, events, stage=stage):
                 return True
         except Exception as exc:
             events.append({"mode": "automatic_probe", "status": "failed",
@@ -83,6 +88,11 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
             page.set_default_timeout(25000)
             output["diagnostics"]["browser_launch"] = "chrome_cdp"
             output['diagnostics']['browser_version'] = await page.evaluate('navigator.userAgent')
+            output['diagnostics']['browser_environment'] = await page.evaluate(
+                '({webdriver:navigator.webdriver,language:navigator.language,platform:navigator.platform,'
+                'viewport:[innerWidth,innerHeight]})')
+            output['diagnostics']['profile_id'] = hashlib.sha256(PROFILE.encode()).hexdigest()[:16]
+            output['diagnostics']['pointer_playback'] = 'elapsed_time_v1'
             challenge = CaptchaContext(page, output['diagnostics'])
             probe = CaptchaProbe(challenge, captcha_probe_attempts) if captcha_probe_attempts else None
             output['diagnostics']['captcha_probe_attempts'] = captcha_probe_attempts
@@ -93,7 +103,7 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
             await mouse.go(230,270,2)
             await mouse.go(580,400,2.4)
             await mouse.go(790,290,1.8)
-            if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback):
+            if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback,stage="home"):
                 output.update(status="blocked",message="Echemi не пропустил проверку на главной странице.")
                 return
             field = page.locator("#topSearchKeywords")
@@ -105,7 +115,7 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
             await asyncio.sleep(2)
             await field.press("Enter")
             await asyncio.sleep(10)
-            if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback):
+            if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback,stage="listing"):
                 output.update(status="blocked",message="Echemi не пропустил проверку в поисковой выдаче.")
                 return
             blocks = await page.evaluate(_BLOCKS)
@@ -129,7 +139,7 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
                     await asyncio.sleep(random.uniform(PAUSE_MIN,PAUSE_MAX))
                     await page.goto(url,wait_until="domcontentloaded",timeout=60000)
                     await asyncio.sleep(5)
-                    if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback):
+                    if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback,stage="detail"):
                         row["detail_status"] = "blocked"
                         if probe is not None:
                             break
@@ -138,7 +148,7 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
                         await mouse.go(random.uniform(700,950),random.uniform(300,550))
                         await page.mouse.wheel(0,random.randint(350,600))
                         await asyncio.sleep(random.uniform(1,2))
-                    if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback):
+                    if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback,stage="detail_after_scroll"):
                         row["detail_status"] = "blocked"
                         if probe is not None:
                             break
@@ -161,6 +171,10 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
                           message="Часть карточек недоступна. Сохранены данные выдачи." if incomplete else
                           ("Сбор первой страницы завершён." if output["results"] else "Товары в выдаче не найдены."))
         finally:
+            if output.get('status') in {'blocked', 'partial'}:
+                reason = rejection_message(output['diagnostics']['captcha'])
+                if reason:
+                    output['message'] = (output.get('message', '') + ' ' + reason).strip()
             if challenge is not None:
                 await challenge.close()
             active.update(waiting=False, page=None)
@@ -183,6 +197,9 @@ async def progress(search_id: int):
         fallback = any(e.get("mode") == "automatic_fallback" for e in events)
         snapshot["message"] = ("Автоматическая проверка Echemi не завершилась. Доступна ручная проверка."
                                if fallback else "Нужна ручная проверка Echemi.")
+        reason = rejection_message(events)
+        if reason:
+            snapshot['message'] = reason + ' Доступна ручная проверка.'
         if snapshot["results"]:
             snapshot["message"] += " Найденные товары уже сохранены."
     elif events and events[-1].get("mode") == "automatic_probe" and events[-1].get("status") in {"preparing", "dragging"}:
