@@ -630,26 +630,6 @@ button.shell-nav-toggle,
     width: auto;
     max-width: none;
   }
-  /* Раскрытая переписка — не «ключ — значение», а вложенный список: подпись
-     колонки ей не нужна, и растягивать её вправо тоже не надо. */
-  table.mobile-cards tr.dialogue-row {
-    margin-top: -8px;
-    border-top: 0;
-    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-  }
-  table.mobile-cards tr.dialogue-row td {
-    display: block;
-    text-align: left;
-  }
-  table.mobile-cards tr.dialogue-row td::before {
-    display: none;
-  }
-  .dialogue-list li {
-    align-items: flex-start;
-  }
-  .dialogue-when {
-    margin-left: 0;
-  }
   /* Подпись колонки и многострочное значение выравниваются по верху, а
      внутренние ряды прижимаются к правому краю карточки — иначе цифры
      переписки уезжали бы влево, к подписи. */

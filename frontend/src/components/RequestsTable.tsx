@@ -11,11 +11,9 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api/client";
 import type {
-  CommunicationOverviewRead,
   RFQListItem,
   RFQNextAction,
   RFQStage,
-  SupplierConversationRead,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { STATUS_LABELS } from "./statusLabels";
@@ -25,7 +23,6 @@ import {
   STAGE_ORDER,
   actionChip,
   actionUrgency,
-  days,
 } from "./requestProgress";
 import { Icon, Input, MultiSelect, Toast } from "./ui";
 
@@ -49,32 +46,6 @@ const formatMoment = (value: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
-
-const daysSince = (value: string) => {
-  const diff = Date.now() - new Date(value).getTime();
-  return Math.max(0, Math.floor(diff / 86_400_000));
-};
-
-const agoLabel = (value: string) => {
-  const passed = daysSince(value);
-  if (passed === 0) return "сегодня";
-  if (passed === 1) return "вчера";
-  return `${days(passed)} назад`;
-};
-
-const CHANNEL_LABELS: Record<string, string> = {
-  email: "почта",
-  whatsapp: "WhatsApp",
-};
-
-// Состояние сбора данных по одной компании — те же слова, что во вкладке
-// «Общение» карточки, чтобы раскрытая строка и карточка не спорили.
-const COLLECTION_LABELS: Record<string, { label: string; tone: string }> = {
-  complete: { label: "Данные собраны", tone: "tone-ok" },
-  needs_human: { label: "Нужен человек", tone: "tone-warn" },
-  collecting: { label: "Сбор данных", tone: "tone-info" },
-  not_started: { label: "Ответа нет", tone: "tone-neutral" },
-};
 
 // Быстрые чипы отбирают строки по ближайшему действию, а не по статусу:
 // «требуют внимания» раньше срабатывал почти на всём, что в работе, и
@@ -124,7 +95,7 @@ export default function RequestsTable({
   onOpen,
   onNew,
 }: {
-  onOpen: (id: number) => void;
+  onOpen: (id: number, stage: RFQStage) => void;
   onNew: () => void;
 }) {
   const { user } = useAuth();
@@ -160,15 +131,6 @@ export default function RequestsTable({
       window.removeEventListener("scroll", close, true);
     };
   }, [menu]);
-
-  // Раскрытая строка догружает переписку по требованию: список остаётся
-  // одним запросом, а «с кем именно идёт диалог» видно, не уходя из него.
-  const [expanded, setExpanded] = useState<number | null>(null);
-  const [dialogues, setDialogues] = useState<
-    Record<number, SupplierConversationRead[]>
-  >({});
-  const [dialogueError, setDialogueError] = useState<Record<number, string>>({});
-  const [dialogueLoading, setDialogueLoading] = useState<number | null>(null);
 
   const [quick, setQuick] = useState<QuickFilter>("all");
   const [scope, setScope] = useState<ScopeFilter>("mine");
@@ -262,36 +224,6 @@ export default function RequestsTable({
       setSortKey(key);
       setSortAsc(true);
     }
-  };
-
-  const toggleExpanded = (row: RFQListItem) => {
-    if (expanded === row.id) {
-      setExpanded(null);
-      return;
-    }
-    setExpanded(row.id);
-    if (dialogues[row.id] || dialogueLoading === row.id) return;
-    setDialogueLoading(row.id);
-    api
-      .communicationOverview(row.id)
-      .then((overview: CommunicationOverviewRead) => {
-        setDialogues((current) => ({
-          ...current,
-          [row.id]: overview.conversations,
-        }));
-        setDialogueError((current) => {
-          const next = { ...current };
-          delete next[row.id];
-          return next;
-        });
-      })
-      .catch((caught) =>
-        setDialogueError((current) => ({
-          ...current,
-          [row.id]: caught instanceof Error ? caught.message : String(caught),
-        })),
-      )
-      .finally(() => setDialogueLoading(null));
   };
 
   const exportCsv = () => {
@@ -443,46 +375,6 @@ export default function RequestsTable({
     );
   };
 
-  const dialogueRow = (r: RFQListItem) => {
-    const conversations = dialogues[r.id];
-    const failure = dialogueError[r.id];
-    const columns = 5 + (showOwner ? 1 : 0) + (showActions ? 1 : 0);
-    return (
-      <tr className="dialogue-row" key={`${r.id}-dialogue`}>
-        <td colSpan={columns}>
-          {dialogueLoading === r.id && <p className="note">Загрузка переписки…</p>}
-          {failure && <p className="error">{failure}</p>}
-          {conversations && conversations.length === 0 && (
-            <p className="note">Переписки по этому запросу ещё нет.</p>
-          )}
-          {conversations && conversations.length > 0 && (
-            <ul className="dialogue-list">
-              {conversations.map((item) => {
-                const state =
-                  COLLECTION_LABELS[item.data_collection_status] ??
-                  COLLECTION_LABELS.not_started;
-                return (
-                  <li key={`${item.supplier_id ?? item.contact}-${item.channel}`}>
-                    <span className="dialogue-company">{item.supplier_company}</span>
-                    <span className="dialogue-channel">
-                      {CHANNEL_LABELS[item.channel] ?? item.channel}
-                    </span>
-                    <span className={`badge ${state.tone}`}>{state.label}</span>
-                    <span className="dialogue-when">
-                      {item.last_message_at
-                        ? `последнее сообщение ${agoLabel(item.last_message_at)}`
-                        : "сообщений нет"}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </td>
-      </tr>
-    );
-  };
-
   return (
     <div className="requests-page">
       <div className="requests-header">
@@ -609,10 +501,10 @@ export default function RequestsTable({
               </tr>
             </thead>
             <tbody>
-              {filtered.flatMap((r) => {
+              {filtered.map((r) => {
                 const chip = actionChip(r);
-                const main = (
-                  <tr key={r.id} className="clickable" onClick={() => onOpen(r.id)}>
+                return (
+                  <tr key={r.id} className="clickable" onClick={() => onOpen(r.id, r.stage)}>
                     <td data-label="№">{r.id}</td>
                     <td data-label="Вещество / стадия">
                       <div>{r.name}</div>
@@ -638,19 +530,6 @@ export default function RequestsTable({
                     <td data-label="Переписка">
                       <div className="dialogue-cell">
                         {dialogueCell(r)}
-                        {r.n_recipients > 0 && (
-                          <button
-                            aria-expanded={expanded === r.id}
-                            className="dialogue-toggle"
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              toggleExpanded(r);
-                            }}
-                          >
-                            {expanded === r.id ? "свернуть" : "с кем переписка"}
-                          </button>
-                        )}
                       </div>
                     </td>
                     <td className="request-date" data-label="Дата создания">
@@ -682,7 +561,6 @@ export default function RequestsTable({
                     )}
                   </tr>
                 );
-                return expanded === r.id ? [main, dialogueRow(r)] : [main];
               })}
             </tbody>
           </table>

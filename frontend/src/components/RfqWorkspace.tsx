@@ -9,12 +9,20 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { api, userErrorMessage } from "../api/client";
-import type { RFQRead } from "../api/types";
+import type { RFQRead, RFQStage } from "../api/types";
 import NewRfq from "./NewRfq";
 import RequestsTable from "./RequestsTable";
 import RfqBatchSummary from "./RfqBatchSummary";
 import AnalogRfqDetail from "./AnalogRfqDetail";
 import RfqDetail from "./RfqDetail";
+
+// Этапы рассылки и переписки представлены общей вкладкой «Общение».
+const STAGE_TAB: Record<RFQStage, string> = {
+  search: "supplier_search",
+  dispatch: "dispatch",
+  dialogue: "dispatch",
+  summary: "summary",
+};
 
 export default function RfqWorkspace() {
   const { rfqId, batchId } = useParams();
@@ -118,7 +126,7 @@ export default function RfqWorkspace() {
     <>
       {error && <p className="error" style={{ padding: "0 24px" }}>{error}</p>}
       <RequestsTable
-        onOpen={(id) => navigate(`/requests/${id}`)}
+        onOpen={(id, stage) => navigate(`/requests/${id}/${STAGE_TAB[stage] ?? "supplier_search"}`)}
         onNew={() => navigate("/requests/new")}
       />
     </>
