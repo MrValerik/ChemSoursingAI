@@ -12,7 +12,7 @@ from pointer_motion import move_continuous, move_timed, slider_path, smooth_slid
 from calibrated_motion import calibrated_segments, regrip_segment
 
 MOTION_PROFILE = os.getenv('ECHEMI_CAPTCHA_MOTION_PROFILE', 'smooth_v3')
-if MOTION_PROFILE not in {'legacy_v1', 'calibrated_v2', 'smooth_v3'}:
+if MOTION_PROFILE not in {'legacy_v1', 'calibrated_v2', 'smooth_v3', 'recorded_v4'}:
     raise ValueError('Invalid ECHEMI_CAPTCHA_MOTION_PROFILE')
 
 
@@ -40,6 +40,9 @@ async def drag(page, mouse, context, epoch, metrics=None):
     if not h or not t or h != await handle.bounding_box() or t != await track.bounding_box():
         raise ValueError("Unstable slider")
     vp = await page.evaluate("({w:innerWidth,h:innerHeight})")
+    if MOTION_PROFILE == 'recorded_v4':
+        from recorded_motion import replay
+        return await replay(page, mouse, context, epoch, h, t, vp, metrics)
     if MOTION_PROFILE == 'smooth_v3':
         segments = [smooth_slider_path(h, t)]
     elif MOTION_PROFILE == 'calibrated_v2':
@@ -130,6 +133,7 @@ class CaptchaProbe:
             event = {"mode": "automatic_probe", "status": "preparing", "slider_attempted": False,
                      "attempt": self.limit - self.remaining, "attempt_limit": self.limit,
                      "stage": stage, "page_url": public_url(page.url), "motion": {}}
+            event['motion']['attempt'] = event['attempt']
             events.append(event)
             began = time.monotonic()
             try:
@@ -149,9 +153,18 @@ class CaptchaProbe:
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:
                         outcome = self.context.outcome(epoch, after)
+                        if outcome:
+                            event['verification'] = outcome
                         if accepted(outcome, await protected_content(page)):
-                            event.update(status="passed", verification=outcome)
-                            return True
+                            # An accepted popup can be followed by another challenge.
+                            await asyncio.sleep(2)
+                            if await protected_content(page):
+                                event.update(status="passed", verification=outcome)
+                                return True
+                        if (self.context.epoch != epoch and await self.context.capture()
+                                and await needs_verification(page)):
+                            event['status'] = 'new_challenge'
+                            break
                         if outcome and outcome.get("verify_result") is False:
                             event.update(status="rejected", verification=outcome)
                             break
@@ -164,6 +177,9 @@ class CaptchaProbe:
                 event['slider_attempted'] = event['motion'].get('pressed', False)
                 event["elapsed_seconds"] = round(time.monotonic() - began, 3)
             if self.remaining:
+                if event['status'] == 'new_challenge':
+                    event['retry'] = {'method': 'new_challenge', 'fresh_context': True}
+                    continue
                 await asyncio.sleep(3 if MOTION_PROFILE == 'legacy_v1' else 1)
                 if MOTION_PROFILE != 'legacy_v1':
                     event['retry'] = await refresh_challenge(page, mouse, self.context)

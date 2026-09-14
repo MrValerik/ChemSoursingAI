@@ -2,6 +2,7 @@
 import asyncio
 import json
 import math
+import os
 import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from page_state import needs_verification
@@ -58,6 +59,9 @@ def coordinates(message):
 
 @router.websocket("/manual/{search_id}")
 async def control(ws: WebSocket, search_id: int):
+    if os.getenv('ECHEMI_POINTER_BACKEND', 'cdp') == 'native_x11':
+        from native_control import control as native_control
+        return await native_control(ws, search_id)
     await ws.accept()
     if active["id"] != search_id or not active["waiting"] or active["controller"]:
         await ws.close(code=4409)

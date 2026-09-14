@@ -259,3 +259,33 @@ def test_transient_drag_error_reinitializes_and_uses_remaining_budget(modules, m
         assert not events[0]['slider_attempted'] and events[1]['slider_attempted']
         assert all(event['stage'] == 'home' for event in events)
     asyncio.run(run())
+
+
+def test_accepted_popup_followed_by_new_challenge_uses_next_attempt_without_refresh(modules, monkeypatch):
+    async def run():
+        context = await initialized(modules[0])
+        epochs = []
+        async def drag(*args, metrics):
+            epochs.append(context.epoch)
+            metrics['pressed'] = True
+            context.responses.append({'context_id': context.epoch, 'verify_result': True, 'verify_code': 'T001'})
+            if len(epochs) == 1:
+                req = Request()
+                context.on_request(req)
+                await context.on_response(Response(req, {'Result': {'CertifyId': 'SECOND'}}))
+            return .003
+        async def content(*args): return len(epochs) == 2
+        async def visible(*args): return True
+        async def forbidden(*args): raise AssertionError('New challenge must not be refreshed')
+        async def noop(*args): pass
+        monkeypatch.setattr(modules[1], 'drag', drag)
+        monkeypatch.setattr(modules[1], 'protected_content', content)
+        monkeypatch.setattr(modules[1], 'needs_verification', visible)
+        monkeypatch.setattr(modules[1], 'refresh_challenge', forbidden)
+        monkeypatch.setattr(modules[1].asyncio, 'sleep', noop)
+        events = []
+        assert await modules[1].CaptchaProbe(context, 3).run(context.page, None, events)
+        assert [e['status'] for e in events] == ['new_challenge', 'passed']
+        assert all(e['verification']['verify_code']=='T001' for e in events)
+        assert epochs[0] != epochs[1]
+    asyncio.run(run())

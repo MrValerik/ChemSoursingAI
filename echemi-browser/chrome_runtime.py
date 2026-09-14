@@ -8,6 +8,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 
+def pointer_backend():
+    value = os.environ.get('ECHEMI_POINTER_BACKEND', 'cdp')
+    if value not in {'cdp', 'native_x11'}:
+        raise ValueError('Invalid ECHEMI_POINTER_BACKEND')
+    if value == 'native_x11' and (os.name == 'nt' or not os.environ.get('DISPLAY')
+            or os.environ.get('ECHEMI_HEADLESS', 'false').lower() == 'true'):
+        raise ValueError('Native pointer requires headed Chrome on a dedicated X display')
+    return value
+
+
 async def new_job_page(context):
     """Keep cookies but discard tabs restored by this service's own Chrome profile."""
     restored = list(context.pages)
@@ -17,11 +27,17 @@ async def new_job_page(context):
         if not old.is_closed():
             await old.close(run_before_unload=False)
     await page.bring_to_front()
+    if pointer_backend() == 'native_x11':
+        from native_input import prepare_native_page
+        page = await prepare_native_page(page)
+        context._echemi_pointers.append(page.mouse)
     return page
 
 
 @asynccontextmanager
 async def open_chrome(playwright, profile):
+    native = pointer_backend() == 'native_x11'
+    pointers = []
     directory = Path(profile)
     directory.mkdir(parents=True, exist_ok=True)
     port_file = directory / "DevToolsActivePort"
@@ -39,6 +55,8 @@ async def open_chrome(playwright, profile):
             "--user-data-dir=" + str(directory.resolve()),
             "--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={port}",
             "--no-first-run", "--new-window", "about:blank"]
+    if native:
+        args.extend(['--window-size=1400,1100', '--window-position=0,0'])
     # Container isolation is used on this VM; Chromium user namespaces are unavailable.
     if os.environ.get("ECHEMI_CHROME_SANDBOX", "false").lower() != "true":
         args.append("--no-sandbox")
@@ -63,8 +81,12 @@ async def open_chrome(playwright, profile):
         if browser is None:
             raise TimeoutError("Chrome CDP startup timed out")
         context = browser.contexts[0]
+        if native:
+            context._echemi_pointers = pointers
         yield context
     finally:
+        for pointer in pointers:
+            pointer.close()
         try:
             if browser:
                 try:

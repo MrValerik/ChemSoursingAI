@@ -81,7 +81,8 @@ async def inquiry(payload: Inquiry):
 
 class Mouse:
     def __init__(self, page):
-        self.page, self.x, self.y = page, 0., 0.
+        self.page = page
+        self.x, self.y = getattr(page.mouse, 'x', 0.), getattr(page.mouse, 'y', 0.)
 
     async def go(self, x, y, seconds=1.6):
         if not math.isfinite(seconds) or seconds <= 0:
@@ -135,7 +136,10 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
                 '({webdriver:navigator.webdriver,language:navigator.language,platform:navigator.platform,'
                 'viewport:[innerWidth,innerHeight]})')
             output['diagnostics']['profile_id'] = hashlib.sha256(PROFILE.encode()).hexdigest()[:16]
+            output['diagnostics']['pointer_backend'] = os.getenv('ECHEMI_POINTER_BACKEND', 'cdp')
+            output['diagnostics']['motion_profile'] = MOTION_PROFILE
             output['diagnostics']['pointer_playback'] = ('bounded_steps_v1' if MOTION_PROFILE == 'smooth_v3'
+                                                         else 'recorded_events_v1' if MOTION_PROFILE == 'recorded_v4'
                                                          else 'elapsed_time_v1')
             challenge = CaptchaContext(page, output['diagnostics'])
             probe = CaptchaProbe(challenge, captcha_probe_attempts) if captcha_probe_attempts else None
@@ -143,10 +147,11 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
             output['diagnostics']['captcha_manual_fallback'] = captcha_manual_fallback
             mouse = Mouse(page)
             await page.goto("https://www.echemi.com/",wait_until="domcontentloaded",timeout=60000)
-            await asyncio.sleep(8)
-            await mouse.go(230,270,2)
-            await mouse.go(580,400,2.4)
-            await mouse.go(790,290,1.8)
+            await asyncio.sleep(2 if MOTION_PROFILE == 'recorded_v4' else 8)
+            if MOTION_PROFILE != 'recorded_v4':
+                await mouse.go(230,270,2)
+                await mouse.go(580,400,2.4)
+                await mouse.go(790,290,1.8)
             if not await ready(page,mouse,output["diagnostics"]["captcha"],challenge,probe,captcha_manual_fallback,stage="home"):
                 output.update(status="blocked",message="Echemi не пропустил проверку на главной странице.")
                 return
@@ -226,6 +231,9 @@ async def collect(query, output, captcha_probe_attempts=0, captcha_manual_fallba
 
 @app.get("/health")
 async def health():
+    if MOTION_PROFILE == 'recorded_v4':
+        from recorded_motion import load_recordings
+        load_recordings(os.getenv('ECHEMI_CAPTCHA_RECORDINGS_FILE', ''))
     return {"status":"ok"}
 
 
