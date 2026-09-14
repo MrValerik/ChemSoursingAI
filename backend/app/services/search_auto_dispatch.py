@@ -28,7 +28,7 @@ def auto_dispatch_after_search(
     """Ошибки рассылки не превращают успешный поиск в неудачный."""
     run_id = search_run.id
     try:
-        _dispatch(db, search_run, results, registry_links)
+        _dispatch(db, search_run)
     except Exception:
         db.rollback()
         logger.warning("Automatic dispatch failed for search %s; see recipient audit", run_id)
@@ -41,7 +41,7 @@ def auto_dispatch_after_search(
             db.commit()
 
 
-def _dispatch(db: Session, run: SearchRun, results: list[dict], links: list[dict]) -> None:
+def _dispatch(db: Session, run: SearchRun) -> None:
     user = db.get(User, run.owner_id)
     if user is not None:
         db.refresh(user)
@@ -60,11 +60,12 @@ def _dispatch(db: Session, run: SearchRun, results: list[dict], links: list[dict
             or db.scalar(select(PurchaseDecision.id).where(PurchaseDecision.rfq_id == rfq.id))):
         return
 
-    eligible = {item["result_index"] for item in results
-                if item.get("shortlist_eligible") is True
-                and (item.get("verification") or {}).get("status") == "confirmed"}
-    supplier_ids = sorted({item["supplier_id"] for item in links
-                           if item["result_index"] in eligible})
+    # Тот же набор, что в таблице «Отобранные компании»: все связи RFQ,
+    # включая кандидатов из предыдущих поисков и добавленных вручную.
+    # Оценка и независимая проверка не ограничивают первичный запрос цены.
+    supplier_ids = list(db.scalars(select(RfqSupplierLink.supplier_id).where(
+        RfqSupplierLink.rfq_id == rfq.id,
+    ).distinct().order_by(RfqSupplierLink.supplier_id)))
     sent = errors = 0
     for supplier_id in supplier_ids:
         supplier = db.get(Supplier, supplier_id)

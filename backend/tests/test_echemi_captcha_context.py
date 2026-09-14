@@ -32,6 +32,11 @@ class Page:
     async def evaluate(self, _):
         return self.values
 
+    def locator(self, selector):
+        assert selector == '#aliyunCaptcha-sliding-refresh'
+        async def hidden(): return False
+        return SimpleNamespace(is_visible=hidden)
+
 
 class Request:
     def __init__(self, action="InitCaptcha", *, url="https://synthetic.captcha-open.aliyuncs.com/", navigation=False):
